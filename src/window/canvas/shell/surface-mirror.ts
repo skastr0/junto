@@ -278,10 +278,21 @@ export const createSurfaceMirror = () => {
   const apply = (ops: ReadonlyArray<SceneOp>): void => {
     let rectsChanged = false;
     let next = cards;
+    // One copy per apply, at its first change of shape (issue 915): a batch
+    // of moves copied the whole map once per op.
+    let copied = false;
+    const own = (): Map<NodeId, MirrorCard> => {
+      if (!copied) {
+        next = new Map(next);
+        copied = true;
+      }
+      return next;
+    };
     for (const op of ops) {
       switch (op.kind) {
         case "load": {
           next = new Map(op.cards.map((fact) => [fact.id, mirrorCard(fact)]));
+          copied = true;
           wires = new Map(op.wires.map((fact) => [fact.id, fact.row]));
           rectsChanged = true;
           ready = true;
@@ -294,15 +305,13 @@ export const createSurfaceMirror = () => {
             next.set(op.fact.id, { ...after, row: before.row });
             break;
           }
-          next = new Map(next);
-          next.set(op.fact.id, after);
+          own().set(op.fact.id, after);
           rectsChanged = true;
           break;
         }
         case "removeCard": {
           if (!next.has(op.id)) break;
-          next = new Map(next);
-          next.delete(op.id);
+          own().delete(op.id);
           anchors.delete(op.id);
           rectsChanged = true;
           break;
