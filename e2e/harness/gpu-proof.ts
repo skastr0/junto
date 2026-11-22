@@ -259,6 +259,8 @@ export const readProofState = (page: Page): Promise<ProofState> =>
 /** The hook has a GPU engine and every seeded card is mirrored. */
 export const waitGpuReady = async (page: Page, board: ProofBoard, timeoutMs = 240_000): Promise<void> => {
   const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
+  let lastLog = startedAt;
   for (;;) {
     const ready = await page.evaluate(
       (expected) => {
@@ -274,6 +276,12 @@ export const waitGpuReady = async (page: Page, board: ProofBoard, timeoutMs = 24
       board.stats.seats,
     );
     if (ready.ready && ready.cards >= board.stats.seats + board.stats.notes + board.stats.terminals && ready.regions === board.stats.regions) return;
+    if (Date.now() - lastLog >= 10_000) {
+      lastLog = Date.now();
+      console.log(
+        `waiting for the canvas: ${String(ready.cards)} cards, ${String(ready.regions)} regions after ${String(Math.round((Date.now() - startedAt) / 1000))}s (wanted ${String(board.stats.seats + board.stats.notes + board.stats.terminals)} and ${String(board.stats.regions)})`,
+      );
+    }
     if (Date.now() >= deadline) {
       throw new Error(
         `GPU canvas never mirrored board ${board.scale}x: ${ready.why}, ${String(ready.cards)} cards, ${String(ready.regions)} regions (wanted ${String(board.stats.seats + board.stats.notes + board.stats.terminals)} and ${String(board.stats.regions)})`,
