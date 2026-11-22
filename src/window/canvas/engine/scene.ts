@@ -175,6 +175,13 @@ type CardSlot = {
   /** Its place in paint order (z, then id), from the sorted master list. */
   paintIndex: number;
   /**
+   * Where its quads sit in the draw list, per band: start and length, three
+   * pairs. Valid only when `runsEpoch` is the current rebuild's, so one card's
+   * repaint can splice its own runs instead of rebuilding the list (#915).
+   */
+  runs?: number[];
+  runsEpoch?: number;
+  /**
    * The filled body the card draws at the mid tier, card-local: the seat pill
    * that hugs its name (paint/mid.ts), narrower than the card's own box. Kept
    * across repaints and a hover bloom, since the bloom is a paint effect and
@@ -533,6 +540,11 @@ export const createScene = (options: {
   const markOrder = (): void => {
     orderDirty = true;
   };
+  /** Cards whose runs changed since the last frame, for a splice instead of a rebuild. */
+  const spliceQueue = new Set<CardSlot>();
+  /** Draw-list rebuilds and single-card splices so far. */
+  let rebuildCount = 0;
+  let spliceCount = 0;
 
   const ensureQuadCapacity = (needed: number): void => {
     if (needed <= quadCapacity) return;
@@ -971,7 +983,12 @@ export const createScene = (options: {
         }
       }
     }
-    if (orderChanged) markOrder();
+    if (orderChanged) {
+      // A card the current list holds, with paint order unchanged, splices
+      // its own runs; anything else rebuilds.
+      if (orderReady && !orderDirty && !paintIndexDirty && card.runsEpoch === liveEpoch) spliceQueue.add(card);
+      else markOrder();
+    }
   };
 
   const viewOf = (fact: CardFact): CardView => {
@@ -1886,8 +1903,70 @@ export const createScene = (options: {
    * tier or motion gate changes, a card or badge changed what it draws, or a
    * jump's destination arrives.
    */
+  /** Write a card's draw-list run for one band at `at`; returns the end. */
+  const writeRun = (card: CardSlot, band: number, mask: number, at: number, moved: Array<{ readonly ref: QuadRef; readonly owner: number }>): number => {
+    for (const ref of card.bands[band]!) {
+      if ((ref.tiers & mask) === 0) continue;
+      // Motion's gate: a ring's rest pose draws only while motion is off,
+      // its moving parts only while it runs (contract, `Quad.gate`).
+      if (!gateOpen(ref.painted)) continue;
+      order[at] = ref.slot;
+      at += 1;
+      if (ref.motion !== undefined && (ref.tiers & liveMask) !== 0) moved.push({ ref, owner: card.slot });
+    }
+    return at;
+  };
+
+  /**
+   * One card's runs, rewritten in place (#915): its new quads go where its
+   * old run was, the tail moves by the difference, and every later run's
+   * start with it. No query, no sort, no other card touched.
+   */
+  const spliceCard = (card: CardSlot): void => {
+    const runs = card.runs!;
+    const mask = cullOnGpu ? ALL_TIERS : liveMask;
+    const gathered = gatheredSeats.has(card.id);
+    const moved: Array<{ readonly ref: QuadRef; readonly owner: number }> = [];
+    for (let band = 0; band < BAND_COUNT; band += 1) {
+      const start = runs[band * 2]!;
+      const length = runs[band * 2 + 1]!;
+      let fresh = 0;
+      if (!gathered) for (const ref of card.bands[band]!) if ((ref.tiers & mask) !== 0 && gateOpen(ref.painted)) fresh += 1;
+      const delta = fresh - length;
+      if (delta !== 0) {
+        if (orderCount + delta > order.length) {
+          let capacity = order.length;
+          while (capacity < orderCount + delta) capacity *= 2;
+          const grown = new Uint32Array(capacity);
+          grown.set(order.subarray(0, orderCount));
+          order = grown;
+        }
+        order.copyWithin(start + fresh, start + length, orderCount);
+        orderCount += delta;
+        bandEnds = [
+          bandEnds[0] + (band <= 0 ? delta : 0),
+          bandEnds[1] + (band <= 1 ? delta : 0),
+          bandEnds[2] + delta,
+        ];
+        // Later runs move: later cards in this band, every card in later bands.
+        for (const other of visibleCards) {
+          if (other === card || other.runsEpoch !== liveEpoch) continue;
+          const theirs = other.runs!;
+          if (other.paintIndex > card.paintIndex) theirs[band * 2] = theirs[band * 2]! + delta;
+          for (let later = band + 1; later < BAND_COUNT; later += 1) theirs[later * 2] = theirs[later * 2]! + delta;
+        }
+        for (let later = band + 1; later < BAND_COUNT; later += 1) runs[later * 2] = runs[later * 2]! + delta;
+      }
+      if (!gathered) writeRun(card, band, mask, start, moved);
+      runs[band * 2 + 1] = fresh;
+    }
+    movers = movers.filter((mover) => mover.owner !== card.slot).concat(moved);
+  };
+
   const rebuild = (view: Rect, tier: CanvasTier, zoom: number, exact: boolean): void => {
+    rebuildCount += 1;
     liveEpoch += 1;
+    spliceQueue.clear();
     ensurePaintIndex();
     const range = cellRange(insetBy(view, marginAt(zoom)));
     lastRange = range.key;
@@ -1971,20 +2050,18 @@ export const createScene = (options: {
     const counts = [0, 0, 0];
     let at = 0;
     const moved: Array<{ readonly ref: QuadRef; readonly owner: number }> = [];
+    for (const card of visibleCards) {
+      card.runs ??= [0, 0, 0, 0, 0, 0];
+      card.runsEpoch = liveEpoch;
+    }
     for (let band = 0; band < BAND_COUNT; band += 1) {
       for (const card of visibleCards) {
+        const start = at;
         // A gathered seat draws nothing: its badge stands for it.
-        if (gatheredSeats.has(card.id)) continue;
-        for (const ref of card.bands[band]!) {
-          if ((ref.tiers & mask) === 0) continue;
-          // Motion's gate: a ring's rest pose draws only while motion is off,
-          // its moving parts only while it runs (contract, `Quad.gate`).
-          if (!gateOpen(ref.painted)) continue;
-          order[at] = ref.slot;
-          at += 1;
-          counts[band] = counts[band]! + 1;
-          if (ref.motion !== undefined && (ref.tiers & liveMask) !== 0) moved.push({ ref, owner: card.slot });
-        }
+        if (!gatheredSeats.has(card.id)) at = writeRun(card, band, mask, at, moved);
+        card.runs![band * 2] = start;
+        card.runs![band * 2 + 1] = at - start;
+        counts[band] = counts[band]! + (at - start);
       }
       // Badges paint in the lifted band, over every card (DOM z 3000).
       if (band === 2) {
@@ -2173,6 +2250,16 @@ export const createScene = (options: {
       lastAhead = aheadTiers.join();
       orderReady = true;
     }
+    let spliced = false;
+    if (!rebuilt && spliceQueue.size > 0) {
+      for (const card of spliceQueue) {
+        if (card.runsEpoch !== liveEpoch) continue;
+        spliceCard(card);
+        spliceCount += 1;
+      }
+      spliceQueue.clear();
+      spliced = true;
+    }
     if ((settle && !rebuilt) || reask) settleLive(exact, reask);
     if (exact) {
       lastExactEpoch = exactEpoch;
@@ -2182,7 +2269,7 @@ export const createScene = (options: {
     refreshMotion(view);
 
     let changed = false;
-    if (rebuilt) {
+    if (rebuilt || spliced) {
       changed = orderCount !== previousOrder.length;
       if (!changed) {
         for (let index = 0; index < orderCount; index += 1) {
@@ -2383,6 +2470,8 @@ export const createScene = (options: {
       needSamples: needPx.length - needStart,
     }),
     hasMotion,
+    /** How the draw list changed so far: whole rebuilds, and one card's runs spliced. */
+    orderStats: (): { readonly rebuilds: number; readonly splices: number } => ({ rebuilds: rebuildCount, splices: spliceCount }),
     /**
      * What a frame driven by motion alone must redraw: the board rectangles
      * the in-view movers can reach, or undefined while a style transition
