@@ -395,10 +395,19 @@ export const placeCamera = async (
     hook["moveCamera"](to);
   }, target);
   const deadline = Date.now() + 60_000;
+  let stillAt = 0;
+  let still = (await readProofState(page)).camera;
   for (;;) {
     const at = (await readProofState(page)).camera;
     const delta = Math.max(Math.abs(at.x - target.x), Math.abs(at.y - target.y), Math.abs(at.zoom - target.zoom));
     if (delta <= 0.01) break;
+    // The camera clamps at the board's edge: a target beyond it is reached
+    // when the camera stops moving short of the target.
+    const moved = Math.max(Math.abs(at.x - still.x), Math.abs(at.y - still.y), Math.abs(at.zoom - still.zoom)) > 0.01;
+    if (moved) {
+      still = at;
+      stillAt = Date.now();
+    } else if (Date.now() - stillAt > 1_500) break;
     if (Date.now() >= deadline) throw new Error(`camera never reached ${JSON.stringify(target)} (at ${JSON.stringify(at)})`);
     await page.waitForTimeout(50);
   }
