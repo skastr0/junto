@@ -499,6 +499,10 @@ type Gpu = {
   shadowMetaCapacity: number;
   shadowLayerCapacity: number;
   styleRevision: number;
+  /** Style rows and shadow specs on the GPU, and the theme they were written in. */
+  stylesUploaded: number;
+  shadowsUploaded: number;
+  styleThemeEpoch: number;
   /** The atlas cell-table revision the cells buffer holds. */
   cellsRevision: number;
   /** The atlas texture generation currently bound in `bind`. */
@@ -658,9 +662,22 @@ export const createRenderer = () => {
   const styleFloats = (scene: Scene): number => Math.max(STYLE_STRIDE, scene.styleCount * STYLE_STRIDE);
 
   const uploadStyles = (state: Gpu, scene: Scene): void => {
-    const floats = styleFloats(scene);
-    state.device.queue.writeBuffer(state.styles, 0, scene.styleBuffer, 0, Math.min(scene.styleBuffer.length, floats));
-    note(state, "styles", 0, Math.min(scene.styleBuffer.byteLength, floats * 4));
+    // Rows only append between themes (issue 915): write the new ones. A theme,
+    // or a buffer made or regrown, writes the table whole.
+    const full = state.styleRevision === -1 || state.styleThemeEpoch !== scene.styleThemeEpoch;
+    const from = full ? 0 : state.stylesUploaded;
+    const floats = Math.min(scene.styleBuffer.length, full ? styleFloats(scene) : scene.styleCount * STYLE_STRIDE) - from * STYLE_STRIDE;
+    if (floats > 0) {
+      state.device.queue.writeBuffer(state.styles, from * STYLE_STRIDE * 4, scene.styleBuffer, from * STYLE_STRIDE, floats);
+      note(state, "styles", from * STYLE_STRIDE * 4, floats * 4);
+    }
+    state.stylesUploaded = scene.styleCount;
+    state.styleThemeEpoch = scene.styleThemeEpoch;
+    if (!full && scene.shadowCount === state.shadowsUploaded) {
+      state.styleRevision = scene.styleRevision;
+      return;
+    }
+    state.shadowsUploaded = scene.shadowCount;
     const shadows = scene.shadowSnapshot();
     // The tables grow with the specs and layers interned (a custom region
     // colour is a new tint); only a device limit stops them, and that is reported.
@@ -856,6 +873,9 @@ export const createRenderer = () => {
       shadowMetaCapacity: SHADOW_META_INITIAL,
       shadowLayerCapacity: SHADOW_LAYER_INITIAL,
       styleRevision: -1,
+      stylesUploaded: 0,
+      shadowsUploaded: -1,
+      styleThemeEpoch: -1,
       cellsRevision: 0,
       atlasTextureGeneration: atlas?.textureGeneration ?? 0,
       standaloneBinds: new WeakMap(),

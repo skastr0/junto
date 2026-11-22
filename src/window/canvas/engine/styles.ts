@@ -75,6 +75,8 @@ export interface StyleTable {
   /** Flat buffer, STYLE_STRIDE floats per style, for the engine to upload. */
   readonly buffer: Float32Array;
   readonly size: number;
+  /** Bumps when every row was rewritten (a theme); between bumps rows only append. */
+  readonly themeEpoch: number;
   /** Intern a QuadStyle: the same style returns the same id, in either
    *  theme. This is the only way a record names a style. */
   intern(style: QuadStyle): StyleId;
@@ -140,13 +142,38 @@ const strokeOf = (stroke: StrokeSpec | undefined, theme: GpuTheme) => ({
   outside: stroke?.outside ?? false,
 });
 
-/** Structural key: two QuadStyles that resolve identically share a slot. */
-const styleKey = (style: QuadStyle): string => JSON.stringify(style);
+/** A colour reference as a key: token, custom hex or a mix, with its alpha. */
+const colourKey = (ref: ColorRef | undefined): string => {
+  if (ref === undefined) return "";
+  if ("token" in ref) return `t${ref.token}/${String(ref.alpha ?? "")}`;
+  if ("custom" in ref) return `c${ref.custom}/${String(ref.alpha ?? "")}`;
+  return `m(${colourKey(ref.mix[0])},${colourKey(ref.mix[1])},${String(ref.share)})`;
+};
+
+/**
+ * Structural key: two QuadStyles that resolve identically share a slot.
+ * Built field by field (issue 915): a JSON.stringify per quad per repaint was
+ * the table's cost.
+ */
+const styleKey = (style: QuadStyle): string => {
+  const { fill, stroke, shadow, ink, opacity } = style;
+  const fillPart =
+    fill === undefined ? "" : fill.kind === "flat" ? `f${colourKey(fill.color)}` : `g${String(fill.angle)}:${colourKey(fill.from)}:${colourKey(fill.to)}`;
+  const strokePart =
+    stroke === undefined
+      ? ""
+      : `s${colourKey(stroke.color)}:${String(stroke.width)}:${stroke.dash === undefined ? "" : `${String(stroke.dash[0])},${String(stroke.dash[1])}`}:${stroke.outside === true ? 1 : 0}`;
+  const shadowPart = shadow === undefined ? "" : `h${shadow.name}:${colourKey(shadow.tint)}`;
+  return `${fillPart}|${strokePart}|${shadowPart}|${colourKey(ink)}|${opacity === undefined ? "" : String(opacity)}`;
+};
 const shadowKey = (spec: ContractShadowSpec | undefined): string =>
   spec === undefined ? "" : `${spec.name}${JSON.stringify(spec.tint ?? null)}`;
 
 export const createStyleTable = (initial: GpuTheme = themeGpu("dark")): StyleTable => {
   const slots = new Map<string, StyleId>();
+  /** The same style object interned again is answered without a key. */
+  const byObject = new WeakMap<QuadStyle, StyleId>();
+  let themeEpoch = 0;
   const order: QuadStyle[] = [];
   const shadows: ShadowSpec[] = [];
   const shadowIds = new Map<string, number>();
@@ -173,10 +200,17 @@ export const createStyleTable = (initial: GpuTheme = themeGpu("dark")): StyleTab
     return resolved;
   };
 
-  const rebuild = (): void => {
-    const next = new Float32Array(order.length * STYLE_STRIDE);
-    order.forEach((style, i) => {
+  /** One row, written in place; the buffer doubles when it runs out. */
+  const writeRow = (style: QuadStyle, i: number): void => {
+    if ((i + 1) * STYLE_STRIDE > buffer.length) {
+      const grown = new Float32Array(Math.max(STYLE_STRIDE * 16, buffer.length * 2));
+      grown.set(buffer);
+      buffer = grown;
+    }
+    const next = buffer;
+    {
       const at = i * STYLE_STRIDE;
+      next.fill(0, at, at + STYLE_STRIDE);
       const put = (colour: GpuColor | undefined, offset: number): void => {
         if (!colour) return;
         next[at + offset] = colour.r;
@@ -198,8 +232,13 @@ export const createStyleTable = (initial: GpuTheme = themeGpu("dark")): StyleTab
       next[at + SHADOW_ID] = shadow ? shadowIds.get(shadowKey(style.shadow))! : -1;
       put(resolveColour(style.ink, theme), INK);
       next[at + OPACITY] = style.opacity ?? 1;
-    });
-    buffer = next;
+    }
+  };
+
+  /** Every row again, for a new theme. */
+  const rebuild = (): void => {
+    themeEpoch += 1;
+    order.forEach(writeRow);
   };
 
   rebuild();
@@ -211,14 +250,23 @@ export const createStyleTable = (initial: GpuTheme = themeGpu("dark")): StyleTab
     get size() {
       return order.length;
     },
+    get themeEpoch() {
+      return themeEpoch;
+    },
     intern: (style) => {
+      const known = byObject.get(style);
+      if (known !== undefined) return known;
       const key = styleKey(style);
       const existing = slots.get(key);
-      if (existing !== undefined) return existing;
+      if (existing !== undefined) {
+        byObject.set(style, existing);
+        return existing;
+      }
       const id = order.length;
       slots.set(key, id);
+      byObject.set(style, id);
       order.push(style);
-      rebuild();
+      writeRow(style, id);
       return id;
     },
     get shadows() {

@@ -2508,6 +2508,13 @@ export const createScene = (options: {
     get styleRevision(): number {
       return styleRevision;
     },
+    /** Bumps when every style row was rewritten (a theme); otherwise rows only append. */
+    get styleThemeEpoch(): number {
+      return styles.themeEpoch;
+    },
+    get shadowCount(): number {
+      return styles.shadows.length;
+    },
     shadowSnapshot: (): { readonly meta: Uint32Array; readonly layers: Float32Array } => {
       const meta = new Uint32Array(styles.shadows.length * 4);
       const layers: number[] = [];
