@@ -481,6 +481,8 @@ type Gpu = {
   readonly bindLayout: GPUBindGroupLayout;
   readonly bindBudget: AtlasBindBudget;
   readonly dummyTex: GPUTexture;
+  /** The sampler a bind group takes with no atlas: one per device, not one per bind (issue 915). */
+  readonly dummySampler: GPUSampler;
   atlas?: AtlasBinding;
   quads: GPUBuffer;
   owners: GPUBuffer;
@@ -630,7 +632,7 @@ export const createRenderer = () => {
     const covPages = state.atlas?.coveragePages;
     const page0Rgba = (coverageOverride ? undefined : textureOverride) ?? rgbaPages?.[0] ?? state.atlas?.texture ?? state.dummyTex;
     const page0Cov = (coverageOverride ? textureOverride : undefined) ?? covPages?.[0] ?? state.atlas?.coverageTexture ?? page0Rgba;
-    const sampler = state.atlas?.sampler ?? device.createSampler({ magFilter: "nearest", minFilter: "nearest" });
+    const sampler = state.atlas?.sampler ?? state.dummySampler;
     const entries: GPUBindGroupEntry[] = [
       { binding: 0, resource: { buffer: state.uniform } },
       { binding: 1, resource: { buffer: orderOverride ?? state.order } },
@@ -855,6 +857,7 @@ export const createRenderer = () => {
       bindLayout,
       bindBudget,
       dummyTex: dummyTexture(device),
+      dummySampler: device.createSampler({ magFilter: "nearest", minFilter: "nearest" }),
       ...(atlas === undefined ? {} : { atlas }),
       quads: bufferOf(device, Math.max(1, scene.quadCapacity) * QUAD_BYTES),
       owners: bufferOf(device, Math.max(1, scene.ownerCapacity) * 8 * 4),
