@@ -1032,12 +1032,17 @@ export const createWireScene = (host: WireHost): WireScene => {
     return { array, at: at + count };
   };
 
+  let visibleEntries: Entry[] = [];
   const buildVisible = (): void => {
     mainCount = 0;
     glowCount = 0;
     trackCount = 0;
-    for (const entry of entries.values()) {
-      if (!inView(entry)) continue;
+    visibleEntries.length = 0;
+    for (const entry of entries.values()) if (inView(entry)) visibleEntries.push(entry);
+    // The pool covers in index order, so a wire drawn later wins the pixels it
+    // shares. Draw the visible strips in that same order; picking reads it.
+    visibleEntries.sort((a, b) => (a.strip?.start ?? 0) - (b.strip?.start ?? 0));
+    for (const entry of visibleEntries) {
       if (entry.strip !== undefined) {
         const next = append(mainIndex, mainCount, entry.strip.start, entry.strip.count);
         mainIndex = next.array;

@@ -1026,6 +1026,7 @@ export interface CanvasTestHook {
     readonly frameMsTotal: number;
     readonly rebuilds: number;
     readonly draws: number;
+    readonly indices: number;
     readonly uploadBytes: number;
   } | undefined;
 }

@@ -45,6 +45,8 @@ export type WireStats = {
   readonly rebuilds: number;
   /** Draw calls the last encoded frame issued for wires, glow, tracks and pulses. */
   readonly draws: number;
+  /** Index count the last encoded frame's visible draw covered. */
+  readonly indices: number;
   /** Bytes the last upload wrote. */
   readonly uploadBytes: number;
 };
@@ -111,7 +113,7 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
     labelsInView: scene.labelsInView,
     labelsRevision: scene.labelsRevision,
     inspect: scene.inspect,
-    stats: () => ({ frames, lastFrameMs, frameMsTotal, rebuilds: scene.builds(), draws: gpu.draws(), uploadBytes: gpu.lastBytes() }),
+    stats: () => ({ frames, lastFrameMs, frameMsTotal, rebuilds: scene.builds(), draws: gpu.draws(), indices: gpu.indices(), uploadBytes: gpu.lastBytes() }),
     lastUploads: gpu.lastUploads,
     dispose: gpu.dispose,
   };

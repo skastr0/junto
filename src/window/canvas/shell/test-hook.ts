@@ -99,6 +99,7 @@ const build = (
     readonly frameMsTotal: number;
     readonly rebuilds: number;
     readonly draws: number;
+    readonly indices: number;
     readonly uploadBytes: number;
   } | undefined,
 ): FullHook => {
@@ -206,6 +207,7 @@ export const installCanvasTestHook = (
     readonly frameMsTotal: number;
     readonly rebuilds: number;
     readonly draws: number;
+    readonly indices: number;
     readonly uploadBytes: number;
   } | undefined = () => undefined,
 ): (() => void) => {

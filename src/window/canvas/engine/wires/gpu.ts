@@ -65,6 +65,8 @@ export type WireGpu = {
   readonly lastBytes: () => number;
   /** Draw calls the last encoded frame issued. */
   readonly draws: () => number;
+  /** Index count the last encoded frame's visible draw covered. */
+  readonly indices: () => number;
   readonly dispose: () => void;
 };
 
@@ -325,6 +327,8 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
     lastUploads: () => uploads,
     lastBytes: () => bytes,
     draws: () => drawCalls,
+    indices: () =>
+      res === undefined ? 0 : res.visible.mainCount + res.visible.glowCount + res.visible.tracksCount,
     dispose: () => {
       destroy(res);
       res = undefined;
