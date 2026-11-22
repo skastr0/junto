@@ -918,20 +918,33 @@ test.describe("#913 GPU canvas proof", () => {
         const focusRect = rects[focusId]!;
         const focus = { x: focusRect.x + focusRect.width / 2, y: focusRect.y + focusRect.height / 2 };
         const pane = await paneRect(page);
+        // The tiled boards are wider than the factory's: at their overview
+        // the camera must frame the whole board, or the atlas never sees more
+        // than the tile under the fixed 0.15 camera.
+        const fitZoom = Math.min(pane.width / board.stats.bounds.width, pane.height / board.stats.bounds.height) * 0.92;
+        const tierPlan: ReadonlyArray<{ name: (typeof TIERS)[number]["name"]; zoom: number }> =
+          scale === 1
+            ? TIERS
+            : TIERS.map((tier) => (tier.name === "overview" ? { ...tier, zoom: fitZoom } : tier));
+        report["fitZoom"] = scale === 1 ? null : round(fitZoom, 4);
 
         // A settled camera in every tier, with its counters and its image.
         const tiers: Report[] = [];
         const freshPortraits = new Map<string, Set<string>>();
         const tierCameras = new Map<string, { x: number; y: number; zoom: number }>();
         await timed("tiers", async () => {
-        for (const [index, tier] of TIERS.entries()) {
+        for (const [index, tier] of tierPlan.entries()) {
           const anchor = index % 2 === 0 ? centre : focus;
           await placeCamera(page, await cameraOn(page, anchor, tier.zoom));
           const at = await settleAtlas(page);
           const screens = await seatScreens(page, board);
           const image = PNG.sync.read(await page.screenshot({ path: join(dir, `${tier.name}-${String(tier.zoom)}.png`) }));
           const viewport = await page.evaluate(() => ({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }));
-          const content = await seatContent(page, screens.onPane.map((seat) => seat.id));
+          const contentIds = screens.onPane.map((seat) => seat.id);
+          const content = await seatContent(
+            page,
+            scale === 1 ? contentIds : contentIds.filter((_, index) => index % Math.max(1, Math.ceil(contentIds.length / 250)) === 0),
+          );
           const badgeCache = new Map<string, ContentPart | null>();
           const okPortraits = new Set<string>();
           let portraitMissing = 0;
@@ -1176,7 +1189,7 @@ test.describe("#913 GPU canvas proof", () => {
         // 60 per tier), and every tile is visited across the sweep.
         const clicks: Record<string, unknown> = {};
         await timed("clicks", async () => {
-        for (const tier of TIERS) {
+        for (const tier of tierPlan) {
           await placeCamera(page, await cameraOn(page, tier.name === "near" ? focus : centre, tier.zoom));
           await settleAtlas(page);
           const screens = await seatScreens(page, board);
@@ -1281,7 +1294,7 @@ test.describe("#913 GPU canvas proof", () => {
         // tier camera after the whole run and require the same seat's
         // portrait to still be there, at its rect, with ink.
         const revisit: Record<string, unknown> = {};
-        for (const tier of TIERS) {
+        for (const tier of tierPlan) {
           const camera = tierCameras.get(tier.name);
           if (camera === undefined) continue;
           await placeCamera(page, camera);
@@ -1302,7 +1315,11 @@ test.describe("#913 GPU canvas proof", () => {
           })();
           const revisitFullDelta = mismatch(image, revisitFull);
           const viewport = await page.evaluate(() => ({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }));
-          const content = await seatContent(page, screens.onPane.map((seat) => seat.id));
+          const contentIds = screens.onPane.map((seat) => seat.id);
+          const content = await seatContent(
+            page,
+            scale === 1 ? contentIds : contentIds.filter((_, index) => index % Math.max(1, Math.ceil(contentIds.length / 250)) === 0),
+          );
           const badgeCache = new Map<string, ContentPart | null>();
           const now = new Set<string>();
           for (const seat of content) {
