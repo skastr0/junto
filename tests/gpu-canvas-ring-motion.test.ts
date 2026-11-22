@@ -102,6 +102,45 @@ describe("motion's gate in the scene", () => {
   });
 });
 
+describe("the loop's motion test (#915)", () => {
+  const oneQuad = (motion: Quad["motion"]): Quad =>
+    ({ key: "moving", kind: "shape", band: "cards", z: 1, rect: { x: 0, y: 0, width: 40, height: 40 }, tiers: 15, scale: { kind: "board" }, style: {}, motion }) as unknown as Quad;
+  const sceneOf = (motion: Quad["motion"]) => {
+    const scene = createScene({ painter: () => ({ quads: [oneQuad(motion)], dim: { opacity: 1, saturate: 1 }, lift: 0 }) });
+    scene.setClocks({ now: 1_000, wall: 50_000 });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [agentFact()], wires: [] });
+    return scene;
+  };
+
+  it("runs a one-shot until it ends, then lets the loop rest", () => {
+    // A rise from wall 50 000 ends 200 ms later: page clock 1 200.
+    const scene = sceneOf({ kind: "rise", since: 50_000 });
+    scene.prepare(VIEW_RECT, "near");
+    expect(scene.hasMotion(1_100)).toBe(true);
+    expect(scene.hasMotion(1_200)).toBe(false);
+    // A land runs 720 ms.
+    const land = sceneOf({ kind: "land", since: 50_000 });
+    land.prepare(VIEW_RECT, "near");
+    expect(land.hasMotion(1_700)).toBe(true);
+    expect(land.hasMotion(1_720)).toBe(false);
+  });
+
+  it("asks for frames only while a moving part is in the real view, not in the build margin", () => {
+    const scene = sceneOf({ kind: "turn", periodMs: 1200 });
+    const card = scene.rectOf(agentFact().id)!;
+    scene.prepare(VIEW_RECT, "near");
+    expect(scene.hasMotion()).toBe(true);
+    // Off to the right by a little more than the view's width: still inside
+    // the build range's margin cells, but nothing moving is on screen.
+    const beside = { ...VIEW_RECT, x: card.x + card.width + 200 };
+    scene.prepare(beside, "near");
+    expect(scene.hasMotion()).toBe(false);
+    // Back over it, without a rebuild in between: it turns again.
+    scene.prepare(VIEW_RECT, "near");
+    expect(scene.hasMotion()).toBe(true);
+  });
+});
+
 describe("the source a moving camera holds", () => {
   it("keeps the cell it has while the camera moves, and resolves every run once at rest", () => {
     let settled = true;

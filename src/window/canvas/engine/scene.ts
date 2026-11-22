@@ -212,6 +212,12 @@ const compareQuad = (a: Quad, b: Quad): number => {
 const sameRect = (a: Rect, b: Rect): boolean =>
   a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 
+/** How long each one-shot motion runs (contract.ts `QuadMotion`, the shader's ages). */
+const ONE_SHOT_MS = { land: 720, landed: 720, rise: 200 } as const;
+/** The vertex stage's largest motion growth (send, 1.31) and shift (rise, 3 units). */
+const MOTION_GROWTH = 1.31;
+const MOTION_SHIFT = 3;
+
 /** Two motions with the same tempo and the same one-shot start. */
 const sameMotion = (a: QuadMotion | undefined, b: QuadMotion | undefined): boolean => {
   if (a === b) return true;
@@ -483,6 +489,15 @@ export const createScene = (options: {
   let wireMode: WireMode = "rest";
   let wires = new Map<WireId, WireFact>();
   let motionVisible = false;
+  /**
+   * The drawn quads that move, from the last rebuild, with their owners. Each
+   * frame tests them against the real view, not the build range's margin: a
+   * periodic motion in view keeps the loop running, a one-shot only until it
+   * ends (#915). Nothing visible stops.
+   */
+  let movers: Array<{ readonly ref: QuadRef; readonly owner: number }> = [];
+  /** Page-clock instant the last one-shot in view ends. */
+  let oneShotUntil = 0;
   /** The empty set a board with no clusters gathers. */
   const NO_SEATS: ReadonlySet<NodeId> = new Set();
   /** Badge slots by cluster key: their quads and owner entries. */
@@ -1877,7 +1892,7 @@ export const createScene = (options: {
     const mask = cullOnGpu ? ALL_TIERS : liveMask;
     const counts = [0, 0, 0];
     let at = 0;
-    let moving = false;
+    const moved: Array<{ readonly ref: QuadRef; readonly owner: number }> = [];
     for (let band = 0; band < BAND_COUNT; band += 1) {
       for (const card of visibleCards) {
         // A gathered seat draws nothing: its badge stands for it.
@@ -1890,7 +1905,7 @@ export const createScene = (options: {
           order[at] = ref.slot;
           at += 1;
           counts[band] = counts[band]! + 1;
-          if (ref.motion !== undefined) moving = true;
+          if (ref.motion !== undefined && (ref.tiers & liveMask) !== 0) moved.push({ ref, owner: card.slot });
         }
       }
       // Badges paint in the lifted band, over every card (DOM z 3000).
@@ -1901,14 +1916,47 @@ export const createScene = (options: {
             order[at] = ref.slot;
             at += 1;
             counts[2] = counts[2]! + 1;
-            if (ref.motion !== undefined) moving = true;
+            if (ref.motion !== undefined && (ref.tiers & liveMask) !== 0) moved.push({ ref, owner: badge.owner });
           }
         }
       }
     }
     bandEnds = [counts[0]!, counts[0]! + counts[1]!, counts[0]! + counts[1]! + counts[2]!];
     orderCount = bandEnds[2];
-    motionVisible = moving;
+    movers = moved;
+  };
+
+  /**
+   * Whether anything that moves is on screen this frame, and until when a
+   * one-shot there runs. Each quad is widened by the vertex stage's largest
+   * turn, growth and shift, so a part moving into view counts.
+   */
+  const refreshMotion = (view: Rect): void => {
+    let periodic = false;
+    let until = 0;
+    for (const { ref, owner } of movers) {
+      const motion = ref.motion!;
+      const oneShot = motion.kind === "land" || motion.kind === "landed" || motion.kind === "rise";
+      let end = 0;
+      if (oneShot) {
+        // `since` is a wall instant; the loop's clock is the page's.
+        end = clockNow + (motion.since + ONE_SHOT_MS[motion.kind] - wallNow);
+        if (end <= clockNow || end <= until) continue;
+      }
+      // Turned, grown and shifted at most this far from its centre.
+      const rect = placedRect(ref, owner);
+      const half = Math.hypot(rect.width, rect.height) * 0.5 * MOTION_GROWTH + MOTION_SHIFT;
+      const cx = rect.x + rect.width / 2;
+      const cy = rect.y + rect.height / 2;
+      if (!intersects({ x: cx - half, y: cy - half, width: half * 2, height: half * 2 }, view)) continue;
+      if (!oneShot) {
+        periodic = true;
+        break;
+      }
+      until = end;
+    }
+    motionVisible = periodic;
+    oneShotUntil = until;
   };
 
   /**
@@ -2050,6 +2098,7 @@ export const createScene = (options: {
       lastAtlasRevision = revision;
     }
     checkBlank(view, frameAt);
+    refreshMotion(view);
 
     let changed = false;
     if (rebuilt) {
@@ -2164,7 +2213,7 @@ export const createScene = (options: {
       drawn: badge.stamp === liveEpoch,
     }));
 
-  const hasMotion = (at: number = clockNow): boolean => motionVisible || at < transitionUntil;
+  const hasMotion = (at: number = clockNow): boolean => motionVisible || at < transitionUntil || at < oneShotUntil;
 
   const index: SpatialIndex = {
     cardsAt: (at) => {
