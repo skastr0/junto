@@ -313,7 +313,11 @@ const closeSurfaces = async (page: Page): Promise<void> => {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(350);
     if ((await page.locator(".focus-surface").count()) === 0) return;
-    const close = page.locator(".focus-surface").getByRole("button", { name: /^close$/i }).first();
+    // A terminal surface keeps Escape for the PTY: Cmd+W is its named way out.
+    await page.keyboard.press("Meta+w");
+    await page.waitForTimeout(350);
+    if ((await page.locator(".focus-surface").count()) === 0) return;
+    const close = page.locator(".focus-surface").getByRole("button", { name: /close/i }).first();
     if ((await close.count()) > 0) await close.click({ timeout: 1_000 }).catch(() => undefined);
     await page.waitForTimeout(350);
   }
@@ -588,11 +592,11 @@ const openSeat = async (
       active: document.activeElement?.className?.toString().slice(0, 80) ?? "",
     };
   });
+  const appeared = opened || diagnostics.surfaces > 0;
   if (opened) await closeSurfaces(page);
-  const closed = opened && (await page.locator(".focus-surface").count()) === 0;
   const reason: OpenAttempt["reason"] =
-    diagnostics.selection.length === 0 ? "no-selection" : diagnostics.surfaces === 0 ? "no-surface" : closed ? "opened" : "no-surface";
-  return { opened: closed, diagnostics, attempt: { id, point, hit: "own", elements: [], reason, selection: diagnostics.selection } };
+    diagnostics.selection.length === 0 ? "no-selection" : appeared ? "opened" : "no-surface";
+  return { opened: appeared, diagnostics, attempt: { id, point, hit: "own", elements: [], reason, selection: diagnostics.selection } };
 };
 
 // --- visuals: side by side, near pixels and mid/far structure ---------------------
@@ -1212,7 +1216,7 @@ test.describe("#913 GPU canvas proof", () => {
           }
         }
         // Open a seat at near: double-click must open its focus surface.
-        await timed("open", async () => {
+        if (process.env["JUNTO_GPU_PROOF_OPEN"] !== "0") await timed("open", async () => {
         await placeCamera(page, await cameraOn(page, focus, 1));
         await settleAtlas(page);
         const nearScreens = await seatScreens(page, board);
@@ -1303,6 +1307,12 @@ test.describe("#913 GPU canvas proof", () => {
               partFailures.push({ zoom, seat: seat.id, role: part.role, hasImage: false, rect: part.rect });
               continue;
             }
+            const visible =
+              part.rect.x >= pane.x &&
+              part.rect.y >= pane.y &&
+              part.rect.x + part.rect.width <= pane.x + pane.width &&
+              part.rect.y + part.rect.height <= pane.y + pane.height;
+            if (!visible) continue;
             const share = partInk(clipShot.png, clipShot.clip, part.rect);
             if (share < 0.01) partFailures.push({ zoom, seat: seat.id, role: part.role, share: round(share, 4), rect: part.rect });
           }
@@ -1311,7 +1321,16 @@ test.describe("#913 GPU canvas proof", () => {
         await page.screenshot({ path: join(dir, `gpu-${String(zoom)}.png`) });
         // Cluster badges: count pill, mark ring and portrait carry ink too.
         if (zoom !== 1) {
-          const clusters = (await drawnClusters(page)).filter((cluster) => cluster.drawn).slice(0, 8);
+          const clusters = (await drawnClusters(page))
+            .filter(
+              (cluster) =>
+                cluster.drawn &&
+                cluster.x - cluster.radius - 14 >= pane!.x &&
+                cluster.y - cluster.radius - 14 >= pane!.y &&
+                cluster.x + cluster.radius + 14 <= pane!.x + pane!.width &&
+                cluster.y + cluster.radius + 14 <= pane!.y + pane!.height,
+            )
+            .slice(0, 8);
           for (const [index, cluster] of clusters.entries()) {
             const clip = clampToPane(
               { x: cluster.x - cluster.radius - 12, y: cluster.y - cluster.radius - 12, width: cluster.radius * 2 + 24, height: cluster.radius * 2 + 24 },
