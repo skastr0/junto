@@ -173,7 +173,7 @@ type CardSlot = {
   stamp: number;
   role: Role;
   /** Its place in paint order (z, then id), from the sorted master list. */
-  rank: number;
+  paintIndex: number;
   /**
    * The filled body the card draws at the mid tier, card-local: the seat pill
    * that hugs its name (paint/mid.ts), narrower than the card's own box. Kept
@@ -462,9 +462,9 @@ export const createScene = (options: {
   const slots: Array<CardSlot | undefined> = [];
   const freeSlots: number[] = [];
   const byId = new Map<NodeId, CardSlot>();
-  /** Every card, sorted into paint order (z, then id) when `rankDirty`; `rank` is the index. */
+  /** Every card, sorted into paint order (z, then id) when `paintIndexDirty`; `paintIndex` is the index. */
   const master: CardSlot[] = [];
-  let rankDirty = true;
+  let paintIndexDirty = true;
   /** Cards whose quads are built; a rebuild releases those well off screen. */
   const paintedCards = new Set<CardSlot>();
   /** Badge slots by owner index, for the per-frame blank check. */
@@ -1319,7 +1319,7 @@ export const createScene = (options: {
       const was = existing.fact;
       existing.fact = fact;
       existing.size = undefined;
-      if (was.derived.z !== fact.derived.z) rankDirty = true;
+      if (was.derived.z !== fact.derived.z) paintIndexDirty = true;
       const rect = rectOfFact(fact);
       if (!sameRect(existing.rect, rect)) {
         existing.rect = rect;
@@ -1352,12 +1352,12 @@ export const createScene = (options: {
       stale: true,
       stamp: -1,
       role: NO_ROLE,
-      rank: 0,
+      paintIndex: 0,
     };
     slots[slot] = card;
     byId.set(fact.id, card);
     master.push(card);
-    rankDirty = true;
+    paintIndexDirty = true;
     // Its place is known now (picking, clusters, the minimap); its quads are
     // built when it first comes near the screen.
     writeOwner(card);
@@ -1377,7 +1377,7 @@ export const createScene = (options: {
     dirtyOwners.delete(card.slot);
     const at = master.indexOf(card);
     if (at >= 0) master.splice(at, 1);
-    rankDirty = true;
+    paintIndexDirty = true;
     markOrder();
   };
 
@@ -1385,7 +1385,7 @@ export const createScene = (options: {
     // Every held cell goes back to the atlas before the records are forgotten.
     for (const card of byId.values()) releaseShapes(card);
     master.length = 0;
-    rankDirty = true;
+    paintIndexDirty = true;
     blankCandidates.clear();
     waitingSince.clear();
     placeholding.clear();
@@ -1725,26 +1725,26 @@ export const createScene = (options: {
   /** Octaves either side of the zoom whose tiers take cells ahead. */
   const tierWindowOctaves = (): number => peakZoomRate * peakLatency;
 
-  const ensureRanks = (): void => {
-    if (!rankDirty) return;
+  const ensurePaintIndex = (): void => {
+    if (!paintIndexDirty) return;
     master.sort((a, b) => {
       if (a.fact.derived.z !== b.fact.derived.z) return a.fact.derived.z - b.fact.derived.z;
       return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
     });
-    for (let index = 0; index < master.length; index += 1) master[index]!.rank = index;
-    rankDirty = false;
+    for (let index = 0; index < master.length; index += 1) master[index]!.paintIndex = index;
+    paintIndexDirty = false;
   };
 
-  const byRank = (a: CardSlot, b: CardSlot): number => a.rank - b.rank;
+  const byPaintIndex = (a: CardSlot, b: CardSlot): number => a.paintIndex - b.paintIndex;
 
   const orderCards = (found: ReadonlyArray<number>): CardSlot[] => {
-    ensureRanks();
+    ensurePaintIndex();
     const cards: CardSlot[] = [];
     for (const slot of found) {
       const card = slots[slot];
       if (card !== undefined) cards.push(card);
     }
-    cards.sort(byRank);
+    cards.sort(byPaintIndex);
     return cards;
   };
 
@@ -1810,7 +1810,7 @@ export const createScene = (options: {
    */
   const rebuild = (view: Rect, tier: CanvasTier, zoom: number, exact: boolean): void => {
     liveEpoch += 1;
-    ensureRanks();
+    ensurePaintIndex();
     const margin = marginScreenPx() / zoom;
     const range = cellRange(insetBy(view, margin));
     lastRange = range.key;
@@ -1825,7 +1825,7 @@ export const createScene = (options: {
       card.role = VIEW_ROLE;
       visibleCards.push(card);
     }
-    visibleCards.sort(byRank);
+    visibleCards.sort(byPaintIndex);
     const jumpCards: CardSlot[] = [];
     if (jump !== undefined) {
       const found: number[] = [];
@@ -1883,7 +1883,7 @@ export const createScene = (options: {
     settleLive(exact, false, fresh);
 
     // The draw list: the current tier's quads with their gate open, bands in
-    // order, cards in rank, badges over every card.
+    // order, cards in paint index, badges over every card.
     let needed = 0;
     for (const card of visibleCards) if (!gatheredSeats.has(card.id)) needed += card.ordered.length;
     for (const badge of badges) needed += badge.ordered.length;
