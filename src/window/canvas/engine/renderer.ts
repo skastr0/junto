@@ -402,6 +402,11 @@ type Gpu = {
   culledFor?: GPUBindGroup;
   /** Whether this frame's draws read the cull's indirect arguments. */
   culledThisFrame: boolean;
+  /**
+   * Buffers made or regrown since their last full upload: a new buffer holds
+   * zeros, so the next upload writes it whole whatever the scene's dirt says.
+   */
+  fresh: Set<"quads" | "owners" | "order">;
 };
 
 /**
@@ -576,6 +581,7 @@ export const createRenderer = () => {
       if (next !== undefined) {
         state.quads = next;
         state.quadCapacity = scene.quadCapacity;
+        state.fresh.add("quads");
         rebind = true;
       }
     }
@@ -584,6 +590,7 @@ export const createRenderer = () => {
       if (next !== undefined) {
         state.owners = next;
         state.ownerCapacity = scene.ownerCapacity;
+        state.fresh.add("owners");
         rebind = true;
       }
     }
@@ -592,6 +599,7 @@ export const createRenderer = () => {
       if (next !== undefined) {
         state.order = next;
         state.orderCapacity = scene.orderBuffer.length;
+        state.fresh.add("order");
         rebind = true;
       }
     }
@@ -708,6 +716,8 @@ export const createRenderer = () => {
       atlasTextureGeneration: atlas?.textureGeneration ?? 0,
       standaloneBinds: new WeakMap(),
       culledThisFrame: false,
+      // Quads and owners are written whole below; the order on the first upload.
+      fresh: new Set(["order"]),
       lastScene: scene,
       frameRanges: [],
       totalBytes: gpu?.totalBytes ?? 0,
@@ -765,8 +775,9 @@ export const createRenderer = () => {
     if (state === undefined) return;
     state.lastScene = scene;
     ensure(state, scene);
+    const fresh = state.fresh;
     const quadDirty = scene.takeQuadDirty();
-    if (quadDirty.all) {
+    if (quadDirty.all || fresh.has("quads")) {
       state.device.queue.writeBuffer(state.quads, 0, scene.quadBuffer.bytes, 0, Math.max(4, scene.quadCount * QUAD_BYTES));
       note(state, "quads", 0, scene.quadCount * QUAD_BYTES);
     } else {
@@ -802,7 +813,7 @@ export const createRenderer = () => {
       flush();
     }
     const ownerDirty = scene.takeOwnerDirty();
-    if (ownerDirty.all) {
+    if (ownerDirty.all || fresh.has("owners")) {
       state.device.queue.writeBuffer(state.owners, 0, scene.ownerBuffer, 0, scene.ownerCapacity * 8);
       note(state, "owners", 0, scene.ownerCapacity * 8 * 4);
     } else {
@@ -811,11 +822,12 @@ export const createRenderer = () => {
         note(state, "owners", slot * 32, 32);
       }
     }
-    if (prepared.orderChanged) {
+    if (prepared.orderChanged || fresh.has("order")) {
       // The buffer is a Uint32Array: writeBuffer's size is in elements.
       if (scene.orderCount > 0) state.device.queue.writeBuffer(state.order, 0, scene.orderBuffer, 0, scene.orderCount);
       note(state, "order", 0, scene.orderCount * 4);
     }
+    fresh.clear();
     if (state.styleRevision !== scene.styleRevision) uploadStyles(state, scene);
     // The atlas writes UVs as rasters land; its revision names what the cells
     // buffer holds. Upload only the allocated cell slots.

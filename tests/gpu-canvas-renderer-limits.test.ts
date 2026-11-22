@@ -84,6 +84,46 @@ describe("the renderer's buffers", () => {
   });
 });
 
+describe("a fresh order buffer", () => {
+  it("is written whole on its first upload, even when the scene's order did not change", () => {
+    const scene = createScene({
+      painter: () => ({ quads: shadowQuads(40), dim: { opacity: 1, saturate: 1 }, lift: 0 }),
+    });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    expect(scene.prepare(VIEW, "near").orderChanged).toBe(true);
+    const steady = scene.prepare(VIEW, "near");
+    expect(steady.orderChanged).toBe(false);
+    const orderWrites = (writes: Written[]) =>
+      writes.filter((write) => write.buffer.size === scene.orderBuffer.length * 4 && write.elements === scene.orderCount);
+    // A new device generation makes every buffer again: the order must follow.
+    for (const generation of [1, 2]) {
+      const { device, writes } = fakeDevice({ maxStorageBufferBindingSize: 2 ** 27, maxBufferSize: 2 ** 28 });
+      const renderer = createRenderer();
+      renderer.configure(device, "bgra8unorm", generation, scene);
+      renderer.upload(scene, steady);
+      expect(orderWrites(writes)).toHaveLength(1);
+      // And only once: the next steady frame writes nothing.
+      renderer.upload(scene, scene.prepare(VIEW, "near"));
+      expect(orderWrites(writes)).toHaveLength(1);
+    }
+  });
+
+  it("is written whole after a regrow, whatever orderChanged says", () => {
+    const scene = createScene({
+      painter: () => ({ quads: shadowQuads(40), dim: { opacity: 1, saturate: 1 }, lift: 0 }),
+    });
+    const { device, writes } = fakeDevice({ maxStorageBufferBindingSize: 2 ** 27, maxBufferSize: 2 ** 28 });
+    const renderer = createRenderer();
+    renderer.configure(device, "bgra8unorm", 1, scene);
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    const prepared = scene.prepare(VIEW, "near");
+    renderer.upload(scene, { ...prepared, orderChanged: false });
+    const grownOrder = writes.filter((write) => write.buffer.size === scene.orderBuffer.length * 4 && write.elements === scene.orderCount);
+    expect(scene.orderCount).toBeGreaterThan(0);
+    expect(grownOrder).toHaveLength(1);
+  });
+});
+
 describe("the atlas cells table", () => {
   it("uploads only the dirty slot runs the atlas names, not the whole table", () => {
     const scene = createScene({ painter: () => ({ quads: [], dim: { opacity: 1, saturate: 1 }, lift: 0 }) });
