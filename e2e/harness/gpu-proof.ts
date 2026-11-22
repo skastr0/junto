@@ -356,6 +356,31 @@ export const waitGpuReady = async (page: Page, board: ProofBoard, timeoutMs = 24
   }
 };
 
+interface PendingKey {
+  readonly key: string;
+  readonly kind: string;
+  readonly state: string;
+  readonly scale: number;
+  readonly width: number;
+  readonly height: number;
+  readonly sourceRef: string;
+  readonly attempts: number;
+}
+
+/** What the atlas still holds, by kind, state and cell size. */
+const pendingKeys = async (page: Page): Promise<{ hist: Record<string, number>; first: PendingKey[] }> => {
+  const rows = await page.evaluate(() => {
+    const hook = (window as unknown as { __juntoCanvas?: { pendingKeys?: (limit?: number) => PendingKey[] } }).__juntoCanvas;
+    return (hook?.pendingKeys?.(200) ?? []) as PendingKey[];
+  });
+  const hist: Record<string, number> = {};
+  for (const row of rows) {
+    const key = `${row.kind}|${row.state}|${String(row.width)}x${String(row.height)}`;
+    hist[key] = (hist[key] ?? 0) + 1;
+  }
+  return { hist, first: rows.slice(0, 8) };
+};
+
 /** Wait for the atlas queue to drain and two frames to draw the landed cells. */
 export const settleAtlas = async (page: Page, timeoutMs = 180_000, stallMs = 20_000): Promise<ProofState> => {
   const deadline = Date.now() + timeoutMs;
@@ -378,7 +403,12 @@ export const settleAtlas = async (page: Page, timeoutMs = 180_000, stallMs = 20_
         `atlas stalled for ${String(Math.round(stallMs / 1000))}s: pending ${String(now)}, landed ${String(landed)}, requests ${String(requests)}, failures ${String(state.atlas?.failures ?? "?")}, blank ${String(state.atlas?.visibleBlank ?? "?")}`,
       );
     }
-    if (Date.now() >= deadline) throw new Error(`atlas never settled: ${String(now)} items pending (landed ${String(landed)}, requests ${String(requests)})`);
+    if (Date.now() >= deadline) {
+      const keys = await pendingKeys(page);
+      throw new Error(
+        `atlas never settled: ${String(now)} items pending (landed ${String(landed)}, requests ${String(requests)}) keys ${JSON.stringify(keys.hist)} first ${JSON.stringify(keys.first)}`,
+      );
+    }
     await page.waitForTimeout(100);
   }
 };
