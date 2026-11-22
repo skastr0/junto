@@ -5,6 +5,7 @@
 #   scripts/mini.sh at <seat> [ref]           <ref> (default HEAD) in its own checkout on the mini, deps and bundles built; prints its folder
 #   scripts/mini.sh put <folder> <paths…>     copy files that are not in the commit (an untracked spec) into that folder
 #   scripts/mini.sh run <folder> <command…>   run a command in that folder on the mini, output streamed
+#   scripts/mini.sh book line <seat> <minutes> "<what>"   join the line for the rig; takes it when you are first and it is free
 #   scripts/mini.sh book take <seat> <minutes> "<what>" | release <seat> | status
 #   scripts/mini.sh rm <folder>               remove the checkout when you are done
 #
@@ -16,7 +17,9 @@
 #
 # One measurement at a time: GPU and compositor numbers share the hardware.
 # Take the book before any run that measures (frame times, GPU time) and
-# release it when the run ends. e2e runs that only check correctness queue on
+# release it when the run ends. When it is held, `book line` queues you: first
+# come, first served, and the front has 5 minutes from the rig going free to
+# take it before it drops to the back. e2e runs that only check correctness queue on
 # the mini's own app-run lock through scripts/run-e2e.sh and need no book.
 # Numbers from the mini compare arms on the mini; the operator's Mac is
 # measured separately.
@@ -82,7 +85,7 @@ case "${1:-}" in
     remote "git -C $RIG/repo.git worktree remove --force $dir && git -C $RIG/repo.git worktree prune"
     ;;
   *)
-    sed -n '2,10p' "$0"
+    sed -n '2,11p' "$0"
     exit 2
     ;;
 esac
