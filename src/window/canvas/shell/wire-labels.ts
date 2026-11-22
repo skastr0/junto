@@ -115,6 +115,8 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
 
   /** The reconcile each kept button was last seen in. */
   const seen = new Map<string, number>();
+  /** The verb each button was last written with: reading `dataset` back makes a string every frame. */
+  const verbs = new Map<string, string>();
   let stamp = 0;
 
   const frame = (camera: Camera): void => {
@@ -148,7 +150,9 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
 
     // Each reconcile stamps the buttons it keeps; a pan allocates no set.
     stamp += 1;
-    for (const label of wires.labelsInView()) {
+    const labels = wires.labelsInView();
+    for (let index = 0; index < labels.length; index += 1) {
+      const label = labels[index]!;
       seen.set(label.id, stamp);
       let button = buttons.get(label.id);
       const created = button === undefined;
@@ -157,7 +161,8 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
       // a zoom leave every button's own transform alone.
       if (created || relaid) place(button, label.at);
       const verb = label.verb ?? "";
-      if (button.dataset["verb"] !== verb) {
+      if (verbs.get(label.id) !== verb) {
+        verbs.set(label.id, verb);
         button.dataset["verb"] = verb;
         button.setAttribute("aria-label", `Select edge - ${label.verb ?? "connection"}`);
       }
@@ -169,6 +174,7 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
     button.remove();
     buttons.delete(id);
     seen.delete(id);
+    verbs.delete(id);
   };
 
   return {
@@ -179,6 +185,7 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
       window.removeEventListener("scroll", measure, { capture: true });
       host.remove();
       buttons.clear();
+      verbs.clear();
     },
   };
 };
