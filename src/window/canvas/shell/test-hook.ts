@@ -8,6 +8,8 @@
 import type { CanvasTestHook, NodeId, Part, Rect } from "../contract";
 import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
 import type { SeamEngine } from "../engine/engine";
+import type { AtlasStats } from "../engine/types";
+import { pageGpuAtlasStats } from "./gpu-atlas-page";
 import { engineStats } from "./gpu-canvas-api";
 import type { SurfaceMirror } from "./surface-mirror";
 import { lastReachMarks } from "./reach-live";
@@ -25,6 +27,8 @@ type FullHook = CanvasTestHook & {
   readonly focused: () => NodeId | "";
   /** The wire mode the shell has pushed to the engine (shell/wire-mode.ts). */
   readonly wireMode: () => string;
+  /** Observable atlas counters (pages, evictions, failures, bytesInUse, visibleBlank, etc.). */
+  readonly atlasStats: () => AtlasStats;
 };
 
 const inset = (rect: Rect, dx: number, dy: number): Rect => ({
@@ -73,7 +77,13 @@ const partRect = (mirror: SurfaceMirror, id: NodeId, part: string | undefined): 
   return undefined;
 };
 
-const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined, atlasRequests: () => number, atlasPending: () => number): FullHook => {
+const build = (
+  mirror: SurfaceMirror,
+  engine: () => SeamEngine | undefined,
+  atlasRequests: () => number,
+  atlasPending: () => number,
+  atlasStats: () => AtlasStats,
+): FullHook => {
   const cardIds = (): ReadonlyArray<NodeId> =>
     mirror.cardIds().filter((id) => mirror.card(id)?.row.kind !== "region");
   const rect = (id: NodeId, part?: string): Rect | null => {
@@ -120,6 +130,7 @@ const build = (mirror: SurfaceMirror, engine: () => SeamEngine | undefined, atla
     wireMode: () => mirror.wireMode(),
     atlasRequests,
     atlasPending,
+    atlasStats,
   };
 };
 
@@ -137,9 +148,10 @@ export const installCanvasTestHook = (
   engine: () => SeamEngine | undefined,
   atlasRequests: () => number = () => 0,
   atlasPending: () => number = () => 0,
+  atlasStats: () => AtlasStats = pageGpuAtlasStats,
 ): (() => void) => {
   if (!canvasTestHookWanted()) return () => undefined;
-  const hook = build(mirror, engine, atlasRequests, atlasPending);
+  const hook = build(mirror, engine, atlasRequests, atlasPending, atlasStats);
   (window as unknown as { __juntoCanvas?: FullHook }).__juntoCanvas = hook;
   return () => {
     const held = (window as unknown as { __juntoCanvas?: FullHook }).__juntoCanvas;
