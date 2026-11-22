@@ -864,6 +864,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     // animation, and a last-frame angle can be a frame behind it.
     ringAngle: (id) => scene.ringAngle(id, wallNow()),
     partsOf: (id) => scene.partsOf(id),
+    seatStats: () => scene.seatStats(),
     setCull: (mode) => {
       scene.setCullOnGpu(mode === "gpu");
       renderer.setCull(mode);

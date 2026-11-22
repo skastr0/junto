@@ -5,7 +5,7 @@
  * gives. Facts come from the shell's mirror, never from a DOM card.
  */
 
-import type { CanvasTestHook, DrawnCluster, DrawnPart, Hit, NodeId, Part, Point, Rect } from "../contract";
+import type { CanvasTestHook, DrawnCluster, DrawnPart, Hit, NodeId, Part, Point, Rect, SeatStats } from "../contract";
 import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
 import type { SeamEngine } from "../engine/engine";
 import type { AtlasStats } from "../engine/types";
@@ -35,6 +35,8 @@ type FullHook = CanvasTestHook & {
   readonly partsOf: (id: NodeId) => ReadonlyArray<DrawnPart>;
   /** Painted quads for a cluster badge, with rect in page screen pixels. */
   readonly badgePartsOf: (key: string) => ReadonlyArray<DrawnPart>;
+  /** In-view seats nothing draws or picks, and missing or waiting portraits (issue 912). */
+  readonly seatStats: () => SeatStats | undefined;
   /** Painted cluster badges at far/overview, with x, y, radius in page screen pixels. */
   readonly clusters: () => ReadonlyArray<DrawnCluster>;
   /** Cull the draw list on the CPU or the GPU, for the issue 912 comparison. */
@@ -173,6 +175,7 @@ const build = (
     partsOf: (id) => mapParts(engine()?.partsOf?.(id) ?? []),
     setCull: (mode) => engine()?.setCull?.(mode),
     badgePartsOf: (key) => mapParts(engine()?.badgePartsOf?.(key) ?? []),
+    seatStats: () => engine()?.seatStats?.(),
     clusters: () => {
       const cam = mirror.camera();
       const o = origin();

@@ -2209,6 +2209,68 @@ export const createScene = (options: {
     visiblePlaceholders = held;
   };
 
+  /** The view the last prepare checked, for `seatStats`. */
+  let seatCheckView: Rect | undefined;
+
+  /** A quad this tier draws, and whether its image is in. */
+  const liveRef = (ref: QuadRef): boolean => (ref.tiers & liveMask) !== 0 && gateOpen(ref.painted);
+  const imageIn = (ref: QuadRef): boolean => {
+    const cell = cellOf(ref.slot);
+    return cell !== NO_ATLAS_CELL && hasImage(cell);
+  };
+
+  /**
+   * What the operator can reach and see of the seats in view, on the last
+   * prepared frame (issue 912, rulings 3 and 6). `visibleBlank` counts quads
+   * waiting on an image; these count what that misses. A seat is unshown
+   * when neither its own quads nor a drawn badge stand for it: nothing picks
+   * it. A portrait is missing when the seat's (or its badge's) portrait quad
+   * is not drawn at all, and waiting when it is drawn with no image yet (a
+   * placeholder stands in). Read on demand: a frame pays nothing for it.
+   */
+  const seatStats = (): {
+    readonly inView: number;
+    readonly unshown: number;
+    readonly portraitsMissing: number;
+    readonly portraitsWaiting: number;
+    readonly badgesInView: number;
+    readonly unshownIds: ReadonlyArray<NodeId>;
+  } => {
+    const view = seatCheckView;
+    let inView = 0;
+    let portraitsMissing = 0;
+    let portraitsWaiting = 0;
+    const unshownIds: NodeId[] = [];
+    const badges = new Set<ClusterSlot>();
+    if (view !== undefined) {
+      for (const card of byId.values()) {
+        if (card.fact.row.kind !== "agent" || card.live === undefined || !intersects(card.rect, view)) continue;
+        inView += 1;
+        if (gatheredSeats.has(card.id)) {
+          const key = badgeOfSeat.get(card.id);
+          const badge = key === undefined ? undefined : clusterSlots.get(key);
+          if (badge === undefined || badge.stamp !== liveEpoch || !clustersActive.includes(badge) || !badge.ordered.some(liveRef)) unshownIds.push(card.id);
+          else badges.add(badge);
+          continue;
+        }
+        const drawn = card.stamp === liveEpoch && card.role.view ? card.ordered.filter(liveRef) : [];
+        if (drawn.length === 0) {
+          unshownIds.push(card.id);
+          continue;
+        }
+        const portrait = drawn.find((ref) => ref.key.endsWith("portrait"));
+        if (portrait === undefined) portraitsMissing += 1;
+        else if (portrait.atlas && !imageIn(portrait)) portraitsWaiting += 1;
+      }
+      for (const badge of badges) {
+        const portrait = badge.ordered.find((ref) => liveRef(ref) && ref.key.endsWith("portrait"));
+        if (portrait === undefined) portraitsMissing += 1;
+        else if (portrait.atlas && !imageIn(portrait)) portraitsWaiting += 1;
+      }
+    }
+    return { inView, unshown: unshownIds.length, portraitsMissing, portraitsWaiting, badgesInView: badges.size, unshownIds };
+  };
+
   /** The record is in the draw list and its owner meets the view. */
   const drawnInView = (slot: number, ref: QuadRef, view: Rect): boolean => {
     if ((ref.tiers & liveMask) === 0 || !gateOpen(ref.painted)) return false;
@@ -2301,6 +2363,7 @@ export const createScene = (options: {
       lastAtlasRevision = revision;
     }
     checkBlank(view, frameAt);
+    seatCheckView = view;
     refreshMotion(view);
 
     let changed = false;
@@ -2471,6 +2534,7 @@ export const createScene = (options: {
     prepare,
     prefetch,
     partsOf,
+    seatStats,
     badgePartsOf,
     clusters,
     /** Build the draw list for a GPU cull (every tier) or the CPU one (the current tier only). */

@@ -174,6 +174,42 @@ describe("seat clusters at far and overview", () => {
     expect(scene.clusterAt({ x: 128, y: 28 })).toEqual(["a", "b"]);
   });
 
+  it("counts in-view seats nothing draws, and leaves none after a run of selections (issue 912)", () => {
+    const { scene } = clustered(0.3, "far");
+    // All three gathered into one drawn badge: every seat reachable.
+    expect(scene.seatStats()).toMatchObject({ inView: 3, unshown: 0, badgesInView: 1 });
+    // The proof's pass: select each seat in turn, clear, and come back from near.
+    for (const id of ["a", "b", "c", "a"]) {
+      scene.apply({ kind: "selection", fact: { nodeIds: [id] } });
+      scene.prepare(VIEW, "far");
+      expect(scene.seatStats().unshown).toBe(0);
+    }
+    scene.apply({ kind: "selection", fact: { nodeIds: [] } });
+    scene.prepare(VIEW, "near");
+    scene.prepare(VIEW, "overview");
+    scene.prepare(VIEW, "far");
+    expect(scene.seatStats()).toMatchObject({ unshown: 0, badgesInView: 1 });
+    expect(scene.clusterAt({ x: 148, y: 28 })).toEqual(["a", "b", "c"]);
+  });
+
+  it("sees a seat whose own quads this tier does not draw", () => {
+    const scene = createScene({
+      painter: (fact, live, cardView) => {
+        const painted = oneQuad(fact, live, cardView);
+        // c paints only at near: at far nothing stands for it.
+        return fact.id === "c" ? { ...painted, quads: painted.quads.map((quad) => ({ ...quad, tiers: 1 })) } : painted;
+      },
+      zoom: () => 2,
+    });
+    const facts = [seats()[0]!, { ...seats()[2]!, row: { ...seats()[2]!.row, x: 600 } } as CardFact];
+    load(scene, facts);
+    for (const fact of facts) scene.apply({ kind: "seat", id: fact.id, live: work() });
+    scene.prepare(VIEW, "far");
+    // Neither gathered (too far apart at zoom 2): a draws, c draws nothing, and
+    // neither paints a portrait.
+    expect(scene.seatStats()).toMatchObject({ inView: 2, unshown: 1, unshownIds: ["c"], portraitsMissing: 1 });
+  });
+
   it("a selected seat stays apart, so the rest regroup around it", () => {
     const { scene, facts } = clustered(0.3, "far");
     scene.apply({ kind: "selection", fact: { nodeIds: ["a"] } });

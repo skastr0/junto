@@ -835,6 +835,11 @@ export interface Engine {
   readonly badgePartsOf?: (key: string) => ReadonlyArray<DrawnPart>;
   /** The badges the last frame planned, each standing for its members. */
   readonly clusters?: () => ReadonlyArray<DrawnCluster>;
+  /**
+   * The seats in view on the last frame that nothing draws or picks, and the
+   * portraits they or their badges lack (issue 912, rulings 3 and 6).
+   */
+  readonly seatStats?: () => SeatStats;
   readonly stats: () => EngineStats;
   readonly dispose: () => void;
 }
@@ -862,6 +867,19 @@ export type DrawnPart = {
 };
 
 /** A cluster badge the last frame planned (test hook only). */
+/** Seats in view, by what draws them (see `CanvasEngine.seatStats`). */
+export type SeatStats = {
+  readonly inView: number;
+  /** In view, drawn by neither its own quads nor a drawn badge. */
+  readonly unshown: number;
+  /** A drawn seat or badge whose portrait quad is not drawn. */
+  readonly portraitsMissing: number;
+  /** A drawn portrait whose image has not landed (its placeholder shows). */
+  readonly portraitsWaiting: number;
+  readonly badgesInView: number;
+  readonly unshownIds: ReadonlyArray<NodeId>;
+};
+
 export type DrawnCluster = {
   readonly key: string;
   /** The disc's centre and radius, in board units. */
