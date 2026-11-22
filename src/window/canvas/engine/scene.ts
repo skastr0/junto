@@ -1680,6 +1680,13 @@ export const createScene = (options: {
   let liveCards: CardSlot[] = [];
   let liveBadges: ClusterSlot[] = [];
   let lastRange = "";
+  /**
+   * Design values for the range's hysteresis: a new range reaches an eighth
+   * of its side past the need on each edge, and is kept until it is half as
+   * wide again as the need (a zoom in of a third, or a pan of an eighth).
+   */
+  const RANGE_SLACK = 1 / 8;
+  const RANGE_KEEP = 1.5;
   let lastAhead = "";
   let lastRangeRect: Rect = { x: 0, y: 0, width: -1, height: -1 };
   let lastTier: CanvasTier | undefined;
@@ -1844,6 +1851,33 @@ export const createScene = (options: {
     return cards;
   };
 
+  /**
+   * The range the order list covers for this view (issue 915). A range is
+   * kept while it holds the view and its margin and is no more than
+   * RANGE_KEEP of their side: a pan or zoom at far crossed a cell edge almost
+   * every frame, and each crossing rebuilt the list. A new range takes
+   * RANGE_SLACK of the side on each edge before snapping to cells, so the
+   * next rebuild waits for that much travel.
+   */
+  const rangeFor = (view: Rect, zoom: number): { readonly key: string; readonly rect: Rect } => {
+    const need = insetBy(view, marginAt(zoom));
+    const kept = lastRangeRect;
+    if (
+      lastRange !== "" &&
+      kept.x <= need.x &&
+      kept.y <= need.y &&
+      kept.x + kept.width >= need.x + need.width &&
+      kept.y + kept.height >= need.y + need.height &&
+      kept.width <= need.width * RANGE_KEEP + 2 * CARD_CELL &&
+      kept.height <= need.height * RANGE_KEEP + 2 * CARD_CELL
+    ) {
+      return { key: lastRange, rect: kept };
+    }
+    const dx = need.width * RANGE_SLACK;
+    const dy = need.height * RANGE_SLACK;
+    return cellRange({ x: need.x - dx, y: need.y - dy, width: need.width + 2 * dx, height: need.height + 2 * dy });
+  };
+
   /** The grid cells a rectangle covers, as the rectangle of their union. */
   const cellRange = (rect: Rect): { readonly key: string; readonly rect: Rect } => {
     const left = Math.floor(rect.x / CARD_CELL);
@@ -1969,7 +2003,7 @@ export const createScene = (options: {
     liveEpoch += 1;
     spliceQueue.clear();
     ensurePaintIndex();
-    const range = cellRange(insetBy(view, marginAt(zoom)));
+    const range = rangeFor(view, zoom);
     lastRange = range.key;
     lastRangeRect = range.rect;
     visibleSlots.length = 0;
@@ -2222,7 +2256,7 @@ export const createScene = (options: {
       jumpTier = undefined;
       jumpMask = 0;
     }
-    const range = cellRange(insetBy(view, marginAt(zoom))).key;
+    const range = rangeFor(view, zoom).key;
     const rebuilt =
       !orderReady ||
       orderDirty ||
