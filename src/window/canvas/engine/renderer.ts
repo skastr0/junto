@@ -43,12 +43,29 @@ const SHADOW_SPEC_WORDS = 4;
 const SHADER = /* wgsl */ `
 const TRANSITION_MS = ${DURATION.state.toFixed(1)};
 
-${QUAD_STRUCTS}struct VSOut {
+${QUAD_STRUCTS}// Everything a quad's pixels share is worked out once per vertex and handed
+// down flat; only the local position and the gradient parameters (affine in
+// it, so exact under interpolation) vary across the quad (#915).
+struct VSOut {
   @builtin(position) pos: vec4f,
   @location(0) local: vec2f,
-  @location(1) half: vec2f,
-  @location(2) @interpolate(flat) slot: u32,
-  @location(3) corner: vec2f,
+  // The gradient parameter of the style and of the one it fades from, and the fade.
+  @location(1) grad: vec3f,
+  // half size, mip level, ring phase (-1: not a turning ring).
+  @location(2) @interpolate(flat) geo: vec4f,
+  @location(3) @interpolate(flat) fillA: vec4f,
+  @location(4) @interpolate(flat) fillB: vec4f,
+  @location(5) @interpolate(flat) prevA: vec4f,
+  @location(6) @interpolate(flat) prevB: vec4f,
+  @location(7) @interpolate(flat) stroke: vec4f,
+  @location(8) @interpolate(flat) ink: vec4f,
+  @location(9) @interpolate(flat) radii: vec4f,
+  // stroke width, hole, alpha scale (style, owner and motion), saturation.
+  @location(10) @interpolate(flat) misc: vec4f,
+  // kind, shape, shadow spec + 1 (0: none), has a cell.
+  @location(11) @interpolate(flat) ids: vec4u,
+  @location(12) @interpolate(flat) cellUv: vec4f,
+  @location(13) @interpolate(flat) cellPage: vec4f,
 };
 
 struct AtlasCell {
@@ -92,14 +109,16 @@ fn styleColour(base: u32, at: u32) -> vec4f {
   return vec4f(styles[base + at], styles[base + at + 1u], styles[base + at + 2u], styles[base + at + 3u]);
 }
 
-fn filled(base: u32, local: vec2f) -> vec4f {
-  let stopA = styleColour(base, 0u);
+/** A style's far gradient stop; a solid fill is its own far stop. */
+fn fillEnd(base: u32) -> vec4f {
   let stopB = styleColour(base, 4u);
-  if (stopB.a <= 0.0) { return stopA; }
+  return select(stopB, styleColour(base, 0u), stopB.a <= 0.0);
+}
+
+/** Where a point sits along a style's gradient, unclamped (affine in local). */
+fn gradientAt(base: u32, local: vec2f) -> f32 {
   let theta = styles[base + 8u] * PI2 / 360.0;
-  let dir = vec2f(sin(theta), -cos(theta));
-  let t = clamp(dot(local, dir) * 0.5 + 0.5, 0.0, 1.0);
-  return mix(stopA, stopB, t);
+  return dot(local, vec2f(sin(theta), -cos(theta))) * 0.5 + 0.5;
 }
 
 ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VSOut {
@@ -157,40 +176,31 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
   let clip = vec2f(screen.x / u.view.x * 2.0 - 1.0, 1.0 - screen.y / u.view.y * 2.0);
   out.pos = select(vec4f(2.0, 2.0, 2.0, 1.0), vec4f(clip, 0.0, 1.0), tierOn);
   out.local = local;
-  out.half = size * 0.5;
-  out.slot = slot;
-  out.corner = corner;
-  return out;
-}
 
-@fragment fn fs(in: VSOut) -> @location(0) vec4f {
-  let q = quads[in.slot];
-  let o = owners[q.owner];
-  let ppu = u.camera.z * u.view.z;
-  // The vertex shader scales the half-size by the quad's rule and motion;
-  // the record's radii and hole are authored in the unscaled board rect.
-  // Scale them with the same factor or a bloomed pill's 28 radius arcs over
-  // a 112 high box and the drop's hole leaves a gap at its rounded corners.
-  let quadScale = select(1.0, (in.half.x * 2.0) / q.rect.z, q.rect.z > 0.001);
-  let qRadii = q.radii * quadScale;
-  let qHole = q.hole * quadScale;
+  // The style, faded from the previous one over the transition.
   let base = q.style * STYLE;
-  let strokeWidth = styles[base + 13u];
-  let shadowId = i32(styles[base + 17u]);
-
-  var fill = filled(base, in.local);
+  out.fillA = styleColour(base, 0u);
+  out.fillB = fillEnd(base);
+  out.prevA = out.fillA;
+  out.prevB = out.fillB;
   var stroke = styleColour(base, 9u);
   var ink = styleColour(base, 18u);
   var styleOpacity = styles[base + 22u];
+  var styleMix = 1.0;
+  var gPrev = 0.0;
   if (q.previousStyle != q.style && q.previousStyle != 0xffffffffu) {
     let previousBase = q.previousStyle * STYLE;
-    let t = smoothstep(0.0, 1.0, clamp((u.view.w - q.changeAt) / TRANSITION_MS, 0.0, 1.0));
-    fill = mix(filled(previousBase, in.local), fill, t);
-    stroke = mix(styleColour(previousBase, 9u), stroke, t);
-    ink = mix(styleColour(previousBase, 18u), ink, t);
-    styleOpacity = mix(styles[previousBase + 22u], styleOpacity, t);
+    styleMix = smoothstep(0.0, 1.0, clamp((u.view.w - q.changeAt) / TRANSITION_MS, 0.0, 1.0));
+    out.prevA = styleColour(previousBase, 0u);
+    out.prevB = fillEnd(previousBase);
+    gPrev = gradientAt(previousBase, local);
+    stroke = mix(styleColour(previousBase, 9u), stroke, styleMix);
+    ink = mix(styleColour(previousBase, 18u), ink, styleMix);
+    styleOpacity = mix(styles[previousBase + 22u], styleOpacity, styleMix);
   }
-  if (ink.a <= 0.0) { ink = fill; }
+  out.grad = vec3f(gradientAt(base, local), gPrev, styleMix);
+  out.stroke = stroke;
+  out.ink = ink;
 
   var motionAlpha = 1.0;
   if (q.motion == 1u) {
@@ -213,10 +223,70 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
     motionAlpha = clamp((u.view.w - q.motionSince) / 200.0, 0.0, 1.0);
   }
 
+  // The record's radii and hole are authored in the unscaled board rect.
+  // Scale them with the quad's rule and motion, or a bloomed pill's 28
+  // radius arcs over a 112 high box and the drop's hole leaves a gap at its
+  // rounded corners.
+  let quadScale = select(1.0, size.x / q.rect.z, q.rect.z > 0.001);
+  out.radii = q.radii * quadScale;
+  let shadowId = styles[base + 17u];
+  out.misc = vec4f(styles[base + 13u], q.hole * quadScale, styleOpacity * o.p.w * motionAlpha, o.q.x);
+  let hasCell = q.kind >= 2u && q.source != 0xffffffffu;
+  out.ids = vec4u(q.kind, q.shape, select(0u, u32(shadowId) + 1u, shadowId >= 0.0), select(0u, 1u, hasCell));
+
+  // A turning disc's sweep phase, the direction flag applied.
+  var ringPhase = -1.0;
+  if (q.shape == 1u && q.motion == 1u) {
+    ringPhase = phaseOfQuad(q);
+    if ((q.motionFlags & 1u) != 0u) { ringPhase = 1.0 - ringPhase; }
+  }
+
+  // The cell, and its mip level: its texels over the device pixels it
+  // covers, so a sprite drawn smaller than its raster reads the mips (#911).
+  // A per-instance branch is not uniform control flow, where textureSample
+  // and derivatives are not allowed, so the level is worked out here.
+  var lod = 0.0;
+  out.cellUv = vec4f(0.0);
+  out.cellPage = vec4f(0.0);
+  if (hasCell) {
+    let cell = cells[q.source];
+    out.cellUv = cell.uv;
+    out.cellPage = cell.page;
+    if (q.kind == 2u) {
+      let dims = vec2f(textureDimensions(atlas));
+      let tiles = select(vec2f(1.0), cell.page.yz, cell.page.y > 0.5);
+      let texels = abs(cell.uv.zw - cell.uv.xy) * tiles * dims;
+      let covered = max(size * u.camera.z * u.view.z, vec2f(1.0));
+      lod = max(0.0, log2(max(texels.x / covered.x, texels.y / covered.y)));
+    }
+  }
+  out.geo = vec4f(size * 0.5, lod, ringPhase);
+  return out;
+}
+
+@fragment fn fs(in: VSOut) -> @location(0) vec4f {
+  let ppu = u.camera.z * u.view.z;
+  let half = in.geo.xy;
+  let qRadii = in.radii;
+  let qHole = in.misc.y;
+  let strokeWidth = in.misc.x;
+  let kind = in.ids.x;
+  let shape = in.ids.y;
+
+  let fill = mix(
+    mix(in.prevA, in.prevB, clamp(in.grad.y, 0.0, 1.0)),
+    mix(in.fillA, in.fillB, clamp(in.grad.x, 0.0, 1.0)),
+    in.grad.z,
+  );
+  let stroke = in.stroke;
+  var ink = in.ink;
+  if (ink.a <= 0.0) { ink = fill; }
+  var sweepAlpha = 1.0;
+
   // A shadow quad draws the style's shadow layers, each a blurred ring or drop.
-  if (q.kind == 1u) {
-    if (shadowId < 0) { return vec4f(0.0); }
-    let spec = shadowMeta[u32(shadowId)];
+  if (kind == 1u) {
+    if (in.ids.z == 0u) { return vec4f(0.0); }
+    let spec = shadowMeta[in.ids.z - 1u];
     let count = min(spec.x, 32u);
     var outColour = vec3f(0.0);
     var outAlpha = 0.0;
@@ -224,8 +294,8 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
     // outside that box. The painter grows the quad past the element to give a
     // glow room and names the growth as its hole; without the hole the solid
     // first layer of a ring shadow fills the card with its tint.
-    let baseHalf = max(in.half - vec2f(qHole), vec2f(0.0));
-    let p0 = abs(in.local * in.half);
+    let baseHalf = max(half - vec2f(qHole), vec2f(0.0));
+    let p0 = abs(in.local * half);
     // The element: q.radii are its used radii already (shadow() clamps them
     // to the element box), each corner its own.
     let holeRight = select(qRadii.x, qRadii.y, in.local.x > 0.0);
@@ -244,7 +314,7 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
       let layer = shadowLayers[spec.y + i * 2u];
       let tint = shadowLayers[spec.y + i * 2u + 1u];
       let inset = (insetMask & (1u << i)) != 0u;
-      let lp = in.local * in.half - vec2f(layer.x, layer.y);
+      let lp = in.local * half - vec2f(layer.x, layer.y);
       let p = abs(lp);
       // An outer layer is the element grown by its spread; an inset one is
       // the element shrunk by it, and its shadow is what that box leaves.
@@ -262,7 +332,7 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
       let blur = max(layer.z, 0.5);
       let cover = clamp(0.5 - d / blur, 0.0, 1.0);
       let soft = select(cover * outside, (1.0 - cover) * inside, inset);
-      let a = tint.a * soft * styleOpacity * o.p.w * motionAlpha;
+      let a = tint.a * soft * in.misc.z;
       outColour = outColour + tint.rgb * a * (1.0 - outAlpha);
       outAlpha = outAlpha + a * (1.0 - outAlpha);
     }
@@ -274,19 +344,17 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
   var inner = 0.0;
   var ringBand = 0.0;
 
-  if (q.shape == 1u) {
-    let dist = length(in.local * in.half);
-    let r = min(in.half.x, in.half.y);
+  if (shape == 1u) {
+    let dist = length(in.local * half);
+    let r = min(half.x, half.y);
     outer = clamp(0.5 - (dist - r) * ppu, 0.0, 1.0);
-    if (q.motion == 1u) {
+    if (in.geo.w >= 0.0) {
       let ring = clamp(0.5 - (dist - r * 0.82) * ppu, 0.0, 1.0);
       ringBand = max(0.0, outer - ring);
       let turn = atan2(in.local.y, in.local.x) / PI2 + 0.5;
-      var phase = phaseOfQuad(q);
-      if ((q.motionFlags & 1u) != 0u) { phase = 1.0 - phase; }
-      let sweep = fract(turn + phase);
+      let sweep = fract(turn + in.geo.w);
       // The fade flag rides the common turn branch below; the sweep holds shape only.
-      motionAlpha = motionAlpha * (0.22 + 0.78 * sweep * sweep);
+      sweepAlpha = 0.22 + 0.78 * sweep * sweep;
       inner = 0.0;
     } else if (strokeWidth > 0.0) {
       // A disc's stroke is a rim just inside its edge, the width a rect's
@@ -297,12 +365,12 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
       inner = outer;
     }
   } else {
-    let p = abs(in.local * in.half);
+    let p = abs(in.local * half);
     let right = select(qRadii.x, qRadii.y, in.local.x > 0.0);
     let left = select(qRadii.w, qRadii.z, in.local.x > 0.0);
     // CSS never lets a radius pass half the shorter side; a pill asks for 999.
-    let rr = min(select(right, left, in.local.y > 0.0), min(in.half.x, in.half.y));
-    let corner = p - in.half + rr;
+    let rr = min(select(right, left, in.local.y > 0.0), min(half.x, half.y));
+    let corner = p - half + rr;
     let d = length(max(corner, vec2f(0.0))) + min(max(corner.x, corner.y), 0.0) - rr;
     outer = clamp(0.5 - d * ppu, 0.0, 1.0);
     inner = clamp(0.5 - (d + max(strokeWidth, 0.0)) * ppu, 0.0, 1.0);
@@ -318,40 +386,36 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
     alpha = fill.a * inner + stroke.a * max(0.0, outer - inner);
   }
 
-  if (q.kind >= 2u) {
-    if (q.source == 0xffffffffu) {
+  if (kind >= 2u) {
+    if (in.ids.w == 0u) {
       // A text or sprite quad with no cell yet draws nothing; without this
       // the fill path above would stamp the style's fill across the rect.
       alpha = 0.0;
     } else {
-      let cell = cells[q.source];
-      var uv = mix(cell.uv.xy, cell.uv.zw, in.corner);
-      var layer = i32(cell.page.x);
-      if (cell.page.y > 0.5) {
-        let tx = clamp(i32(floor(uv.x * cell.page.y)), 0, i32(cell.page.y) - 1);
-        let ty = clamp(i32(floor(uv.y * cell.page.z)), 0, i32(cell.page.z) - 1);
-        layer = ty * i32(cell.page.y) + tx;
-        uv = vec2f(uv.x * cell.page.y - f32(tx), uv.y * cell.page.z - f32(ty));
+      let page = in.cellPage;
+      var uv = mix(in.cellUv.xy, in.cellUv.zw, in.local * 0.5 + 0.5);
+      var layer = i32(page.x);
+      if (page.y > 0.5) {
+        let tx = clamp(i32(floor(uv.x * page.y)), 0, i32(page.y) - 1);
+        let ty = clamp(i32(floor(uv.y * page.z)), 0, i32(page.z) - 1);
+        layer = ty * i32(page.y) + tx;
+        uv = vec2f(uv.x * page.y - f32(tx), uv.y * page.z - f32(ty));
       }
-      // Level sample: a per-instance branch is not uniform control flow, where
-      // textureSample and derivatives are not allowed. The level is worked
-      // out instead: the cell's texels over the device pixels it covers, so
-      // a sprite drawn smaller than its raster reads the page's mips (#911).
-      let dims = vec2f(textureDimensions(atlas));
-      let tiles = select(vec2f(1.0), cell.page.yz, cell.page.y > 0.5);
-      let texels = abs(cell.uv.zw - cell.uv.xy) * tiles * dims;
-      let covered = max(in.half * 2.0 * ppu, vec2f(1.0));
-      let lod = select(0.0, max(0.0, log2(max(texels.x / covered.x, texels.y / covered.y))), q.kind == 2u);
-      let tex = textureSampleLevel(atlas, atlasSampler, uv, layer, lod);
-      if (q.kind == 3u) {
+      if (kind == 3u) {
         // Split pages hold coverage in r. The rgba pages hold white coverage
         // over transparent, unpremultiplied: there alpha is the coverage, and
         // r is white inside every edge texel (reading it made text bold).
-        let split = textureSampleLevel(coverageAtlas, atlasSampler, uv, layer, 0.0).r;
-        let coverage = select(tex.a, split, u.misc.z > 0.5);
+        // Only the texture the text lives in is sampled.
+        var coverage = 0.0;
+        if (u.misc.z > 0.5) {
+          coverage = textureSampleLevel(coverageAtlas, atlasSampler, uv, layer, 0.0).r;
+        } else {
+          coverage = textureSampleLevel(atlas, atlasSampler, uv, layer, 0.0).a;
+        }
         colour = ink.rgb;
         alpha = coverage * ink.a * outer;
       } else {
+        let tex = textureSampleLevel(atlas, atlasSampler, uv, layer, in.geo.z);
         let tint = select(vec4f(1.0), fill, fill.a > 0.0);
         colour = tex.rgb * tint.rgb;
         alpha = tex.a * select(1.0, tint.a, fill.a > 0.0) * outer;
@@ -359,10 +423,10 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
     }
   }
 
-  alpha = alpha * styleOpacity * o.p.w * motionAlpha;
+  alpha = alpha * in.misc.z * sweepAlpha;
   if (alpha < 0.002) { return vec4f(0.0); }
   let luma = dot(colour, vec3f(0.2126, 0.7152, 0.0722));
-  colour = mix(vec3f(luma), colour, clamp(o.q.x, 0.0, 1.0));
+  colour = mix(vec3f(luma), colour, clamp(in.misc.w, 0.0, 1.0));
   return vec4f(colour * alpha, alpha);
 }
 `;
@@ -667,12 +731,13 @@ export const createRenderer = () => {
       entries: [
         { binding: 0, visibility: STAGE.VERTEX | STAGE.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 1, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
-        { binding: 2, visibility: STAGE.VERTEX | STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
-        { binding: 3, visibility: STAGE.VERTEX | STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
-        { binding: 4, visibility: STAGE.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d-array" } },
+        { binding: 2, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
+        { binding: 3, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
+        // The vertex stage reads the atlas's size for a sprite's mip level.
+        { binding: 4, visibility: STAGE.VERTEX | STAGE.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d-array" } },
         { binding: 5, visibility: STAGE.FRAGMENT, sampler: { type: "filtering" } },
-        { binding: 6, visibility: STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
-        { binding: 7, visibility: STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
+        { binding: 6, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
+        { binding: 7, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
         { binding: 8, visibility: STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
         { binding: 9, visibility: STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
         { binding: 10, visibility: STAGE.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d-array" } },

@@ -31,7 +31,8 @@ describe("the quad shader's names", () => {
     // The atlas is white coverage over transparent, unpremultiplied: r is 1
     // inside edge texels, so using it made every antialiased glyph edge opaque.
     // Split r8unorm pages hold coverage in r; unsplit rgba pages in alpha.
-    expect(QUAD_SHADER).toContain("let coverage = select(tex.a, split, u.misc.z > 0.5);");
+    expect(QUAD_SHADER).toContain("coverage = textureSampleLevel(coverageAtlas, atlasSampler, uv, layer, 0.0).r;");
+    expect(QUAD_SHADER).toContain("coverage = textureSampleLevel(atlas, atlasSampler, uv, layer, 0.0).a;");
     expect(QUAD_SHADER).toContain("alpha = coverage * ink.a * outer;");
     expect(QUAD_SHADER).not.toContain("alpha = tex.r * ink.a * outer;");
   });
@@ -41,6 +42,11 @@ describe("the quad shader's names", () => {
     // the far scale at every tier but overview.
     expect(QUAD_SHADER).not.toContain("select(far, floorScale, tierBit == 8u)");
     expect(QUAD_SHADER).toContain("if (tierBit == 4u)");
+  });
+
+  it("reads the records, owners, styles and cells once per vertex, never per pixel (#915)", () => {
+    const fragment = QUAD_SHADER.slice(QUAD_SHADER.indexOf("@fragment fn fs"));
+    for (const fetch of ["quads[", "owners[", "styles[", "cells[", "phaseOfQuad("]) expect(fragment).not.toContain(fetch);
   });
 
   it("binds every table the pipeline layout gives it", () => {
@@ -54,11 +60,14 @@ describe("the quad shader's names", () => {
     // The vertex shader scales in.half by the hover rule, but the record's
     // radii and hole are authored in the unscaled board rect. Unscaled they
     // broke the pill arc and left a 20px gap at the drop's rounded corners.
+    // Worked out once per quad in the vertex stage (#915), read flat below.
+    const vertex = QUAD_SHADER.slice(0, QUAD_SHADER.indexOf("@fragment fn fs"));
     const fragment = QUAD_SHADER.slice(QUAD_SHADER.indexOf("@fragment fn fs"));
-    expect(fragment).toContain("let quadScale = select(1.0, (in.half.x * 2.0) / q.rect.z, q.rect.z > 0.001);");
-    expect(fragment).toContain("let qRadii = q.radii * quadScale;");
-    expect(fragment).toContain("let qHole = q.hole * quadScale;");
-    expect(fragment).toContain("let baseHalf = max(in.half - vec2f(qHole), vec2f(0.0));");
+    expect(vertex).toContain("let quadScale = select(1.0, size.x / q.rect.z, q.rect.z > 0.001);");
+    expect(vertex).toContain("out.radii = q.radii * quadScale;");
+    expect(vertex).toContain("q.hole * quadScale");
+    expect(vertex).toContain("out.geo = vec4f(size * 0.5, lod, ringPhase);");
+    expect(fragment).toContain("let baseHalf = max(half - vec2f(qHole), vec2f(0.0));");
     expect(fragment).toContain("let layerRight = select(qRadii.x, qRadii.y, lp.x > 0.0);");
     expect(fragment).toContain("let right = select(qRadii.x, qRadii.y, in.local.x > 0.0);");
     expect(fragment).not.toContain("select(q.radii.x");
@@ -93,9 +102,12 @@ describe("the quad shader's names", () => {
   });
 
   it("breathes a fading turn (glint) and keeps the disc sweep's fade", () => {
+    const vertex = QUAD_SHADER.slice(0, QUAD_SHADER.indexOf("@fragment fn fs"));
     const fragment = QUAD_SHADER.slice(QUAD_SHADER.indexOf("@fragment fn fs"));
-    expect(fragment).toContain("if (q.motion == 1u) {");
-    expect(fragment).toContain("motionAlpha = 0.5 - 0.5 * cos(phaseOfQuad(q) * PI2);");
-    expect(fragment).toContain("motionAlpha = motionAlpha * (0.22 + 0.78 * sweep * sweep);");
+    expect(vertex).toContain("if (q.motion == 1u) {");
+    expect(vertex).toContain("if ((q.motionFlags & 2u) != 0u) { motionAlpha = 0.5 - 0.5 * cos(phaseOfQuad(q) * PI2); }");
+    expect(vertex).toContain("if ((q.motionFlags & 1u) != 0u) { ringPhase = 1.0 - ringPhase; }");
+    expect(fragment).toContain("sweepAlpha = 0.22 + 0.78 * sweep * sweep;");
+    expect(fragment).toContain("alpha = alpha * in.misc.z * sweepAlpha;");
   });
 });
