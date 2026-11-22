@@ -35,6 +35,7 @@
 
 import { test, expect, type Page } from "@playwright/test";
 import { createRequire } from "node:module";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { NestedCanvasFixture } from "../harness/nested-canvas-fixture";
@@ -1156,6 +1157,39 @@ test.describe("#913 GPU canvas proof", () => {
           if (clusterPicks.drawn > 0 && clusterPicks.cluster === 0) {
             fail(`${String(scale)}x ${tier.name}: ${String(clusterPicks.drawn)} drawn cluster badges answer no cluster hit (${JSON.stringify(clusterPicks)})`);
           }
+          // A canvas that draws nothing must fail loudly: ink in the pane and
+          // in every visible card's rect, plus a reference image per tier.
+          const paneInk = partInk(image, viewport, pane);
+          const cardRects = await page.evaluate((ids) => {
+            const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+            return ids.flatMap((id) => {
+              const rect = hook?.["rectOf"]?.(id) as ScreenRect | undefined;
+              if (rect === undefined || rect.width <= 4 || rect.height <= 4) return [];
+              if (rect.x < 0 || rect.y < 0 || rect.x + rect.width > window.innerWidth || rect.y + rect.height > window.innerHeight) return [];
+              return [{ id, rect }];
+            });
+          }, board.model.nodes.map((node) => node.id));
+          const inkless = cardRects
+            .slice(0, 300)
+            .filter((card) => partInk(image, viewport, card.rect) < 0.004)
+            .map((card) => ({ id: card.id, rect: card.rect, ink: round(partInk(image, viewport, card.rect), 4) }));
+          const referenceDir = join(OUT, "reference");
+          await mkdir(referenceDir, { recursive: true });
+          const referencePath = join(referenceDir, `${String(scale)}x-${tier.name}.png`);
+          let referenceMismatch: number | null = null;
+          if (process.env["JUNTO_GPU_PROOF_UPDATE_REFERENCE"] === "1") {
+            await writeFile(referencePath, Buffer.from(await page.screenshot()));
+          } else if (existsSync(referencePath)) {
+            referenceMismatch = mismatch(image, PNG.sync.read(readFileSync(referencePath)));
+          }
+          if (at.gpuErrors !== null && at.gpuErrors.count > 0) {
+            fail(`${String(scale)}x ${tier.name}: ${String(at.gpuErrors.count)} uncaught GPU errors, last: ${at.gpuErrors.last}`);
+          }
+          if (paneInk < 0.005) fail(`${String(scale)}x ${tier.name}: the pane carries ${(paneInk * 100).toFixed(2)}% ink; the canvas drew nothing`);
+          if (inkless.length > 0) fail(`${String(scale)}x ${tier.name}: ${String(inkless.length)} visible cards carry no ink: ${JSON.stringify(inkless.slice(0, 6))}`);
+          if (referenceMismatch !== null && referenceMismatch > 0.05) {
+            fail(`${String(scale)}x ${tier.name}: the frame differs from the reference on ${(referenceMismatch * 100).toFixed(2)}% of pixels`);
+          }
           const blank = await readBlankProbe(page);
           const row = {
             tier: tier.name,
@@ -1179,6 +1213,10 @@ test.describe("#913 GPU canvas proof", () => {
             tierWindowOctaves: at.blank?.tierWindowOctaves ?? null,
             cull: at.cull,
             fullRedrawDelta: round(fullRedrawDelta, 4),
+            paneInk: round(paneInk, 4),
+            inkless,
+            gpuErrors: at.gpuErrors,
+            referenceMismatch: referenceMismatch === null ? null : round(referenceMismatch, 4),
             shippedCullFrames: shippedCullFrames ?? null,
             cullParity: cullParity === null ? null : round(cullParity, 4),
             gpuCullFrames,

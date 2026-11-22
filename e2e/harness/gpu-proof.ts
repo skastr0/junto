@@ -293,6 +293,7 @@ export interface ProofState {
     readonly tierWindowOctaves: number;
   } | null;
   readonly cull: string | null;
+  readonly gpuErrors: { readonly count: number; readonly last: string } | null;
   readonly cullFrames: { readonly gpu: number; readonly standalone: number } | null;
   readonly damage: { readonly lastPixels: number; readonly drawnPixelsTotal: number; readonly screenPixelsTotal: number } | null;
   readonly gpuPass: { readonly available: boolean; readonly samples: number; readonly lastMs?: number; readonly peakMs?: number } | null;
@@ -314,6 +315,11 @@ export const readProofState = (page: Page): Promise<ProofState> =>
       frames: Number(stats?.["frames"] ?? 0),
       blank: (stats?.["blank"] ?? null) as ProofState["blank"],
       cull: typeof stats?.["cull"] === "string" ? String(stats["cull"]) : null,
+      gpuErrors: (() => {
+        const hook = (window as unknown as { __juntoCanvas?: { gpuErrors?: () => { count: number; last: string } } }).__juntoCanvas;
+        const errors = hook?.gpuErrors?.();
+        return errors === undefined ? null : { count: Number(errors.count), last: String(errors.last) };
+      })(),
       cullFrames: (stats?.["cullFrames"] ?? null) as ProofState["cullFrames"],
       damage: (stats?.["damage"] ?? null) as ProofState["damage"],
       gpuPass: (stats?.["gpuPass"] ?? null) as ProofState["gpuPass"],
