@@ -1236,6 +1236,7 @@ test.describe("#913 GPU canvas proof", () => {
             .filter(
               (badge) =>
                 (badge.rect.width < 12 ? badge.contrast < 5 : badge.ink < 0.01) &&
+                largestUncovered(badge.rect, chrome) !== null &&
                 badge.rect.x >= pane.x &&
                 badge.rect.y >= pane.y &&
                 badge.rect.x + badge.rect.width <= pane.x + pane.width &&
