@@ -1001,16 +1001,28 @@ test.describe("#913 GPU canvas proof", () => {
           // the pane is an unreachable seat, whatever the counters say.
           const clusterPicks = await page.evaluate(() => {
             const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
-            if (hook === undefined) return { drawn: 0, cluster: 0, own: 0, pane: 0, other: 0, chrome: 0 };
+            if (hook === undefined) return { drawn: 0, cluster: 0, own: 0, pane: 0, other: 0, chrome: 0, chromeSamples: [] as Array<Record<string, unknown>> };
             const pane = hook["rectOf"]("") as ScreenRect;
             const rows = (hook["clusters"]?.() ?? []).filter((cluster: Record<string, unknown>) => cluster["drawn"] === true);
             const counts = { drawn: rows.length, cluster: 0, own: 0, pane: 0, other: 0, chrome: 0 };
+            const chromeSamples: Array<Record<string, unknown>> = [];
             for (const cluster of rows as Array<Record<string, any>>) {
               const x = Number(cluster["x"]);
               const y = Number(cluster["y"]);
               const element = document.elementFromPoint(x, y);
               if (!(element instanceof HTMLCanvasElement && element.classList.contains("junto-gpu-canvas"))) {
                 counts.chrome += 1;
+                if (chromeSamples.length < 8) {
+                  const near = element?.closest("[data-testid], [role], [data-component], [aria-label]") as HTMLElement | null;
+                  chromeSamples.push({
+                    x,
+                    y,
+                    tag: element?.tagName ?? "none",
+                    className: String(element?.className ?? "").slice(0, 120),
+                    id: (element as HTMLElement | null)?.id ?? "",
+                    near: near === null ? "" : `${near.tagName.toLowerCase()} ${String(near.className).slice(0, 80)} ${near.getAttribute("data-testid") ?? near.getAttribute("aria-label") ?? ""}`.trim(),
+                  });
+                }
                 continue;
               }
               const hit = hook["pick"]({ x: x - pane.x, y: y - pane.y }) as
@@ -1021,8 +1033,29 @@ test.describe("#913 GPU canvas proof", () => {
               else if (hit.nodeId !== undefined) counts.own += 1;
               else counts.other += 1;
             }
-            return counts;
+            return { ...counts, chromeSamples };
           });
+          // A real pointer press at a covered badge, not a dispatched event:
+          // if the selection changes, the element passes clicks through; if
+          // not, the badge is covered and rule 3 fails for those seats.
+          const chromeClicks: Array<Record<string, unknown>> = [];
+          for (const sample of (clusterPicks.chromeSamples ?? []).slice(0, 4)) {
+            const before = await page.evaluate(() => {
+              const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+              return ((hook?.["selection"]?.() ?? []) as string[]).slice().sort();
+            });
+            await page.mouse.click(Number(sample["x"]), Number(sample["y"]));
+            await page.waitForTimeout(250);
+            const after = await page.evaluate(() => {
+              const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+              return ((hook?.["selection"]?.() ?? []) as string[]).slice().sort();
+            });
+            chromeClicks.push({ ...sample, selected: after, changed: JSON.stringify(before) !== JSON.stringify(after) });
+            if (after.length > 0) await resetOperator(page);
+          }
+          if (chromeClicks.some((click) => click["changed"] !== true) && (clusterPicks.chromeSamples?.length ?? 0) > 0) {
+            fail(`${String(scale)}x ${tier.name}: a real click on a covered badge selects nothing: ${JSON.stringify(chromeClicks)}`);
+          }
           if (clusterPicks.drawn > 0 && clusterPicks.cluster === 0) {
             fail(`${String(scale)}x ${tier.name}: ${String(clusterPicks.drawn)} drawn cluster badges answer no cluster hit (${JSON.stringify(clusterPicks)})`);
           }
@@ -1104,11 +1137,12 @@ test.describe("#913 GPU canvas proof", () => {
           // 10x/100x: up to two seats per tile the tier's camera shows, capped
           // at 120, so every tile the camera visits is exercised.
           const dense = tier.name === "near" || tier.name === "mid";
+          // 1x covers every seat of the board at every tier (rule 3: every
+          // seat at every zoom). 10x and 100x state their sample: every tile
+          // the camera visits, one or two seats each, up to 120.
           const sample =
             scale === 1
-              ? dense
-                ? board.seats.map((id) => ({ id }))
-                : board.seats.filter((_, index) => index % 4 === 0).map((id) => ({ id }))
+              ? board.seats.map((id) => ({ id }))
               : [...perTile.values()].flatMap((list) => list.slice(0, dense ? 2 : 1)).slice(0, 120);
           const results: SeatClick[] = [];
           // One seat at a time, with the camera centred on it: a cluster click
@@ -1141,6 +1175,8 @@ test.describe("#913 GPU canvas proof", () => {
             offscreen: results.filter((result) => result.result === "offscreen").length,
             miss: results.filter((result) => result.result === "miss").length,
             tiles: perTile.size,
+            seatsTotal: board.seats.length,
+            sample: scale !== 1,
             misses: results.filter((result) => result.result === "miss").slice(0, 8),
           };
           clicks[tier.name] = counts;

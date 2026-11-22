@@ -450,6 +450,11 @@ export interface FrameTrace {
   readonly inputEvents: number;
   readonly inputGapP50: number | null;
   readonly inputGapMax: number | null;
+  readonly worstGap: {
+    readonly ms: number;
+    readonly atSeconds: number;
+    readonly tasks: ReadonlyArray<{ readonly name: string; readonly thread: string; readonly ms: number }>;
+  } | null;
   readonly rawPath: string;
 }
 
@@ -549,6 +554,24 @@ const summarizeFrames = (
   const tasks = mainKey === undefined ? [] : (taskMs.get(mainKey) ?? []);
   swaps.sort((a, b) => a - b);
   const gaps = swaps.slice(1).map((ts, index) => (ts - swaps[index]!) / 1000);
+  let worst: { gap: number; a: number; b: number } = { gap: 0, a: 0, b: 0 };
+  for (let index = 1; index < swaps.length; index += 1) {
+    const gap = swaps[index]! - swaps[index - 1]!;
+    if (gap > worst.gap) worst = { gap, a: swaps[index - 1]!, b: swaps[index]! };
+  }
+  const worstTasks =
+    worst.gap === 0
+      ? []
+      : events
+          .filter((event) => event.ph === "X" && event.ts >= worst.a && event.ts <= worst.b && event.name !== "Display::DrawAndSwap")
+          .map((event) => ({
+            name: String(event.name ?? "?"),
+            thread: threads.get(`${String(event.pid)}:${String(event.tid)}`) ?? "",
+            ms: round((event.dur ?? 0) / 1000, 2),
+          }))
+          .filter((task) => task.ms >= 1)
+          .sort((a, b) => b.ms - a.ms)
+          .slice(0, 10);
   const sortedGaps = [...gaps].sort((a, b) => a - b);
   return {
     seconds: round(seconds, 2),
@@ -567,6 +590,10 @@ const summarizeFrames = (
     inputEvents: motion.inputEvents,
     inputGapP50: motion.inputGapP50,
     inputGapMax: motion.inputGapMax,
+    worstGap:
+      worst.gap === 0
+        ? null
+        : { ms: round(worst.gap / 1000, 2), atSeconds: round((worst.a - swaps[0]!) / 1_000_000, 2), tasks: worstTasks },
     rawPath,
   };
 };
