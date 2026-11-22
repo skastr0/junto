@@ -824,11 +824,6 @@ function legsClash(a: BandLeg, b: BandLeg): boolean {
   return a.perp[0] - LANE_GAP < b.perp[1] && b.perp[0] - LANE_GAP < a.perp[1];
 }
 
-/** Any stretch of one cable running alongside any stretch of the other. */
-function bandsClash(a: FanBand, b: FanBand): boolean {
-  return a.some((leg) => b.some((other) => legsClash(leg, other)));
-}
-
 /**
  * Perpendicular shift, in absolute canvas units, that moves `band` one whole
  * lane gap clear of every already-placed band it overlaps. Bundling is by
@@ -842,20 +837,21 @@ function bandsClash(a: FanBand, b: FanBand): boolean {
  */
 function laneBias(
   band: FanBand,
-  placed: ReadonlyArray<FanBand>,
+  othersNear: (leg: BandLeg) => ReadonlyArray<BandLeg>,
   orientation: "h" | "v",
 ): number {
   const own = band.filter((leg) => leg.orientation === orientation);
   if (own.length === 0) return 0;
-  const others = placed.flatMap((other) =>
-    other.filter((leg) => leg.orientation === orientation),
-  );
   let shift = 0;
   for (let pass = 0; pass < 4; pass++) {
     const moved = own.map(
       (leg): BandLeg => ({ ...leg, perp: [leg.perp[0] + shift, leg.perp[1] + shift] }),
     );
-    const hits = others.filter((other) => moved.some((leg) => legsClash(leg, other)));
+    // Only the stretches beside this one can clash with it: the grid answers
+    // that from the cells the stretch touches, not from every cable placed.
+    const others = new Set<BandLeg>();
+    for (const leg of moved) for (const other of othersNear(leg)) others.add(other);
+    const hits = [...others].filter((other) => other.orientation === orientation && moved.some((leg) => legsClash(leg, other)));
     if (hits.length === 0) break;
     const low = Math.min(...hits.map((hit) => hit.perp[0]));
     const high = Math.max(...hits.map((hit) => hit.perp[1]));
@@ -908,7 +904,6 @@ export function planLoom(input: {
 
   const strands = new Map<string, LoomStrand>();
   const corridors: WireRect[] = [];
-  const bands: FanBand[] = [];
   // One ordered field and its index for the whole plan: a route reads the
   // cards near its corridor, and every fan's router sees the same order. The
   // index is built over the sorted field so its answers are in that order too.
@@ -916,20 +911,62 @@ export function planLoom(input: {
     .filter((o) => o.width > 0 && o.height > 0)
     .sort((a, b) => compareIds(a.nodeId, b.nodeId));
   const index = createObstacleIndex(routeField);
+  // Bands placed so far, in a uniform grid: a new cable only compares with
+  // the stretches beside it, so lane discipline stays local as the board grows.
+  const CELL = 512;
+  const legCells = new Map<number, BandLeg[]>();
+  const legRect = (leg: BandLeg): { x: number; y: number; width: number; height: number } => {
+    const x = leg.orientation === "h" ? leg.axial[0] : leg.perp[0];
+    const y = leg.orientation === "h" ? leg.perp[0] : leg.axial[0];
+    const width = leg.orientation === "h" ? leg.axial[1] - leg.axial[0] : leg.perp[1] - leg.perp[0];
+    const height = leg.orientation === "h" ? leg.perp[1] - leg.perp[0] : leg.axial[1] - leg.axial[0];
+    return { x: x - LANE_GAP, y: y - LANE_GAP, width: width + LANE_GAP * 2, height: height + LANE_GAP * 2 };
+  };
+  const cellKey = (cx: number, cy: number): number => cx * 1048576 + cy;
+  const placeBand = (band: FanBand): void => {
+    for (const leg of band) {
+      const rect = legRect(leg);
+      for (let cx = Math.floor(rect.x / CELL); cx <= Math.floor((rect.x + rect.width) / CELL); cx += 1) {
+        for (let cy = Math.floor(rect.y / CELL); cy <= Math.floor((rect.y + rect.height) / CELL); cy += 1) {
+          const key = cellKey(cx, cy);
+          const bucket = legCells.get(key);
+          if (bucket === undefined) legCells.set(key, [leg]);
+          else bucket.push(leg);
+        }
+      }
+    }
+  };
+  const othersNear = (leg: BandLeg): BandLeg[] => {
+    const rect = legRect(leg);
+    const found: BandLeg[] = [];
+    const seen = new Set<BandLeg>();
+    for (let cx = Math.floor(rect.x / CELL); cx <= Math.floor((rect.x + rect.width) / CELL); cx += 1) {
+      for (let cy = Math.floor(rect.y / CELL); cy <= Math.floor((rect.y + rect.height) / CELL); cy += 1) {
+        for (const other of legCells.get(cellKey(cx, cy)) ?? []) {
+          if (seen.has(other)) continue;
+          seen.add(other);
+          found.push(other);
+        }
+      }
+    }
+    return found;
+  };
+  const bandClashes = (band: FanBand): boolean =>
+    band.some((leg) => othersNear(leg).some((other) => legsClash(leg, other)));
   for (const key of [...fans.keys()].sort(compareIds)) {
     const members = fans.get(key)!;
     const centred = planFan(key, members, input.obstacles, 0, index, routeField);
     if (!centred) continue;
     // Fans are visited in stable key order, so which one holds the centre line
     // and which one steps aside is a property of the document, not of a drag.
-    const bias = laneBias(centred.band, bands, centred.biasOn);
+    const bias = laneBias(centred.band, othersNear, centred.biasOn);
     const planned = bias === 0 ? centred : planFan(key, members, input.obstacles, bias, index, routeField);
     if (!planned) continue;
     // Lane discipline is a guarantee, not a best effort: a fan that cannot be
     // shifted clear of the bands already placed dissolves instead of painting
     // a second cable on top of one.
-    if (bands.some((other) => bandsClash(planned.band, other))) continue;
-    bands.push(planned.band);
+    if (bandClashes(planned.band)) continue;
+    placeBand(planned.band);
     for (const strand of planned.strands) strands.set(strand.edgeId, strand);
     corridors.push(...planned.corridors);
   }
