@@ -61,6 +61,7 @@ import {
 import { defaultPainter } from "./paint-default";
 import { createScene, type CardPainter } from "./scene";
 import { createRenderer, type AtlasBinding } from "./renderer";
+import { createGpuTimer, type GpuTimer } from "./gpu-timing";
 import { hoverCardPoint, hoverCardRect, pickAt, type HoveredCard, type PickWorld } from "./pick";
 import { POINTER_IDLE, stepPointer, type PointerEffect, type PointerState, type PointerWorld } from "./pointer";
 
@@ -435,6 +436,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   };
 
   let savedPeaks = "";
+  let timer: GpuTimer | undefined;
   /** Keep the measured peaks when they move; a fresh boot starts from them. */
   const keepPeaks = (): void => {
     if (host.peaks === undefined) return;
@@ -486,6 +488,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       context.configure({ device: state.device, format: state.format, alphaMode: "opaque" });
       renderer.configure(state.device, state.format, state.generation, scene, host.atlas);
       configuredGeneration = state.generation;
+      timer?.destroy();
+      timer = createGpuTimer(state.device);
       dirty = true;
     }
     const device = state.device;
@@ -565,7 +569,9 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     if (surface.width !== pixelWidth) surface.width = pixelWidth;
     if (surface.height !== pixelHeight) surface.height = pixelHeight;
     const encoder = device.createCommandEncoder();
+    const timestampWrites = timer?.writes();
     const pass = encoder.beginRenderPass({
+      ...(timestampWrites === undefined ? {} : { timestampWrites }),
       colorAttachments: [
         {
           view: context.getCurrentTexture().createView(),
@@ -581,7 +587,9 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     host.wires?.encodeTracks(pass);
     renderer.encode(pass, 2);
     pass.end();
+    timer?.resolve(encoder);
     device.queue.submit([encoder.finish()]);
+    timer?.collect();
 
     // 7: frame facts.
     const anchors: Array<{ id: NodeId; rect: Rect }> = [];
@@ -790,10 +798,13 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         tierWindowOctaves,
       }))(scene.blankStats()),
       bufferFailures: renderer.bufferFailures,
+      gpuPass: timer?.times() ?? { available: false, samples: 0 },
     }),
     dispose: () => {
       if (disposed) return;
       disposed = true;
+      timer?.destroy();
+      timer = undefined;
       if (pending !== undefined) scheduler.cancel(pending);
       pending = undefined;
       animation = undefined;
