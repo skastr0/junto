@@ -30,12 +30,21 @@ export type DeviceState =
   | { readonly kind: "unavailable"; readonly reason: string }
   | { readonly kind: "disposed" };
 
+export type GpuErrors = { readonly count: number; readonly last: string };
+
 export interface DeviceKeeper {
   readonly state: () => DeviceState;
   /** Hears every change of state after this call; returns the unsubscribe. */
   readonly subscribe: (listener: (state: DeviceState) => void) => () => void;
   /** Devices requested from the adapter so far, for tests and the test hook. */
   readonly created: () => number;
+  /**
+   * Validation and out-of-memory errors no error scope caught, on every
+   * device this keeper made, and the last one's message. Without a listener
+   * they only reach the console: a frame that fails validation every time
+   * presents nothing and says nothing.
+   */
+  readonly errors: () => GpuErrors;
   readonly dispose: () => void;
 }
 
@@ -76,6 +85,8 @@ export const createDeviceKeeper = (gpu: GpuEntry | undefined): DeviceKeeper => {
   let state: DeviceState = { kind: "pending" };
   let generation = 0;
   let created = 0;
+  let errorCount = 0;
+  let lastError = "";
   const listeners = new Set<(state: DeviceState) => void>();
 
   // Read through a function: an await can change it under the narrowing.
@@ -117,6 +128,13 @@ export const createDeviceKeeper = (gpu: GpuEntry | undefined): DeviceKeeper => {
       device.destroy();
       return;
     }
+    // A fake device in a test may have no event target.
+    if (typeof device.addEventListener === "function") {
+      device.addEventListener("uncapturederror", (event) => {
+        errorCount += 1;
+        lastError = (event as GPUUncapturedErrorEvent).error.message;
+      });
+    }
     void device.lost.then((info) => {
       // A destroy is ours (dispose); anything else is a loss to recover from.
       if (disposed() || info.reason === "destroyed") return;
@@ -139,6 +157,7 @@ export const createDeviceKeeper = (gpu: GpuEntry | undefined): DeviceKeeper => {
       };
     },
     created: () => created,
+    errors: () => ({ count: errorCount, last: lastError }),
     dispose: () => {
       if (disposed()) return;
       const held = state.kind === "ready" ? state.device : undefined;

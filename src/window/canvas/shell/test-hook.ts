@@ -9,7 +9,9 @@ import type { CanvasTestHook, DrawnCluster, DrawnPart, Hit, NodeId, Part, Point,
 import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
 import type { SeamEngine } from "../engine/engine";
 import type { AtlasPendingEntry, AtlasStats } from "../engine/types";
+import type { GpuErrors } from "../engine/device";
 import { pageGpuAtlasPendingKeys, pageGpuAtlasStats } from "./gpu-atlas-page";
+import { pageDeviceKeeper } from "./gpu-device";
 import { engineStats } from "./gpu-canvas-api";
 import type { SurfaceMirror } from "./surface-mirror";
 import { lastReachMarks } from "./reach-live";
@@ -43,6 +45,8 @@ type FullHook = CanvasTestHook & {
   readonly clusters: () => ReadonlyArray<DrawnCluster>;
   /** Cull the draw list on the CPU or the GPU, for the issue 912 comparison. */
   readonly setCull: (mode: "cpu" | "gpu") => void;
+  /** GPU errors no error scope caught (a failed frame presents nothing): a gate requires a count of 0. */
+  readonly gpuErrors: () => GpuErrors;
 };
 
 const inset = (rect: Rect, dx: number, dy: number): Rect => ({
@@ -175,6 +179,7 @@ const build = (
     atlasPending,
     atlasStats,
     pendingKeys: pageGpuAtlasPendingKeys,
+    gpuErrors: () => pageDeviceKeeper().errors(),
     wireStats,
     ...(pulse === undefined ? {} : { pulse }),
     pick: (screen) => engine()?.pick(screen) ?? null,

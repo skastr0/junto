@@ -48,3 +48,20 @@ describe("the device's limits", () => {
     expect(asked[0]?.requiredLimits).toBeUndefined();
   });
 });
+
+describe("the device's uncaught errors", () => {
+  it("are counted, with the last message, so a frame that fails validation is not silent", async () => {
+    const target = new EventTarget();
+    const device = Object.assign(target, { lost: new Promise(() => undefined), destroy: () => undefined }) as unknown as GPUDevice;
+    const adapter = { requestDevice: async () => device } as unknown as GPUAdapter;
+    const keeper = createDeviceKeeper({ requestAdapter: async () => adapter, getPreferredCanvasFormat: () => "bgra8unorm" });
+    await settle();
+    expect(keeper.errors()).toEqual({ count: 0, last: "" });
+    const fail = (message: string): void => {
+      target.dispatchEvent(Object.assign(new Event("uncapturederror"), { error: { message } }));
+    };
+    fail("Binding size (80) is smaller than the minimum binding size (96).");
+    fail("Invalid CommandBuffer.");
+    expect(keeper.errors()).toEqual({ count: 2, last: "Invalid CommandBuffer." });
+  });
+});
