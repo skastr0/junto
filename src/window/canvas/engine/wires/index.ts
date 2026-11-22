@@ -33,6 +33,8 @@ export type WireLayerOptions = {
   readonly device: DeviceKeeper;
   readonly mode?: ThemeMode;
   readonly reducedMotion?: () => boolean;
+  /** Draw a wire only once the loom has sent its route (`WireHost.awaitRoutes`). */
+  readonly awaitRoutes?: boolean;
 };
 
 /** The layer's own counters, for a real-Electron measurement (the canvas test hook). */
@@ -55,6 +57,8 @@ export type WireStats = {
   readonly refreshMs: number;
   /** Every strip pool's CPU bytes: what keeping a body and a pill strip costs. */
   readonly poolBytes: number;
+  /** Wires the loom has not answered yet, all and in view: drawn as nothing until it does. */
+  readonly waiting: { readonly total: number; readonly inView: number };
 };
 
 export type WiresLayer = {
@@ -91,6 +95,7 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
     ...(options.surfaceOf ? { surfaceOf: options.surfaceOf } : {}),
     ...(options.mode ? { mode: options.mode } : {}),
     ...(options.reducedMotion ? { reducedMotion: options.reducedMotion } : {}),
+    ...(options.awaitRoutes === true ? { awaitRoutes: true } : {}),
   });
   const gpu = createWireGpu(scene);
   let wall = 0;
@@ -140,6 +145,7 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
       wires: scene.wires(),
       refreshMs: scene.refreshMs(),
       poolBytes: scene.poolBytes(),
+      waiting: scene.waiting(),
     }),
     lastUploads: gpu.lastUploads,
     dispose: gpu.dispose,

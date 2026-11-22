@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { asCanvasName, asNodeId, asWireId } from "../src/shared/model";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import type { ArtifactHead, ResourceChanged } from "../src/shared/resource-ipc";
@@ -260,7 +260,10 @@ describe("kind and spine live facts", () => {
     expect(byId.get("git1")?.kind).toMatchObject({ name: "git", line: "reading" });
     expect(byId.get("file1")?.kind).toMatchObject({ name: "file1.txt", lineTitle: "/Users/me/Projects/junto/file1.txt" });
 
-    // The loom plans the wire's route with no card mounted, after the load.
+    // The loom plans the wire's route with no card mounted, after the load,
+    // on a later turn: routing never runs on the turn that loaded the board.
+    expect(ops.some((op) => op.kind === "routes")).toBe(false);
+    await vi.waitFor(() => expect(ops.some((op) => op.kind === "routes")).toBe(true));
     const routesOp = ops.find((op) => op.kind === "routes");
     expect(routesOp?.kind).toBe("routes");
     if (routesOp?.kind === "routes") {

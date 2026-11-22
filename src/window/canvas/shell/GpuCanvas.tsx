@@ -20,6 +20,7 @@ import { themeMode$ } from "../../lib/theme-mode";
 import { canvasZoomRequest$ } from "../../lib/canvas-zoom";
 import { createEngine, type SeamEngine, type WireLayer } from "../engine/engine";
 import { createRunMeasure } from "../engine/text";
+import { setWireRouteView } from "../feed/loom";
 import { createWireLayer, type WiresLayer } from "../engine/wires";
 import type { Camera, Rect, TextRun } from "../contract";
 import { takeCamera, leaveCamera } from "./camera-handoff";
@@ -188,12 +189,33 @@ export function GpuCanvas({ onUnavailable }: Props) {
       device: keeper,
       mode: themeMode$.peek(),
       reducedMotion: () => reducedMotion?.matches ?? false,
+      // The feed's loom routes every wire off the boot path: a wire draws once
+      // its route lands, and fades in, never first as an elbow (issue 912).
+      awaitRoutes: true,
     });
     // The wire's invisible select target: the one piece of a wire that stays
     // DOM, as it is today, so a pointer and a screen reader can select one
     // while the strokes are deaf at rest.
     const wireLabels = mountWireLabels({ canvas, layer: () => wires });
     const offWireLabels = engine.onFrame((facts) => wireLabels.frame(facts.camera));
+    // The loom routes from the view outwards: hand it the board the camera
+    // shows. The canvas's CSS size is read on resize only, never per frame,
+    // where a layout read forces style and layout at display rate.
+    const viewSize = { width: canvas.clientWidth, height: canvas.clientHeight };
+    const viewSizes =
+      typeof ResizeObserver === "function"
+        ? new ResizeObserver(([entry]) => {
+            if (entry === undefined) return;
+            viewSize.width = entry.contentRect.width;
+            viewSize.height = entry.contentRect.height;
+          })
+        : undefined;
+    viewSizes?.observe(canvas);
+    const offRouteView = engine.onFrame((facts) => {
+      const zoom = facts.camera.zoom;
+      if (!(zoom > 0) || viewSize.width === 0) return;
+      setWireRouteView({ x: -facts.camera.x / zoom, y: -facts.camera.y / zoom, width: viewSize.width / zoom, height: viewSize.height / zoom });
+    });
     mounted = engine;
     engineRef.current = engine;
     api.attachEngine(engine);
@@ -371,6 +393,8 @@ export function GpuCanvas({ onUnavailable }: Props) {
       offInput();
       offFocusChain();
       offWireLabels();
+      offRouteView();
+      viewSizes?.disconnect();
       wireLabels.dispose();
       offConeMode();
       offWireMode();

@@ -1,296 +1,104 @@
 /**
- * The GPU canvas's loom (architecture section 13): today's planners, fed from
- * the model instead of React Flow's node lookup.
+ * The GPU canvas's loom (architecture section 13), on the feed's side: it
+ * follows the model's card rectangles and wires and hands each settled board
+ * to the planner (feed/loom-planner.ts), whose facts come back as `routes`
+ * ops.
  *
- * `createLoomPlanner` is the settled-board half of `CanvasLoom`: from card
- * rectangles and wires it works out each wire's sides, its pair lane, whether
- * it is a strand of a cable, a planned route around cards, or neither (the
- * engine draws the fallback elbow between the anchors). It keeps what it
- * planned, so a later call routes only the wires a change can have altered
- * (`ROUTE_REACH`), and returns exactly the facts that differ from before.
- *
- * No React, no observable, no drag branch: a card being dragged lives in the
- * engine and the model only moves on drop, so every call here is a settled
- * board. The engine draws a wire whose ends have left the plan's anchors as
- * the fallback elbow, which is what the old canvas did during a drag.
- *
- * `retainWireRoutes` subscribes the model and sends `routes` ops.
+ * Routing never runs on the boot path (issue 912). The planner runs in a
+ * worker (feed/loom-worker.ts) where the page has one, and in slices on the
+ * page otherwise; either way the observer only collects rows and posts them,
+ * so the first frame never waits on a route. The wires nearest the view are
+ * routed first (`setWireRouteView`), and the engine draws a wire only once
+ * its route has landed, fading it in.
  */
 import { observe } from "@legendapp/state";
-import type { Node, Side } from "@shared/model";
-import { renderedNodeSize } from "@shared/node-geometry";
-import type { WireDirection } from "@shared/wire-route";
-import { routeWire } from "@shared/wire-route";
-import type { Point, SceneOp, WireId, WireRouteFact } from "../contract";
-import { routesForTick, routesOwedWithCause, type LoomLane, type LoomRoute } from "../../lib/loom-view";
-import { planLoom, stitchStrand, type LoomEdgeInput, type LoomStrand } from "../../lib/wire-loom";
-import {
-  buildInputs,
-  collectObstacles,
-  movedNodeIds,
-  sameGeometry,
-  specKeyOf,
-  specsKeyOf,
-  specsOf,
-  type LoomNode,
-  type LoomWire,
-} from "../../lib/loom-geometry";
+import type { Rect, SceneOp } from "../contract";
 import { modelStore } from "../../lib/use-model";
-import { handleEnd } from "../paint/wires/route";
+import { cardOf, type LoomCard, type LoomUpdate, type LoomWireRow } from "./loom-planner";
+import { createLoomRun, type LoomRequest } from "./loom-run";
 
-/** What the planner reads of a card: its board rectangle, and whether it is a region. */
-export type LoomCard = {
-  readonly id: string;
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-  /** A region is geography, not furniture to route around: wires live inside it. */
-  readonly region: boolean;
-};
+export { createLoomPlanner, cardOf, type LoomCard, type LoomPlanner, type LoomUpdate, type LoomWireRow } from "./loom-planner";
 
-/** What the planner reads of a wire. */
-export type LoomWireRow = {
-  readonly id: string;
-  readonly from: string;
-  readonly to: string;
-  /** The sides the row holds; absent means the default socket (`right` to `left`). */
-  readonly fromSide?: Side | undefined;
-  readonly toSide?: Side | undefined;
-};
-
-export type LoomUpdate = {
-  readonly set: ReadonlyArray<WireRouteFact>;
-  readonly remove: ReadonlyArray<WireId>;
-};
-
-export type LoomPlanner = {
-  /** Plan the settled board; returns the facts that changed since the last call. */
-  readonly plan: (cards: ReadonlyArray<LoomCard>, wires: ReadonlyArray<LoomWireRow>) => LoomUpdate;
-  /** Forget everything: the next plan is a first plan and returns every fact. */
-  readonly reset: () => void;
-};
-
-const NOT_DRAGGING: ReadonlySet<string> = new Set();
-const NO_SHIFT: Point = { x: 0, y: 0 };
-
-const point = (p: Point): Point => ({ x: p.x, y: p.y });
-
-const samePoints = (a: ReadonlyArray<Point> | undefined, b: ReadonlyArray<Point> | undefined): boolean => {
-  if (a === b) return true;
-  if (a === undefined || b === undefined || a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i]!.x !== b[i]!.x || a[i]!.y !== b[i]!.y) return false;
-  }
-  return true;
-};
-
-const sameFact = (a: WireRouteFact, b: WireRouteFact): boolean =>
-  a.sourceSide === b.sourceSide &&
-  a.targetSide === b.targetSide &&
-  a.cable === b.cable &&
-  a.source.x === b.source.x &&
-  a.source.y === b.source.y &&
-  a.target.x === b.target.x &&
-  a.target.y === b.target.y &&
-  a.lane.source.x === b.lane.source.x &&
-  a.lane.source.y === b.lane.source.y &&
-  a.lane.target.x === b.lane.target.x &&
-  a.lane.target.y === b.lane.target.y &&
-  samePoints(a.points, b.points);
-
-const geometryOf = (cards: ReadonlyArray<LoomCard>): LoomNode[] =>
-  cards.map((card) => ({
-    nodeId: card.id,
-    x: card.x,
-    y: card.y,
-    width: card.width,
-    height: card.height,
-    obstacle: !card.region,
-    dragging: false,
-  }));
-
-const wiresOf = (rows: ReadonlyArray<LoomWireRow>): LoomWire[] =>
-  rows.map((row) => ({
-    id: row.id,
-    source: row.from,
-    target: row.to,
-    heldSource: (row.fromSide ?? "right") satisfies WireDirection,
-    heldTarget: (row.toSide ?? "left") satisfies WireDirection,
-  }));
-
-export const createLoomPlanner = (): LoomPlanner => {
-  // Geometry and topology the standing plan was built from.
-  let planned: { geometry: LoomNode[]; specsKey: string } | undefined;
-  // The cards the standing routes were worked out against, and each wire as it
-  // was then, so the next plan can tell which wires a change can have altered.
-  let routed:
-    | { geometry: LoomNode[]; obstacles: ReturnType<typeof collectObstacles>; specs: ReadonlyMap<string, string> }
-    | undefined;
-  let strands: ReadonlyMap<string, LoomStrand> = new Map();
-  let lanesNow: ReadonlyMap<string, LoomLane> = new Map();
-  const routes = new Map<string, LoomRoute>();
-  const held = new Map<string, WireRouteFact>();
-
-  const factsFor = (
-    inputs: ReadonlyArray<LoomEdgeInput>,
-    geometry: ReadonlyArray<LoomNode>,
-  ): Map<string, WireRouteFact> => {
-    const facts = new Map<string, WireRouteFact>();
-    const rects = new Map(geometry.map((node) => [node.nodeId, node] as const));
-    for (const input of inputs) {
-      const strand = strands.get(input.id);
-      const route = routes.get(input.id);
-      // A cable member is stitched to where the wire meets its handle (the
-      // handle box's outer edge), as the old canvas stitches it to the live
-      // handle; a planned route is drawn as planned.
-      const ends = strand
-        ? {
-            source: handleEnd(rects.get(input.sourceNodeId)!, input.sourceSide, "source"),
-            target: handleEnd(rects.get(input.targetNodeId)!, input.targetSide, "target"),
-          }
-        : undefined;
-      const points =
-        strand && ends
-          ? stitchStrand(strand, {
-              sourceX: ends.source.x,
-              sourceY: ends.source.y,
-              targetX: ends.target.x,
-              targetY: ends.target.y,
-            }).points
-          : route?.points;
-      facts.set(input.id, {
-        id: input.id,
-        sourceSide: input.sourceSide,
-        targetSide: input.targetSide,
-        source: point(input.sourceAnchor),
-        target: point(input.targetAnchor),
-        lane: {
-          source: point(lanesNow.get(input.id)?.source ?? NO_SHIFT),
-          target: point(lanesNow.get(input.id)?.target ?? NO_SHIFT),
-        },
-        ...(points ? { points: points.map(point) } : {}),
-        cable: strand !== undefined,
-      });
-    }
-    return facts;
-  };
-
-  /** The facts that differ from what was last sent, and the wires that left. */
-  const diff = (next: ReadonlyMap<string, WireRouteFact>): LoomUpdate => {
-    const set: WireRouteFact[] = [];
-    const remove: WireId[] = [];
-    for (const [id, fact] of next) {
-      const before = held.get(id);
-      if (before === undefined || !sameFact(before, fact)) set.push(fact);
-    }
-    for (const id of held.keys()) if (!next.has(id)) remove.push(id);
-    held.clear();
-    for (const [id, fact] of next) held.set(id, fact);
-    return { set, remove };
-  };
-
-  const plan: LoomPlanner["plan"] = (cards, rows) => {
-    const geometry = geometryOf(cards);
-    const specs = specsOf(wiresOf(rows), geometry);
-    const specsKey = specsKeyOf(specs);
-
-    // Settled geometry and topology already planned: nothing is routed.
-    if (planned && planned.specsKey === specsKey && sameGeometry(planned.geometry, geometry)) {
-      return { set: [], remove: [] };
-    }
-
-    const obstacles = collectObstacles(geometry);
-    const { inputs, lanes } = buildInputs(specs, geometry);
-    lanesNow = lanes;
-    const loom = planLoom({ edges: inputs, obstacles });
-    const wasStrand = new Set(strands.keys());
-    strands = loom.strands;
-    const strandIds = new Set(loom.strands.keys());
-    const specsById = new Map(specs.map((spec) => [spec.id, specKeyOf(spec)] as const));
-    const live = new Set(specs.map((spec) => spec.id));
-    for (const id of [...routes.keys()]) if (!live.has(id)) routes.delete(id);
-
-    const scope = routed
-      ? routesOwedWithCause({
-          edges: inputs,
-          specsBefore: routed.specs,
-          specsNow: specsById,
-          obstaclesBefore: routed.obstacles,
-          obstaclesNow: obstacles,
-          movedNodeIds: movedNodeIds(routed.geometry, geometry),
-          dropped: NOT_DRAGGING,
-          strandsBefore: wasStrand,
-          strandsNow: strandIds,
-        })
-      : undefined;
-    const scopeIds = scope ? new Set(scope.keys()) : undefined;
-    const planned$ = routesForTick({
-      dragging: NOT_DRAGGING,
-      edges: inputs,
-      obstacles,
-      strandIds,
-      ...(scopeIds ? { scope: scopeIds } : {}),
-      routeWire,
-    }).routes;
-
-    if (scopeIds) {
-      // Only the owed wires are written or deleted; every other wire keeps its route.
-      for (const id of scopeIds) {
-        const route = planned$.get(id);
-        if (strandIds.has(id) || route === undefined) routes.delete(id);
-        else routes.set(id, route);
-      }
-    } else {
-      routes.clear();
-      for (const [id, route] of planned$) routes.set(id, route);
-    }
-    routed = { geometry, obstacles, specs: specsById };
-    planned = { geometry, specsKey };
-    return diff(factsFor(inputs, geometry));
-  };
-
-  const reset = (): void => {
-    planned = undefined;
-    routed = undefined;
-    strands = new Map();
-    routes.clear();
-    held.clear();
-    lanesNow = new Map();
-  };
-
-  return { plan, reset };
+/** Where the planner runs: a worker, or slices on the page. */
+type LoomHost = {
+  readonly request: (request: LoomRequest) => void;
+  readonly dispose: () => void;
 };
 
 /**
- * A card row as the planner reads it, at the rectangle the canvas draws: a
- * seat or kind seat renders at its fixed footprint whatever its stored size,
- * and routing around the stored rectangle would miss it (and leave every
- * seat wire on the fallback elbow, because the plan's anchors would never
- * match the live card).
+ * A browser page runs the planner in a worker. The test runner has no
+ * OffscreenCanvas, as the atlas's raster workers also read it, and runs it
+ * in slices on its own thread.
  */
-const cardOf = (node: Node): LoomCard => {
-  const size = renderedNodeSize(node.kind, node);
+const inWorker = (): boolean => typeof Worker === "function" && typeof OffscreenCanvas === "function";
+
+const pageHost = (send: (update: LoomUpdate) => void): LoomHost =>
+  createLoomRun(send, () => performance.now(), (next) => setTimeout(next, 0));
+
+const workerHost = (send: (update: LoomUpdate) => void): LoomHost => {
+  const worker = new Worker(new URL("./loom-worker.ts", import.meta.url), { type: "module" });
+  let fallback: LoomHost | undefined;
+  let last: Extract<LoomRequest, { kind: "plan" }> | undefined;
+  worker.onmessage = (event: MessageEvent<LoomUpdate>) => send(event.data);
+  worker.onerror = (event) => {
+    // A worker that cannot start routes on the page instead, from the last board.
+    console.error("loom worker error:", event.message);
+    worker.terminate();
+    if (fallback !== undefined) return;
+    fallback = pageHost(send);
+    if (last !== undefined) fallback.request(last);
+  };
   return {
-    id: node.id,
-    x: node.x,
-    y: node.y,
-    width: size.width,
-    height: size.height,
-    region: node.kind === "region",
+    request: (request) => {
+      if (request.kind === "plan") last = request;
+      if (fallback !== undefined) fallback.request(request);
+      else worker.postMessage(request);
+    },
+    dispose: () => {
+      worker.terminate();
+      fallback?.dispose();
+    },
   };
 };
 
+/** The open canvas's view on the board, as the shell last drew it. */
+let routeView: Rect | undefined;
+const viewListeners = new Set<(view: Rect) => void>();
+
 /**
- * Plan the open canvas's wires on every change to its card rectangles or its
- * wires, and send what changed as one `routes` op. Returns the release.
+ * The view the shell drew, so the loom routes from it outwards. Passed on
+ * when it has moved half a view or changed size by half since the last one
+ * passed on: a pan that far brings in a new half screen of wires. Design
+ * values.
+ */
+export const setWireRouteView = (view: Rect): void => {
+  const was = routeView;
+  if (
+    was !== undefined &&
+    Math.abs(view.x + view.width / 2 - (was.x + was.width / 2)) < was.width / 2 &&
+    Math.abs(view.y + view.height / 2 - (was.y + was.height / 2)) < was.height / 2 &&
+    view.width < was.width * 1.5 &&
+    view.width > was.width / 1.5
+  ) {
+    return;
+  }
+  routeView = view;
+  for (const listener of viewListeners) listener(view);
+};
+
+/**
+ * Hand the planner the open canvas's board on every change to its card
+ * rectangles or its wires; its facts come back as `routes` ops, slice by slice. Returns the release.
  */
 export const retainWireRoutes = (
   canvasName: string,
   emit: (ops: ReadonlyArray<SceneOp>) => void,
 ): (() => void) => {
   if (canvasName === "") return () => undefined;
-  const planner = createLoomPlanner();
+  const send = (update: LoomUpdate): void => emit([{ kind: "routes", set: update.set, remove: update.remove }]);
+  const host = inWorker() ? workerHost(send) : pageHost(send);
+  const onView = (view: Rect): void => host.request({ kind: "focus", view });
+  viewListeners.add(onView);
   const stop = observe(() => {
     const canvas = modelStore.canvas$(canvasName);
     const cards: LoomCard[] = [];
@@ -315,11 +123,11 @@ export const retainWireRoutes = (
       const wire = wire$.peek();
       if (wire !== undefined) rows.push({ id: wire.id, from: wire.from, to: wire.to, fromSide: wire.fromSide, toSide: wire.toSide });
     }
-    const update = planner.plan(cards, rows);
-    if (update.set.length > 0 || update.remove.length > 0) emit([{ kind: "routes", set: update.set, remove: update.remove }]);
+    host.request({ kind: "plan", cards, wires: rows, ...(routeView === undefined ? {} : { view: routeView }) });
   });
   return () => {
     stop();
-    planner.reset();
+    viewListeners.delete(onView);
+    host.dispose();
   };
 };

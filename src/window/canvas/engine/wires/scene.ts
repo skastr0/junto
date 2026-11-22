@@ -166,6 +166,13 @@ export type WireHost = {
   readonly mode?: ThemeMode;
   /** Reduced motion: tracks hold still, pulses hold the wire, nothing eases. */
   readonly reducedMotion?: () => boolean;
+  /**
+   * The loom routes every wire (issue 912): a wire draws only once its route
+   * fact has landed. Until then it is not drawn and takes no pointer, so no
+   * wire is first seen as an elbow and then changes shape by itself; when its
+   * fact lands it fades in, as a map tile does. Off for a host with no loom.
+   */
+  readonly awaitRoutes?: boolean;
 };
 
 export type WireFrame = {
@@ -216,6 +223,8 @@ export type WireScene = {
   readonly refreshMs: () => number;
   /** Every strip pool's CPU bytes (vertices and indices). */
   readonly poolBytes: () => number;
+  /** Wires the loom has not answered yet, all and those whose ends' box meets the view (a measurement). */
+  readonly waiting: () => { readonly total: number; readonly inView: number };
   /** The visible strips' index data, rebuilt when the camera or a strip changes. */
   readonly visibleIndices: () => WireVisibleIndex;
   readonly pool: StripPool;
@@ -372,6 +381,14 @@ export const createWireScene = (host: WireHost): WireScene => {
     return coneWires;
   };
 
+  /** A wire the loom has not answered yet: drawn as nothing until it does. */
+  const waiting = (entry: Entry): boolean => host.awaitRoutes === true && !facts.has(entry.id);
+  /** A waiting wire's paint: nothing drawn, nothing picked. */
+  const unseen = (paint: WirePaint): WirePaint => {
+    const { track: _track, ...rest } = paint;
+    return { ...rest, opacity: 0, glow: [], pickable: false, pulseOpacity: 0 };
+  };
+
   const lookOf = (entry: Entry): WireLook => ({
     verb: entry.fact.row.verb,
     selected: selection?.wireId === entry.id,
@@ -446,7 +463,8 @@ export const createWireScene = (host: WireHost): WireScene => {
   const refreshPaint = (entry: Entry, now: number): void => {
     const view$ = view();
     const look = lookOf(entry);
-    const paint = wirePaint(view$, look);
+    const drawn = wirePaint(view$, look);
+    const paint = waiting(entry) ? unseen(drawn) : drawn;
     entry.look = look;
     entry.paint = paint;
     const shownNow = tweenAt(entry.opacity, now, easeOf.opacity);
@@ -760,7 +778,8 @@ export const createWireScene = (host: WireHost): WireScene => {
     }
     const slot = takeSlot();
     const look: WireLook = { verb: fact.row.verb, selected: false, hovered: false, inCone: false };
-    const paint = wirePaint(view(), look);
+    const drawn = wirePaint(view(), look);
+    const paint = host.awaitRoutes === true && !facts.has(fact.id) ? unseen(drawn) : drawn;
     const entry: Entry = {
       id: fact.id,
       slot,
@@ -782,7 +801,8 @@ export const createWireScene = (host: WireHost): WireScene => {
       fits: [],
       paint,
       look,
-      // A new wire is at its paint at once: it does not fade in from nothing.
+      // A new wire is at its paint at once; one the loom has not answered
+      // yet is at nothing, and fades in when its route lands.
       opacity: { from: paint.opacity, to: paint.opacity, since: now, ms: 0 },
       trackAlpha: { from: paint.track === undefined ? 0 : 1, to: paint.track === undefined ? 0 : 1, since: now, ms: 0 },
       glowAlpha: { from: 0, to: 0, since: now, ms: 0 },
@@ -952,6 +972,8 @@ export const createWireScene = (host: WireHost): WireScene => {
         markCard(op.id);
         return;
       case "routes": {
+        // The wires answered for the first time: they fade in once rebuilt.
+        const landed = host.awaitRoutes === true ? op.set.filter((fact) => !facts.has(fact.id)).map((fact) => fact.id) : [];
         for (const id of op.remove) facts.delete(id);
         for (const fact of op.set) facts.set(fact.id, fact);
         for (const id of op.remove) {
@@ -962,6 +984,11 @@ export const createWireScene = (host: WireHost): WireScene => {
           const entry = entries.get(fact.id);
           if (entry !== undefined) rebuild(entry, now);
         }
+        for (const id of landed) {
+          const entry = entries.get(id);
+          if (entry !== undefined) refreshPaint(entry, now);
+        }
+        if (landed.length > 0) labelsRevision += 1;
         return;
       }
       case "selection":
@@ -1329,7 +1356,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     const margin = 24;
     for (const entry of entries.values()) {
       const at = entry.label;
-      if (at === undefined) continue;
+      if (at === undefined || waiting(entry)) continue;
       if (at.x < x0 - margin || at.x > x1 + margin || at.y < y0 - margin || at.y > y1 + margin) continue;
       labels.push({ id: entry.id, at, verb: entry.fact.row.verb });
     }
@@ -1380,6 +1407,22 @@ export const createWireScene = (host: WireHost): WireScene => {
         (bytes, each) => bytes + each.vertices().byteLength + each.indices().byteLength,
         0,
       ),
+    waiting: () => {
+      let total = 0;
+      let inView = 0;
+      if (host.awaitRoutes !== true) return { total, inView };
+      const x0 = -camera.x / zoom;
+      const y0 = -camera.y / zoom;
+      const x1 = x0 + viewSize.width / zoom;
+      const y1 = y0 + viewSize.height / zoom;
+      for (const entry of entries.values()) {
+        if (!waiting(entry)) continue;
+        total += 1;
+        const b = entry.bounds;
+        if (b !== undefined && b.maxX >= x0 && b.minX <= x1 && b.maxY >= y0 && b.minY <= y1) inView += 1;
+      }
+      return { total, inView };
+    },
     visibleIndices: () => ({
       main: mainIndex,
       mainCount,
