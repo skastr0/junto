@@ -128,6 +128,8 @@ type Entry = {
   /** Where the wire's invisible select label sits, in board units. */
   label: Point | undefined;
   strip: Slice | undefined;
+  /** The strip built at each tier: a return to a tier swaps it in, never rebuilds it. */
+  stripByTier: Partial<Record<CanvasTier, Slice>>;
   glowStrip: Slice | undefined;
   glowKey: string;
   layout: ReadonlyArray<TrackRun>;
@@ -287,6 +289,10 @@ export const createWireScene = (host: WireHost): WireScene => {
 
   let tracksDirty = false;
   let pickList: Array<PickCandidate<WireId>> | undefined;
+  // The pick list in a grid: a pointer reads the wires it could touch, not
+  // every pickable wire on the board. Built on the first pick after a change.
+  let pickGrid: Map<number, Array<{ candidate: PickCandidate<WireId>; order: number }>> | undefined;
+  let pickWide: Array<{ candidate: PickCandidate<WireId>; order: number }> = [];
   // The visible draw: only the strips the camera can see, in one index list
   // per pool, so a freed or off-screen strip costs no vertex work.
   let visibleDirty = true;
@@ -451,6 +457,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     running.add(entry.id);
     syncGlowStrip(entry);
     pickList = undefined;
+    pickGrid = undefined;
     writeRecord(entry, now);
   };
 
@@ -598,13 +605,18 @@ export const createWireScene = (host: WireHost): WireScene => {
   };
 
   let builds = 0;
+  /** Wires a tier flip marks: only their new tier changes, other tiers stay kept. */
+  const tierOnly = new Set<WireId>();
   const rebuild = (entry: Entry, now: number): void => {
     builds += 1;
+    const keepOtherTiers = tierOnly.delete(entry.id);
     visibleDirty = true;
     const { ends, from, to, fromSurface, toSurface } = readEnds(entry);
     entry.ends = ends;
     if (from === undefined || to === undefined) {
-      pool.free(entry.strip);
+      for (const slice of Object.values(entry.stripByTier)) pool.free(slice);
+      entry.stripByTier = {};
+      tierOnly.delete(entry.id);
       entry.strip = undefined;
       entry.route = undefined;
       entry.line = undefined;
@@ -618,6 +630,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       }
       writeRecord(entry, now);
       pickList = undefined;
+    pickGrid = undefined;
       return;
     }
     const route = routeFor(entry, from, to, fromSurface, toSurface);
@@ -632,10 +645,18 @@ export const createWireScene = (host: WireHost): WireScene => {
     // whose route changes must not leave its slice behind, and a zero-length
     // route frees it rather than orphaning it.
     const strip: WireStrip = buildStrip(line, WIRE_HALF_WIDTH, { slot: entry.slot });
-    if (strip.count > 0) {
-      entry.strip = pool.put(entry.strip, strip.vertices, strip.count);
+    if (keepOtherTiers) {
+      pool.free(entry.stripByTier[tier]);
+      delete entry.stripByTier[tier];
     } else {
-      pool.free(entry.strip);
+      for (const slice of Object.values(entry.stripByTier)) pool.free(slice);
+      entry.stripByTier = {};
+    }
+    if (strip.count > 0) {
+      const slice = pool.put(undefined, strip.vertices, strip.count);
+      entry.strip = slice;
+      entry.stripByTier[tier] = slice;
+    } else {
       entry.strip = undefined;
     }
     if (isTrackVerb(entry.fact.row.verb)) {
@@ -655,6 +676,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     syncGlowStrip(entry);
     writeRecord(entry, now);
     pickList = undefined;
+    pickGrid = undefined;
   };
 
   const rebuildTracks = (): void => {
@@ -730,6 +752,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       bounds: undefined,
       label: undefined,
       strip: undefined,
+      stripByTier: {},
       glowStrip: undefined,
       glowKey: "",
       layout: [],
@@ -787,8 +810,10 @@ export const createWireScene = (host: WireHost): WireScene => {
     if (entry === undefined) return;
     unindex(entry);
     dirty.delete(id);
+    tierOnly.delete(id);
     running.delete(id);
     tracked.delete(id);
+    for (const slice of Object.values(entry.stripByTier)) pool.free(slice);
     pool.free(entry.strip);
     glowPool.free(entry.glowStrip);
     trackPool.free(entry.trackStrip);
@@ -803,6 +828,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     visibleDirty = true;
     coneWires = undefined;
     pickList = undefined;
+    pickGrid = undefined;
   };
 
   // --- the connection preview -----------------------------------------------------
@@ -1107,11 +1133,19 @@ export const createWireScene = (host: WireHost): WireScene => {
       tier = f.tier;
       refreshAll(now);
       relayoutTracks();
-      // A tier changes what a card draws (the mid pill), not the plan: only a
-      // wire whose body changed re-attaches. The rest keep their strips.
+      // A tier's strip is kept: a return to a tier swaps it in. Only a wire
+      // never built at this tier is rebuilt, and only once.
       for (const entry of entries.values()) {
+        const cached = entry.stripByTier[tier];
+        if (cached !== undefined) {
+          entry.strip = cached;
+          continue;
+        }
         const { ends } = readEnds(entry);
-        if (!sameEnds(ends, entry.ends)) dirty.add(entry.id);
+        if (!sameEnds(ends, entry.ends)) {
+          dirty.add(entry.id);
+          tierOnly.add(entry.id);
+        }
       }
     }
     // A card a pointer owns this frame can be somewhere its row is not yet.
@@ -1157,6 +1191,41 @@ export const createWireScene = (host: WireHost): WireScene => {
 
   // --- picking ---------------------------------------------------------------------
 
+  const PICK_CELL = 512;
+  const PICK_REACH = 48;
+  const pickCells = (): Map<number, Array<{ candidate: PickCandidate<WireId>; order: number }>> => {
+    if (pickGrid !== undefined) return pickGrid;
+    const cells = new Map<number, Array<{ candidate: PickCandidate<WireId>; order: number }>>();
+    pickWide = [];
+    const list = pickList ?? [];
+    list.forEach((candidate, order) => {
+      const box = candidate.bounds;
+      if (box === undefined) {
+        pickWide.push({ candidate, order });
+        return;
+      }
+      const x0 = Math.floor((box.minX - PICK_REACH) / PICK_CELL);
+      const x1 = Math.floor((box.maxX + PICK_REACH) / PICK_CELL);
+      const y0 = Math.floor((box.minY - PICK_REACH) / PICK_CELL);
+      const y1 = Math.floor((box.maxY + PICK_REACH) / PICK_CELL);
+      if ((x1 - x0 + 1) * (y1 - y0 + 1) > 96) {
+        pickWide.push({ candidate, order });
+        return;
+      }
+      for (let cx = x0; cx <= x1; cx += 1) {
+        for (let cy = y0; cy <= y1; cy += 1) {
+          const key = cx * 1048576 + cy;
+          const bucket = cells.get(key);
+          const entry = { candidate, order };
+          if (bucket === undefined) cells.set(key, [entry]);
+          else bucket.push(entry);
+        }
+      }
+    });
+    pickGrid = cells;
+    return cells;
+  };
+
   const pick: WireScene["pick"] = (at) => {
     if (pickList === undefined) {
       // The pool draws as one indexed triangle strip, in index order, so the
@@ -1179,7 +1248,29 @@ export const createWireScene = (host: WireHost): WireScene => {
       ordered.sort((a, b) => a.start - b.start);
       pickList = ordered.map((item) => item.candidate);
     }
-    return pickWire(pickList, at)?.id;
+    const cells = pickCells();
+    const x0 = Math.floor((at.x - PICK_REACH) / PICK_CELL);
+    const x1 = Math.floor((at.x + PICK_REACH) / PICK_CELL);
+    const y0 = Math.floor((at.y - PICK_REACH) / PICK_CELL);
+    const y1 = Math.floor((at.y + PICK_REACH) / PICK_CELL);
+    let best: { id: WireId; order: number } | undefined;
+    const consider = (entry: { candidate: PickCandidate<WireId>; order: number }): void => {
+      if (best !== undefined && entry.order <= best.order) return;
+      const hit = pickWire([entry.candidate], at);
+      if (hit !== null) best = { id: hit.id, order: entry.order };
+    };
+    const seen = new Set<number>();
+    for (let cx = x0; cx <= x1; cx += 1) {
+      for (let cy = y0; cy <= y1; cy += 1) {
+        for (const entry of cells.get(cx * 1048576 + cy) ?? []) {
+          if (seen.has(entry.order)) continue;
+          seen.add(entry.order);
+          consider(entry);
+        }
+      }
+    }
+    for (const entry of pickWide) consider(entry);
+    return best?.id;
   };
 
   const labelOf: WireScene["labelOf"] = (id) => entries.get(id)?.label;
