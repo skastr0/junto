@@ -126,24 +126,14 @@ const workerHost = (send: (update: LoomUpdate) => void, snapshot: (change: LoomS
         // cards are packed once as flat memory and each worker is posted
         // only the wires its share owns, in one pass.
         const count = workers.length;
-        const cards = packCards(
-          request.seed.cards.map((card) => ({
-            id: card.nodeId,
-            x: card.x,
-            y: card.y,
-            width: card.width,
-            height: card.height,
-            region: !card.obstacle,
-          })),
-        );
         const shares: Array<LoomSeed["wires"][number][]> = Array.from({ length: count }, () => []);
-        for (const wire of request.seed.wires) shares[shareOf(wire.wireId, count)]!.push(wire);
+        for (const wire of request.wires) shares[shareOf(wire.wireId, count)]!.push(wire);
         for (const [index, worker] of workers.entries()) {
           worker.postMessage({
             kind: "seed",
-            version: request.seed.version,
-            meta: request.seed.meta,
-            cards,
+            version: request.version,
+            meta: request.meta,
+            cards: request.cards,
             wires: shares[index]!,
           } satisfies LoomRequest);
         }
@@ -248,7 +238,25 @@ export const retainWireRoutes = (
   let ready = false;
   let latest: Extract<LoomRequest, { kind: "plan" }> | undefined;
   void loadLoomSeed(canvasName).then((seed) => {
-    if (seed !== undefined) host.request({ kind: "seed", seed });
+    if (seed !== undefined) {
+      // The cards are packed once here, on the page, not once per worker.
+      host.request({
+        kind: "seed",
+        version: seed.version,
+        meta: seed.meta,
+        cards: packCards(
+          seed.cards.map((card) => ({
+            id: card.nodeId,
+            x: card.x,
+            y: card.y,
+            width: card.width,
+            height: card.height,
+            region: !card.obstacle,
+          })),
+        ),
+        wires: seed.wires,
+      });
+    }
     ready = true;
     if (latest !== undefined) host.request(latest);
   });
