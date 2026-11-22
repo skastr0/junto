@@ -472,6 +472,12 @@ export const createScene = (options: {
   /** Every card, sorted into paint order (z, then id) when `paintIndexDirty`; `paintIndex` is the index. */
   const master: CardSlot[] = [];
   let paintIndexDirty = true;
+  /**
+   * Cards removed since the last paint-index rebuild (issue 915). A removal
+   * marks its card and the rebuild, which sorts the whole list anyway, drops
+   * them in one pass: a batch of K removals is O(N), not O(K*N).
+   */
+  const leftMaster = new Set<CardSlot>();
   /** Cards whose quads are built; a rebuild releases those well off screen. */
   const paintedCards = new Set<CardSlot>();
   /** Badge slots by owner index, for the per-frame blank check. */
@@ -1416,8 +1422,7 @@ export const createScene = (options: {
     freeSlots.push(card.slot);
     grid.remove(card.slot);
     dirtyOwners.delete(card.slot);
-    const at = master.indexOf(card);
-    if (at >= 0) master.splice(at, 1);
+    leftMaster.add(card);
     paintIndexDirty = true;
     markOrder();
   };
@@ -1426,6 +1431,7 @@ export const createScene = (options: {
     // Every held cell goes back to the atlas before the records are forgotten.
     for (const card of byId.values()) releaseShapes(card);
     master.length = 0;
+    leftMaster.clear();
     paintIndexDirty = true;
     blankCandidates.clear();
     waitingSince.clear();
@@ -1853,6 +1859,12 @@ export const createScene = (options: {
 
   const ensurePaintIndex = (): void => {
     if (!paintIndexDirty) return;
+    if (leftMaster.size > 0) {
+      let kept = 0;
+      for (const card of master) if (!leftMaster.has(card)) master[kept++] = card;
+      master.length = kept;
+      leftMaster.clear();
+    }
     master.sort((a, b) => {
       if (a.fact.derived.z !== b.fact.derived.z) return a.fact.derived.z - b.fact.derived.z;
       return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
