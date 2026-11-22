@@ -19,7 +19,7 @@ import { selectNode, state$ } from "../../lib/state";
 import { themeMode$ } from "../../lib/theme-mode";
 import { canvasZoomRequest$ } from "../../lib/canvas-zoom";
 import { createEngine, type SeamEngine, type WireLayer } from "../engine/engine";
-import { measureRun } from "../engine/text";
+import { createRunMeasure } from "../engine/text";
 import { createWireLayer, type WiresLayer } from "../engine/wires";
 import type { Camera, Rect, TextRun } from "../contract";
 import { takeCamera, leaveCamera } from "./camera-handoff";
@@ -134,6 +134,11 @@ export function GpuCanvas({ onUnavailable }: Props) {
     // broadcast; each engine registers its own invalidate below.
     const atlas = pageGpuAtlas();
     const textCtx = document.createElement("canvas").getContext("2d");
+    // Widths are cached per font, tracking and text (issue 915); a web font
+    // that finishes loading changes them, so the cache starts over.
+    const runMeasure = textCtx === null || typeof textCtx.measureText !== "function" ? undefined : createRunMeasure(textCtx);
+    const onFontsLoaded = (): void => runMeasure?.clear();
+    document.fonts?.addEventListener?.("loadingdone", onFontsLoaded);
     const engine = createEngine({
       surface: canvas,
       context,
@@ -162,9 +167,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       // The region watermarks the DOM draws from two CSS variables on the
       // root, as the two opacities the painter bakes into a region's name.
       glance: (zoom) => ({ region: regionGlanceOpacity(zoom), sub: subregionGlanceOpacity(zoom) }),
-      ...(textCtx === null || typeof textCtx.measureText !== "function"
-        ? {}
-        : { measure: (run: TextRun) => measureRun(textCtx, run, window.devicePixelRatio || 1) }),
+      ...(runMeasure === undefined ? {} : { measure: (run: TextRun) => runMeasure.measure(run, window.devicePixelRatio || 1) }),
       ...(handed === undefined ? {} : { camera: handed }),
     });
     // A cell that lands after the first frame repaints this canvas too — the
@@ -372,6 +375,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       offTheme();
       offKeeper();
       offAtlasDirty();
+      document.fonts?.removeEventListener?.("loadingdone", onFontsLoaded);
       // The atlas is the page's: the lens may still draw from it.
       clearMinimapSource(minimap);
       clearCanvasApi(api);

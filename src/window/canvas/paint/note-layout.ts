@@ -179,10 +179,33 @@ export type NoteLayout = {
 };
 
 /**
+ * The last layout of each note source (issue 915), per measurer: a repaint for
+ * a hover, a selection or a report typesets nothing. A layout is kept with
+ * its width, origin and the width of a probe run, so a resize or a web font
+ * swapping in (the measurer then answers differently) lays out again.
+ */
+const noteLayouts = new WeakMap<PaintEnv["measure"], Map<string, { readonly width: number; readonly x: number; readonly y: number; readonly probe: number; readonly layout: NoteLayout }>>();
+const PROBE_RUN: TextRun = { text: "Mg", font: "mono", size: NOTE_SIZE, weight: 400, leading: NOTE_LEADING, truncate: "end", width: MEASURE_WIDTH };
+
+/**
  * Typeset a note's source for a content box of `width`, its top left at `origin`
  * (card units). Block margins collapse the way CSS sibling margins do.
  */
 export const layoutNote = (source: string, width: number, origin: { readonly x: number; readonly y: number }, env: PaintEnv): NoteLayout => {
+  let byMeasure = noteLayouts.get(env.measure);
+  if (byMeasure === undefined) {
+    byMeasure = new Map();
+    noteLayouts.set(env.measure, byMeasure);
+  }
+  const probe = env.measure(PROBE_RUN);
+  const kept = byMeasure.get(source);
+  if (kept !== undefined && kept.width === width && kept.x === origin.x && kept.y === origin.y && kept.probe === probe) return kept.layout;
+  const layout = typesetNote(source, width, origin, env);
+  byMeasure.set(source, { width, x: origin.x, y: origin.y, probe, layout });
+  return layout;
+};
+
+const typesetNote = (source: string, width: number, origin: { readonly x: number; readonly y: number }, env: PaintEnv): NoteLayout => {
   const blocks = parseBlocks(source);
   if (blocks.length === 0) {
     const run: TextRun = { text: "empty note", font: "mono", size: 11, weight: 400, italic: true, leading: 1.2, truncate: "end", width, halo: true };

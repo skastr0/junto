@@ -143,6 +143,32 @@ export const measureRun = (
   return ctx.measureText(runText(run)).width / scale;
 };
 
+/**
+ * `measureRun` with a cache (issue 915): a width is one font, one tracking and
+ * one text, so each is measured once. Setting the context's font parses
+ * CSS, which costs more than the measure; a hit does neither. `clear` drops
+ * every width, for when a web font finishes loading and widths change.
+ */
+export const createRunMeasure = (ctx: MeasureContext): { readonly measure: (run: TextRun, scale: number) => number; readonly clear: () => void } => {
+  const widths = new Map<string, number>();
+  return {
+    measure: (run, scale) => {
+      const font = fontCss(run, scale);
+      const text = runText(run);
+      const key = `${font}|${String(run.tracking ?? 0)}|${text}`;
+      let width = widths.get(key);
+      if (width === undefined) {
+        ctx.font = font;
+        ctx.letterSpacing = run.tracking !== undefined ? `${run.tracking}em` : "0px";
+        width = ctx.measureText(text).width / scale;
+        widths.set(key, width);
+      }
+      return width;
+    },
+    clear: () => widths.clear(),
+  };
+};
+
 // --- truncation -------------------------------------------------------------
 // The DOM's cases (cards inventory): `truncate` is a tail ellipsis,
 // paths truncate at the head (direction: rtl + bdi), and -webkit-line-clamp
