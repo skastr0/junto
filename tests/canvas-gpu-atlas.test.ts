@@ -808,3 +808,38 @@ describe("gpu atlas (#911)", () => {
     expect(atlas.stats().pending).toBe(0);
   });
 });
+
+describe("the atlas's revision covers its mip levels (issue 915)", () => {
+  it("moves the revision again when the smaller levels of a landed colour cell are drawn", async () => {
+    const { device } = fakeDevice();
+    const submits: number[] = [];
+    // Only a submit that drew is the levels' draw; the page's first clear draws nothing.
+    let drew = false;
+    const pass = { setPipeline: () => undefined, setBindGroup: () => undefined, setScissorRect: () => undefined, draw: () => { drew = true; }, end: () => undefined };
+    const withMips = {
+      ...device,
+      createShaderModule: () => ({}),
+      createBindGroupLayout: () => ({}),
+      createPipelineLayout: () => ({}),
+      createRenderPipeline: () => ({}),
+      createBindGroup: () => ({}),
+      createCommandEncoder: () => ({ ...device.createCommandEncoder(), beginRenderPass: () => pass }),
+      queue: {
+        ...device.queue,
+        submit: () => {
+          if (drew) submits.push(atlas.revision());
+          drew = false;
+        },
+      },
+    } as unknown as GPUDevice;
+    const { atlas } = atlasWith();
+    atlas.attach(withMips);
+    // A colour cell (rgba, with smaller levels); text is coverage and has none.
+    atlas.acquire(spriteQuad({ atlas: "glyph", name: "plus" }), 2);
+    // The raster lands and marks the atlas; its smaller levels are drawn after.
+    for (let i = 0; i < 6 && submits.length === 0; i += 1) await settle();
+    expect(submits.length).toBeGreaterThan(0);
+    // A frame that read the revision before the levels were drawn sees a new one.
+    expect(atlas.revision()).toBeGreaterThan(submits.at(-1)!);
+  });
+});

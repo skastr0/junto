@@ -2762,13 +2762,14 @@ export const createScene = (options: {
         buildLensOrder();
       }
     }
+    checkBlank(view, frameAt);
+    const afterRevision = atlasRevisionNow();
     if (exact) {
       lastExactScale = exactScale;
       lastExactZoom = zoom;
       lastExactTier = tier;
-      lastAtlasRevision = revision;
+      lastAtlasRevision = afterRevision;
     }
-    checkBlank(view, frameAt);
     seatCheckView = view;
     refreshMotion(view);
 
@@ -2788,7 +2789,7 @@ export const createScene = (options: {
         for (let index = 0; index < orderCount; index += 1) previousOrder[index] = order[index]!;
       }
     }
-    return { orderChanged: changed, visible: orderCount, atlasRevision: revision };
+    return { orderChanged: changed, visible: orderCount, atlasRevision: afterRevision };
   };
 
   // --- drawn parts, for the proof's part-level ink check (test hook only) ----

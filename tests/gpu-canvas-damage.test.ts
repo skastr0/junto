@@ -217,4 +217,96 @@ describe("a frame only motion drives", () => {
     engine.dispose();
     keeper.dispose();
   });
+
+  it("draws whole when an atlas cell lands inside scene.prepare (ensureNow) on an otherwise motion-only frame", async () => {
+    const { asCanvasName } = await import("@shared/model");
+    const { createDeviceKeeper } = await import("../src/window/canvas/engine/device");
+    const { createEngine } = await import("../src/window/canvas/engine/engine");
+    const { fakeContext, fakeGpu, fakeScheduler, settle } = await import("./gpu-canvas-fakes");
+    const { seat } = await import("./support/model-nodes");
+    const gpu = fakeGpu();
+    const keeper = createDeviceKeeper(gpu.gpu);
+    const context = fakeContext();
+    const frames = fakeScheduler();
+    let now = 0;
+    let atlasRev = 1;
+    let landed = false;
+    let allowLand = false;
+    const turning = {
+      key: "turning",
+      kind: "shape",
+      band: "cards",
+      z: 1,
+      rect: { x: 0, y: 0, width: 40, height: 40 },
+      tiers: 15,
+      scale: { kind: "board" },
+      style: {},
+      motion: { kind: "turn", periodMs: 1200 },
+    };
+    const watermark = {
+      key: "watermark",
+      kind: "text",
+      band: "regions",
+      z: 2,
+      rect: { x: 200, y: 200, width: 120, height: 40 },
+      tiers: 15,
+      scale: { kind: "board" },
+      style: {},
+      text: { text: "ALPHA", font: "display", size: 32, weight: 400, leading: 1, truncate: "end", width: 120 },
+    };
+    const engine = createEngine({
+      surface: { width: 0, height: 0 },
+      context: context.context,
+      device: keeper,
+      scheduler: frames.scheduler,
+      clock: () => now,
+      atlasRevision: () => atlasRev,
+      cells: {
+        acquire: () => 1,
+        release: () => undefined,
+        hasImage: () => landed,
+        ensureNow: () => {
+          if (allowLand && !landed) {
+            landed = true;
+            atlasRev += 1;
+          }
+        },
+      },
+      painter: () => ({ quads: [turning, watermark], dim: { opacity: 1, saturate: 1 }, lift: 0 }) as never,
+    });
+    engine.input({ kind: "resize", width: 400, height: 300, pixelRatio: 2 });
+    engine.apply([
+      { kind: "load", canvas: asCanvasName("factory"), cards: [{ id: "a", row: seat("a", { x: 20, y: 20 }), derived: { regionDepth: 0, blocked: false, z: 0 } }], wires: [] },
+    ]);
+    await settle();
+    type Frame = { loadOp: string; scissors: Array<[number, number, number, number]> };
+    const log: Frame[] = [];
+    const device = gpu.devices[0]!.device as unknown as { createCommandEncoder: () => Record<string, unknown> };
+    const make = device.createCommandEncoder.bind(device);
+    device.createCommandEncoder = () => {
+      const encoder = make();
+      const frame: Frame = { loadOp: "", scissors: [] };
+      log.push(frame);
+      const begin = encoder["beginRenderPass"] as (descriptor: GPURenderPassDescriptor) => Record<string, unknown>;
+      return {
+        ...encoder,
+        beginRenderPass: (descriptor: GPURenderPassDescriptor) => {
+          frame.loadOp = [...descriptor.colorAttachments][0]!.loadOp;
+          return { ...begin(descriptor), setScissorRect: (x: number, y: number, w: number, h: number) => frame.scissors.push([x, y, w, h]) };
+        },
+        copyTextureToTexture: () => undefined,
+      };
+    };
+    for (let index = 0; index < 8; index += 1) {
+      now += 100;
+      frames.tick();
+    }
+    expect(log.at(-1)!.loadOp).toBe("load");
+    allowLand = true;
+    now += 100;
+    frames.tick();
+    expect(log.at(-1)).toMatchObject({ loadOp: "clear", scissors: [] });
+    engine.dispose();
+    keeper.dispose();
+  });
 });
