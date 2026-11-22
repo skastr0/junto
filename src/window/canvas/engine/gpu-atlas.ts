@@ -1,25 +1,22 @@
 /**
  * The GPU atlas binding (docs/canvas-gpu-architecture.md sections 8 and 9;
- * engine/types.ts AtlasBinding). One texture holds every cell the canvas
- * draws from: text runs rasterized by canvas 2D as coverage, generated art
- * and mark-atlas cells rasterized from SVG or canvas, media later.
+ * engine/types.ts AtlasBinding; artifact 01M81DHBBYRVN3MKJMR3MMCZ31 v5).
  *
- * Records name a cell by index (`Quad.source`); `binding.cells` is one vec4
- * UV rect per index, uploaded through the renderer's cells buffer. A cell
- * lands asynchronously: its UV is written when the bitmap arrives, the
- * texture region is copied in, and `onDirty` fires so the shell can re-upload
- * the cells buffer and repaint. Until then `sourceFor` answers
- * NO_ATLAS_CELL and the quad draws nothing — the same as today.
+ * A multi-page `texture_2d_array<f32>` sized from `device.limits`, with
+ * height-classed shelves, reference-counted stable indices, LRU reclaim of
+ * unreferenced (off-screen) cells, on-demand page growth when referenced cells
+ * do not fit, UV-alias stand-ins and replacement-previous continuity, sync
+ * `ensureNow()` fallback, backoff retry on failure, true-ink text coverage,
+ * and zero retained ImageBitmaps.
  *
  * The engine stays DOM-free: every rasterizer is injected. The browser
- * implementations live at the bottom of this file (`browserRasterizers`),
- * built on document canvases; tests hand fakes.
+ * implementations live at the bottom of this file (`browserRasterizers`).
  */
 
 import type { ColorRef, Quad, TextRun } from "../contract";
 import { gpuColorCss, themeGpu, type GpuColor, type GpuTheme, type ThemeMode } from "@shared/theme";
 import { NO_ATLAS_CELL } from "./quad";
-import type { AtlasBinding } from "./types";
+import { ATLAS_CELL_FLOATS, type AtlasBinding, type AtlasStats } from "./types";
 import { resolveColour } from "./styles";
 import { drawGlyph, glyphKnown } from "./glyphs";
 import {
@@ -38,223 +35,749 @@ export type AtlasPixels = ImageBitmap | HTMLCanvasElement | OffscreenCanvas;
 export interface TextRasterize {
   (run: TextRun, scale: number, ink: GpuColor): Promise<AtlasPixels>;
 }
-/**
- * A sprite cell is rasterized for the quad that asked: `scale` is device
- * pixels per board unit (the scene's atlas bucket, pixelRatio included) and
- * the cell is the quad's rect at that scale, so the shader's UV stretch is
- * always pixel-exact.
- */
+export interface TextRasterizeSync {
+  (run: TextRun, scale: number, ink: GpuColor): AtlasPixels;
+}
 export interface SpriteRasterize {
   (quad: Quad, mode: ThemeMode, scale: number): Promise<AtlasPixels>;
 }
+export interface SpriteRasterizeSync {
+  (quad: Quad, mode: ThemeMode, scale: number): AtlasPixels | undefined;
+}
 
 export interface GpuAtlasOptions {
-  /** Texture edge in pixels; cells pack left to right, top to bottom. */
+  /** Preferred page edge in pixels (clamped to `device.limits.maxTextureDimension2D`). */
   readonly size?: number;
-  /** Cell slots; the cells buffer is allocated at this capacity up front. */
-  readonly maxCells?: number;
   readonly rasterizeText?: TextRasterize;
+  readonly rasterizeTextSync?: TextRasterizeSync;
   readonly rasterizeSprite?: SpriteRasterize;
+  readonly rasterizeSpriteSync?: SpriteRasterizeSync;
   readonly mode?: ThemeMode;
-  /** Fired (batched, once per task) when landed cells changed the texture or UVs. */
+  /** Fired (batched, once per task) when landed cells or pages changed the texture or UVs. */
   readonly onDirty?: () => void;
+  /** Reported when a real GPU allocation or raster failure occurs. */
+  readonly onFailure?: (reason: string) => void;
 }
 
 export interface GpuAtlas {
-  /** The live binding: `texture`, `sampler` and `cells` fill in on attach(). */
+  /** The live binding: `texture`, `sampler`, `cells`, `cellCount`, `textureGeneration`. */
   readonly binding: AtlasBinding;
   /** Attach the device the atlas uploads into; safe to call again per generation. */
   attach(device: GPUDevice): void;
-  /** Theme switch: sprite keys carry the mode, so new asks rasterize anew. */
+  /** Theme switch: sprite and text keys carry the mode, so new asks rasterize anew. */
   setMode(mode: ThemeMode): void;
-  /** The record's atlas cell for a quad's sprite or text, or NO_ATLAS_CELL. */
-  sourceFor(quad: Quad, scale: number): number;
-  /** Bumped every time landed cells change the texture or the UV buffer. */
-  revision(): number;
   /**
-   * How many cell rasterizations have started: one per new key, never per ask.
-   * A camera gesture must add none (section 8 rule 2), which the frame test
-   * reads.
+   * Acquire a stable cell index for `quad` at `scale`, taking one reference.
+   * `previous` is the index this record previously held:
+   * - Same key: returns `previous` (net 0 ref change).
+   * - New key, `previous` has refCount 1 and same pixel box (and is placed):
+   *   re-keys `previous` in place and overwrites its rect when the new raster lands.
+   * - New key otherwise: keeps `previous` referenced and aliased in the new cell's
+   *   UVs until the new cell lands (or is released), so nothing flashes blank.
+   * Returns `NO_ATLAS_CELL` only when the quad has nothing to draw.
    */
+  acquire(quad: Quad, scale: number, previous?: number): number;
+  /** Release one reference to `cell`. At zero references it stays cached (LRU) until reclaimed. */
+  release(cell: number): void;
+  /** True when `cell` currently points at pixels (its own, a stand-in, or an aliased previous). */
+  hasImage(cell: number): boolean;
+  /**
+   * Last-resort synchronous raster + copy before frame submit for an in-view cell
+   * that still has no image. Returns `hasImage(cell)` afterward.
+   */
+  ensureNow(cell: number): boolean;
+  /** Record the count of on-screen text/sprite quads drawn with no image on a presented frame. */
+  recordVisibleBlank(count: number): void;
+  /** Compat wrapper for callers that have not switched to `acquire`/`release` yet. */
+  sourceFor(quad: Quad, scale: number): number;
+  /** Bumped every time landed cells or pages change the texture or UV table. */
+  revision(): number;
+  /** Observable counters for diagnostics and the test hook. */
+  stats(): AtlasStats;
   readonly requests: number;
   readonly pending: number;
   dispose(): void;
 }
 
-interface CellJob {
-  readonly index: number;
-  readonly promise: Promise<void>;
-}
-
 interface Placed {
+  readonly layer: number;
+  readonly shelfIndex: number;
   readonly x: number;
   readonly y: number;
   readonly w: number;
   readonly h: number;
+  readonly spanW: number;
 }
 
-// 4096, not 2048: text cells key on mode and ink now, so one theme's cells
-// never share another's, and the gallery's four zoom tiers plus wide sprite
-// cells (a 480x272 image, region watermarks) overflowed 2048 — alloc() then
-// dropped every later cell and bright-mode text and sprites sampled the
-// transparent texel. WebGPU's baseline maxTextureDimension2D is 8192.
-const DEFAULT_SIZE = 4096;
-const DEFAULT_CELLS = 8192;
+interface FreeSpan {
+  x: number;
+  w: number;
+}
+
+interface Shelf {
+  readonly y: number;
+  readonly height: number;
+  cursorX: number;
+  usedCount: number;
+  readonly freeSpans: FreeSpan[];
+}
+
+interface Page {
+  readonly layer: number;
+  nextY: number;
+  readonly shelves: Shelf[];
+}
+
+type CellState = "queued" | "rasterizing" | "landed" | "failed";
+
+interface CellDesc {
+  readonly quad: Quad;
+  readonly scale: number;
+  readonly mode: ThemeMode;
+  readonly kind: "text" | "sprite";
+}
+
+interface SlotRecord {
+  readonly index: number;
+  key: string;
+  contentKey: string;
+  scale: number;
+  refCount: number;
+  state: CellState;
+  placed?: Placed;
+  aliasOf?: number;
+  inPlace?: boolean;
+  attempts: number;
+  retryAfter: number;
+  desc?: CellDesc;
+  jobToken: number;
+}
+
+const PREFERRED_PAGE_SIZE = 4096;
+const INITIAL_CELL_CAPACITY = 256;
+const TEXTURE_USAGE_ATLAS = 0x01 | 0x02 | 0x04 | 0x10; // COPY_SRC | COPY_DST | TEXTURE_BINDING | RENDER_ATTACHMENT
+const SHELF_CLASSES = [16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024] as const;
+const DRAIN_YIELD_MS = 4;
+const BASE_RETRY_MS = 250;
+const MAX_RETRY_MS = 8000;
+
+const shelfClassFor = (needH: number, pageSize: number): number => {
+  for (const h of SHELF_CLASSES) {
+    if (h >= needH && h <= pageSize) return h;
+  }
+  return Math.min(pageSize, needH);
+};
+
+const closePixels = (pixels: AtlasPixels): void => {
+  if (typeof (pixels as { close?: unknown }).close === "function") {
+    (pixels as ImageBitmap).close();
+  }
+};
+
+const nowMs = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
-  const size = options.size ?? DEFAULT_SIZE;
-  const maxCells = options.maxCells ?? DEFAULT_CELLS;
-  let mode = options.mode ?? "dark";
+  const preferredSize = Math.max(64, options.size ?? PREFERRED_PAGE_SIZE);
+  let pageSize = preferredSize;
+  let maxArrayLayers = 256;
+  let maxCellsByLimit = Number.MAX_SAFE_INTEGER;
+  let mode: ThemeMode = options.mode ?? "dark";
 
-  const cells = new Float32Array(maxCells * 4);
-  const jobs = new Map<string, CellJob>();
-  const placed = new Map<string, Placed>();
+  let cells = new Float32Array(INITIAL_CELL_CAPACITY * ATLAS_CELL_FLOATS);
+  let cellCapacity = INITIAL_CELL_CAPACITY;
+  let highWaterCells = 0;
+
+  const slots: Array<SlotRecord | undefined> = [];
+  const freeIndices: number[] = [];
+  const keyToIndex = new Map<string, number>();
+  /** contentKey -> set of landed slot indices (for nearest-bucket stand-in lookup). */
+  const contentLanded = new Map<string, Set<number>>();
+  /** Insertion-ordered LRU of unreferenced (refCount === 0) landed/placed slot indices. */
+  const unreferencedLru = new Map<number, true>();
+  /** Compat tracking so repeated `sourceFor` calls for the same key don't leak refs. */
+  const compatHeld = new Set<string>();
+
+  const queue: number[] = [];
+  const queuedSet = new Set<number>();
+  let drainScheduled = false;
+  let inFlightCount = 0;
+
   let device: GPUDevice | undefined;
   let texture: GPUTexture | undefined;
   let sampler: GPUSampler | undefined;
-  let cursorX = 1; // texel (0,0) stays transparent: a cell whose raster failed keeps zeroed UVs and must sample nothing
-  let cursorY = 0;
-  let rowH = 0;
+  let layerCount = 0;
+  const pages: Page[] = [];
+
   let dirty = false;
   let flushScheduled = false;
   let disposed = false;
   let revision = 0;
-  // Every landed cell keeps its pixels so a new device (context loss, a new
-  // generation) gets a fresh texture with the same contents; `awaiting` marks
-  // the ones whose UV rect is not in `cells` yet (landed before attach).
-  const landed = new Map<number, { readonly pixels: AtlasPixels; readonly at: Placed }>();
-  const awaiting = new Set<number>();
+  let textureGeneration = 0;
+  let nextJobToken = 1;
 
-  // The binding object is stable for the engine's lifetime; attach() fills
-  // its fields through the mutable view. Until then the renderer's dummy
-  // texture stands in.
+  // Counters
+  let requests = 0;
+  let landedCount = 0;
+  let evictions = 0;
+  let failures = 0;
+  let visibleBlank = 0;
+  let visibleBlankTotal = 0;
+
   const mutable = {
     texture: undefined as unknown as GPUTexture,
     sampler: undefined as unknown as GPUSampler,
     cells,
+    cellCount: 0,
+    textureGeneration: 0,
   };
   const binding = mutable as AtlasBinding;
 
-  const flush = (): void => {
+  const reportFailure = (reason: string): void => {
+    failures += 1;
+    options.onFailure?.(reason);
+  };
+
+  const flushDirty = (): void => {
     flushScheduled = false;
     if (dirty && !disposed) {
       dirty = false;
       options.onDirty?.();
     }
   };
+
   const markDirty = (): void => {
     dirty = true;
     revision += 1;
     if (!flushScheduled) {
       flushScheduled = true;
-      queueMicrotask(flush);
+      queueMicrotask(flushDirty);
     }
   };
 
-  const alloc = (w: number, h: number): Placed | undefined => {
-    // One texel of transparent gutter on every cell's right and bottom edge:
-    // the linear sampler reaches half a texel past the UV edge, and a 0 px
-    // gutter sampled the next cell's first column as a hairline.
-    if (cursorX + w + 1 > size) {
-      cursorX = 0;
-      cursorY += rowH;
-      rowH = 0;
+  const ensureCellCapacity = (needed: number): boolean => {
+    if (needed <= cellCapacity) return true;
+    if (needed > maxCellsByLimit) {
+      reportFailure(`atlas cell count ${needed} exceeds device storage buffer limit (${maxCellsByLimit})`);
+      return false;
     }
-    if (cursorY + h + 1 > size) return undefined; // atlas full: rebuild is a later problem
-    const at: Placed = { x: cursorX, y: cursorY, w, h };
-    cursorX += w + 1;
-    rowH = Math.max(rowH, h + 1);
-    return at;
+    let nextCap = cellCapacity;
+    while (nextCap < needed) nextCap *= 2;
+    nextCap = Math.min(nextCap, maxCellsByLimit);
+    const next = new Float32Array(nextCap * ATLAS_CELL_FLOATS);
+    next.set(cells);
+    cells = next;
+    cellCapacity = nextCap;
+    mutable.cells = cells;
+    return true;
+  };
+
+  const writeCellUV = (index: number, x: number, y: number, w: number, h: number, layer: number): void => {
+    const base = index * ATLAS_CELL_FLOATS;
+    cells[base] = x / pageSize;
+    cells[base + 1] = y / pageSize;
+    cells[base + 2] = (x + w) / pageSize;
+    cells[base + 3] = (y + h) / pageSize;
+    cells[base + 4] = layer;
+    cells[base + 5] = 0;
+    cells[base + 6] = 0;
+    cells[base + 7] = 0;
+  };
+
+  const copyCellUV = (dstIndex: number, srcIndex: number): void => {
+    const d = dstIndex * ATLAS_CELL_FLOATS;
+    const s = srcIndex * ATLAS_CELL_FLOATS;
+    for (let i = 0; i < ATLAS_CELL_FLOATS; i += 1) {
+      cells[d + i] = cells[s + i]!;
+    }
+  };
+
+  const clearCellUV = (index: number): void => {
+    const base = index * ATLAS_CELL_FLOATS;
+    for (let i = 0; i < ATLAS_CELL_FLOATS; i += 1) {
+      cells[base + i] = 0;
+    }
+  };
+
+  const hasImage = (cell: number): boolean => {
+    if (cell === NO_ATLAS_CELL || cell < 0 || cell >= highWaterCells) return false;
+    const base = cell * ATLAS_CELL_FLOATS;
+    return cells[base + 2]! > cells[base]! || cells[base + 3]! > cells[base + 1]!;
+  };
+
+  const addContentLanded = (contentKey: string, index: number): void => {
+    let set = contentLanded.get(contentKey);
+    if (set === undefined) {
+      set = new Set();
+      contentLanded.set(contentKey, set);
+    }
+    set.add(index);
+  };
+
+  const removeContentLanded = (contentKey: string, index: number): void => {
+    const set = contentLanded.get(contentKey);
+    if (set === undefined) return;
+    set.delete(index);
+    if (set.size === 0) contentLanded.delete(contentKey);
+  };
+
+  const findStandIn = (contentKey: string, scale: number, excludeIndex: number): number | undefined => {
+    const set = contentLanded.get(contentKey);
+    if (set === undefined || set.size === 0) return undefined;
+    let best: number | undefined;
+    let bestDist = Infinity;
+    for (const idx of set) {
+      if (idx === excludeIndex) continue;
+      const rec = slots[idx];
+      if (rec === undefined || rec.state !== "landed" || !hasImage(idx)) continue;
+      const dist = Math.abs(Math.log2(Math.max(1e-4, rec.scale) / Math.max(1e-4, scale)));
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = idx;
+      }
+    }
+    return best;
+  };
+
+  // --- Page & height-classed shelf allocator ----------------------------------
+
+  const makePage = (layer: number): Page => ({
+    layer,
+    nextY: 0,
+    shelves: [],
+  });
+
+  const tryPlaceOnPages = (w: number, h: number): Placed | undefined => {
+    const needW = w + 1; // 1px transparent gutter on right
+    const needH = h + 1; // 1px transparent gutter on bottom
+    if (needW > pageSize || needH > pageSize) return undefined;
+
+    // 1. Fit into an existing shelf of compatible height class (free span first, then cursor).
+    for (const page of pages) {
+      for (let sIdx = 0; sIdx < page.shelves.length; sIdx += 1) {
+        const shelf = page.shelves[sIdx]!;
+        if (shelf.height < needH || shelf.height > needH * 2) continue;
+        // Check free spans (first-fit)
+        for (let i = 0; i < shelf.freeSpans.length; i += 1) {
+          const span = shelf.freeSpans[i]!;
+          if (span.w >= needW) {
+            const x = span.x;
+            if (span.w === needW) {
+              shelf.freeSpans.splice(i, 1);
+            } else {
+              span.x += needW;
+              span.w -= needW;
+            }
+            shelf.usedCount += 1;
+            return { layer: page.layer, shelfIndex: sIdx, x, y: shelf.y, w, h, spanW: needW };
+          }
+        }
+        // Check tail cursor
+        if (shelf.cursorX + needW <= pageSize) {
+          const x = shelf.cursorX;
+          shelf.cursorX += needW;
+          shelf.usedCount += 1;
+          return { layer: page.layer, shelfIndex: sIdx, x, y: shelf.y, w, h, spanW: needW };
+        }
+      }
+    }
+
+    // 2. Open a new shelf on any page with vertical room.
+    const shelfH = shelfClassFor(needH, pageSize);
+    for (const page of pages) {
+      if (page.nextY + shelfH <= pageSize) {
+        // Reserve texel (0,0) on layer 0 row 0 as permanently transparent.
+        const startX = page.layer === 0 && page.nextY === 0 ? 1 : 0;
+        if (startX + needW > pageSize) continue;
+        const shelf: Shelf = {
+          y: page.nextY,
+          height: shelfH,
+          cursorX: startX + needW,
+          usedCount: 1,
+          freeSpans: [],
+        };
+        const sIdx = page.shelves.length;
+        page.shelves.push(shelf);
+        page.nextY += shelfH;
+        return { layer: page.layer, shelfIndex: sIdx, x: startX, y: shelf.y, w, h, spanW: needW };
+      }
+    }
+    return undefined;
+  };
+
+  const freePlaced = (at: Placed): void => {
+    const page = pages[at.layer];
+    if (page === undefined) return;
+    const shelf = page.shelves[at.shelfIndex];
+    if (shelf === undefined) return;
+    shelf.usedCount = Math.max(0, shelf.usedCount - 1);
+    if (shelf.usedCount === 0) {
+      shelf.freeSpans.length = 0;
+      shelf.cursorX = page.layer === 0 && shelf.y === 0 ? 1 : 0;
+      // Rewind trailing empty shelves on this page so tall items can claim contiguous vertical room.
+      while (page.shelves.length > 0 && page.shelves[page.shelves.length - 1]!.usedCount === 0) {
+        const popped = page.shelves.pop()!;
+        page.nextY = popped.y;
+      }
+      return;
+    }
+    // Insert and coalesce free span
+    const spans = shelf.freeSpans;
+    let insertAt = 0;
+    while (insertAt < spans.length && spans[insertAt]!.x < at.x) insertAt += 1;
+    spans.splice(insertAt, 0, { x: at.x, w: at.spanW });
+    // Coalesce with next
+    if (insertAt + 1 < spans.length) {
+      const cur = spans[insertAt]!;
+      const nxt = spans[insertAt + 1]!;
+      if (cur.x + cur.w === nxt.x) {
+        cur.w += nxt.w;
+        spans.splice(insertAt + 1, 1);
+      }
+    }
+    // Coalesce with prev
+    if (insertAt > 0) {
+      const prev = spans[insertAt - 1]!;
+      const cur = spans[insertAt]!;
+      if (prev.x + prev.w === cur.x) {
+        prev.w += cur.w;
+        spans.splice(insertAt, 1);
+      }
+    }
+    // Trim tail span back into cursorX if adjacent
+    const last = spans[spans.length - 1];
+    if (last !== undefined && last.x + last.w === shelf.cursorX) {
+      shelf.cursorX = last.x;
+      spans.pop();
+    }
+  };
+
+  const evictOneUnreferenced = (): boolean => {
+    const first = unreferencedLru.keys().next();
+    if (first.done) return false;
+    const idx = first.value;
+    unreferencedLru.delete(idx);
+    const rec = slots[idx];
+    if (rec === undefined || rec.refCount > 0) return false;
+    if (rec.placed !== undefined) {
+      freePlaced(rec.placed);
+      rec.placed = undefined;
+    }
+    if (rec.state === "landed") {
+      landedCount = Math.max(0, landedCount - 1);
+      removeContentLanded(rec.contentKey, idx);
+    }
+    keyToIndex.delete(rec.key);
+    compatHeld.delete(rec.key);
+    clearCellUV(idx);
+    slots[idx] = undefined;
+    freeIndices.push(idx);
+    evictions += 1;
+    return true;
+  };
+
+  const createArrayTexture = (targetDevice: GPUDevice, layers: number): GPUTexture | undefined => {
+    const hasScope = typeof targetDevice.pushErrorScope === "function" && typeof targetDevice.popErrorScope === "function";
+    if (hasScope) targetDevice.pushErrorScope("out-of-memory");
+    let created: GPUTexture | undefined;
+    try {
+      created = targetDevice.createTexture({
+        size: { width: pageSize, height: pageSize, depthOrArrayLayers: layers },
+        format: "rgba8unorm",
+        usage: TEXTURE_USAGE_ATLAS,
+      });
+    } catch (error) {
+      reportFailure(`atlas texture allocation failed (${pageSize}x${pageSize}x${layers}): ${String(error)}`);
+      if (hasScope) void targetDevice.popErrorScope().catch(() => undefined);
+      return undefined;
+    }
+    if (hasScope) {
+      void targetDevice.popErrorScope().then((err) => {
+        if (err !== null) {
+          reportFailure(`atlas GPU out-of-memory (${pageSize}x${pageSize}x${layers}): ${err.message}`);
+        }
+      }).catch(() => undefined);
+    }
+    return created;
+  };
+
+  const growPages = (): boolean => {
+    if (device === undefined || texture === undefined) return false;
+    if (layerCount >= maxArrayLayers) {
+      reportFailure(`atlas page limit reached (${layerCount}/${maxArrayLayers} layers)`);
+      return false;
+    }
+    const nextLayers = layerCount + 1;
+    const nextTexture = createArrayTexture(device, nextLayers);
+    if (nextTexture === undefined) return false;
+    // Copy existing layers into the new array texture on GPU.
+    if (layerCount > 0 && typeof device.createCommandEncoder === "function") {
+      const encoder = device.createCommandEncoder();
+      if (typeof encoder.copyTextureToTexture === "function") {
+        encoder.copyTextureToTexture(
+          { texture, origin: { x: 0, y: 0, z: 0 } },
+          { texture: nextTexture, origin: { x: 0, y: 0, z: 0 } },
+          { width: pageSize, height: pageSize, depthOrArrayLayers: layerCount },
+        );
+      }
+      device.queue.submit([encoder.finish()]);
+    }
+    texture.destroy();
+    texture = nextTexture;
+    mutable.texture = texture;
+    pages.push(makePage(layerCount));
+    layerCount = nextLayers;
+    textureGeneration += 1;
+    mutable.textureGeneration = textureGeneration;
+    markDirty();
+    return true;
+  };
+
+  /**
+   * Allocate a rect of `(w, h)` on the paged texture:
+   * 1. Try existing pages.
+   * 2. Reclaim unreferenced (off-screen) cells in LRU order until it fits.
+   * 3. Add a page on demand only when referenced cells do not fit.
+   */
+  const alloc = (w: number, h: number): Placed | undefined => {
+    let at = tryPlaceOnPages(w, h);
+    if (at !== undefined) return at;
+
+    // Reclaim off-screen (unreferenced) cells first
+    while (evictOneUnreferenced()) {
+      at = tryPlaceOnPages(w, h);
+      if (at !== undefined) return at;
+    }
+
+    // Only what is on screen (referenced) remains; add a page on demand
+    if (growPages()) {
+      at = tryPlaceOnPages(w, h);
+      if (at !== undefined) return at;
+    }
+    return undefined;
+  };
+
+  // --- Scale clamping & pixel upload ------------------------------------------
+
+  const effectiveScaleFor = (quad: Quad, scale: number): number => {
+    const maxEdge = Math.max(1, pageSize - 1);
+    let estW = 0;
+    let estH = 0;
+    if (quad.sprite !== undefined) {
+      estW = Math.ceil(quad.rect.width * scale);
+      estH = Math.ceil(quad.rect.height * scale);
+    } else if (quad.text !== undefined) {
+      const run = quad.text;
+      const pad = run.blur === undefined ? 0 : haloPadDevice(scale);
+      estW = Math.ceil(run.width * scale) + 2 * pad;
+      estH = Math.ceil(run.size * scale * (run.leading ?? 1.2)) + 2 * pad;
+    }
+    if (estW <= maxEdge && estH <= maxEdge) return scale;
+    const factor = Math.min(maxEdge / Math.max(1, estW), maxEdge / Math.max(1, estH));
+    return Math.max(1e-3, scale * factor);
+  };
+
+  const clampPixelsToPage = (pixels: AtlasPixels): { readonly pixels: AtlasPixels; readonly owned: boolean } => {
+    const maxEdge = Math.max(1, pageSize - 1);
+    const w = Math.max(1, pixels.width);
+    const h = Math.max(1, pixels.height);
+    if (w <= maxEdge && h <= maxEdge) return { pixels, owned: false };
+    const ratio = Math.min(maxEdge / w, maxEdge / h);
+    const dw = Math.max(1, Math.floor(w * ratio));
+    const dh = Math.max(1, Math.floor(h * ratio));
+    if (typeof document === "undefined") return { pixels, owned: false };
+    const { canvas, ctx } = scratchClampCanvas(dw, dh);
+    ctx.clearRect(0, 0, dw, dh);
+    ctx.drawImage(pixels as CanvasImageSource, 0, 0, dw, dh);
+    return { pixels: canvas, owned: true };
   };
 
   const copyPixels = (pixels: AtlasPixels, at: Placed): void => {
     device!.queue.copyExternalImageToTexture(
       { source: pixels as unknown as ImageBitmap },
-      { texture: texture!, origin: { x: at.x, y: at.y } },
-      { width: Math.max(1, pixels.width), height: Math.max(1, pixels.height) },
+      { texture: texture!, origin: { x: at.x, y: at.y, z: at.layer } },
+      { width: Math.max(1, Math.min(at.w, pixels.width)), height: Math.max(1, Math.min(at.h, pixels.height)) },
     );
   };
 
-  const writeUV = (index: number, pixels: AtlasPixels, at: Placed): void => {
-    const w = Math.max(1, pixels.width);
-    const h = Math.max(1, pixels.height);
-    cells[index * 4] = at.x / size;
-    cells[index * 4 + 1] = at.y / size;
-    cells[index * 4 + 2] = (at.x + w) / size;
-    cells[index * 4 + 3] = (at.y + h) / size;
+  // --- Reference release & alias settlement -----------------------------------
+
+  const releaseAlias = (rec: SlotRecord): void => {
+    if (rec.aliasOf === undefined) return;
+    const target = rec.aliasOf;
+    rec.aliasOf = undefined;
+    release(target);
   };
 
-  const land = (index: number, pixels: AtlasPixels, at: Placed): void => {
-    landed.set(index, { pixels, at });
-    if (device === undefined || texture === undefined) {
-      awaiting.add(index);
-      return;
+  const landPixels = (rec: SlotRecord, rawPixels: AtlasPixels): boolean => {
+    if (disposed || device === undefined || texture === undefined) return false;
+    const clamped = clampPixelsToPage(rawPixels);
+    const pixels = clamped.pixels;
+    const w = Math.max(1, Math.min(pageSize - 1, pixels.width));
+    const h = Math.max(1, Math.min(pageSize - 1, pixels.height));
+
+    // In-place overwrite if rec already holds a matching rect
+    let at: Placed | undefined;
+    if (rec.inPlace && rec.placed !== undefined && rec.placed.w === w && rec.placed.h === h) {
+      at = rec.placed;
+    } else {
+      if (rec.placed !== undefined) {
+        freePlaced(rec.placed);
+        rec.placed = undefined;
+      }
+      at = alloc(w, h);
     }
+
+    if (at === undefined) {
+      rec.state = "failed";
+      rec.attempts += 1;
+      rec.retryAfter = nowMs() + Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts - 1));
+      reportFailure(`atlas alloc failed for ${w}x${h} (key=${rec.key})`);
+      return false;
+    }
+
     copyPixels(pixels, at);
-    writeUV(index, pixels, at);
-    awaiting.delete(index);
+    rec.placed = at;
+    rec.inPlace = false;
+    const wasLanded = rec.state === "landed";
+    rec.state = "landed";
+    rec.attempts = 0;
+    rec.retryAfter = 0;
+    if (!wasLanded) landedCount += 1;
+    addContentLanded(rec.contentKey, rec.index);
+    writeCellUV(rec.index, at.x, at.y, w, h, at.layer);
+    releaseAlias(rec);
+    if (rec.refCount === 0) {
+      rec.desc = undefined;
+      unreferencedLru.set(rec.index, true);
+    }
     markDirty();
+    return true;
   };
 
-  const intern = (key: string, rasterize: () => Promise<AtlasPixels>): number => {
-    const existing = placed.get(key);
-    if (existing !== undefined) {
-      // Recompute the index from insertion order: placed stores geometry,
-      // jobs store the promise; the index lives in the job's slot map.
-      return indexOf(key);
+  // --- Queued async + sync rasterization --------------------------------------
+
+  const enqueue = (index: number): void => {
+    if (disposed || queuedSet.has(index)) return;
+    queuedSet.add(index);
+    queue.push(index);
+    scheduleDrain();
+  };
+
+  const scheduleDrain = (): void => {
+    if (drainScheduled || disposed || device === undefined || texture === undefined) return;
+    drainScheduled = true;
+    queueMicrotask(drainQueue);
+  };
+
+  const rasterizeSync = (desc: CellDesc): AtlasPixels | undefined => {
+    const effScale = effectiveScaleFor(desc.quad, desc.scale);
+    if (desc.kind === "text") {
+      if (options.rasterizeTextSync === undefined) return undefined;
+      const ink = resolveColour(desc.quad.style.ink, themeFor(desc.mode)) ?? { r: 1, g: 1, b: 1, a: 1 };
+      return options.rasterizeTextSync(desc.quad.text!, effScale, ink);
     }
-    const job = jobs.get(key);
-    if (job !== undefined) return job.index;
-    const index = nextIndex++;
-    if (index >= maxCells) return NO_ATLAS_CELL;
-    const promise = rasterize()
-      .then(async (pixels) => {
-        const w = Math.max(1, pixels.width);
-        const h = Math.max(1, pixels.height);
-        const at = alloc(w, h);
-        if (at === undefined) return;
-        placed.set(key, at);
-        land(index, pixels, at);
+    if (options.rasterizeSpriteSync === undefined) return undefined;
+    return options.rasterizeSpriteSync(desc.quad, desc.mode, effScale);
+  };
+
+  const rasterizeAsync = (desc: CellDesc): Promise<AtlasPixels> => {
+    const effScale = effectiveScaleFor(desc.quad, desc.scale);
+    if (desc.kind === "text") {
+      if (options.rasterizeText === undefined) return Promise.reject(new Error("no text rasterizer"));
+      const ink = resolveColour(desc.quad.style.ink, themeFor(desc.mode)) ?? { r: 1, g: 1, b: 1, a: 1 };
+      return options.rasterizeText(desc.quad.text!, effScale, ink);
+    }
+    if (options.rasterizeSprite === undefined) return Promise.reject(new Error("no sprite rasterizer"));
+    return options.rasterizeSprite(desc.quad, desc.mode, effScale);
+  };
+
+  const runJob = (rec: SlotRecord): void => {
+    if (rec.desc === undefined || device === undefined || texture === undefined) return;
+    const desc = rec.desc;
+    const token = ++nextJobToken;
+    rec.jobToken = token;
+    rec.state = "rasterizing";
+
+    // Prefer sync raster for text/mark/glyph when available — zero ImageBitmap allocation.
+    if ((desc.kind === "text" && options.rasterizeTextSync !== undefined) ||
+        (desc.kind === "sprite" && options.rasterizeSpriteSync !== undefined)) {
+      try {
+        const syncPx = rasterizeSync(desc);
+        if (syncPx !== undefined) {
+          if (rec.jobToken === token && !disposed) {
+            landPixels(rec, syncPx);
+          }
+          return;
+        }
+      } catch (error) {
+        rec.state = "failed";
+        rec.attempts += 1;
+        rec.retryAfter = nowMs() + Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts - 1));
+        reportFailure(`atlas sync raster failed (${rec.key}): ${String(error)}`);
+        return;
+      }
+    }
+
+    inFlightCount += 1;
+    void rasterizeAsync(desc)
+      .then((pixels) => {
+        try {
+          if (disposed || rec.jobToken !== token || slots[rec.index] !== rec) return;
+          if (rec.refCount === 0 && !rec.inPlace) {
+            // Released while in flight: drop without wasting page space.
+            rec.state = "failed";
+            keyToIndex.delete(rec.key);
+            compatHeld.delete(rec.key);
+            slots[rec.index] = undefined;
+            freeIndices.push(rec.index);
+            return;
+          }
+          landPixels(rec, pixels);
+        } finally {
+          closePixels(pixels);
+        }
       })
-      .catch(() => {
-        // A failed raster leaves the cell empty; the quad keeps NO_ATLAS_CELL
-        // semantics through the zeroed UV (samples texel 0,0 = transparent).
+      .catch((error) => {
+        if (disposed || rec.jobToken !== token || slots[rec.index] !== rec) return;
+        rec.state = "failed";
+        rec.attempts += 1;
+        rec.retryAfter = nowMs() + Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts - 1));
+        reportFailure(`atlas raster failed (${rec.key}): ${String(error)}`);
       })
       .finally(() => {
-        jobs.delete(key);
+        inFlightCount = Math.max(0, inFlightCount - 1);
       });
-    jobs.set(key, { index, promise });
-    return index;
   };
 
-  // Cell indices are handed out in intern order; a reverse map keeps
-  // sourceFor cheap for repeated asks of the same key.
-  const indices = new Map<string, number>();
-  let nextIndex = 0;
-  /** New cell keys rasterized so far; one per key, never per ask. */
-  let requests = 0;
-  const indexOf = (key: string): number => indices.get(key) ?? NO_ATLAS_CELL;
-  const remember = (key: string, index: number): void => {
-    indices.set(key, index);
-  };
-
-  // intern() records the index before the async work; keep indices and
-  // placed in one pass by wrapping: sourceFor asks intern, which returns
-  // the index synchronously and remembers it.
-  const internRemembered = (key: string, rasterize: () => Promise<AtlasPixels>): number => {
-    const known = indices.get(key);
-    if (known !== undefined) return known;
-    const index = intern(key, rasterize);
-    if (index !== NO_ATLAS_CELL) {
-      remember(key, index);
-      requests += 1;
+  const drainQueue = (): void => {
+    drainScheduled = false;
+    if (disposed || device === undefined || texture === undefined) return;
+    const start = nowMs();
+    while (queue.length > 0) {
+      const idx = queue.shift()!;
+      queuedSet.delete(idx);
+      const rec = slots[idx];
+      if (rec === undefined || rec.state !== "queued") continue;
+      if (rec.refCount === 0) {
+        // Cancelled before rasterizing
+        keyToIndex.delete(rec.key);
+        compatHeld.delete(rec.key);
+        slots[idx] = undefined;
+        freeIndices.push(idx);
+        continue;
+      }
+      runJob(rec);
+      // Yield between chunks during large bursts so input/frames never stall.
+      if (queue.length > 0 && nowMs() - start >= DRAIN_YIELD_MS) {
+        drainScheduled = true;
+        setTimeout(drainQueue, 0);
+        return;
+      }
     }
-    return index;
   };
 
-  const textKey = (run: TextRun, scale: number): string => `${runKey(run, scale, 0)}`;
+  // --- Key helpers ------------------------------------------------------------
 
-  /** A ColorRef as key text: the same ink must hit the same cell. */
   const inkKey = (ref: ColorRef | undefined): string => {
     if (ref === undefined) return "-";
     if ("token" in ref) return `t:${ref.token}:${ref.alpha ?? 1}`;
@@ -262,43 +785,272 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     return `m:${inkKey(ref.mix[0])},${inkKey(ref.mix[1])},${ref.share}`;
   };
 
-  const sourceFor = (quad: Quad, scale: number): number => {
+  const keysFor = (quad: Quad, scale: number): { readonly key: string; readonly contentKey: string; readonly kind: "text" | "sprite" } | undefined => {
     if (quad.sprite !== undefined) {
       const ref = quad.sprite;
-      // Mode, raster scale and quad size are part of every sprite key:
-      // generated art repaints per theme, a zoom bucket wants sharper cells,
-      // and the shader maps the cell's UV across the quad's rect, so the
-      // cell is rasterized at that rect's pixels. Glyph cells also carry
-      // the resolved ink — coverage tinted at raster time, not in the shader.
       const box = `${Math.ceil(quad.rect.width * scale)}x${Math.ceil(quad.rect.height * scale)}`;
       if (ref.atlas === "image") {
-        return internRemembered(`img:${mode}:${scale}:${box}:${ref.key}:${ref.size.width}x${ref.size.height}`,
-          () => options.rasterizeSprite?.(quad, mode, scale) ?? Promise.reject(new Error("no sprite rasterizer")));
+        const contentKey = `img:${mode}:${ref.key}:${ref.size.width}x${ref.size.height}`;
+        return { key: `${contentKey}:${scale}:${box}`, contentKey, kind: "sprite" };
       }
       if (ref.atlas === "mark") {
-        return internRemembered(`mark:${mode}:${scale}:${box}:${ref.cell.col},${ref.cell.row}`,
-          () => options.rasterizeSprite?.(quad, mode, scale) ?? Promise.reject(new Error("no sprite rasterizer")));
+        const contentKey = `mark:${mode}:${ref.cell.col},${ref.cell.row}`;
+        return { key: `${contentKey}:${scale}:${box}`, contentKey, kind: "sprite" };
       }
       if (ref.atlas === "glyph") {
-        if (!glyphKnown(ref.name)) return NO_ATLAS_CELL;
-        return internRemembered(`glyph:${mode}:${scale}:${box}:${inkKey(quad.style.ink)}:${ref.name}`,
-          () => options.rasterizeSprite?.(quad, mode, scale) ?? Promise.reject(new Error("no sprite rasterizer")));
+        if (!glyphKnown(ref.name)) return undefined;
+        const contentKey = `glyph:${mode}:${inkKey(quad.style.ink)}:${ref.name}`;
+        return { key: `${contentKey}:${scale}:${box}`, contentKey, kind: "sprite" };
       }
-      // media
-      return internRemembered(`media:${mode}:${scale}:${box}:${ref.fit}:${ref.ref}`,
-        () => options.rasterizeSprite?.(quad, mode, scale) ?? Promise.reject(new Error("no sprite rasterizer")));
+      const contentKey = `media:${mode}:${ref.fit}:${ref.ref}`;
+      return { key: `${contentKey}:${scale}:${box}`, contentKey, kind: "sprite" };
     }
-    if (quad.text !== undefined && options.rasterizeText !== undefined) {
-      // The coverage is rasterized for the run's ink, not for white: Skia's
-      // mask pre-blend — the gamma/contrast lift Chromium gives glyph edges —
-      // is picked by the paint's luminance, so the alpha a cell carries must
-      // be the coverage the DOM computes for this colour. The shader still
-      // tints with the style's ink; only the mask is colour-aware. The ink
-      // resolves inside the job, once per cell, not per ask.
-      return internRemembered(`txt:${mode}:${textKey(quad.text, scale)}:${inkKey(quad.style.ink)}`,
-        () => options.rasterizeText!(quad.text!, scale, { r: 1, g: 1, b: 1, a: 1 }));
+    if (quad.text !== undefined && (options.rasterizeText !== undefined || options.rasterizeTextSync !== undefined)) {
+      const run = quad.text;
+      const ink = inkKey(quad.style.ink);
+      const contentKey = `txt:${mode}:${run.text}:${run.font}:${run.weight}:${run.upper ? 1 : 0}:${run.italic ? 1 : 0}:${run.blur ?? 0}:${run.truncate}:${run.align ?? "left"}:${ink}`;
+      return { key: `txt:${mode}:${runKey(run, scale, 0)}:${ink}`, contentKey, kind: "text" };
     }
-    return NO_ATLAS_CELL;
+    return undefined;
+  };
+
+  const expectedBoxFor = (quad: Quad, scale: number): { readonly w: number; readonly h: number } | undefined => {
+    const effScale = effectiveScaleFor(quad, scale);
+    if (quad.sprite !== undefined) {
+      return {
+        w: Math.max(1, Math.min(pageSize - 1, Math.ceil(quad.rect.width * effScale))),
+        h: Math.max(1, Math.min(pageSize - 1, Math.ceil(quad.rect.height * effScale))),
+      };
+    }
+    if (quad.text !== undefined) {
+      const run = quad.text;
+      if (run.truncate === "none" || run.truncate === "clamp2") return undefined; // multi-line height may vary
+      const pad = run.blur === undefined ? 0 : haloPadDevice(effScale);
+      const lineHeight = run.size * effScale * (run.leading ?? 1.2);
+      return {
+        w: Math.max(1, Math.min(pageSize - 1, Math.ceil(run.width * effScale) + 2 * pad)),
+        h: Math.max(1, Math.min(pageSize - 1, Math.ceil(lineHeight) + 2 * pad)),
+      };
+    }
+    return undefined;
+  };
+
+  // --- Public acquire / release / ensureNow -----------------------------------
+
+  const release = (cell: number): void => {
+    if (cell === NO_ATLAS_CELL || cell < 0 || cell >= slots.length) return;
+    const rec = slots[cell];
+    if (rec === undefined || rec.refCount <= 0) return;
+    rec.refCount -= 1;
+    if (rec.refCount > 0) return;
+
+    releaseAlias(rec);
+    if (rec.state === "landed") {
+      rec.desc = undefined;
+      unreferencedLru.set(cell, true);
+    } else if (rec.state === "queued") {
+      queuedSet.delete(cell);
+      keyToIndex.delete(rec.key);
+      compatHeld.delete(rec.key);
+      clearCellUV(cell);
+      slots[cell] = undefined;
+      freeIndices.push(cell);
+    } else if (rec.state === "failed") {
+      keyToIndex.delete(rec.key);
+      compatHeld.delete(rec.key);
+      clearCellUV(cell);
+      slots[cell] = undefined;
+      freeIndices.push(cell);
+    }
+    // If state === "rasterizing", runJob's .then handler will reclaim when it finishes.
+  };
+
+  const acquire = (quad: Quad, scale: number, previous?: number): number => {
+    const keys = keysFor(quad, scale);
+    if (keys === undefined) {
+      if (previous !== undefined && previous !== NO_ATLAS_CELL) release(previous);
+      return NO_ATLAS_CELL;
+    }
+
+    const prevRec = previous !== undefined && previous !== NO_ATLAS_CELL ? slots[previous] : undefined;
+
+    // Rule 3: Same key -> return previous with net zero ref change.
+    if (prevRec !== undefined && prevRec.key === keys.key) {
+      if (prevRec.state === "failed" && nowMs() >= prevRec.retryAfter) {
+        prevRec.desc = { quad, scale, mode, kind: keys.kind };
+        prevRec.state = "queued";
+        enqueue(prevRec.index);
+      }
+      return prevRec.index;
+    }
+
+    // Rule 3: In-place status-line overwrite when previous has refCount === 1 and same pixel box.
+    if (prevRec !== undefined && prevRec.refCount === 1 && prevRec.placed !== undefined && prevRec.state === "landed" && !keyToIndex.has(keys.key)) {
+      const box = expectedBoxFor(quad, scale);
+      if (box !== undefined && box.w === prevRec.placed.w && box.h === prevRec.placed.h) {
+        keyToIndex.delete(prevRec.key);
+        removeContentLanded(prevRec.contentKey, prevRec.index);
+        prevRec.key = keys.key;
+        prevRec.contentKey = keys.contentKey;
+        prevRec.scale = scale;
+        prevRec.desc = { quad, scale, mode, kind: keys.kind };
+        prevRec.inPlace = true;
+        prevRec.state = "queued";
+        keyToIndex.set(keys.key, prevRec.index);
+        requests += 1;
+        enqueue(prevRec.index);
+        return prevRec.index;
+      }
+    }
+
+    // Check if the requested key already exists (pinned or cached LRU).
+    const existingIdx = keyToIndex.get(keys.key);
+    if (existingIdx !== undefined) {
+      const rec = slots[existingIdx]!;
+      rec.refCount += 1;
+      unreferencedLru.delete(existingIdx);
+      rec.desc = { quad, scale, mode, kind: keys.kind };
+      if (rec.state === "failed" && nowMs() >= rec.retryAfter) {
+        rec.state = "queued";
+        enqueue(existingIdx);
+      }
+      // If existing cell already has an image, we can release previous immediately.
+      // Otherwise keep previous aliased on rec until rec lands (Ruling 6 #1).
+      if (prevRec !== undefined) {
+        if (hasImage(existingIdx)) {
+          release(prevRec.index);
+        } else if (rec.aliasOf === undefined && hasImage(prevRec.index)) {
+          rec.aliasOf = prevRec.index; // transfers caller's ref on prevRec to rec.aliasOf
+          copyCellUV(existingIdx, prevRec.index);
+          markDirty();
+        } else {
+          release(prevRec.index);
+        }
+      }
+      return existingIdx;
+    }
+
+    // Allocate a new cell index (recycle free slot or grow cells table).
+    let index: number;
+    if (freeIndices.length > 0) {
+      index = freeIndices.pop()!;
+    } else {
+      index = highWaterCells;
+      if (!ensureCellCapacity(index + 1)) {
+        if (prevRec !== undefined) release(prevRec.index);
+        return NO_ATLAS_CELL;
+      }
+      highWaterCells = index + 1;
+      mutable.cellCount = highWaterCells;
+    }
+
+    const rec: SlotRecord = {
+      index,
+      key: keys.key,
+      contentKey: keys.contentKey,
+      scale,
+      refCount: 1,
+      state: "queued",
+      attempts: 0,
+      retryAfter: 0,
+      desc: { quad, scale, mode, kind: keys.kind },
+      jobToken: 0,
+    };
+    slots[index] = rec;
+    keyToIndex.set(keys.key, index);
+    clearCellUV(index);
+    requests += 1;
+
+    // Stand-in (Rule 5) or replacement previous (Ruling 6 #1): never flash blank.
+    const standIn = findStandIn(keys.contentKey, scale, index);
+    if (standIn !== undefined) {
+      const sRec = slots[standIn]!;
+      sRec.refCount += 1;
+      unreferencedLru.delete(standIn);
+      rec.aliasOf = standIn;
+      copyCellUV(index, standIn);
+      markDirty();
+      if (prevRec !== undefined) release(prevRec.index);
+    } else if (prevRec !== undefined && hasImage(prevRec.index)) {
+      // Transfer caller's reference on previous to rec.aliasOf until rec lands.
+      rec.aliasOf = prevRec.index;
+      copyCellUV(index, prevRec.index);
+      markDirty();
+    } else if (prevRec !== undefined) {
+      release(prevRec.index);
+    }
+
+    enqueue(index);
+    return index;
+  };
+
+  const ensureNow = (cell: number): boolean => {
+    if (disposed || cell === NO_ATLAS_CELL || cell < 0 || cell >= slots.length) return false;
+    if (hasImage(cell)) return true;
+    if (device === undefined || texture === undefined) return false;
+    const rec = slots[cell];
+    if (rec === undefined || rec.desc === undefined) return false;
+    // Attempt synchronous raster + copy before the frame is submitted.
+    try {
+      const px = rasterizeSync(rec.desc);
+      if (px !== undefined) {
+        queuedSet.delete(cell);
+        rec.jobToken = ++nextJobToken;
+        landPixels(rec, px);
+      }
+    } catch (error) {
+      rec.state = "failed";
+      rec.attempts += 1;
+      rec.retryAfter = nowMs() + Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts - 1));
+      reportFailure(`atlas ensureNow failed (${rec.key}): ${String(error)}`);
+    }
+    return hasImage(cell);
+  };
+
+  const sourceFor = (quad: Quad, scale: number): number => {
+    const keys = keysFor(quad, scale);
+    if (keys === undefined) return NO_ATLAS_CELL;
+    if (compatHeld.has(keys.key)) {
+      const idx = keyToIndex.get(keys.key);
+      if (idx !== undefined) {
+        const rec = slots[idx]!;
+        if (rec.state === "failed" && nowMs() >= rec.retryAfter) {
+          rec.desc = { quad, scale, mode, kind: keys.kind };
+          rec.state = "queued";
+          enqueue(idx);
+        }
+        return idx;
+      }
+      compatHeld.delete(keys.key);
+    }
+    const idx = acquire(quad, scale);
+    if (idx !== NO_ATLAS_CELL) compatHeld.add(keys.key);
+    return idx;
+  };
+
+  const stats = (): AtlasStats => {
+    let activeCells = 0;
+    let pinnedCells = 0;
+    for (let i = 0; i < highWaterCells; i += 1) {
+      const rec = slots[i];
+      if (rec === undefined) continue;
+      activeCells += 1;
+      if (rec.refCount > 0) pinnedCells += 1;
+    }
+    return {
+      requests,
+      pending: queuedSet.size + inFlightCount,
+      landed: landedCount,
+      evictions,
+      failures,
+      pages: layerCount,
+      pageSize,
+      bytesInUse: layerCount * pageSize * pageSize * 4,
+      activeCells,
+      pinnedCells,
+      visibleBlank,
+      visibleBlankTotal,
+    };
   };
 
   return {
@@ -307,49 +1059,102 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       if (disposed) return;
       const fresh = device !== next;
       device = next;
-      if (texture === undefined || fresh) {
-        texture?.destroy();
-        texture = next.createTexture({
-          size: { width: size, height: size },
-          format: "rgba8unorm",
-          // GPUTextureUsage bits, as renderer.ts spells them: copy in, sample
-          // out, and a render attachment because copyExternalImageToTexture
-          // may run as a render pass and validates that bit.
-          usage: 0x04 | 0x02 | 0x10,
-        });
-        sampler = next.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
-        mutable.texture = texture;
-        mutable.sampler = sampler;
-        // A fresh texture starts blank: replay every landed cell's pixels,
-        // then write the UVs of the ones that landed before any attach.
-        for (const job of landed.values()) copyPixels(job.pixels, job.at);
-        for (const index of awaiting) {
-          const job = landed.get(index);
-          if (job !== undefined) writeUV(index, job.pixels, job.at);
+      if (texture !== undefined && !fresh) return;
+
+      // Read real device limits; page edge is a packing choice clamped to GPU limits.
+      const maxDim = next.limits?.maxTextureDimension2D;
+      pageSize = typeof maxDim === "number" && maxDim > 0 ? Math.min(preferredSize, maxDim) : preferredSize;
+      const maxLayers = next.limits?.maxTextureArrayLayers;
+      maxArrayLayers = typeof maxLayers === "number" && maxLayers > 0 ? maxLayers : 256;
+      const maxStorage = next.limits?.maxStorageBufferBindingSize;
+      maxCellsByLimit =
+        typeof maxStorage === "number" && maxStorage > 0
+          ? Math.max(1, Math.floor(maxStorage / (ATLAS_CELL_FLOATS * 4)))
+          : Number.MAX_SAFE_INTEGER;
+
+      texture?.destroy();
+      pages.length = 0;
+      layerCount = 0;
+      const initialTex = createArrayTexture(next, 1);
+      if (initialTex === undefined) return;
+      texture = initialTex;
+      layerCount = 1;
+      pages.push(makePage(0));
+      sampler = next.createSampler({
+        magFilter: "linear",
+        minFilter: "linear",
+        addressModeU: "clamp-to-edge",
+        addressModeV: "clamp-to-edge",
+      });
+      mutable.texture = texture;
+      mutable.sampler = sampler;
+      textureGeneration += 1;
+      mutable.textureGeneration = textureGeneration;
+
+      // Device loss / re-attach (Ruling 6 #3): drop unreferenced cells and
+      // re-rasterize all referenced cells immediately (sync where possible,
+      // async queued for SVG/media) before the first frame presents.
+      unreferencedLru.clear();
+      contentLanded.clear();
+      landedCount = 0;
+      for (let i = 0; i < highWaterCells; i += 1) {
+        const rec = slots[i];
+        if (rec === undefined) continue;
+        rec.placed = undefined;
+        clearCellUV(i);
+        if (rec.refCount === 0) {
+          keyToIndex.delete(rec.key);
+          compatHeld.delete(rec.key);
+          slots[i] = undefined;
+          freeIndices.push(i);
+          continue;
         }
-        awaiting.clear();
-        markDirty();
+        rec.state = "queued";
+        if (rec.desc !== undefined) {
+          // Try sync raster immediately so referenced text/mark/glyph cells are ready before frame 1.
+          const synced = ensureNow(i);
+          if (!synced) enqueue(i);
+        }
       }
+      markDirty();
+      scheduleDrain();
     },
-    sourceFor,
     setMode: (next) => {
       mode = next;
     },
+    acquire,
+    release,
+    hasImage,
+    ensureNow,
+    recordVisibleBlank: (count: number) => {
+      visibleBlank = count;
+      visibleBlankTotal += count;
+    },
+    sourceFor,
     revision: () => revision,
+    stats,
     get requests() {
       return requests;
     },
     get pending() {
-      return jobs.size + awaiting.size;
+      return queuedSet.size + inFlightCount;
     },
     dispose: () => {
       disposed = true;
       texture?.destroy();
-      jobs.clear();
-      placed.clear();
-      indices.clear();
-      landed.clear();
-      awaiting.clear();
+      texture = undefined;
+      layerCount = 0;
+      pages.length = 0;
+      queue.length = 0;
+      queuedSet.clear();
+      unreferencedLru.clear();
+      contentLanded.clear();
+      keyToIndex.clear();
+      compatHeld.clear();
+      slots.length = 0;
+      freeIndices.length = 0;
+      highWaterCells = 0;
+      mutable.cellCount = 0;
     },
   };
 };
@@ -364,43 +1169,73 @@ const canvas2d = (w: number, h: number): { canvas: HTMLCanvasElement; ctx: Canva
   return { canvas, ctx };
 };
 
+let measureScratch: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | undefined;
+const getMeasureCtx = (): CanvasRenderingContext2D => {
+  if (measureScratch === undefined) measureScratch = canvas2d(8, 8);
+  return measureScratch.ctx;
+};
+
+let drawScratch: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | undefined;
+const getDrawScratch = (w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } => {
+  const cw = Math.max(1, Math.ceil(w));
+  const ch = Math.max(1, Math.ceil(h));
+  if (drawScratch === undefined) {
+    drawScratch = canvas2d(cw, ch);
+  } else if (drawScratch.canvas.width !== cw || drawScratch.canvas.height !== ch) {
+    drawScratch.canvas.width = cw;
+    drawScratch.canvas.height = ch;
+  } else {
+    drawScratch.ctx.clearRect(0, 0, cw, ch);
+  }
+  return drawScratch;
+};
+
+let sharpScratch: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | undefined;
+const getSharpScratch = (w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } => {
+  const cw = Math.max(1, Math.ceil(w));
+  const ch = Math.max(1, Math.ceil(h));
+  if (sharpScratch === undefined) {
+    sharpScratch = canvas2d(cw, ch);
+  } else if (sharpScratch.canvas.width !== cw || sharpScratch.canvas.height !== ch) {
+    sharpScratch.canvas.width = cw;
+    sharpScratch.canvas.height = ch;
+  } else {
+    sharpScratch.ctx.clearRect(0, 0, cw, ch);
+  }
+  return sharpScratch;
+};
+
+let clampScratch: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | undefined;
+const scratchClampCanvas = (w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } => {
+  const cw = Math.max(1, Math.ceil(w));
+  const ch = Math.max(1, Math.ceil(h));
+  if (clampScratch === undefined) {
+    clampScratch = canvas2d(cw, ch);
+  } else if (clampScratch.canvas.width !== cw || clampScratch.canvas.height !== ch) {
+    clampScratch.canvas.width = cw;
+    clampScratch.canvas.height = ch;
+  }
+  return clampScratch;
+};
+
 /**
- * Text runs as coverage: glyphs rasterized for the run's ink on transparent,
- * the style's ink tints them in the shader (architecture §8: the atlas
- * stores coverage, never the colour). The paint colour is not cosmetic —
- * canvas 2D's fillText applies Skia's mask pre-blend, whose correcting table
- * is picked by the paint's luminance, so the alpha channel already carries
- * the gamma/contrast-corrected coverage Chromium gives that colour; white
- * coverage made every run read heavier than the DOM's. The paint stays
- * opaque because the shader multiplies the style's ink alpha itself.
- *
- * A `blur` run is the halo's pass: the same layout, its mask softened by the
- * text-shadow radius and drawn twice, the way the DOM stacks two shadows. Its
- * cell carries the padding that tail needs, so the quad the scene grew by the
- * same padding still stretches its UVs pixel for pixel.
- * `scale` is device pixels per board unit (pixelRatio at the tier's
- * raster scale).
+ * Synchronous text-run rasterizer: draws coverage in the run's true resolved
+ * ink colour into a reusable scratch canvas (copied immediately to GPU via
+ * `copyExternalImageToTexture` with zero `ImageBitmap` retention).
  */
-export const rasterizeTextRun: TextRasterize = async (run, scale, ink) => {
-  const ctx = canvas2d(8, 8).ctx; // measure context; the draw canvas is the cell
+export const rasterizeTextRunSync: TextRasterizeSync = (run, scale, ink) => {
+  const ctx = getMeasureCtx();
   const measure: MeasureContext = ctx;
   ctx.font = fontCss(run, scale);
   ctx.letterSpacing = run.tracking !== undefined ? `${run.tracking}em` : "0px";
-  const lines = layoutRun(run, Math.max(1, run.width * scale), (t) => ctx.measureText(t).width);
+  const lines = layoutRun(run, Math.max(1, run.width * scale), (t) => measure.measureText(t).width);
   const lineHeight = run.size * scale * (run.leading ?? 1.2);
-  // The cell is exactly the quad's aspect: the shader stretches the UV rect
-  // across the whole quad, so any padding or widest-line sizing would smear
-  // every run to its wrap box. A halo's padding is the exception the scene
-  // grows the quad by too, in the same integer device pixels.
   const pad = run.blur === undefined ? 0 : haloPadDevice(scale);
   const cellW = Math.max(1, Math.ceil(run.width * scale) + 2 * pad);
   const cellH = Math.max(1, Math.ceil(lineHeight * lines.length) + 2 * pad);
-  const { canvas, ctx: draw } = canvas2d(cellW, cellH);
+  const { canvas, ctx: draw } = getDrawScratch(cellW, cellH);
   draw.font = ctx.font;
   draw.letterSpacing = ctx.letterSpacing;
-  // The shader reads the cell's alpha as the glyph mask and tints it with
-  // the quad's ink, so the rgb channels never show. Opaque paint keeps the
-  // alpha channel pure coverage (a translucent paint would scale it).
   const paint = gpuColorCss({ ...ink, a: 1 });
   draw.fillStyle = paint;
   draw.textBaseline = "middle";
@@ -413,11 +1248,9 @@ export const rasterizeTextRun: TextRasterize = async (run, scale, ink) => {
     lines.forEach((line, i) => {
       draw.fillText(line, glyphX(draw, line), pad + lineHeight * i + lineHeight / 2);
     });
-    return createImageBitmap(canvas);
+    return canvas;
   }
-  // Blurred and stacked: drawing the sharp mask twice through one blur is the
-  // DOM's `0 0 5px` twice (two shadows of one shape compose as a over a).
-  const sharp = canvas2d(cellW, cellH);
+  const sharp = getSharpScratch(cellW, cellH);
   sharp.ctx.font = draw.font;
   sharp.ctx.letterSpacing = draw.letterSpacing;
   sharp.ctx.fillStyle = paint;
@@ -425,11 +1258,15 @@ export const rasterizeTextRun: TextRasterize = async (run, scale, ink) => {
   lines.forEach((line, i) => {
     sharp.ctx.fillText(line, glyphX(sharp.ctx, line), pad + lineHeight * i + lineHeight / 2);
   });
-  // A text-shadow's radius is two sigmas, and CSS blur() takes a sigma.
   draw.filter = `blur(${run.blur * scale * HALO_SIGMA_PER_RADIUS}px)`;
   draw.drawImage(sharp.canvas, 0, 0);
   draw.drawImage(sharp.canvas, 0, 0);
   draw.filter = "none";
+  return canvas;
+};
+
+export const rasterizeTextRun: TextRasterize = async (run, scale, ink) => {
+  const canvas = rasterizeTextRunSync(run, scale, ink) as HTMLCanvasElement;
   return createImageBitmap(canvas);
 };
 
@@ -448,12 +1285,6 @@ const themeFor = (mode: ThemeMode): GpuTheme => {
   return themeCache.theme;
 };
 
-/**
- * A sprite SVG rasterizes as a standalone image: no document, so no custom
- * properties. `var(--color-ink)` and friends arrive unresolved and paint
- * nothing (the harness badge was exactly this). Every `--color-*` the
- * markup names resolves through the theme before the blob is made.
- */
 const CSS_VAR = /var\(--color-([a-zA-Z0-9-]+)\)/g;
 const resolveSvgVars = (svg: string, theme: GpuTheme): string =>
   svg.replace(CSS_VAR, (_match, name: string) => {
@@ -468,12 +1299,6 @@ const loadImage = async (src: string): Promise<HTMLImageElement> => {
   return image;
 };
 
-/**
- * Chromium refuses nested `<image>` loads inside an SVG loaded as an image,
- * so harness badges that embed a vendor raster mark would lose it. The SVG
- * still draws; after it lands, each `<image>` the markup declared is fetched
- * itself and drawn at its declared rect, in the SVG's own user units.
- */
 const IMAGE_TAG = /<image\b[^>]*>/g;
 const tagAttr = (tag: string, name: string): string | undefined => {
   const m = tag.match(new RegExp(`${name}\\s*=\\s*"([^"]*)"`, "i"))
@@ -499,8 +1324,7 @@ const compositeNestedImages = async (
       const image = await loadImage(href);
       ctx.drawImage(image, x * userToPx.x, y * userToPx.y, w * userToPx.x, h * userToPx.y);
     } catch {
-      // A mark that will not decode leaves the badge's plate, as the DOM's
-      // broken <img> would; the rest of the art is already down.
+      // A mark that will not decode leaves the badge's plate, as the DOM's broken <img> would.
     }
   }
 };
@@ -519,16 +1343,40 @@ const drawFitted = (
   ctx.drawImage(image, (w - dw) / 2, (h - dh) / 2, dw, dh);
 };
 
-/**
- * Sprite cells, rasterized for the quad that asked: `scale` is device pixels
- * per board unit and the cell is the quad's rect at that scale, so the
- * shader's UV stretch is always pixel-exact. The cell carries the sprite's
- * own colours — generated art and media are opaque RGBA; glyphs bake their
- * resolved ink because the sprite path tints by fill, not style.ink.
- */
+/** Synchronous sprite rasterizer for marks and glyphs (zero ImageBitmap allocation). */
+export const rasterizeSpriteSync: SpriteRasterizeSync = (quad, mode, scale) => {
+  const ref = quad.sprite;
+  if (ref === undefined) return undefined;
+  if (ref.atlas !== "mark" && ref.atlas !== "glyph") return undefined;
+  const w = Math.max(1, Math.ceil(quad.rect.width * scale));
+  const h = Math.max(1, Math.ceil(quad.rect.height * scale));
+  const { canvas, ctx } = getDrawScratch(w, h);
+  if (ref.atlas === "mark") {
+    const atlas = markAtlasCanvas(mode);
+    if (atlas === undefined) throw new Error("mark atlas unavailable");
+    ctx.drawImage(
+      atlas,
+      ref.cell.col * MARK_CELL, ref.cell.row * MARK_CELL, MARK_CELL, MARK_CELL,
+      0, 0, canvas.width, canvas.height,
+    );
+    return canvas;
+  }
+  const ink = resolveColour(quad.style.ink, themeFor(mode)) ?? { r: 1, g: 1, b: 1, a: 1 };
+  const side = Math.min(canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate((canvas.width - side) / 2, (canvas.height - side) / 2);
+  drawGlyph(ctx, ref.name, side, ink);
+  ctx.restore();
+  return canvas;
+};
+
 export const rasterizeSprite: SpriteRasterize = async (quad, mode, scale) => {
   const ref = quad.sprite;
   if (ref === undefined) throw new Error("rasterizeSprite needs a sprite quad");
+  if (ref.atlas === "mark" || ref.atlas === "glyph") {
+    const canvas = rasterizeSpriteSync(quad, mode, scale) as HTMLCanvasElement;
+    return createImageBitmap(canvas);
+  }
   const w = Math.max(1, Math.ceil(quad.rect.width * scale));
   const h = Math.max(1, Math.ceil(quad.rect.height * scale));
   const { canvas, ctx } = canvas2d(w, h);
@@ -549,28 +1397,7 @@ export const rasterizeSprite: SpriteRasterize = async (quad, mode, scale) => {
     return createImageBitmap(canvas);
   }
 
-  if (ref.atlas === "mark") {
-    const atlas = markAtlasCanvas(mode);
-    if (atlas === undefined) throw new Error("mark atlas unavailable");
-    ctx.drawImage(
-      atlas,
-      ref.cell.col * MARK_CELL, ref.cell.row * MARK_CELL, MARK_CELL, MARK_CELL,
-      0, 0, canvas.width, canvas.height,
-    );
-    return createImageBitmap(canvas);
-  }
-
-  if (ref.atlas === "glyph") {
-    const ink = resolveColour(quad.style.ink, themeFor(mode))
-      ?? { r: 1, g: 1, b: 1, a: 1 };
-    const side = Math.min(canvas.width, canvas.height);
-    ctx.translate((canvas.width - side) / 2, (canvas.height - side) / 2);
-    drawGlyph(ctx, ref.name, side, ink);
-    return createImageBitmap(canvas);
-  }
-
-  // media: the content store's bitmap on the DOM's bare ground, fitted the
-  // way object-fit fits it.
+  // media
   const ground = resolveColour({ token: "shadow-2" }, themeFor(mode));
   if (ground !== undefined) {
     ctx.fillStyle = gpuColorCss(ground);
@@ -587,7 +1414,12 @@ export const rasterizeSprite: SpriteRasterize = async (quad, mode, scale) => {
   return createImageBitmap(canvas);
 };
 
-export const browserRasterizers = (): Pick<GpuAtlasOptions, "rasterizeText" | "rasterizeSprite"> => ({
+export const browserRasterizers = (): Pick<
+  GpuAtlasOptions,
+  "rasterizeText" | "rasterizeTextSync" | "rasterizeSprite" | "rasterizeSpriteSync"
+> => ({
   rasterizeText: rasterizeTextRun,
-  rasterizeSprite: rasterizeSprite,
+  rasterizeTextSync: rasterizeTextRunSync,
+  rasterizeSprite,
+  rasterizeSpriteSync,
 });

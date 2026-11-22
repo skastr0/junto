@@ -13,10 +13,29 @@
 
 import { themeMode$ } from "../../lib/theme-mode";
 import { createGpuAtlas, browserRasterizers, type GpuAtlas } from "../engine/gpu-atlas";
+import type { AtlasStats } from "../engine/types";
 import { pageDeviceKeeper } from "./gpu-device";
+
+const EMPTY_ATLAS_STATS: AtlasStats = {
+  requests: 0,
+  pending: 0,
+  landed: 0,
+  evictions: 0,
+  failures: 0,
+  pages: 0,
+  pageSize: 0,
+  bytesInUse: 0,
+  activeCells: 0,
+  pinnedCells: 0,
+  visibleBlank: 0,
+  visibleBlankTotal: 0,
+};
 
 let atlas: GpuAtlas | undefined;
 const dirtyListeners = new Set<() => void>();
+
+/** Snapshot of the page atlas's live counters, or zeroes before first mount. */
+export const pageGpuAtlasStats = (): AtlasStats => atlas?.stats() ?? EMPTY_ATLAS_STATS;
 
 /** The page's atlas, made on first use and kept for the page's life. */
 export const pageGpuAtlas = (): GpuAtlas => {

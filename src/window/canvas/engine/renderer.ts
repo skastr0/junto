@@ -23,7 +23,7 @@ import type { Prepared, Scene } from "./scene";
 import { QUAD_BYTES } from "./quad";
 import { DURATION } from "@shared/theme";
 import { STYLE_STRIDE } from "./styles";
-import type { AtlasBinding } from "./types";
+import { ATLAS_CELL_FLOATS, type AtlasBinding } from "./types";
 
 export type Renderer = ReturnType<typeof createRenderer>;
 
@@ -90,13 +90,18 @@ struct VSOut {
   @location(3) corner: vec2f,
 };
 
+struct AtlasCell {
+  uv: vec4f,
+  page: vec4f,
+};
+
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var<storage, read> order: array<u32>;
 @group(0) @binding(2) var<storage, read> quads: array<Quad>;
 @group(0) @binding(3) var<storage, read> owners: array<Owner>;
-@group(0) @binding(4) var atlas: texture_2d<f32>;
+@group(0) @binding(4) var atlas: texture_2d_array<f32>;
 @group(0) @binding(5) var atlasSampler: sampler;
-@group(0) @binding(6) var<storage, read> cells: array<vec4f>;
+@group(0) @binding(6) var<storage, read> cells: array<AtlasCell>;
 @group(0) @binding(7) var<storage, read> styles: array<f32>;
 @group(0) @binding(8) var<storage, read> shadowMeta: array<vec4u>;
 @group(0) @binding(9) var<storage, read> shadowLayers: array<vec4f>;
@@ -415,10 +420,11 @@ fn filled(base: u32, local: vec2f) -> vec4f {
       alpha = 0.0;
     } else {
       let cell = cells[q.source];
-      let uv = mix(cell.xy, cell.zw, in.corner);
+      let uv = mix(cell.uv.xy, cell.uv.zw, in.corner);
+      let layer = i32(cell.page.x);
       // Level sample: a per-instance branch is not uniform control flow, where
       // textureSample is not allowed.
-      let tex = textureSampleLevel(atlas, atlasSampler, uv, 0.0);
+      let tex = textureSampleLevel(atlas, atlasSampler, uv, layer, 0.0);
       if (q.kind == 3u) {
         // The atlas holds white coverage over transparent, landed
         // unpremultiplied: the alpha channel is the glyph coverage, and the
@@ -452,7 +458,7 @@ type Gpu = {
   readonly device: GPUDevice;
   readonly pipeline: GPURenderPipeline;
   readonly bindLayout: GPUBindGroupLayout;
-  readonly atlas?: AtlasBinding;
+  atlas?: AtlasBinding;
   quads: GPUBuffer;
   owners: GPUBuffer;
   order: GPUBuffer;
@@ -465,12 +471,15 @@ type Gpu = {
   quadCapacity: number;
   ownerCapacity: number;
   orderCapacity: number;
+  cellCapacity: number;
   styleCapacity: number;
   shadowMetaCapacity: number;
   shadowLayerCapacity: number;
   styleRevision: number;
   /** The atlas cell-table revision the cells buffer holds. */
   cellsRevision: number;
+  /** The atlas texture generation currently bound in `bind`. */
+  atlasTextureGeneration: number;
   frameRanges: Range[];
   totalBytes: number;
 };
@@ -497,7 +506,7 @@ export const createRenderer = () => {
 
   const dummyTexture = (device: GPUDevice): GPUTexture =>
     device.createTexture({
-      size: [ATLAS_DUMMY_WIDTH, ATLAS_DUMMY_WIDTH],
+      size: [ATLAS_DUMMY_WIDTH, ATLAS_DUMMY_WIDTH, 1],
       format: "rgba8unorm",
       usage: TEXTURE.TEXTURE_BINDING | TEXTURE.COPY_DST,
     });
@@ -513,7 +522,7 @@ export const createRenderer = () => {
         { binding: 1, resource: { buffer: state.order } },
         { binding: 2, resource: { buffer: state.quads } },
         { binding: 3, resource: { buffer: state.owners } },
-        { binding: 4, resource: texture.createView() },
+        { binding: 4, resource: texture.createView({ dimension: "2d-array" }) },
         { binding: 5, resource: sampler },
         { binding: 6, resource: { buffer: state.cells } },
         { binding: 7, resource: { buffer: state.styles } },
@@ -563,6 +572,32 @@ export const createRenderer = () => {
       state.styleRevision = -1;
       rebind = true;
     }
+    const atlas = state.atlas;
+    if (atlas !== undefined) {
+      const cellCount = atlas.cellCount ?? Math.floor(atlas.cells.length / ATLAS_CELL_FLOATS);
+      const neededCells = Math.max(1, cellCount);
+      if (neededCells > state.cellCapacity) {
+        let nextCap = Math.max(1, state.cellCapacity);
+        while (nextCap < neededCells) nextCap *= 2;
+        const maxStorage = state.device.limits?.maxStorageBufferBindingSize;
+        if (typeof maxStorage === "number" && maxStorage > 0) {
+          const maxByLimit = Math.max(1, Math.floor(maxStorage / (ATLAS_CELL_FLOATS * 4)));
+          nextCap = Math.min(nextCap, maxByLimit);
+        }
+        if (nextCap > state.cellCapacity) {
+          state.cells.destroy();
+          state.cells = bufferOf(state.device, nextCap * ATLAS_CELL_FLOATS * 4);
+          state.cellCapacity = nextCap;
+          state.cellsRevision = -1;
+          rebind = true;
+        }
+      }
+      const texGen = atlas.textureGeneration ?? 0;
+      if (texGen !== state.atlasTextureGeneration) {
+        state.atlasTextureGeneration = texGen;
+        rebind = true;
+      }
+    }
     if (rebind) state.bind = makeBindGroup(state);
   };
 
@@ -581,7 +616,7 @@ export const createRenderer = () => {
         { binding: 1, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
         { binding: 2, visibility: STAGE.VERTEX | STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
         { binding: 3, visibility: STAGE.VERTEX | STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
-        { binding: 4, visibility: STAGE.FRAGMENT, texture: { sampleType: "float" } },
+        { binding: 4, visibility: STAGE.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d-array" } },
         { binding: 5, visibility: STAGE.FRAGMENT, sampler: { type: "filtering" } },
         { binding: 6, visibility: STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
         { binding: 7, visibility: STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
@@ -608,6 +643,10 @@ export const createRenderer = () => {
       },
       primitive: { topology: "triangle-strip" },
     });
+    const initialCells = Math.max(
+      1,
+      atlas?.cellCount ?? Math.floor((atlas?.cells.length ?? 0) / ATLAS_CELL_FLOATS),
+    );
     const next: Gpu = {
       device,
       pipeline,
@@ -617,7 +656,7 @@ export const createRenderer = () => {
       owners: bufferOf(device, Math.max(1, scene.ownerCapacity) * 8 * 4),
       order: bufferOf(device, Math.max(1, scene.orderBuffer.length) * 4),
       uniform: device.createBuffer({ size: uniform.byteLength, usage: BUFFER.UNIFORM | BUFFER.COPY_DST }),
-      cells: bufferOf(device, Math.max(16, atlas?.cells.byteLength ?? 16)),
+      cells: bufferOf(device, initialCells * ATLAS_CELL_FLOATS * 4),
       styles: bufferOf(device, styleFloats(scene) * 4),
       shadowMeta: bufferOf(device, SHADOW_META_CAPACITY * SHADOW_SPEC_WORDS * 4),
       shadowLayers: bufferOf(device, SHADOW_LAYER_CAPACITY * SHADOW_LAYER_FLOATS * 4),
@@ -625,11 +664,13 @@ export const createRenderer = () => {
       quadCapacity: Math.max(1, scene.quadCapacity),
       ownerCapacity: Math.max(1, scene.ownerCapacity),
       orderCapacity: Math.max(1, scene.orderBuffer.length),
+      cellCapacity: initialCells,
       styleCapacity: styleFloats(scene),
       shadowMetaCapacity: SHADOW_META_CAPACITY,
       shadowLayerCapacity: SHADOW_LAYER_CAPACITY,
       styleRevision: -1,
       cellsRevision: 0,
+      atlasTextureGeneration: atlas?.textureGeneration ?? 0,
       frameRanges: [],
       totalBytes: gpu?.totalBytes ?? 0,
     };
@@ -644,9 +685,12 @@ export const createRenderer = () => {
     }
     scene.takeQuadDirty();
     scene.takeOwnerDirty();
-    if (atlas !== undefined) {
-      device.queue.writeBuffer(next.cells, 0, atlas.cells);
-      note(next, "cells", 0, atlas.cells.byteLength);
+    if (atlas !== undefined && atlas.cellCount > 0) {
+      const elements = Math.min(atlas.cellCount * ATLAS_CELL_FLOATS, atlas.cells.length, Math.floor(next.cells.size / 4));
+      if (elements > 0) {
+        device.queue.writeBuffer(next.cells, 0, atlas.cells, 0, elements);
+        note(next, "cells", 0, elements * 4);
+      }
     }
     uploadStyles(next, scene);
   };
@@ -708,11 +752,12 @@ export const createRenderer = () => {
     }
     if (state.styleRevision !== scene.styleRevision) uploadStyles(state, scene);
     // The atlas writes UVs as rasters land; its revision names what the cells
-    // buffer holds. One write for the whole table keeps every text and sprite
-    // quad pointing at the cell it asked for.
+    // buffer holds. Upload only the allocated cell slots.
     if (state.atlas !== undefined && prepared.atlasRevision !== state.cellsRevision) {
       const cells = state.atlas.cells;
-      const elements = Math.min(cells.length, Math.floor(state.cells.size / 4));
+      const cellCount = state.atlas.cellCount ?? Math.floor(cells.length / ATLAS_CELL_FLOATS);
+      const wanted = Math.max(ATLAS_CELL_FLOATS, cellCount * ATLAS_CELL_FLOATS);
+      const elements = Math.min(wanted, cells.length, Math.floor(state.cells.size / 4));
       if (elements > 0) {
         state.device.queue.writeBuffer(state.cells, 0, cells, 0, elements);
         note(state, "cells", 0, elements * 4);
@@ -786,7 +831,10 @@ export const createRenderer = () => {
     beginFrame,
     attachAtlas: (atlas: AtlasBinding): void => {
       if (gpu === undefined) return;
-      gpu.bind = makeBindGroup({ ...gpu, atlas });
+      gpu.atlas = atlas;
+      gpu.atlasTextureGeneration = atlas.textureGeneration;
+      gpu.cellsRevision = -1;
+      gpu.bind = makeBindGroup(gpu);
     },
     get configured(): boolean {
       return gpu !== undefined;
