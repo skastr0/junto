@@ -344,6 +344,14 @@ export const createScene = (options: {
   readonly hasImage?: (cell: number) => boolean;
   /** Rasterize the cell now, before the frame is submitted: the last resort for an in-view quad with no image. */
   readonly ensureNow?: (cell: number) => void;
+  /**
+   * Decode a sprite's source (SVG per theme, media file) ahead, and let it
+   * go. The scene holds one per built sprite record: a card's sources are
+   * decoded when it enters the shape build range, which is wider than the
+   * raster margin, and released when it leaves, so ensureNow draws in frame.
+   */
+  readonly prepareSource?: (quad: Quad) => void;
+  readonly releaseSource?: (quad: Quad) => void;
   /** The frame clock in ms, for the measured margin (camera speed, raster latency). */
   readonly now?: () => number;
   /** Peaks measured in an earlier session: the margin and tier window start from them. */
@@ -648,7 +656,38 @@ export const createScene = (options: {
     return slot;
   };
 
+  // --- decoded sources, held per built sprite record ---------------------------
+
+  const sourceOfSlot = new Map<number, Quad>();
+  const sourceKey = (quad: Quad): string | undefined => {
+    const ref = quad.sprite;
+    if (ref === undefined) return undefined;
+    return ref.atlas === "image" ? `i|${ref.key}` : ref.atlas === "media" ? `m|${ref.ref}` : undefined;
+  };
+  /** The record at `slot` now draws `quad`: hold its source, let the old one go. */
+  const holdSource = (slot: number, quad: Quad): void => {
+    if (options.prepareSource === undefined) return;
+    const before = sourceOfSlot.get(slot);
+    const next = sourceKey(quad);
+    if (before !== undefined && sourceKey(before) === next) return;
+    // Take the new one first, so a source both share is never let go between.
+    if (next !== undefined) {
+      options.prepareSource(quad);
+      sourceOfSlot.set(slot, quad);
+    } else {
+      sourceOfSlot.delete(slot);
+    }
+    if (before !== undefined) options.releaseSource?.(before);
+  };
+  const dropSource = (slot: number): void => {
+    const before = sourceOfSlot.get(slot);
+    if (before === undefined) return;
+    sourceOfSlot.delete(slot);
+    options.releaseSource?.(before);
+  };
+
   const freeQuad = (slot: number): void => {
+    dropSource(slot);
     dropCell(slot);
     freeQuadSlots.push(slot);
     dirtyQuads.delete(slot);
@@ -884,6 +923,7 @@ export const createScene = (options: {
         fresh = true;
       }
       writeQuad(quads, slot, packQuad(quad, slot, fresh), card.slot);
+      holdSource(slot, quad);
       dirtyQuads.add(slot);
     }
     quadSlotsOf.set(card.slot, held);
@@ -1043,6 +1083,7 @@ export const createScene = (options: {
         slot.quads.set(quad.key, quadSlot);
       }
       writeQuad(quads, quadSlot, packQuad(quad, quadSlot, fresh), slot.owner);
+      holdSource(quadSlot, quad);
       dirtyQuads.add(quadSlot);
     }
     slot.ordered = sorted.map((quad) => refOf(quad, slot.quads.get(quad.key)!));
@@ -1330,6 +1371,9 @@ export const createScene = (options: {
     blankCandidates.clear();
     waitingSince.clear();
     placeholding.clear();
+    // Badges' records go with the board: their sources go back too.
+    for (const quad of sourceOfSlot.values()) options.releaseSource?.(quad);
+    sourceOfSlot.clear();
     for (const slot of clusterSlots.values()) releaseCluster(slot);
     clusterSlots.clear();
     badgeByOwner.clear();

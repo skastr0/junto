@@ -83,3 +83,29 @@ describe("the boot", () => {
     keeper.dispose();
   });
 });
+
+describe("decoded sources", () => {
+  it("are held while a card's sprites are built and let go when its shapes are released", () => {
+    const held = new Map<string, number>();
+    const keyOf = (quad: Quad) => (quad.sprite?.atlas === "image" ? quad.sprite.key : "");
+    const scene = createScene({
+      painter: () => ({ quads: [portrait], dim: { opacity: 1, saturate: 1 }, lift: 0 }),
+      acquire: () => 5,
+      release: () => undefined,
+      hasImage: () => true,
+      ensureNow: () => undefined,
+      prepareSource: (quad) => held.set(keyOf(quad), (held.get(keyOf(quad)) ?? 0) + 1),
+      releaseSource: (quad) => held.set(keyOf(quad), (held.get(keyOf(quad)) ?? 0) - 1),
+    });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [card], wires: [] });
+    scene.prepare(VIEW, "near");
+    expect(held.get("portrait.a")).toBe(1);
+    // A repaint with the same source keeps the one hold.
+    scene.apply({ kind: "theme", mode: "dark" });
+    scene.prepare(VIEW, "near");
+    expect(held.get("portrait.a")).toBe(1);
+    // Far off: the card leaves the build range and its source goes back.
+    scene.prepare({ x: 200_000, y: 200_000, width: 800, height: 600 }, "near");
+    expect(held.get("portrait.a")).toBe(0);
+  });
+});

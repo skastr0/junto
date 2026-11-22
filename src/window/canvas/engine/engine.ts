@@ -134,6 +134,9 @@ export interface EngineHost {
     hasImage(cell: number): boolean;
     ensureNow(cell: number): unknown;
     recordVisibleBlank?(count: number): void;
+    /** Decode a sprite's source ahead, held while any built quad uses it. */
+    prepareSource?(quad: Quad): void;
+    releaseSource?(quad: Quad): void;
   };
   /** Where the measured camera and raster peaks are kept between sessions. */
   readonly peaks?: {
@@ -250,6 +253,12 @@ export const createEngine = (host: EngineHost): SeamEngine => {
           ensureNow: (cell: number) => {
             host.cells!.ensureNow(cell);
           },
+          ...(host.cells.prepareSource === undefined || host.cells.releaseSource === undefined
+            ? {}
+            : {
+                prepareSource: (quad: Quad) => host.cells!.prepareSource!(quad),
+                releaseSource: (quad: Quad) => host.cells!.releaseSource!(quad),
+              }),
         }),
     ...(host.motionLive === undefined ? {} : { motionLive: host.motionLive }),
     ...(host.glance === undefined ? {} : { glance: host.glance }),
