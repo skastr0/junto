@@ -5,7 +5,7 @@
  * gives. Facts come from the shell's mirror, never from a DOM card.
  */
 
-import type { CanvasTestHook, NodeId, Part, Rect } from "../contract";
+import type { CanvasTestHook, Hit, NodeId, Part, Point, Rect } from "../contract";
 import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
 import type { SeamEngine } from "../engine/engine";
 import type { AtlasStats } from "../engine/types";
@@ -29,6 +29,8 @@ type FullHook = CanvasTestHook & {
   readonly wireMode: () => string;
   /** Observable atlas counters (pages, evictions, failures, bytesInUse, visibleBlank, etc.). */
   readonly atlasStats: () => AtlasStats;
+  /** Engine hit test at canvas-local screen coordinates. */
+  readonly pick: (screen: Point) => Hit | null;
 };
 
 const inset = (rect: Rect, dx: number, dy: number): Rect => ({
@@ -131,6 +133,7 @@ const build = (
     atlasRequests,
     atlasPending,
     atlasStats,
+    pick: (screen) => engine()?.pick(screen) ?? null,
   };
 };
 
