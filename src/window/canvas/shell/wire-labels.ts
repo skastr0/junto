@@ -94,7 +94,10 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
     button.style.height = `${String(LABEL_SIZE)}px`;
     button.style.padding = "0";
     button.style.opacity = "0";
-    button.style.pointerEvents = "auto";
+    // A press belongs to the engine's pick (cards and clusters first), never
+    // to this floating button; keyboard and assistive technology click it
+    // through the click listener below without hit-testing.
+    button.style.pointerEvents = "none";
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       selectEdge(id);

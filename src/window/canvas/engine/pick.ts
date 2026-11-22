@@ -118,6 +118,12 @@ export type PickWorld = {
    * lands on; it has no card id of its own.
    */
   readonly clusterAt?: (at: Point) => ReadonlyArray<NodeId> | undefined;
+  /**
+   * The wire whose label button covers the point, when the point is inside
+   * one. The button is 14 px on screen, so the half-size is in board units.
+   * A card or a cluster always wins; this answers after both.
+   */
+  readonly labelAt?: (at: Point, half: number) => WireId | undefined;
   /** The card under the pointer while its mid/far bloom stands in. */
   readonly hovered?: HoveredCard;
 };
@@ -319,10 +325,13 @@ export const pickCard = (world: PickWorld, at: Point): Hit | null => {
   return null;
 };
 
+/** The wire label button is 14 px on screen (shell/wire-labels.ts). */
+const LABEL_HIT = 7;
+
 /**
- * The topmost thing under a board point: a card part, then a wire (only in
- * loupe or cone mode, where the wires are loud enough to aim at), then the
- * pane.
+ * The topmost thing under a board point: a card part, then a wire's label
+ * button (in every wire mode: the button is what a press would have hit), then
+ * a wire path (only in loupe or cone mode), then the pane.
  */
 export const pickAt = (world: PickWorld, at: Point): Hit => {
   const cluster = world.clusterAt?.(at);
@@ -340,6 +349,8 @@ export const pickAt = (world: PickWorld, at: Point): Hit => {
   }
   const card = pickCard(world, at);
   if (card !== null) return card;
+  const label = world.labelAt?.(at, LABEL_HIT / world.scale);
+  if (label !== undefined) return { wireId: label, part: { kind: "wire" }, at };
   if (world.wireMode === "loupe" || world.wireMode === "cone") {
     const wires = world.index.wiresAt(at, WIRE_HIT);
     for (let index = wires.length - 1; index >= 0; index -= 1) {

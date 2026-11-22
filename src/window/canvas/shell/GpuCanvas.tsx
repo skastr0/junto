@@ -126,6 +126,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       encodeLensRest: (pass) => wires?.encodeLensRest(pass),
       encodeLensTracks: (pass) => wires?.encodeLensTracks(pass),
       hit: (at) => wires?.hit(at),
+      labelAt: (at, half) => wires?.labelAt(at, half),
       busy: (now) => wires?.busy(now) ?? false,
       dispose: () => {
         wires?.dispose();

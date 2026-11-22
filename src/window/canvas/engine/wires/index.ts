@@ -75,6 +75,8 @@ export type WiresLayer = {
   readonly labelOf: (id: WireId) => Point | undefined;
   /** The labels of the wires the camera can see, for the shell's select buttons. */
   readonly labelsInView: () => ReadonlyArray<WireLabel>;
+  /** The last label whose button covers the board point. */
+  readonly labelAt: (at: Point, half: number) => WireId | undefined;
   readonly labelsRevision: () => number;
   readonly inspect: (id: WireId) => WireInspect | undefined;
   readonly stats: () => WireStats;
@@ -124,6 +126,7 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
     setHover: scene.setHover,
     labelOf: scene.labelOf,
     labelsInView: scene.labelsInView,
+    labelAt: scene.labelAt,
     labelsRevision: scene.labelsRevision,
     inspect: scene.inspect,
     stats: () => ({

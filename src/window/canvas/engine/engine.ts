@@ -108,6 +108,8 @@ export interface WireLayer {
   readonly encodeLensRest?: (pass: GPURenderPassEncoder) => void;
   readonly encodeLensTracks?: (pass: GPURenderPassEncoder) => void;
   readonly hit: (at: Point) => WireId | undefined;
+  /** The wire whose label button covers the point, in board units. */
+  readonly labelAt?: (at: Point, half: number) => WireId | undefined;
   readonly busy: (now: number) => boolean;
   /** The ranges the last `upload` wrote; any at all means wires changed this frame. */
   readonly lastUploads?: () => ReadonlyArray<unknown>;
@@ -436,6 +438,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     tier,
     wireMode: scene.wireMode,
     rectOf: scene.rectOf,
+    ...(host.wires?.labelAt === undefined ? {} : { labelAt: host.wires.labelAt }),
     // Badges paint above cards, so their hit is tested first.
     clusterAt: scene.clusterAt,
     ...(hoveredPick() === undefined ? {} : { hovered: hoveredPick() }),

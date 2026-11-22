@@ -58,6 +58,7 @@ const worldOf = (
     readonly wireMode?: WireMode;
     readonly connecting?: PickWorld["connecting"];
     readonly rectOf?: (id: string) => Rect | undefined;
+    readonly labelAt?: (at: { x: number; y: number }, half: number) => string | undefined;
   } = {},
 ): PickWorld => {
   const selection: SelectionFact = { nodeIds: options.selected ?? [] };
@@ -73,6 +74,7 @@ const worldOf = (
     wireMode: options.wireMode ?? "rest",
     ...(options.connecting === undefined ? {} : { connecting: options.connecting }),
     ...(options.rectOf === undefined ? {} : { rectOf: options.rectOf }),
+    ...(options.labelAt === undefined ? {} : { labelAt: options.labelAt as PickWorld["labelAt"] }),
   };
 };
 
@@ -301,5 +303,40 @@ describe("wires", () => {
   it("loses to a card above it", () => {
     const world = worldOf([factOf(row)], { wires: [edge], wireMode: "loupe" });
     expect(pickAt(world, centre(row)).nodeId).toBe("a");
+  });
+});
+
+describe("picking a wire label", () => {
+  const row = note("a", "a", { x: 0, y: 0 });
+  const empty = { x: 900, y: 900 };
+  const labelAt = (at: { x: number; y: number }, half: number) =>
+    Math.abs(at.x - empty.x) <= half && Math.abs(at.y - empty.y) <= half ? "w" : undefined;
+
+  it("answers the wire in every wire mode, resting included", () => {
+    for (const wireMode of ["rest", "loupe", "connecting", "cone", "far", "overview"] as const) {
+      const hit = pickAt(worldOf([factOf(row)], { wireMode, labelAt }), empty);
+      expect(hit).toMatchObject({ wireId: "w", part: { kind: "wire" } });
+    }
+  });
+
+  it("loses to a card under the same point", () => {
+    const overCard = (at: { x: number; y: number }, half: number) =>
+      Math.abs(at.x - 20) <= half && Math.abs(at.y - 20) <= half ? "w" : undefined;
+    const hit = pickAt(worldOf([factOf(row)], { labelAt: overCard }), { x: 20, y: 20 });
+    expect(hit).toMatchObject({ nodeId: "a", part: { kind: "body" } });
+    expect(hit).not.toHaveProperty("wireId");
+  });
+
+  it("reads the 14 px button as a board half-size at the camera's zoom", () => {
+    const seen: number[] = [];
+    const world = { ...worldOf([factOf(row)], { labelAt: (at, half) => (seen.push(half), undefined) }), scale: 2 };
+    pickAt(world, empty);
+    expect(seen).toEqual([3.5]);
+  });
+
+  it("leaves the pane alone when no label covers the point", () => {
+    const farLabel = (at: { x: number; y: number }, half: number) =>
+      Math.abs(at.x - 10) <= half && Math.abs(at.y - 10) <= half ? "w" : undefined;
+    expect(pickAt(worldOf([factOf(row)], { labelAt: farLabel }), empty).part.kind).toBe("pane");
   });
 });

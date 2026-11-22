@@ -202,6 +202,8 @@ export type WireScene = {
   readonly labelOf: (id: WireId) => Point | undefined;
   /** The labels of the wires the camera can see: what the shell's select buttons follow. */
   readonly labelsInView: () => ReadonlyArray<WireLabel>;
+  /** The last label whose 14 px button covers the point, in board units. */
+  readonly labelAt: (at: Point, half: number) => WireId | undefined;
   /** Bumped whenever a label point can have moved (a route rebuilt, a wire added or removed). */
   readonly labelsRevision: () => number;
   /** A wire's centreline length and route kind, for tests and the harness. */
@@ -1293,6 +1295,17 @@ export const createWireScene = (host: WireHost): WireScene => {
 
   const labelOf: WireScene["labelOf"] = (id) => entries.get(id)?.label;
 
+  // The button paints over a label point, in append order: the last match is
+  // the one on top, exactly as the shell's buttons stack.
+  const labelAt: WireScene["labelAt"] = (at, half) => {
+    let found: WireId | undefined;
+    for (const label of labelsInView()) {
+      const point = label.at;
+      if (Math.abs(point.x - at.x) <= half && Math.abs(point.y - at.y) <= half) found = label.id as WireId;
+    }
+    return found;
+  };
+
   const labelsInView: WireScene["labelsInView"] = () => {
     if (
       labelsCache !== undefined &&
@@ -1356,6 +1369,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     pick,
     labelOf,
     labelsInView,
+    labelAt,
     labelsRevision: () => labelsRevision,
     inspect,
     builds: () => builds,
