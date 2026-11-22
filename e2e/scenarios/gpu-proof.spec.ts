@@ -1325,7 +1325,16 @@ test.describe("#913 GPU canvas proof", () => {
             }
           }
         }
-        gpuTruth.push({ zoom, screens: screens.onPane.map(({ id, rect }) => ({ id, rect })) });
+        // Every card the DOM arm can show, not just seats: notes, labels and
+        // terminals have rects too, and a missing one is a structural miss.
+        const allRects = await page.evaluate((ids) => {
+          const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+          return ids.flatMap((id) => {
+            const rect = hook?.["rectOf"]?.(id) as ScreenRect | undefined;
+            return rect === undefined ? [] : [{ id, rect }];
+          });
+        }, board.model.nodes.map((node) => node.id));
+        gpuTruth.push({ zoom, screens: allRects });
       }
     } finally {
       await gpu.close();
