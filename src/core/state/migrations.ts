@@ -82,6 +82,7 @@ import { OPERATOR_MAIL_READS_SCHEMA_SQL } from "../work/mail-reads-state-schema"
 import { WORK_MESSAGES_SENDER_INDEX_SQL, WORK_READ_INDEXES_SQL } from "../work/state-schema";
 import { TASK_HEADS_BY_STATE_INDEX_SQL } from "../work/task-state-schema";
 import { OPEN_PROJECTIONS_BACKFILL_SQL, OPEN_PROJECTIONS_STATE_SCHEMA_SQL } from "../work/open-projections-schema";
+import { LOOM_SEEDS_STATE_SCHEMA_SQL } from "../loom-seed/state-schema";
 import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
@@ -911,6 +912,15 @@ export const STATE_SCHEMA_V73_IDENTITY = {
     "98f97313235d1de083a5625f39fcb13a67bc34b7b4b8e2c5c21858edb2ad7ebe",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+/**
+ * Version 74 keeps the loom's settled routes beside the canvas, as derived
+ * local data keyed by router version. Expand only.
+ */
+export const STATE_SCHEMA_V74_IDENTITY = {
+  actualSchemaSha256:
+    "73d82258e31b82977c4236ba071581f51dc99d1f7cc555e810d02c0a93407837",
+} as const satisfies VerifiedStateSchemaIdentity;
+
 import { CURRENT_STATE_SCHEMA_VERSION } from "../../node/state/schema-version";
 
 export { CURRENT_STATE_SCHEMA_VERSION };
@@ -1502,6 +1512,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V72_IDENTITY,
     migrate: (database) => database.exec(`${OPEN_PROJECTIONS_STATE_SCHEMA_SQL}\n${OPEN_PROJECTIONS_BACKFILL_SQL}`),
+  },
+  {
+    fromVersion: 73,
+    toVersion: 74,
+    name: "keep the loom's settled routes beside the canvas",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V73_IDENTITY,
+    migrate: (database) => database.exec(LOOM_SEEDS_STATE_SCHEMA_SQL),
   },
 ];
 
