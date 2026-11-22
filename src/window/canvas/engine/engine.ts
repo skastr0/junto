@@ -64,6 +64,7 @@ import { createScene, type CardPainter } from "./scene";
 import { createRenderer, type AtlasBinding } from "./renderer";
 import { createGpuTimer, type GpuTimer } from "./gpu-timing";
 import { damageRects, type PixelRect } from "./damage";
+import { createGroundFill } from "./ground";
 
 /** WebGPU's texture-usage flags, by the numbers the spec gives them. */
 const TEXTURE_USAGE = { COPY_SRC: 0x01, COPY_DST: 0x02, RENDER_ATTACHMENT: 0x10 } as const;
@@ -247,6 +248,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   let lastFrameMs = 0;
   /** The frame the canvas shows, kept so a motion-only frame redraws only its damage. */
   let kept: { texture: GPUTexture; width: number; height: number; valid: boolean; atlasRevision: number } | undefined;
+  /** The ground each damage rectangle starts from, as a cleared frame does. */
+  const groundFill = createGroundFill();
   /** Device pixels the last frame shaded, and the running sums against the screen's. */
   let lastDrawnPixels = 0;
   let drawnPixelsTotal = 0;
@@ -727,6 +730,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       const wholeFrame = dirty || !kept.valid || uploaded || (host.wires?.busy(wall) ?? false);
       const damage = wholeFrame ? undefined : scene.motionDamage(shaderNow);
       if (damage !== undefined) rects = damageRects(damage, camera, size.pixelRatio, { width: pixelWidth, height: pixelHeight });
+      if (rects !== undefined) groundFill.prepare(device, state.format, ground);
     }
     const timestampWrites = timing ? timer?.writes() : undefined;
     const pass = encoder.beginRenderPass({
@@ -754,6 +758,9 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       drawnPixels = 0;
       for (const rect of rects) {
         pass.setScissorRect(rect.x, rect.y, rect.width, rect.height);
+        // The kept pixels under a rectangle are last frame's: the ground goes
+        // back first, or every translucent fill there blends over itself.
+        groundFill.encode(pass);
         drawAll();
         drawnPixels += rect.width * rect.height;
       }
@@ -1038,6 +1045,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       disposed = true;
       timer?.destroy();
       timer = undefined;
+      groundFill.dispose();
       if (pending !== undefined) scheduler.cancel(pending);
       pending = undefined;
       animation = undefined;

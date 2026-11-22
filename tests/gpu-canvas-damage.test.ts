@@ -81,20 +81,28 @@ describe("a frame only motion drives", () => {
       { kind: "load", canvas: asCanvasName("factory"), cards: [{ id: "a", row: seat("a", { x: 20, y: 20 }), derived: { regionDepth: 0, blocked: false, z: 0 } }], wires: [] },
     ]);
     await settle();
-    type Frame = { loadOp: string; scissors: Array<[number, number, number, number]>; copies: number };
+    type Frame = { loadOp: string; scissors: Array<[number, number, number, number]>; copies: number; calls: string[] };
     const log: Frame[] = [];
     const device = gpu.devices[0]!.device as unknown as { createCommandEncoder: () => Record<string, unknown> };
     const make = device.createCommandEncoder.bind(device);
     device.createCommandEncoder = () => {
       const encoder = make();
-      const frame: Frame = { loadOp: "", scissors: [], copies: 0 };
+      const frame: Frame = { loadOp: "", scissors: [], copies: 0, calls: [] };
       log.push(frame);
       const begin = encoder["beginRenderPass"] as (descriptor: GPURenderPassDescriptor) => Record<string, unknown>;
       return {
         ...encoder,
         beginRenderPass: (descriptor: GPURenderPassDescriptor) => {
           frame.loadOp = [...descriptor.colorAttachments][0]!.loadOp;
-          return { ...begin(descriptor), setScissorRect: (x: number, y: number, w: number, h: number) => frame.scissors.push([x, y, w, h]) };
+          const pass = begin(descriptor);
+          return {
+            ...pass,
+            setScissorRect: (x: number, y: number, w: number, h: number) => {
+              frame.scissors.push([x, y, w, h]);
+              frame.calls.push("scissor");
+            },
+            draw: (vertices: number, instances = 1) => frame.calls.push(`draw ${String(vertices)}x${String(instances)}`),
+          };
         },
         copyTextureToTexture: () => {
           frame.copies += 1;
@@ -113,6 +121,10 @@ describe("a frame only motion drives", () => {
     expect(last.loadOp).toBe("load");
     expect(last.copies).toBe(1);
     expect(last.scissors.length).toBe(1);
+    // The rectangle is the ground again before anything draws in it: the kept
+    // pixels are last frame's, and a translucent fill would blend over itself.
+    expect(last.calls.slice(0, 2)).toEqual(["scissor", "draw 3x1"]);
+    expect(last.calls.length).toBeGreaterThan(2);
     const [, , w, h] = last.scissors[0]!;
     expect(w * h).toBeLessThan(800 * 600);
     const stats = engine.stats().damage!;
