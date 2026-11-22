@@ -456,6 +456,12 @@ export const createEngine = (host: EngineHost): SeamEngine => {
 
   let savedPeaks = "";
   let timer: GpuTimer | undefined;
+  /**
+   * Frames are timed once someone reads the stats (issue 915): a probe or the
+   * proof asks, and the shell never does, so a session in use writes no
+   * timestamps and maps no readback.
+   */
+  let timing = false;
   /** Keep the measured peaks when they move; a fresh boot starts from them. */
   const keepPeaks = (): void => {
     if (host.peaks === undefined) return;
@@ -601,7 +607,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     if (surface.width !== pixelWidth) surface.width = pixelWidth;
     if (surface.height !== pixelHeight) surface.height = pixelHeight;
     const encoder = device.createCommandEncoder();
-    renderer.cull(encoder, () => timer?.computeWrites());
+    renderer.cull(encoder, () => (timing ? timer?.computeWrites() : undefined));
     const canvasTexture = context.getCurrentTexture();
     // Damage (issue 915): the frame is drawn into a kept texture and copied to the
     // canvas, so a frame that only motion drives redraws the pixels its
@@ -634,7 +640,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       const damage = wholeFrame ? undefined : scene.motionDamage(shaderNow);
       if (damage !== undefined) rects = damageRects(damage, camera, size.pixelRatio, { width: pixelWidth, height: pixelHeight });
     }
-    const timestampWrites = timer?.writes();
+    const timestampWrites = timing ? timer?.writes() : undefined;
     const pass = encoder.beginRenderPass({
       ...(timestampWrites === undefined ? {} : { timestampWrites }),
       colorAttachments: [
@@ -892,7 +898,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         tierWindowOctaves,
       }))(scene.blankStats()),
       bufferFailures: renderer.bufferFailures,
-      gpuPass: timer?.times() ?? { available: false, samples: 0 },
+      gpuPass: (() => {
+        timing = true;
+        return timer?.times() ?? { available: false, samples: 0 };
+      })(),
       cull: renderer.cullMode,
     }),
     dispose: () => {
