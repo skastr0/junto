@@ -18,12 +18,14 @@ type StoredSeed = {
   readonly wires: LoomSeed["wires"];
 };
 
+/** A change as the core's request schema wants it: its meta carries the version. */
+type StoredChange = Omit<LoomSeedChange, "meta"> & {
+  readonly meta: LoomSeedChange["meta"] & { readonly routerVersion: number };
+};
+
 type Api = {
   readonly load: (canvas: string) => Promise<StoredSeed>;
-  readonly save: (
-    canvas: string,
-    change: LoomSeedChange & { readonly routerVersion: number },
-  ) => Promise<boolean>;
+  readonly save: (canvas: string, change: StoredChange) => Promise<boolean>;
 };
 
 const api = (): Api | undefined =>
@@ -59,7 +61,9 @@ export const saveLoomSeed = async (canvas: string, change: LoomSeedChange): Prom
   try {
     return await store.save(canvas, {
       ...change,
-      routerVersion: LOOM_ROUTER_VERSION,
+      // The core's request schema refuses a meta without the router version;
+      // a save that loses it is a launch that routes everything again.
+      meta: { ...change.meta, routerVersion: LOOM_ROUTER_VERSION },
     });
   } catch {
     return false;

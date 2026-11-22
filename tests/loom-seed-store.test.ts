@@ -38,7 +38,11 @@ describe("the loom seed store", () => {
     vi.stubGlobal("window", { junto: { loomSeed: { load: async () => ({ meta: null, cards: [], wires: [] }), save } } });
     const change = { meta: seed.meta, cards: [], wires: [], removedCards: [], removedWires: [] };
     expect(await saveLoomSeed("main", change)).toBe(true);
-    expect(save).toHaveBeenCalledWith("main", { ...change, routerVersion: LOOM_ROUTER_VERSION });
+    // The core's request schema refuses a meta without the router version.
+    expect(save).toHaveBeenCalledWith("main", {
+      ...change,
+      meta: { ...change.meta, routerVersion: LOOM_ROUTER_VERSION },
+    });
     vi.stubGlobal("window", {
       junto: { loomSeed: { load: async () => ({ meta: null, cards: [], wires: [] }), save: async () => { throw new Error("gone"); } } },
     });
