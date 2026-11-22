@@ -26,6 +26,7 @@ import {
   simplifyPolyline,
 } from "@shared/wire-route";
 import type { WireDirection, WirePoint, WireRect } from "@shared/wire-route";
+import { createObstacleIndex, type ObstacleIndex } from "@shared/wire-obstacles";
 
 export type LoomEdgeInput = {
   readonly id: string;
@@ -423,6 +424,9 @@ function planFan(
   obstacles: ReadonlyArray<LoomObstacle>,
   /** Perpendicular shift in absolute canvas units — see `laneBias`. */
   biasAbsolute: number,
+  index: ObstacleIndex<LoomObstacle>,
+  /** Every card, in node-id order: the router's field, shared by every fan. */
+  routeField: ReadonlyArray<LoomObstacle>,
 ): FanPlan | null {
   // The bundle shares one DOM handle, so any member's anchor is the hub. Pick
   // it by edge id so a shuffled input cannot change the plan.
@@ -492,15 +496,9 @@ function planFan(
   // spine planned blind to them disappears into a card body. Only the comb
   // legs, which end on a far border by construction, exclude their own far
   // card. The lanes are tested where they actually run, so the moat is the
-  // router's own clearance — inflating by the lane span too would double count.
-  const spineField = obstacleField(obstacles, new Set<string>([hubNodeId]), LOOM_CLEARANCE);
-  // Raw rects: the router inflates its own field, by its own staged padding.
-  // Sorted, because the router's visibility graph is built in array order and
-  // its tie-breaks follow — a cable's detour must be a property of the canvas,
-  // never of the order the nodes happened to be walked in.
-  const routeField = obstacles
-    .filter((o) => o.width > 0 && o.height > 0 && o.nodeId !== hubNodeId)
-    .sort((a, b) => compareIds(a.nodeId, b.nodeId));
+  // router's own clearance. `index` answers those tests from the cards near
+  // the line, never the whole board.
+  const notHub = (rect: LoomObstacle): boolean => rect.nodeId === hubNodeId;
 
   /** One cable over a retained set of members at one trunk length. */
   const layAt = (pool: ReadonlyArray<Lane>, trunkEnd: number): FanPlan | null => {
@@ -605,13 +603,15 @@ function planFan(
         { x: station, y: lane.perp },
         { x: lane.along, y: lane.perp },
       ];
-      if (!polylineHitsObstacles(absolute(elbow), obstacleField(obstacles, excluded, LOOM_CLEARANCE))) {
+      if (!index.hits(absolute(elbow), LOOM_CLEARANCE, (rect) => excluded.has(rect.nodeId))) {
         return elbow;
       }
       const routed = routeWire({
         source: framePoint(hub, frame, station, lane.laneOffset),
         target: lane.candidate.far,
-        obstacles: routeField.filter((o) => !excluded.has(o.nodeId)),
+        obstacles: routeField,
+        index,
+        skip: (rect) => excluded.has((rect as LoomObstacle).nodeId),
         padding: LOOM_CLEARANCE,
         borderRadius: SPINE_RADIUS,
         sourceDirection: hubAxis,
@@ -632,9 +632,7 @@ function planFan(
       for (let i = 0; i < comb.length - 1; i++) {
         if (comb[i + 1]!.x < comb[i]!.x - 1e-6) return null;
       }
-      return polylineHitsObstacles(absolute(comb), obstacleField(obstacles, excluded, 0))
-        ? null
-        : comb;
+      return index.hits(absolute(comb), 0, (rect) => excluded.has(rect.nodeId)) ? null : comb;
     };
 
     const build = (spine: ReadonlyArray<WirePoint>): FanPlan | null => {
@@ -645,7 +643,7 @@ function planFan(
         const own = laneOf(spine, splayLeg, lane);
         if (!own) return null;
         // Shared geometry: one hit and this spine is not the cable's spine.
-        if (polylineHitsObstacles(absolute(own), spineField)) return null;
+        if (index.hits(absolute(own), LOOM_CLEARANCE, (rect) => rect.nodeId === hubNodeId)) return null;
         laneOfEdge.set(lane.candidate.edge.id, own);
       }
 
@@ -759,7 +757,7 @@ function planFan(
     // out costs a whole visibility graph over every card in the corridor. On a
     // dense canvas most detour attempts are exactly this shape, so the cheap
     // proof runs first.
-    if (swallows(routeField, spineMoat, hub) || swallows(routeField, spineMoat, anchor)) {
+    if (index.hits([hub, hub], spineMoat) || index.hits([anchor, anchor], spineMoat)) {
       return null;
     }
     const routed = routeWire({
@@ -911,14 +909,21 @@ export function planLoom(input: {
   const strands = new Map<string, LoomStrand>();
   const corridors: WireRect[] = [];
   const bands: FanBand[] = [];
+  // One ordered field and its index for the whole plan: a route reads the
+  // cards near its corridor, and every fan's router sees the same order. The
+  // index is built over the sorted field so its answers are in that order too.
+  const routeField = input.obstacles
+    .filter((o) => o.width > 0 && o.height > 0)
+    .sort((a, b) => compareIds(a.nodeId, b.nodeId));
+  const index = createObstacleIndex(routeField);
   for (const key of [...fans.keys()].sort(compareIds)) {
     const members = fans.get(key)!;
-    const centred = planFan(key, members, input.obstacles, 0);
+    const centred = planFan(key, members, input.obstacles, 0, index, routeField);
     if (!centred) continue;
     // Fans are visited in stable key order, so which one holds the centre line
     // and which one steps aside is a property of the document, not of a drag.
     const bias = laneBias(centred.band, bands, centred.biasOn);
-    const planned = bias === 0 ? centred : planFan(key, members, input.obstacles, bias);
+    const planned = bias === 0 ? centred : planFan(key, members, input.obstacles, bias, index, routeField);
     if (!planned) continue;
     // Lane discipline is a guarantee, not a best effort: a fan that cannot be
     // shifted clear of the bands already placed dissolves instead of painting

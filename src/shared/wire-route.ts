@@ -5,6 +5,7 @@
  * Fall back to the caller's default smooth-step path when every candidate
  * still collides (dense clusters). Pure geometry — no React / xyflow.
  */
+import type { ObstacleIndex } from "./wire-obstacles";
 
 export type WirePoint = { readonly x: number; readonly y: number };
 
@@ -20,6 +21,14 @@ export type WireRouteInput = {
   readonly target: WirePoint;
   /** Intermediate node bounds to avoid (source/target already excluded). */
   readonly obstacles: ReadonlyArray<WireRect>;
+  /**
+   * The same obstacles in a spatial index. When present, a route reads only
+   * the cards near its corridor, in the order `obstacles` has them, so the
+   * path is the same one the full scan finds.
+   */
+  readonly index?: ObstacleIndex<WireRect>;
+  /** Cards to leave out of the search, by their own fields (a hub, a far card). */
+  readonly skip?: (rect: WireRect) => boolean;
   /** Clearance around each obstacle. Default 14. */
   readonly padding?: number;
   /** Corner radius for the SVG path. Default 8. */
@@ -300,6 +309,51 @@ function visibilityRoute(
     const known = box;
     const unseen = obstacles.filter((rect) => !touchesBox(rect, known));
     if (!polylineHitsObstacles(found.corners, unseen)) return found.route;
+    let { minX, maxX, minY, maxY } = box;
+    for (const corner of found.corners) {
+      minX = Math.min(minX, corner.x - corridorPad);
+      maxX = Math.max(maxX, corner.x + corridorPad);
+      minY = Math.min(minY, corner.y - corridorPad);
+      maxY = Math.max(maxY, corner.y + corridorPad);
+    }
+    box = { minX, maxX, minY, maxY };
+  }
+}
+
+/**
+ * `visibilityRoute` over an index: the same box, the same growth, the same
+ * cards in the same order, but a query reads the cells the box touches instead
+ * of every card. The detour test asks the index for the cards along the found
+ * polyline and skips the ones the box already covered.
+ */
+function visibilityRouteIndexed(
+  source: WirePoint,
+  target: WirePoint,
+  index: ObstacleIndex<WireRect>,
+  pad: number,
+  input: WireRouteInput,
+  borderRadius: number,
+): WireRouteResult | null {
+  if (index.size === 0) return null;
+  const corridorPad = Math.max((input.padding ?? DEFAULT_PAD) * 2, 40);
+  let box: SearchBox = {
+    minX: Math.min(source.x, target.x) - corridorPad,
+    maxX: Math.max(source.x, target.x) + corridorPad,
+    minY: Math.min(source.y, target.y) - corridorPad,
+    maxY: Math.max(source.y, target.y) + corridorPad,
+  };
+  const inflate = (rect: WireRect): WireRect => inflateRect(rect, pad);
+  const skip = input.skip;
+  const kept = (rect: WireRect): boolean => !(skip?.(rect) ?? false);
+  for (let growth = 0; ; growth++) {
+    const everything = growth === BOX_GROWTHS;
+    const relevant = (everything ? index.all() : index.near(box, pad)).filter(kept).map(inflate);
+    const found = routePast(source, target, relevant, input, borderRadius);
+    if (!found) return null;
+    if (everything || (skip === undefined && relevant.length === index.size)) return found.route;
+    const known = box;
+    const seen = (rect: WireRect): boolean => !kept(rect) || touchesBox(inflate(rect), known);
+    if (!index.hits(found.corners, pad, seen)) return found.route;
     let { minX, maxX, minY, maxY } = box;
     for (const corner of found.corners) {
       minX = Math.min(minX, corner.x - corridorPad);
@@ -761,20 +815,22 @@ function routePast(
  * with a deliberately smaller moat before the caller uses XYFlow's fallback.
  */
 export function routeWire(input: WireRouteInput): WireRouteResult | null {
-  const { source, target, obstacles } = input;
+  const { source, target, obstacles, index, skip } = input;
   const padding = Math.max(0, input.padding ?? DEFAULT_PAD);
   const radius = input.borderRadius ?? DEFAULT_RADIUS;
   for (const pad of candidatePads(padding)) {
-    const inflated = obstacles
-      .filter((o) => o.width > 0 && o.height > 0)
-      .map((o) => inflateRect(o, pad));
-    const routed = visibilityRoute(
-      source,
-      target,
-      inflated,
-      { ...input, padding: pad },
-      radius,
-    );
+    const routed =
+      index === undefined
+        ? visibilityRoute(
+            source,
+            target,
+            obstacles
+              .filter((o) => o.width > 0 && o.height > 0 && !(skip?.(o) ?? false))
+              .map((o) => inflateRect(o, pad)),
+            { ...input, padding: pad },
+            radius,
+          )
+        : visibilityRouteIndexed(source, target, index, pad, { ...input, padding: pad }, radius);
     if (routed) return routed;
   }
   return null;
