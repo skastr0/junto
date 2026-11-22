@@ -1113,6 +1113,7 @@ export const createRenderer = () => {
    * "gpu" culls it per quad, by tier and view, in a compute pass first.
    */
   let cullMode: "cpu" | "gpu" = "cpu";
+  const cullFrames = { gpu: 0, standalone: 0 };
 
   /** Encode the GPU cull ahead of the render pass, when the cull runs there. */
   const cull = (encoder: GPUCommandEncoder, timestampWrites?: () => GPUComputePassTimestampWrites | undefined): void => {
@@ -1122,7 +1123,10 @@ export const createRenderer = () => {
     if (cullMode !== "gpu") return;
     // A band split into standalone-texture runs needs the list on the CPU.
     const standalone = state.atlas?.standalone;
-    if (standalone !== undefined && standalone.size > 0) return;
+    if (standalone !== undefined && standalone.size > 0) {
+      cullFrames.standalone += 1;
+      return;
+    }
     state.cull ??= createGpuCull(state.device);
     const culled = state.cull.encode(encoder, {
       uniform: state.uniform,
@@ -1140,6 +1144,7 @@ export const createRenderer = () => {
       state.culledFor = state.bind;
     }
     state.culledThisFrame = true;
+    cullFrames.gpu += 1;
   };
 
   const beginFrame = (bands: BandEnds): void => {
@@ -1156,6 +1161,9 @@ export const createRenderer = () => {
     /** Choose where the draw list is culled; takes effect at the next frame. */
     setCull: (mode: "cpu" | "gpu"): void => {
       cullMode = mode;
+    },
+    get cullFrames(): { readonly gpu: number; readonly standalone: number } {
+      return { ...cullFrames };
     },
     get cullMode(): "cpu" | "gpu" {
       return cullMode;

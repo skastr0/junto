@@ -903,6 +903,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         return timer?.times() ?? { available: false, samples: 0 };
       })(),
       cull: renderer.cullMode,
+      cullFrames: renderer.cullFrames,
     }),
     dispose: () => {
       if (disposed) return;

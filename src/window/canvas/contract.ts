@@ -779,6 +779,12 @@ export type EngineStats = {
   readonly damage?: { readonly lastPixels: number; readonly drawnPixelsTotal: number; readonly screenPixelsTotal: number };
   /** Where the draw list is culled. */
   readonly cull?: "cpu" | "gpu";
+  /**
+   * Frames since boot the compute pass culled, and frames the GPU cull was
+   * asked for but the CPU list drew, because a band holds standalone-texture
+   * runs (issue 912): a comparison that never culled on the GPU says so.
+   */
+  readonly cullFrames?: { readonly gpu: number; readonly standalone: number };
 };
 
 /**
