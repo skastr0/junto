@@ -1215,10 +1215,16 @@ test.describe("#913 GPU canvas proof", () => {
         let openedId: string | null = null;
         let diagnostics: OpenDiagnostics = { selection: [], surfaces: 0, backdrops: 0, dialogs: 0, active: "" };
         const attempts: OpenAttempt[] = [];
-        for (const candidate of nearScreens.onPane.slice(0, 12)) {
+        let skipped = 0;
+        for (const candidate of nearScreens.onPane) {
+          if (attempts.filter((attempt) => attempt.reason !== "no-hit").length >= 12) break;
           const node = rects[candidate.id]!;
           await placeCamera(page, await cameraOn(page, { x: node.x + node.width / 2, y: node.y + node.height / 2 }, 1));
           const attempt = await openSeat(page, candidate.id, candidate.rect, pane);
+          if (attempt.attempt.reason === "no-hit" && attempt.attempt.point === null) {
+            skipped += 1;
+            continue;
+          }
           diagnostics = attempt.diagnostics;
           attempts.push(attempt.attempt);
           if (attempt.opened) {
@@ -1230,7 +1236,8 @@ test.describe("#913 GPU canvas proof", () => {
         report["open"] = {
           seat: openedId,
           opened,
-          tried: Math.min(12, nearScreens.onPane.length),
+          tried: attempts.length,
+          skipped,
           last: diagnostics,
           attempts,
         };
