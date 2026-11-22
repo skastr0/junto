@@ -1457,8 +1457,12 @@ export const createWireScene = (host: WireHost): WireScene => {
       view = { id: entry.id, at, verb };
       entry.labelView = view;
     }
-    labelsCache.push(view);
+    // Written by index, the list trimmed after: emptying it with
+    // `length = 0` frees its storage, and each pan would grow it again.
+    labelsCache[labelsCount] = view;
+    labelsCount += 1;
   };
+  let labelsCount = 0;
 
   const labelsInView: WireScene["labelsInView"] = () => {
     if (
@@ -1471,7 +1475,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     ) {
       return labelsCache;
     }
-    labelsCache.length = 0;
+    labelsCount = 0;
     // The label's own point, not the wire's bounds: a long run that crosses
     // the view can put its midpoint far outside it.
     const margin = 24;
@@ -1480,6 +1484,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     labelWindow.x1 = labelWindow.x0 + viewSize.width / zoom + 2 * margin;
     labelWindow.y1 = labelWindow.y0 + viewSize.height / zoom + 2 * margin;
     entries.forEach(collectLabel);
+    if (labelsCache.length !== labelsCount) labelsCache.length = labelsCount;
     labelsAt.x = camera.x;
     labelsAt.y = camera.y;
     labelsAt.zoom = camera.zoom;
