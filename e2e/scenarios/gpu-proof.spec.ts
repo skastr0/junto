@@ -83,7 +83,7 @@ const ENABLED =
 const SCALES: ReadonlyArray<ProofScale> = (process.env["JUNTO_GPU_PROOF_SCALES"] ?? "1,10,100")
   .split(",")
   .map((value) => Number(value) as ProofScale)
-  .filter((value): value is ProofScale => value === 1 || value === 10 || value === 100);
+  .filter((value): value is ProofScale => value === 1 || value === 2 || value === 10 || value === 100);
 const OUT = process.env["JUNTO_GPU_PROOF_OUT"] ?? join("/tmp", "junto-gpu-proof");
 const DB = process.env["JUNTO_FACTORY_DB"] ?? "";
 const JSON_FIXTURE = process.env["JUNTO_FACTORY_JSON"] ?? "";
@@ -871,7 +871,7 @@ test.describe.configure({ mode: "serial" });
 test.describe("#913 GPU canvas proof", () => {
   for (const scale of SCALES) {
     test(`${String(scale)}x board: tiers, counters, addressability, frame times`, async () => {
-      test.setTimeout(scale === 1 ? 2_400_000 : scale === 10 ? 3_600_000 : 5_400_000);
+      test.setTimeout(scale === 1 ? 2_400_000 : scale === 2 ? 2_400_000 : scale === 10 ? 3_600_000 : 5_400_000);
       failures.length = 0;
       const board = proofBoard(scale);
       const dir = await boardDir(scale);
@@ -1242,7 +1242,9 @@ test.describe("#913 GPU canvas proof", () => {
           const sample =
             scale === 1
               ? board.seats.map((id) => ({ id }))
-              : [...perTile.values()].flatMap((list) => list.slice(0, dense ? 2 : 1)).slice(0, 120);
+              : scale === 2
+                ? board.seats.filter((_, index) => index % Math.max(1, Math.floor(board.seats.length / 65)) === 0).map((id) => ({ id }))
+                : [...perTile.values()].flatMap((list) => list.slice(0, dense ? 2 : 1)).slice(0, 120);
           const results: SeatClick[] = [];
           // One seat at a time, with the camera centred on it: a cluster click
           // fits its members and moves the camera, so a shared pass would be
@@ -1317,6 +1319,14 @@ test.describe("#913 GPU canvas proof", () => {
           () => readMotionProbe(page),
         );
         report["traces"] = traces;
+        for (const [name, trace] of Object.entries(traces)) {
+          if (trace.gapMax !== null && trace.gapMax > 25) {
+            fail(`${String(scale)}x ${name}: present gap ${String(trace.gapMax)} ms is over the 25 ms gate (worst frame ${JSON.stringify(trace.worstGap)})`);
+          }
+          if (trace.mainTasksOver50ms > 0) {
+            fail(`${String(scale)}x ${name}: ${String(trace.mainTasksOver50ms)} main-thread tasks over 50 ms (${JSON.stringify(trace.worstGap?.tasks ?? [])})`);
+          }
+        }
         });
 
         // Ruling 6's blind spot: wrong content is not blank. Return to every
