@@ -9,6 +9,8 @@ import { ringState } from "@shared/wire/rings";
 import type { CardFact, CardView, PaintEnv, Quad, SeatLive } from "../src/window/canvas/contract";
 import { ALL_TIERS } from "../src/window/canvas/contract";
 import { createScene } from "../src/window/canvas/engine/scene";
+import { farSeatScale, SEAT_SCALE_MAX, seatFloorScale } from "@shared/canvas-tier";
+import { CLUSTER } from "../src/window/canvas/paint/cluster";
 import { pickAt, type PickWorld } from "../src/window/canvas/engine/pick";
 import { paintCard } from "../src/window/canvas/paint";
 import { agentFact, fakeEnv, regionFact, seatLive, view } from "./canvas-paint-fixtures";
@@ -172,6 +174,25 @@ describe("seat clusters at far and overview", () => {
     scene.apply({ kind: "card", fact: { ...c, row: { ...c.row, x: 2000 } } as CardFact });
     scene.prepare(VIEW, "far");
     expect(scene.clusterAt({ x: 128, y: 28 })).toEqual(["a", "b"]);
+  });
+
+  it("picks a badge across the disc it draws, at the seat scale, at far and overview (issue 912)", () => {
+    for (const [zoom, tier] of [[0.3, "far"], [0.08, "overview"]] as const) {
+      const { scene } = clustered(zoom, tier);
+      const [badge] = scene.clusters();
+      expect(badge).toBeDefined();
+      const scale = tier === "far" ? Math.max(1, Math.min(farSeatScale(zoom), SEAT_SCALE_MAX)) : Math.max(seatFloorScale(zoom), Math.min(farSeatScale(zoom), SEAT_SCALE_MAX));
+      expect(scale).toBeGreaterThan(1);
+      // The radius the hook maps to the page is the drawn disc's.
+      expect(badge!.radius).toBeCloseTo((CLUSTER.disc / 2) * scale, 6);
+      // Just inside the drawn disc, well outside the board disc: the badge answers.
+      for (const angle of [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]) {
+        const at = { x: badge!.x + Math.cos(angle) * badge!.radius * 0.9, y: badge!.y + Math.sin(angle) * badge!.radius * 0.9 };
+        expect(scene.clusterAt(at), `${tier} at ${angle.toFixed(2)}`).toEqual(["a", "b", "c"]);
+      }
+      // Past the drawn disc: the pane.
+      expect(scene.clusterAt({ x: badge!.x + badge!.radius * 1.1, y: badge!.y })).toBeUndefined();
+    }
   });
 
   it("counts in-view seats nothing draws, and leaves none after a run of selections (issue 912)", () => {

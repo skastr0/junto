@@ -26,7 +26,7 @@
  * it the view rectangle, the tier and the theme.
  */
 
-import { farSeatScale, hoverCardScale, nodeScale, seatFloorScale, tierForZoom } from "@shared/canvas-tier";
+import { farSeatScale, hoverCardScale, nodeScale, SEAT_SCALE_MAX, seatFloorScale, tierForZoom } from "@shared/canvas-tier";
 import { ringKeepsApart } from "@shared/wire/urgency";
 import { holdsSeatRing, renderedNodeSize } from "@shared/node-geometry";
 import { SEAT_CONTENT_CENTRE_DX } from "../paint/card-spec";
@@ -1330,10 +1330,26 @@ export const createScene = (options: {
   });
 
   /** The badge under a board point, if any (the disc; badges paint above cards). */
+  /**
+   * A badge as it is drawn (issue 912): its quads take the seat scale rule
+   * about the disc's centre (paint/cluster.ts), so at far and overview the
+   * disc on screen is the board disc times the seat scale. Picking and the
+   * hook's clusters() answer this rect, not the unscaled board disc, which at
+   * overview was a few pixels inside a badge many times its size.
+   */
+  const BADGE_SCALE = { scale: { kind: "seat", cap: SEAT_SCALE_MAX, anchor: { x: 0, y: 0 } } } as unknown as Quad;
+  const drawnBadgeRect = (slot: ClusterSlot): Rect => {
+    const scale = scaleMultiplier(BADGE_SCALE, currentTier, options.zoom?.() ?? 1);
+    const { rect } = slot;
+    const width = rect.width * scale;
+    const height = rect.height * scale;
+    return { x: rect.x + rect.width / 2 - width / 2, y: rect.y + rect.height / 2 - height / 2, width, height };
+  };
+
   const clusterSlotAt = (at: Point): ClusterSlot | undefined => {
     for (let index = clustersActive.length - 1; index >= 0; index -= 1) {
       const slot = clustersActive[index];
-      if (slot !== undefined && contains(slot.rect, at)) return slot;
+      if (slot !== undefined && contains(drawnBadgeRect(slot), at)) return slot;
     }
     return undefined;
   };
@@ -2487,7 +2503,7 @@ export const createScene = (options: {
       key: badge.key,
       x: badge.rect.x + badge.rect.width / 2,
       y: badge.rect.y + badge.rect.height / 2,
-      radius: badge.rect.width / 2,
+      radius: drawnBadgeRect(badge).width / 2,
       memberIds: badge.members,
       drawn: badge.stamp === liveEpoch,
     }));
