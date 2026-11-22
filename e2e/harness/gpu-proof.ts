@@ -677,9 +677,7 @@ export const traceRun = async (
   });
   const finished = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
   await cdp.send("Tracing.start", {
-    // cppgc and blink_gc break a major GC's epilogue into its owners: the
-    // pan frame's GC was 12.5 ms of Blink-heap work with no categories.
-    categories: "toplevel,devtools.timeline,viz,cc,cppgc,disabled-by-default-cppgc,blink_gc",
+    categories: "toplevel,devtools.timeline,viz,cc",
     transferMode: "ReportEvents",
   });
   const started = Date.now();
