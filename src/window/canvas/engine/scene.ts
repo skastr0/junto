@@ -28,7 +28,7 @@
 
 import { farSeatScale, hoverCardScale, nodeScale, SEAT_SCALE_MAX, seatFloorScale, tierForZoom } from "@shared/canvas-tier";
 import { ringKeepsApart } from "@shared/wire/urgency";
-import { holdsSeatRing, renderedNodeSize } from "@shared/node-geometry";
+import { AGENT_NODE_SIZE, holdsSeatRing, renderedNodeSize } from "@shared/node-geometry";
 import { SEAT_CONTENT_CENTRE_DX } from "../paint/card-spec";
 import { DURATION, themeGpu, type GpuTheme, type ThemeMode } from "@shared/theme";
 import type {
@@ -2652,6 +2652,33 @@ export const createScene = (options: {
     };
   };
 
+  /**
+   * Whether a card's drawn quads cover a board point at this tier, shadows
+   * aside. At far and overview a seat is drawn as its grown ring about its
+   * box, not its stored rectangle, so this is what the pick answers there:
+   * only what is drawn takes a press.
+   */
+  const drawnAt = (id: NodeId, at: Point): boolean => {
+    const card = byId.get(id);
+    if (card === undefined || card.stamp !== liveEpoch || !card.role.view || gatheredSeats.has(id)) return false;
+    for (const ref of card.ordered) {
+      if ((ref.tiers & liveMask) === 0 || ref.painted.kind === "shadow" || !gateOpen(ref.painted)) continue;
+      const r = placedRect(ref, card.slot);
+      if (at.x >= r.x && at.x <= r.x + r.width && at.y >= r.y && at.y <= r.y + r.height) return true;
+    }
+    return false;
+  };
+
+  /**
+   * How far past its stored rectangle a card's drawn quads can reach at this
+   * zoom: a seat's quads grow about its box centre by at most the far tag's
+   * scale, so half the seat's longer side at that scale bounds them.
+   */
+  const drawnReach = (): number => {
+    const zoom = options.zoom?.() ?? 1;
+    return (Math.max(AGENT_NODE_SIZE.width, AGENT_NODE_SIZE.height) / 2) * Math.max(1, farSeatScale(zoom) * 1.4);
+  };
+
   const partsOf = (id: NodeId): DrawnPart[] => {
     const card = byId.get(id);
     if (card === undefined) return [];
@@ -2748,6 +2775,8 @@ export const createScene = (options: {
     prepare,
     prefetch,
     partsOf,
+    drawnAt,
+    drawnReach,
     seatStats,
     badgePartsOf,
     clusters,

@@ -124,6 +124,13 @@ export type PickWorld = {
    * A card or a cluster always wins; this answers after both.
    */
   readonly labelAt?: (at: Point, half: number) => WireId | undefined;
+  /**
+   * At far and overview: whether a card's drawn quads cover a board point,
+   * and how far past its rectangle they can reach. There a seat is drawn as
+   * its grown ring about its box, so a press answers the card drawn under
+   * it, topmost first, and never one whose rectangle is not drawn there.
+   */
+  readonly drawn?: { readonly reach: number; readonly at: (id: NodeId, at: Point) => boolean };
   /** The card under the pointer while its mid/far bloom stands in. */
   readonly hovered?: HoveredCard;
 };
@@ -313,12 +320,19 @@ const cardPart = (world: PickWorld, fact: CardFact, at: Point): Hit | null => {
  * on.
  */
 export const pickCard = (world: PickWorld, at: Point): Hit | null => {
-  const near = world.index.cardsNear(at, PART_BLEED);
+  const drawn = world.drawn;
+  const near = world.index.cardsNear(at, Math.max(PART_BLEED, drawn?.reach ?? 0));
   for (let index = near.length - 1; index >= 0; index -= 1) {
     const id = near[index];
     if (id === undefined) continue;
     const fact = world.card(id);
     if (fact === undefined) continue;
+    if (drawn !== undefined && fact.row.kind !== "region") {
+      if (!drawn.at(id, at)) continue;
+      // Drawn here: its own part where the stored rectangle has one, its body
+      // where only the grown ring reaches.
+      return cardPart(world, fact, at) ?? hitAt(fact, { kind: "body" }, at);
+    }
     const part = cardPart(world, fact, at);
     if (part !== null) return part;
   }

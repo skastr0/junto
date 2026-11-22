@@ -293,3 +293,67 @@ describe("the cluster hit", () => {
     expect(hit.part.kind).toBe("body");
   });
 });
+
+describe("the far pick follows what is drawn (issue 912)", () => {
+  /** A seat painter with one ring quad at the seat scale, as paintCard draws a ring. */
+  const ring = (_fact: CardFact, _live: SeatLive | undefined, _view: CardView): ReturnType<typeof oneQuad> => ({
+    quads: [
+      {
+        key: "ring",
+        kind: "shape",
+        band: "cards",
+        z: 1,
+        rect: { x: 2, y: 2, width: 52, height: 52 },
+        tiers: ALL_TIERS,
+        scale: { kind: "seat", cap: SEAT_SCALE_MAX, anchor: { x: 28, y: 28 } },
+        style: {},
+      },
+    ],
+    dim: { opacity: 1, saturate: 1 },
+    lift: 0,
+  });
+
+  // At zoom 0.3 a ring is drawn 2.6 times its size about its box: b's ring
+  // reaches over the right end of a's stored rectangle, where a's own ring
+  // does not reach. The two are too far apart to gather.
+  const ZOOM = 0.3;
+  const facts = (): CardFact[] => [
+    { ...agentFact(), id: "b", row: { ...agentFact().row, id: "b", x: 150, y: 60 } } as CardFact,
+    { ...agentFact(), id: "a", row: { ...agentFact().row, id: "a", x: 0, y: 0 } } as CardFact,
+  ];
+  const drawnWorld = (scene: ReturnType<typeof createScene>): PickWorld => ({
+    index: scene.index,
+    card: scene.cardOf,
+    wire: () => undefined,
+    selection: { nodeIds: [] },
+    scale: ZOOM,
+    tier: "far",
+    wireMode: "rest",
+    clusterAt: scene.clusterAt,
+    drawn: { reach: scene.drawnReach(), at: scene.drawnAt },
+  });
+  const board = () => {
+    const scene = createScene({ painter: ring, zoom: () => ZOOM });
+    load(scene, facts());
+    for (const fact of facts()) scene.apply({ kind: "seat", id: fact.id, live: work() });
+    scene.prepare({ x: -400, y: -400, width: 1200, height: 900 }, "far");
+    return scene;
+  };
+
+  it("answers the seat whose ring is drawn under the press, not the card whose stored rectangle is", () => {
+    const scene = board();
+    expect(scene.clusters()).toEqual([]);
+    const at = { x: 205, y: 40 };
+    expect(scene.drawnAt("a", at)).toBe(false);
+    expect(scene.drawnAt("b", at)).toBe(true);
+    expect(pickAt(drawnWorld(scene), at)).toMatchObject({ nodeId: "b", part: { kind: "body" } });
+  });
+
+  it("answers a seat across its whole drawn ring, past its stored rectangle", () => {
+    const scene = board();
+    // Below b's stored rectangle (which ends at y 116) but inside its ring.
+    expect(pickAt(drawnWorld(scene), { x: 253, y: 140 })).toMatchObject({ nodeId: "b" });
+    // Past every ring: the pane.
+    expect(pickAt(drawnWorld(scene), { x: 600, y: 600 }).part).toEqual({ kind: "pane" });
+  });
+});

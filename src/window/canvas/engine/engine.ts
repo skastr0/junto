@@ -441,6 +441,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     ...(host.wires?.labelAt === undefined ? {} : { labelAt: host.wires.labelAt }),
     // Badges paint above cards, so their hit is tested first.
     clusterAt: scene.clusterAt,
+    ...(tier === "far" || tier === "overview" ? { drawn: { reach: scene.drawnReach(), at: scene.drawnAt } } : {}),
     ...(hoveredPick() === undefined ? {} : { hovered: hoveredPick() }),
   });
 
