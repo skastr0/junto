@@ -140,3 +140,51 @@ describe("clusterBadgeMark: the most urgent member's mark", () => {
     }
   });
 });
+
+describe("the spanning tree (issue 915)", () => {
+  /** Every pair sorted at once, as the index was first built: the reference. */
+  const bruteLinks = (seats: ReadonlyArray<ClusterSeat>) => {
+    const byRegion = new Map<string, ClusterSeat[]>();
+    for (const s of seats) byRegion.set(s.region, [...(byRegion.get(s.region) ?? []), s]);
+    const links: Array<{ a: string; b: string; d: number }> = [];
+    for (const members of byRegion.values()) {
+      const pairs: Array<{ a: string; b: string; d: number }> = [];
+      for (let i = 0; i < members.length; i += 1)
+        for (let j = i + 1; j < members.length; j += 1)
+          pairs.push({ a: members[i]!.id, b: members[j]!.id, d: Math.hypot(members[i]!.x - members[j]!.x, members[i]!.y - members[j]!.y) });
+      pairs.sort((p, q) => p.d - q.d);
+      const parent = new Map(members.map((s) => [s.id, s.id]));
+      const find = (id: string): string => (parent.get(id) === id ? id : find(parent.get(id)!));
+      for (const pair of pairs) {
+        const ra = find(pair.a);
+        const rb = find(pair.b);
+        if (ra === rb) continue;
+        parent.set(ra, rb);
+        links.push(pair);
+      }
+    }
+    return links.sort((p, q) => p.d - q.d);
+  };
+
+  let state = 7;
+  const random = (): number => {
+    state = (state * 1103515245 + 12345) % 2 ** 31;
+    return state / 2 ** 31;
+  };
+
+  it("gives the links every pair sorted at once gives, ties and far outliers included", () => {
+    const boards: ClusterSeat[][] = [
+      // A lattice: every neighbour at one distance, so ties decide.
+      Array.from({ length: 64 }, (_, i) => seat(`g${String(i)}`, (i % 8) * 300, Math.floor(i / 8) * 300, i < 32 ? "a" : "b")),
+      // Scatter with a few seats far out, so the radius doubles many times.
+      Array.from({ length: 200 }, (_, i) => {
+        const far = i % 50 === 0;
+        return seat(`s${String(i)}`, random() * (far ? 1e6 : 4000), random() * (far ? 1e6 : 3000), `r${String(i % 3)}`);
+      }),
+      // Every seat on one point, and two seats.
+      Array.from({ length: 5 }, (_, i) => seat(`p${String(i)}`, 10, 10)),
+      [seat("x", 0, 0), seat("y", 5000, 0)],
+    ];
+    for (const seats of boards) expect(buildClusterIndex(seats).links).toEqual(bruteLinks(seats));
+  });
+});

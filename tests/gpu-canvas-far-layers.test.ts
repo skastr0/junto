@@ -159,6 +159,21 @@ describe("seat clusters at far and overview", () => {
     expect(scene.clusterAt({ x: 148, y: 28 })).toEqual(["a", "b", "c"]);
   });
 
+  it("regroups a dragged seat once, on drop, not on every drag frame (issue 915)", () => {
+    const { scene, facts } = clustered(0.3, "far");
+    // The pointer carries c far off: the plan keeps it where its row is.
+    for (const x of [300, 900, 2000]) {
+      scene.moveCard("c", { x, y: 0 });
+      scene.prepare(VIEW, "far");
+      expect(scene.clusterAt({ x: 148, y: 28 })).toEqual(["a", "b", "c"]);
+    }
+    // The writer's fact lands at the drop: now c parts and a and b stay.
+    const c = facts[2]!;
+    scene.apply({ kind: "card", fact: { ...c, row: { ...c.row, x: 2000 } } as CardFact });
+    scene.prepare(VIEW, "far");
+    expect(scene.clusterAt({ x: 128, y: 28 })).toEqual(["a", "b"]);
+  });
+
   it("a selected seat stays apart, so the rest regroup around it", () => {
     const { scene, facts } = clustered(0.3, "far");
     scene.apply({ kind: "selection", fact: { nodeIds: ["a"] } });

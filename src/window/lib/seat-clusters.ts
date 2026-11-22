@@ -80,6 +80,94 @@ const find = (parent: Map<string, string>, id: string): string => {
   return root;
 };
 
+/**
+ * One region's minimum spanning tree, shortest link first (issue 915): Kruskal
+ * over the pairs a neighbour grid finds, a radius at a time. A round takes
+ * the pairs at least `lo` and under `r` apart, which sit in neighbouring
+ * cells of side `r`; every shorter pair was taken in an earlier round, so the
+ * links are the ones every pair sorted at once would give. Ties break by the
+ * pair's place in `members`, as a stable sort of all pairs did. The first
+ * radius is the seats' mean spacing, and it doubles until one tree is left.
+ */
+const regionTree = (members: ReadonlyArray<ClusterSeat>): Link[] => {
+  const count = members.length;
+  if (count < 2) return [];
+  const parent = new Int32Array(count);
+  for (let i = 0; i < count; i += 1) parent[i] = i;
+  const root = (i: number): number => {
+    let at = i;
+    while (parent[at] !== at) {
+      parent[at] = parent[parent[at]!]!;
+      at = parent[at]!;
+    }
+    return at;
+  };
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const seat of members) {
+    minX = Math.min(minX, seat.x);
+    minY = Math.min(minY, seat.y);
+    maxX = Math.max(maxX, seat.x);
+    maxY = Math.max(maxY, seat.y);
+  }
+  const width = maxX - minX;
+  const height = maxY - minY;
+  let r = Math.max(Math.sqrt((width * height) / count), Math.max(width, height) / count, Number.MIN_VALUE);
+  let lo = 0;
+  let trees = count;
+  const out: Link[] = [];
+  while (trees > 1) {
+    // A cell index is at most `count` (r is at least the box side over the
+    // seat count), so a row stride past it keys every cell as one number.
+    const stride = count + 3;
+    const cells = new Map<number, number[]>();
+    const column = new Int32Array(count);
+    const line = new Int32Array(count);
+    for (let i = 0; i < count; i += 1) {
+      column[i] = Math.floor((members[i]!.x - minX) / r) + 1;
+      line[i] = Math.floor((members[i]!.y - minY) / r) + 1;
+      const key = column[i]! * stride + line[i]!;
+      const list = cells.get(key);
+      if (list === undefined) cells.set(key, [i]);
+      else list.push(i);
+    }
+    const pairs: Array<{ readonly i: number; readonly j: number; readonly d: number }> = [];
+    for (let i = 0; i < count; i += 1) {
+      const cx = column[i]!;
+      const cy = line[i]!;
+      const a = members[i]!;
+      const ri = root(i);
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dy = -1; dy <= 1; dy += 1) {
+          const list = cells.get((cx + dx) * stride + cy + dy);
+          if (list === undefined) continue;
+          for (const j of list) {
+            // A pair already in one tree can never be a link.
+            if (j <= i || root(j) === ri) continue;
+            const b = members[j]!;
+            const d = Math.hypot(a.x - b.x, a.y - b.y);
+            if (d >= lo && d < r) pairs.push({ i, j, d });
+          }
+        }
+      }
+    }
+    pairs.sort((p, q) => p.d - q.d || p.i - q.i || p.j - q.j);
+    for (const pair of pairs) {
+      const ra = root(pair.i);
+      const rb = root(pair.j);
+      if (ra === rb) continue;
+      parent[ra] = rb;
+      trees -= 1;
+      out.push({ a: members[pair.i]!.id, b: members[pair.j]!.id, d: pair.d });
+    }
+    lo = r;
+    r *= 2;
+  }
+  return out;
+};
+
 /** Build the links for `seats`, leaving out any seat in `apart` (never gathered). */
 export const buildClusterIndex = (
   seats: ReadonlyArray<ClusterSeat>,
@@ -105,25 +193,7 @@ export const buildClusterIndex = (
     maxY = Math.max(maxY, seat.y);
   }
   const links: Link[] = [];
-  for (const members of byRegion.values()) {
-    const pairs: Link[] = [];
-    for (let i = 0; i < members.length; i += 1) {
-      for (let j = i + 1; j < members.length; j += 1) {
-        const a = members[i]!;
-        const b = members[j]!;
-        pairs.push({ a: a.id, b: b.id, d: Math.hypot(a.x - b.x, a.y - b.y) });
-      }
-    }
-    pairs.sort((p, q) => p.d - q.d);
-    const parent = new Map(members.map((seat) => [seat.id, seat.id] as const));
-    for (const pair of pairs) {
-      const ra = find(parent, pair.a);
-      const rb = find(parent, pair.b);
-      if (ra === rb) continue;
-      parent.set(ra, rb);
-      links.push(pair);
-    }
-  }
+  for (const members of byRegion.values()) links.push(...regionTree(members));
   links.sort((p, q) => p.d - q.d);
   return {
     seats: kept,

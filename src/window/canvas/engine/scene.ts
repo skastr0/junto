@@ -1179,10 +1179,13 @@ export const createScene = (options: {
     const seats: ClusterSeatFact[] = [];
     for (const card of byId.values()) {
       if (card.fact.row.kind !== "agent" || card.live === undefined) continue;
+      // Where the seat's row puts it, not where a pointer holds it: a drag
+      // regroups once, on drop, when the writer's fact lands (issue 915).
+      const rect = rectOfFact(card.fact);
       seats.push({
         id: card.id,
-        x: card.rect.x + card.rect.width / 2,
-        y: card.rect.y + card.rect.height / 2,
+        x: rect.x + rect.width / 2,
+        y: rect.y + rect.height / 2,
         region: card.fact.derived.regionId ?? "",
         ring: card.live.ring,
         ringSince: card.live.ringSince,
@@ -1590,7 +1593,6 @@ export const createScene = (options: {
     card.rect = { ...card.rect, x: at.x, y: at.y };
     writeOwner(card);
     grid.set(card.slot, insetBy(card.rect, 28));
-    if (card.fact.row.kind === "agent") clusterDirty = true;
     // A card dragged in from off screen (a group drag) must join the list
     // the moment it reaches the cells around the view.
     if (card.stamp !== liveEpoch && intersects(card.rect, lastRangeRect)) markOrder();
@@ -1616,7 +1618,6 @@ export const createScene = (options: {
     card.size = { width: rect.width, height: rect.height };
     writeOwner(card);
     grid.set(card.slot, insetBy(card.rect, 28));
-    if (card.fact.row.kind === "agent") clusterDirty = true;
     paint(card);
   };
 
