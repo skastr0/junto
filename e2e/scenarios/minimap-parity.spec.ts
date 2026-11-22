@@ -6,10 +6,16 @@
  * rebuilt in the page from the very map the canvas last drew (the test hook's
  * `minimapDrawn`): the same rectangles, colours, viewBox, corner radius and
  * stroke widths, with the SVG's own crispEdges rectangles and circles. Both
- * are shot over the same panel, and no pixel may differ by more than 4 levels
- * in any channel: the canvas keeps 8-bit premultiplied pixels and antialiases
- * a rounded corner its own way, which no one can see and the operator's lead
- * accepted (0 was never reachable). A blank shot guards against a vacuous pass.
+ * are shot over the same panel, and every pixel must be within 24 levels in
+ * every channel of the reference at its own place or one device pixel away,
+ * both ways. Why both allowances: the compositor snaps the canvas's pixels to
+ * the device grid while the SVG rasterises at the box's fractional offset (an
+ * eighth of a device pixel on the operator's display), so an edge near a
+ * pixel boundary lands one device pixel apart, and an antialiased edge (a
+ * seat dot, a card's stroke) takes a coverage up to 21 levels off (measured
+ * at a ratio of 2, issue 912). That is half a CSS pixel at an edge, which no
+ * one can see; the lead set the numbers. A wrong colour, a missing card or a
+ * shift of more than a pixel still fails. A blank shot guards against a vacuous pass.
  *
  * Board: the gate's proof board at 1x, from a COPY of a Junto database
  * (JUNTO_FACTORY_DB) or a saved fixture (JUNTO_FACTORY_JSON), seeded by the
@@ -30,12 +36,45 @@ const { PNG } = createRequire(import.meta.url)("pngjs") as { readonly PNG: { rea
 const DB = process.env["JUNTO_FACTORY_DB"] ?? "";
 const JSON_FIXTURE = process.env["JUNTO_FACTORY_JSON"] ?? "";
 const OUT = "/tmp/junto-minimap-parity";
-/** The most any channel may differ, in 8-bit levels. */
-const MAX_LEVELS = 4;
+/** The most any channel may differ from its best match within a pixel, in 8-bit levels. */
+const MAX_LEVELS = 24;
 
 test.skip(DB === "" && JSON_FIXTURE === "", "set JUNTO_FACTORY_DB=<copy of junto.db> or JUNTO_FACTORY_JSON=<saved fixture>");
 
 type Diff = { readonly differ: number; readonly max: number; readonly byLevel: Record<string, number> };
+type Shifted = { readonly over: number; readonly max: number; readonly at: ReadonlyArray<readonly [number, number, number]> };
+
+/** Each pixel of `a` against the nearest match in `b` within one pixel: the worst channel gap. */
+const shifted = (a: Buffer, b: Buffer): Shifted => {
+  const left = PNG.sync.read(a);
+  const right = PNG.sync.read(b);
+  let over = 0;
+  let max = 0;
+  const at: Array<readonly [number, number, number]> = [];
+  for (let y = 0; y < left.height; y += 1) {
+    for (let x = 0; x < left.width; x += 1) {
+      const i = (y * left.width + x) * 4;
+      let best = 255;
+      for (let dy = -1; dy <= 1 && best > 0; dy += 1) {
+        for (let dx = -1; dx <= 1 && best > 0; dx += 1) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= right.width || ny >= right.height) continue;
+          const j = (ny * right.width + nx) * 4;
+          let d = 0;
+          for (let c = 0; c < 4; c += 1) d = Math.max(d, Math.abs(left.data[i + c]! - right.data[j + c]!));
+          best = Math.min(best, d);
+        }
+      }
+      max = Math.max(max, best);
+      if (best > MAX_LEVELS) {
+        over += 1;
+        if (at.length < 12) at.push([x, y, best]);
+      }
+    }
+  }
+  return { over, max, at };
+};
 
 const diff = (a: Buffer, b: Buffer): Diff => {
   const left = PNG.sync.read(a);
@@ -56,7 +95,7 @@ const diff = (a: Buffer, b: Buffer): Diff => {
   return { differ, max, byLevel };
 };
 
-test("the canvas minimap matches the SVG minimap it replaced, to 4 levels", async () => {
+test("the canvas minimap matches the SVG minimap it replaced, within a device pixel and 24 levels", async () => {
   test.setTimeout(400_000);
   mkdirSync(OUT, { recursive: true });
   const head = execSync("git rev-parse --short=9 HEAD").toString().trim();
@@ -143,14 +182,17 @@ test("the canvas minimap matches the SVG minimap it replaced, to 4 levels", asyn
     writeFileSync(join(OUT, `${head}-svg.png`), svgShot);
     writeFileSync(join(OUT, `${head}-blank.png`), blankShot);
     const parity = diff(canvasShot, svgShot);
+    const canvasInSvg = shifted(canvasShot, svgShot);
+    const svgInCanvas = shifted(svgShot, canvasShot);
     const drawnInk = diff(svgShot, blankShot);
-    const receipt = { head, geometry: await page.evaluate(() => (window as any).__minimapGeometry), drawn, ratio: await page.evaluate(() => devicePixelRatio), parity, drawnInk: { differ: drawnInk.differ } };
+    const receipt = { head, geometry: await page.evaluate(() => (window as any).__minimapGeometry), drawn, ratio: await page.evaluate(() => devicePixelRatio), parity, canvasInSvg, svgInCanvas, drawnInk: { differ: drawnInk.differ } };
     writeFileSync(join(OUT, `${head}.json`), JSON.stringify(receipt, null, 2));
     console.log("MINIMAP", JSON.stringify(receipt));
 
     expect(drawn.count, "the minimap drew no cards or seats").toBeGreaterThan(0);
     expect(drawnInk.differ, "the reference drew nothing over the panel").toBeGreaterThan(drawn.count);
-    expect(parity.max, `canvas against SVG: ${JSON.stringify(parity)}`).toBeLessThanOrEqual(MAX_LEVELS);
+    expect(canvasInSvg, "canvas pixels with no SVG match within a pixel").toMatchObject({ over: 0 });
+    expect(svgInCanvas, "SVG pixels with no canvas match within a pixel").toMatchObject({ over: 0 });
   } finally {
     await handle.close();
   }

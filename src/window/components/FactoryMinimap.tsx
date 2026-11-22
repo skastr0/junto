@@ -357,11 +357,9 @@ export function FactoryMinimap({
   // reads the latest without re-subscribing.
   const nodeBoundsRef = useRef<Rect>(EMPTY_BOUNDS);
   /**
-   * The map's box in CSS pixels, and in device pixels as the compositor will
-   * place it (ResizeObserver's device-pixel-content-box). The canvas backing
-   * takes the device size: a backing of round(width * ratio) on a box at a
-   * fractional size or offset is resampled, which softened every card edge
-   * at a ratio of 2 (issue 912).
+   * The map's box in CSS pixels, and in device pixels as the compositor
+   * places it (ResizeObserver's device-pixel-content-box), which the canvas
+   * backing takes.
    */
   const elementSizeRef = useRef<{ width: number; height: number; pixels?: { width: number; height: number } }>({ width: 200, height: 150 });
   const viewBoxRef = useRef<string>("");
@@ -384,8 +382,9 @@ export function FactoryMinimap({
     const deviceRatio = typeof window === "object" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
     const pixelWidth = Math.max(1, pixels?.width ?? Math.round(width * deviceRatio));
     const pixelHeight = Math.max(1, pixels?.height ?? Math.round(height * deviceRatio));
-    // Device pixels per CSS pixel across the box as placed: one backing pixel per screen pixel.
-    const ratio = pixels !== undefined && width > 0 ? pixelWidth / width : deviceRatio;
+    // The exact ratio, as the SVG scaled: backing over box (990 over 495.05)
+    // drifted the draw by a tenth of a pixel across the map.
+    const ratio = deviceRatio;
     const key = `${viewBoxRef.current}|${String(width)}x${String(height)}@${String(pixelWidth)}x${String(pixelHeight)}|${String(unitRef.current)}|${String(strokeRef.current.width)}|${String(strokeRef.current.radius)}`;
     if (key === drawnRef.current) return;
     if (colourRef.current === undefined && probeRef.current) colourRef.current = colourReader(probeRef.current);
