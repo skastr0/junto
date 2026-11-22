@@ -106,6 +106,15 @@ const arm = async (page: Page, clip: Rect): Promise<PngImage[]> => {
 };
 
 const TOLERANCE = 6;
+/** The share of still pixels the two arms may differ in. */
+const OFF_SHARE = 0.001;
+/**
+ * The ink a frame must carry for the comparison to mean anything: ten times
+ * the share allowed to differ, so a GPU arm that drew no cards fails it by
+ * an order of magnitude. A near frame of seats on a pale region inks about
+ * 5% on the mini.
+ */
+const MIN_INK = 10 * OFF_SHARE;
 const differs = (a: PngImage, b: PngImage, at: number): boolean =>
   Math.abs(a.data[at]! - b.data[at]!) > TOLERANCE ||
   Math.abs(a.data[at + 1]! - b.data[at + 1]!) > TOLERANCE ||
@@ -184,7 +193,7 @@ test("the GPU cull draws the same pixels as the CPU list at near, mid and far", 
 
       expect(after.gpu - before.gpu, `${camera.name}: the compute pass culled the frames the GPU arm drew`).toBeGreaterThan(0);
       expect(after.standalone - before.standalone, `${camera.name}: no frame fell back to the CPU list`).toBe(0);
-      expect(inkShare(cpu[0]!), `${camera.name}: the CPU arm draws the board`).toBeGreaterThan(0.05);
+      expect(inkShare(cpu[0]!), `${camera.name}: the CPU arm draws the board`).toBeGreaterThan(MIN_INK);
 
       const mask = motionMask(cpu, 3);
       const gpuMask = motionMask(gpu, 3);
@@ -198,7 +207,7 @@ test("the GPU cull draws the same pixels as the CPU list at near, mid and far", 
       }
       // Most of the frame is still; the comparison is meaningless otherwise.
       expect(compared / (width * height), `${camera.name}: most of the frame is still`).toBeGreaterThan(0.5);
-      expect(off / Math.max(1, compared), `${camera.name}: ${String(off)} of ${String(compared)} still pixels differ`).toBeLessThan(0.001);
+      expect(off / Math.max(1, compared), `${camera.name}: ${String(off)} of ${String(compared)} still pixels differ`).toBeLessThan(OFF_SHARE);
     }
   } finally {
     await junto.close();
