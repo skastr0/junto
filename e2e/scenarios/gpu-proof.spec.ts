@@ -857,6 +857,20 @@ const placeDomCamera = async (page: Page, target: { x: number; y: number; zoom: 
   await page.waitForTimeout(400);
 };
 
+/** A tiny badge: the largest channel step from its centre to the ground beside it. */
+const badgeContrast = (png: PngImage, clip: ScreenRect, rect: ScreenRect): number => {
+  const scale = png.width / clip.width;
+  const at = (x: number, y: number): [number, number, number] => {
+    const px = Math.max(0, Math.min(png.width - 1, Math.round(x)));
+    const py = Math.max(0, Math.min(png.height - 1, Math.round(y)));
+    const index = (py * png.width + px) * 4;
+    return [png.data[index] ?? 0, png.data[index + 1] ?? 0, png.data[index + 2] ?? 0];
+  };
+  const centre = at((rect.x + rect.width / 2 - clip.x) * scale, (rect.y + rect.height / 2 - clip.y) * scale);
+  const ground = at((rect.x - 4 - clip.x) * scale, (rect.y + rect.height / 2 - clip.y) * scale);
+  return Math.max(Math.abs(centre[0] - ground[0]), Math.abs(centre[1] - ground[1]), Math.abs(centre[2] - ground[2]));
+};
+
 /** A rect minus another: up to four uncovered pieces, empty ones dropped. */
 const subtractRect = (rect: ScreenRect, box: ScreenRect): ScreenRect[] => {
   const left = Math.max(rect.x, box.x);
@@ -1217,11 +1231,11 @@ test.describe("#913 GPU canvas proof", () => {
           const badgeInkless = badges
             .map((badge) => {
               const rect = { x: badge.x - badge.radius, y: badge.y - badge.radius, width: badge.radius * 2, height: badge.radius * 2 };
-              return { key: badge.key, ink: round(partInk(image, viewport, rect), 4), rect };
+              return { key: badge.key, ink: round(partInk(image, viewport, rect), 4), contrast: badgeContrast(image, viewport, rect), rect };
             })
             .filter(
               (badge) =>
-                badge.ink < 0.01 &&
+                (badge.rect.width < 12 ? badge.contrast < 5 : badge.ink < 0.01) &&
                 badge.rect.x >= pane.x &&
                 badge.rect.y >= pane.y &&
                 badge.rect.x + badge.rect.width <= pane.x + pane.width &&
