@@ -230,6 +230,8 @@ export type WireScene = {
   readonly refreshMs: () => number;
   /** The last motion step, ms. */
   readonly stepMs: () => number;
+  /** The last labelsInView rebuild, ms. */
+  readonly labelsMs: () => number;
   /** Wire ids in load order, for a measurement that pulses them. */
   readonly wireIds: () => ReadonlyArray<WireId>;
   /** Start a pulse on the first `count` in-view wires (a measurement). */
@@ -1464,6 +1466,7 @@ export const createWireScene = (host: WireHost): WireScene => {
   };
   let labelsCount = 0;
 
+  let labelsMs = 0;
   const labelsInView: WireScene["labelsInView"] = () => {
     if (
       labelsAt.x === camera.x &&
@@ -1475,6 +1478,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     ) {
       return labelsCache;
     }
+    const labelsStarted = performance.now();
     labelsCount = 0;
     // The label's own point, not the wire's bounds: a long run that crosses
     // the view can put its midpoint far outside it.
@@ -1491,6 +1495,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     labelsCacheView.width = viewSize.width;
     labelsCacheView.height = viewSize.height;
     labelsCacheRevision = labelsRevision;
+    labelsMs = performance.now() - labelsStarted;
     return labelsCache;
   };
 
@@ -1531,6 +1536,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     withFact: () => facts.size,
     refreshMs: () => refreshMs,
     stepMs: () => stepMs,
+    labelsMs: () => labelsMs,
     wireIds: () => [...entries.keys()],
     pulseFirst: (count, at) => {
       let left = count;

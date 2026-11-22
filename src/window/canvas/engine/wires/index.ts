@@ -59,6 +59,8 @@ export type WireStats = {
   readonly refreshMs: number;
   /** The last motion step: the wires' tweens and pulses, ms. */
   readonly stepMs: number;
+  /** The last labelsInView rebuild, ms. */
+  readonly labelsMs: number;
   /** Every strip pool's CPU bytes: what keeping a body and a pill strip costs. */
   readonly poolBytes: number;
   /** Wires the loom has not answered yet, all and in view: drawn as nothing until it does. */
@@ -153,6 +155,7 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
       posed: scene.withFact(),
       refreshMs: scene.refreshMs(),
       stepMs: scene.stepMs(),
+      labelsMs: scene.labelsMs(),
       poolBytes: scene.poolBytes(),
       waiting: scene.waiting(),
     }),
