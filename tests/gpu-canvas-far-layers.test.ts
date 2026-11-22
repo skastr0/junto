@@ -357,3 +357,34 @@ describe("the far pick follows what is drawn (issue 912)", () => {
     expect(pickAt(drawnWorld(scene), { x: 600, y: 600 }).part).toEqual({ kind: "pane" });
   });
 });
+
+describe("badges are built near the view (issue 912)", () => {
+  /** Two gathered groups of three, one at the origin and one 50,000 out. */
+  const board = () => {
+    const scene = createScene({ painter: oneQuad, zoom: () => 0.3 });
+    const out = seats().map((fact) => ({ ...fact, id: `far-${fact.id}`, row: { ...fact.row, id: `far-${fact.id}`, x: fact.row.x + 50_000 } }) as CardFact);
+    const facts = [...seats(), ...out];
+    load(scene, facts);
+    for (const fact of facts) scene.apply({ kind: "seat", id: fact.id, live: work() });
+    return scene;
+  };
+  const members = (scene: ReturnType<typeof createScene>): string[][] => scene.clusters().map((badge) => [...badge.memberIds].sort());
+
+  it("builds only the badge whose disc meets the view, and the other once the view comes to it", () => {
+    const scene = board();
+    scene.prepare(VIEW, "far");
+    expect(members(scene)).toEqual([["a", "b", "c"]]);
+    scene.prepare({ ...VIEW, x: VIEW.x + 50_000 }, "far");
+    // The one built at the origin stays built; the one the view reached is built now.
+    expect(members(scene).sort()).toEqual([["a", "b", "c"], ["far-a", "far-b", "far-c"]]);
+    expect(scene.clusterAt({ x: 50_148, y: 28 })).toEqual(["far-a", "far-b", "far-c"]);
+  });
+
+  it("builds the reached badge on a return from near too", () => {
+    const scene = board();
+    scene.prepare(VIEW, "far");
+    scene.prepare(VIEW, "near");
+    scene.prepare({ ...VIEW, x: VIEW.x + 50_000 }, "far");
+    expect(members(scene)).toEqual([["far-a", "far-b", "far-c"]]);
+  });
+});

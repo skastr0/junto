@@ -246,6 +246,10 @@ const contains = (rect: Rect, at: Point): boolean =>
 const intersects = (a: Rect, b: Rect): boolean =>
   a.x <= b.x + b.width && b.x <= a.x + a.width && a.y <= b.y + b.height && b.y <= a.y + a.height;
 
+/** Whether `inner` lies wholly inside `outer`. */
+const within = (inner: Rect, outer: Rect): boolean =>
+  inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
+
 const insetBy = (rect: Rect, by: number): Rect => ({
   x: rect.x - by,
   y: rect.y - by,
@@ -1259,6 +1263,7 @@ export const createScene = (options: {
       clusterHeld = -1;
       clusterDirty = false;
       clusterPlan = undefined;
+      badgeArea = undefined;
       // Every near and mid frame passes here: a new map only when one is held.
       if (badgeOfSeat.size > 0) badgeOfSeat = new Map();
       badgeDirty.clear();
@@ -1280,13 +1285,34 @@ export const createScene = (options: {
     const zoom = options.zoom?.() ?? 1;
     const screen = { width: view.width * zoom, height: view.height * zoom };
     const held = clusterHeldAt(cache.index, zoom, screen);
-    if (!dirty && held === clusterHeld) {
-      // The plan holds; a member's report repaints only its own badge.
+    if (!dirty && held === clusterHeld && clusterPlan !== undefined) {
+      // The plan holds. A view that left the area its badges were built for
+      // builds the ones it now meets.
+      const plan = clusterPlan;
+      if (badgeArea === undefined || !within(view, badgeArea)) {
+        badgeArea = badgeAreaOf(view, tier, zoom);
+        const area = badgeArea;
+        const input = clusterInput(cache, zoom, screen);
+        const shown = new Set(clustersActive);
+        let added = false;
+        for (const cluster of plan.byKey.values()) {
+          if (!intersects(clusterRect(cluster), area)) continue;
+          const slot = clusterSlots.get(cluster.key);
+          if (slot !== undefined && shown.has(slot)) continue;
+          shown.add(placeCluster(cluster, cache.byId, input));
+          added = true;
+        }
+        if (added) {
+          clustersActive = orderBadges([...shown]);
+          clusterVersion += 1;
+        }
+      }
+      // A member's report repaints only its own badge.
       if (badgeDirty.size > 0) {
         const input = clusterInput(cache, zoom, screen);
         for (const key of badgeDirty) {
           const slot = clusterSlots.get(key);
-          const cluster = clusterPlan?.clusters.find((c) => c.key === key);
+          const cluster = plan.byKey.get(key);
           if (slot === undefined || cluster === undefined || slot.ordered.length === 0) continue;
           const signature = clusterSignature(cluster, cache.byId);
           if (slot.signature === signature) continue;
@@ -1301,60 +1327,94 @@ export const createScene = (options: {
     badgeDirty.clear();
     clusterHeld = held;
     const plan = clustersFor(cache.index, held);
-    clusterPlan = plan;
+    const byKey = new Map<string, SeatCluster>();
     const seatsToBadge = new Map<NodeId, string>();
-    for (const cluster of plan.clusters) for (const id of cluster.members) seatsToBadge.set(id, cluster.key);
+    for (const cluster of plan.clusters) {
+      byKey.set(cluster.key, cluster);
+      for (const id of cluster.members) seatsToBadge.set(id, cluster.key);
+    }
+    clusterPlan = { byKey };
     badgeOfSeat = seatsToBadge;
     const input = clusterInput(cache, zoom, screen);
+    // Only the badges whose disc meets the view and its lookahead are built;
+    // the rest are built when the view comes near them.
+    badgeArea = badgeAreaOf(view, tier, zoom);
+    const area = badgeArea;
     const active: ClusterSlot[] = [];
-    const live = new Set<string>();
     for (const cluster of plan.clusters) {
-      live.add(cluster.key);
-      let slot = clusterSlots.get(cluster.key);
-      if (slot === undefined) {
-        slot = {
-          key: cluster.key,
-          members: cluster.members,
-          owner: allocateOwnerSlot(),
-          rect: clusterRect(cluster),
-          quads: new Map(),
-          ordered: [],
-          signature: "",
-          stamp: -1,
-        };
-        clusterSlots.set(cluster.key, slot);
-        badgeByOwner.set(slot.owner, slot);
-      }
-      const signature = clusterSignature(cluster, cache.byId);
-      if (slot.signature !== signature) {
-        slot.signature = signature;
-        paintClusterSlot(slot, cluster, cache.byId, input);
-        clusterVersion += 1;
-      } else {
-        // The badge holds still; only its owner follows the centroid.
-        slot.members = cluster.members;
-        const rect = clusterRect(cluster);
-        if (!sameRect(slot.rect, rect)) {
-          slot.rect = rect;
-          writeOwnerAt(slot.owner, rect, 0, { opacity: 1, saturate: 1 });
-        }
-      }
-      active.push(slot);
+      const slot = clusterSlots.get(cluster.key);
+      // A badge already built keeps following its plan wherever it is.
+      if ((slot === undefined || slot.ordered.length === 0) && !intersects(clusterRect(cluster), area)) continue;
+      active.push(placeCluster(cluster, cache.byId, input));
     }
     for (const [key, slot] of clusterSlots) {
-      if (live.has(key) || slot.ordered.length === 0) continue;
+      if (byKey.has(key) || slot.ordered.length === 0) continue;
       releaseCluster(slot);
       clusterVersion += 1;
     }
-    // The hovered badge rides above the rest, as the DOM's z says.
-    active.sort((a, b) => (a.key === hoveredCluster ? 1 : 0) - (b.key === hoveredCluster ? 1 : 0) || (a.key < b.key ? -1 : 1));
-    clustersActive = active;
+    clustersActive = orderBadges(active);
     gatheredSeats = plan.gathered;
     return clusterVersion;
   };
 
-  /** The plan the badges were laid out from. */
-  let clusterPlan: { readonly clusters: ReadonlyArray<SeatCluster> } | undefined;
+  /** Build or move one planned badge's slot, painting it when its look changed. */
+  const placeCluster = (
+    cluster: SeatCluster,
+    byId: ReadonlyMap<NodeId, ClusterSeatFact>,
+    input: ReturnType<typeof clusterInput>,
+  ): ClusterSlot => {
+    let slot = clusterSlots.get(cluster.key);
+    if (slot === undefined) {
+      slot = {
+        key: cluster.key,
+        members: cluster.members,
+        owner: allocateOwnerSlot(),
+        rect: clusterRect(cluster),
+        quads: new Map(),
+        ordered: [],
+        signature: "",
+        stamp: -1,
+      };
+      clusterSlots.set(cluster.key, slot);
+      badgeByOwner.set(slot.owner, slot);
+    }
+    const signature = clusterSignature(cluster, byId);
+    if (slot.signature !== signature) {
+      slot.signature = signature;
+      paintClusterSlot(slot, cluster, byId, input);
+      clusterVersion += 1;
+    } else {
+      // The badge holds still; only its owner follows the centroid.
+      slot.members = cluster.members;
+      const rect = clusterRect(cluster);
+      if (!sameRect(slot.rect, rect)) {
+        slot.rect = rect;
+        writeOwnerAt(slot.owner, rect, 0, { opacity: 1, saturate: 1 });
+      }
+    }
+    return slot;
+  };
+
+  /** The hovered badge rides above the rest, as the DOM's z says. */
+  const orderBadges = (active: ClusterSlot[]): ClusterSlot[] =>
+    active.sort((a, b) => (a.key === hoveredCluster ? 1 : 0) - (b.key === hoveredCluster ? 1 : 0) || (a.key < b.key ? -1 : 1));
+
+  /**
+   * The board area whose badges are built: the view grown by the largest
+   * drawn disc's radius at this zoom, so a badge whose disc reaches into the
+   * view is built, and by half the view on every side, so a pan meets built
+   * badges until it has moved half a screen. The half is a design value, as
+   * the loom's view step is (feed/loom.ts).
+   */
+  const badgeAreaOf = (view: Rect, tier: CanvasTier, zoom: number): Rect => {
+    const reach = (CLUSTER.disc / 2) * scaleMultiplier(BADGE_SCALE, tier, zoom) + Math.max(view.width, view.height) / 2;
+    return { x: view.x - reach, y: view.y - reach, width: view.width + reach * 2, height: view.height + reach * 2 };
+  };
+
+  /** The plan the badges were laid out from, by badge key. */
+  let clusterPlan: { readonly byKey: ReadonlyMap<string, SeatCluster> } | undefined;
+  /** The board area the built badges cover; a view outside it builds more. */
+  let badgeArea: Rect | undefined;
 
   const clusterInput = (
     cache: { readonly byId: ReadonlyMap<NodeId, ClusterSeatFact> },
@@ -1479,6 +1539,7 @@ export const createScene = (options: {
     clustersActive = [];
     gatheredSeats = NO_SEATS;
     clusterPlan = undefined;
+    badgeArea = undefined;
     badgeOfSeat = new Map();
     badgeDirty.clear();
     hoveredCluster = null;
