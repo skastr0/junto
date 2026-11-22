@@ -20,8 +20,7 @@ changed. Both only add; no existing row changes.
   changed while the app was closed.
 - At overview, notes, labels, spine cards and plain cards keep their far-zoom
   mark instead of vanishing, as on the DOM canvas.
-- The minimap draws as one canvas, pixel for pixel on Retina displays, instead
-  of an element per card.
+- The minimap draws as one canvas instead of an element per card.
 - At far zoom a click selects the seat drawn under the pointer, faint pixels
   no longer linger after a fade, portraits and badges never flash blank after
   a jump, and wire select targets no longer cover seats past near zoom.
