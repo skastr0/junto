@@ -15,7 +15,7 @@ import type { KindLedger, KindState } from "../../lib/kind-band";
 import type { CardFact, CardPaint, CardView, KindLive, PaintEnv, Quad, QuadStyle, ScaleRule, TextRun } from "../contract";
 import { ALL_TIERS, TIER_BIT } from "../contract";
 import { FAR, FOCUS, KIND_SHELL_RADII, LIFT_PX, SEAT, SEAT_BOX, SEAT_CONTENT_CENTRE_DX, SEAT_RING_CENTRE, SEAT_TEXT } from "./card-spec";
-import { bandSprites, kindIconSprite } from "./images";
+import { bandSprites, kindIconPlaceholder, kindIconSprite } from "./images";
 import { bandMotion, ringQuads } from "./motion";
 import { hoverBloom } from "./hover";
 import { MID_ENQUEUE, midNameRun, midSeatLayout, midShellStyle } from "./mid";
@@ -197,7 +197,7 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
       ),
     );
   });
-  quads.push(sprite({ key: "icon", z: 20, rect: iconRect }, { scale: ringScale, tiers: baseTiers, sprite: kindIconSprite(kind, view.mode, SEAT.portrait), shape: "disc" }));
+  quads.push(sprite({ key: "icon", z: 20, rect: iconRect }, { scale: ringScale, tiers: baseTiers, sprite: kindIconSprite(kind, view.mode, SEAT.portrait), placeholder: kindIconPlaceholder(kind, view.mode), shape: "disc" }));
   quads.push(...rings.over.map((q) => ({ ...q, tiers: baseTiers })));
 
   // --- text: near name, line, strip; mid the name alone, centred on the ring ----

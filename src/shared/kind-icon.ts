@@ -129,6 +129,9 @@ const cache = new Map<string, string>();
 /** The kinds that have an icon, in the order the kit shows them. */
 export const KIND_ICON_KINDS: readonly KindIconKind[] = ["task", "artifacts", "automations", "files", "page", "terminal", "git", "file", "link", "note"];
 
+/** The icon's round tile colour: what it shows while its raster is cold. */
+export const kindIconTileTone = (kind: KindIconKind, mode: ThemeMode): string => palette(KIND_ICON_LOOK[kind], mode).tile;
+
 /** A kind's icon as an SVG string: round tile, halo, the icon on top. */
 export function kindIconSvg(kind: KindIconKind, mode: ThemeMode, size: number): string {
   return decodeURIComponent(kindIconSrc(kind, mode, size).slice("data:image/svg+xml,".length));

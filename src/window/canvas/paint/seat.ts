@@ -13,7 +13,7 @@ import { ALL_TIERS, TIER_BIT } from "../contract";
 import { BADGE, CREST, FAR, FLAG_HIT, FOCUS, LIFT_PX, SEAT, SEAT_BOX, SEAT_RING_CENTRE, SEAT_TEXT } from "./card-spec";
 import { dimOf, reachQuads } from "./overlays";
 import { bubbleQuads } from "./bubble";
-import { harnessSprite, portraitSprite } from "./images";
+import { harnessSprite, portraitPlaceholder, portraitSprite } from "./images";
 import { ringQuads } from "./motion";
 import { hoverBloom } from "./hover";
 import { midNameRun, midSeatLayout, midShellStyle } from "./mid";
@@ -146,7 +146,7 @@ export const paintSeat = (fact: CardFact, live: SeatLive | undefined, view: Card
     quads.push(
       sprite(
         { key: "portrait", z: 20, rect: portraitRect },
-        { scale: ringScale, tiers: baseTiers, sprite: portraitSprite(p.seed, view.mode, SEAT.portrait, p.expression, p.config), shape: "disc" },
+        { scale: ringScale, tiers: baseTiers, sprite: portraitSprite(p.seed, view.mode, SEAT.portrait, p.expression, p.config), placeholder: portraitPlaceholder(p.seed, view.mode, p.config), shape: "disc" },
       ),
     );
     quads.push(...rings.over.map((q) => ({ ...q, tiers: baseTiers })));

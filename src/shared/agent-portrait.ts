@@ -570,6 +570,10 @@ export interface PortraitRequest {
 }
 
 /** Build the portrait SVG document for a seed. Pure; callers cache by key. */
+/** The round frame's tile colour: what a portrait shows while its raster is cold. */
+export const portraitTileTone = (seed: string, mode: ThemeMode, config?: PortraitConfig): string =>
+  paletteFor(portraitCharacter(seed, config), mode).tile;
+
 export function portraitSvg({ seed, mode, detail, frame: shape = "tile", config, face }: PortraitRequest): string {
   const genome = portraitCharacter(seed, config);
   const eyes = face && face.eyes !== "base" ? face.eyes : genome.eyes;

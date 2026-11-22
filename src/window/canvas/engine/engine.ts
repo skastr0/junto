@@ -21,6 +21,7 @@ import { farSeatScale, hoverCardScale, nodeScale, seatFloorScale, tierForZoom, t
 import { SEAT_CONTENT_CENTRE_DX, SEAT_RING_CENTRE } from "@shared/node-geometry";
 import type {
   Camera,
+  MotionPeaks,
   CameraMoveOptions,
   CameraTarget,
   CanvasInput,
@@ -133,6 +134,11 @@ export interface EngineHost {
     hasImage(cell: number): boolean;
     ensureNow(cell: number): unknown;
     recordVisibleBlank?(count: number): void;
+  };
+  /** Where the measured camera and raster peaks are kept between sessions. */
+  readonly peaks?: {
+    load(): MotionPeaks | undefined;
+    save(peaks: MotionPeaks): void;
   };
   /**
    * The app's surface motion gate (hidden window, reduced motion). A ring's
@@ -252,6 +258,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     settled: () => settled,
     // The frame clock, for the margin measured from camera speed and raster latency.
     now: () => clock(),
+    ...(() => {
+      const kept = host.peaks?.load();
+      return kept === undefined ? {} : { peaks: kept };
+    })(),
     // The atlas keys a raster by device pixels per board unit, and a quad's
     // scale rule multiplies it (a far ring is drawn larger than the camera).
     scale: () => size.pixelRatio * camera.zoom,
@@ -415,6 +425,17 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     for (const listener of [...intentListeners]) listener(intent);
   };
 
+  let savedPeaks = "";
+  /** Keep the measured peaks when they move; a fresh boot starts from them. */
+  const keepPeaks = (): void => {
+    if (host.peaks === undefined) return;
+    const peaks = scene.motionPeaks();
+    const key = `${String(peaks.screenSpeed)}|${String(peaks.zoomRate)}|${String(peaks.latencyMs)}`;
+    if (key === savedPeaks) return;
+    savedPeaks = key;
+    host.peaks.save(peaks);
+  };
+
   const schedule = (): void => {
     if (disposed || !visible || pending !== undefined) return;
     if (keeper.state().kind !== "ready") return;
@@ -499,8 +520,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
 
     // 3: the visible set and the order list (culling by whole cards).
     const prepared = scene.prepare(viewRect(camera, size), tier);
+    const blank = scene.blankStats();
+    keepPeaks();
     // The atlas's visibleBlank counter reads what this presented frame drew.
-    host.cells?.recordVisibleBlank?.(scene.blankStats().visibleBlank);
+    host.cells?.recordVisibleBlank?.(blank.visibleBlank);
     const wall = wallNow();
     // The shader's clock is page-relative: `Date.now()` in a float32 uniform
     // quantizes to about two minutes, freezing every fade and every phase.
@@ -717,6 +740,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     boardToScreen: (board) => toScreen(camera, board),
     pick,
     rectOf: (id) => scene.rectOf(id),
+    surfaceOf: (id) => scene.surfaceOf(id),
     anchor: (id) => {
       anchored.add(id);
       invalidate();
@@ -749,6 +773,14 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       lastUploadRanges: lastRanges,
       lastFrameMs,
       rasterQueue: 0,
+      blank: (({ visibleBlank, placeholders, ensuredNow, marginScreenPx, tierWindowOctaves }) => ({
+        visibleBlank,
+        placeholders,
+        ensuredNow,
+        marginScreenPx,
+        tierWindowOctaves,
+      }))(scene.blankStats()),
+      bufferFailures: renderer.bufferFailures,
     }),
     dispose: () => {
       if (disposed) return;

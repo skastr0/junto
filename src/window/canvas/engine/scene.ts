@@ -39,6 +39,7 @@ import type {
   HandleSide,
   DrawnCluster,
   DrawnPart,
+  MotionPeaks,
   Hit,
   NodeId,
   PaintEnv,
@@ -46,6 +47,7 @@ import type {
   Point,
   Quad,
   QuadMotion,
+  QuadStyle,
   ReachMark,
   Rect,
   SceneOp,
@@ -172,6 +174,13 @@ type CardSlot = {
   role: Role;
   /** Its place in paint order (z, then id), from the sorted master list. */
   rank: number;
+  /**
+   * The filled body the card draws at the mid tier, card-local: the seat pill
+   * that hugs its name (paint/mid.ts), narrower than the card's own box. Kept
+   * across repaints and a hover bloom, since the bloom is a paint effect and
+   * the wire's seat is still the pill.
+   */
+  midBody?: Rect;
 };
 
 /** A cluster badge's slot: an owner entry and quads of its own, with no card. */
@@ -337,6 +346,8 @@ export const createScene = (options: {
   readonly ensureNow?: (cell: number) => void;
   /** The frame clock in ms, for the measured margin (camera speed, raster latency). */
   readonly now?: () => number;
+  /** Peaks measured in an earlier session: the margin and tier window start from them. */
+  readonly peaks?: MotionPeaks;
   /** Device pixels per board unit, at the camera right now. */
   readonly scale?: () => number;
   /** The camera zoom, for the multiplier a quad's scale rule adds. */
@@ -520,6 +531,8 @@ export const createScene = (options: {
   /** Take (or keep) the cell for `ref` at `scale`, handing the atlas the one held. */
   const holdCell = (ref: QuadRef, scale: number): void => {
     const slot = ref.slot;
+    // A repaint hands a new ref: a placeholder restores from the current one.
+    if (placeholding.has(slot)) placeholding.set(slot, ref);
     const at = slot * QUAD_FLOATS + SOURCE_WORD;
     const previous = quads.u32[at]!;
     const next = acquireCell(ref.painted, scale, previous);
@@ -534,9 +547,11 @@ export const createScene = (options: {
     if (pending) {
       blankCandidates.set(slot, ref);
       if (next !== NO_ATLAS_CELL && (next !== previous || !waitingSince.has(slot))) waitingSince.set(slot, nowMs());
+      if (ref.painted.sprite !== undefined) holdPlaceholder(ref);
     } else {
       blankCandidates.delete(slot);
       waitingSince.delete(slot);
+      unholdPlaceholder(slot);
     }
   };
 
@@ -550,7 +565,61 @@ export const createScene = (options: {
     dirtyQuads.add(slot);
     blankCandidates.delete(slot);
     waitingSince.delete(slot);
+    unholdPlaceholder(slot);
   };
+
+  // --- placeholders: a cold sprite draws its declared shape, never nothing ----
+  //
+  // While a sprite's cell has no image, its record draws as a shape filled
+  // with the quad's `placeholder` colour at full opacity: the record's kind
+  // and style words are swapped, its shape, rect and scale rule kept. The
+  // landing swaps them back. Only records waiting on an image are touched.
+
+  const KIND_WORD = 14;
+  const STYLE_WORD = 27;
+  const placeholderStyle = new Map<string, number>();
+  const placeholding = new Map<number, QuadRef>();
+
+  const styleIdOf = (style: QuadStyle): number => {
+    const id = styles.intern(style);
+    if (styles.size !== knownStyles) {
+      knownStyles = styles.size;
+      styleRevision += 1;
+    }
+    return id;
+  };
+
+  const holdPlaceholder = (ref: QuadRef): void => {
+    const colour = ref.painted.placeholder;
+    if (colour === undefined) return;
+    const key = JSON.stringify(colour);
+    let style = placeholderStyle.get(key);
+    if (style === undefined) {
+      style = styleIdOf({ fill: { kind: "flat", color: colour } });
+      placeholderStyle.set(key, style);
+    }
+    const at = ref.slot * QUAD_FLOATS;
+    placeholding.set(ref.slot, ref);
+    // Idempotent: a repaint rewrites the record, so this runs on every hold.
+    if (quads.u32[at + KIND_WORD] === KIND_OF.shape && quads.u32[at + STYLE_WORD] === style) return;
+    quads.u32[at + KIND_WORD] = KIND_OF.shape;
+    quads.u32[at + STYLE_WORD] = style;
+    // No style transition into or out of a placeholder: it is the thing itself.
+    quads.u32[at + STYLE_WORD + 1] = style;
+    dirtyQuads.add(ref.slot);
+  };
+
+  function unholdPlaceholder(slot: number): void {
+    const ref = placeholding.get(slot);
+    if (ref === undefined) return;
+    placeholding.delete(slot);
+    const at = slot * QUAD_FLOATS;
+    const style = styleIdOf(ref.painted.style);
+    quads.u32[at + KIND_WORD] = KIND_OF[ref.painted.kind];
+    quads.u32[at + STYLE_WORD] = style;
+    quads.u32[at + STYLE_WORD + 1] = style;
+    dirtyQuads.add(slot);
+  }
 
   const ensureOwnerCapacity = (needed: number): void => {
     if (needed <= ownerCapacity) return;
@@ -794,6 +863,8 @@ export const createScene = (options: {
       return halo === undefined ? [quad] : [halo, quad];
     });
     const sorted = painted.sort(compareQuad);
+    const midShell = sorted.find((quad) => quad.key === "shell.mid");
+    if (midShell !== undefined) card.midBody = midShell.rect;
     const keys = new Set(sorted.map((quad) => quad.key));
     const held = quadSlotsOf.get(card.slot) ?? new Set<number>();
     for (const key of card.quads.keys()) {
@@ -1258,6 +1329,7 @@ export const createScene = (options: {
     rankDirty = true;
     blankCandidates.clear();
     waitingSince.clear();
+    placeholding.clear();
     for (const slot of clusterSlots.values()) releaseCluster(slot);
     clusterSlots.clear();
     badgeByOwner.clear();
@@ -1476,6 +1548,21 @@ export const createScene = (options: {
   const cardOf = (id: NodeId): CardFact | undefined => byId.get(id)?.fact;
 
   /**
+   * The visible body a card draws at this tier, in board units, when that body
+   * is narrower than the card's own box: the mid tier's name-hugging seat
+   * pill. Undefined at every other tier and for cards that draw their whole
+   * box, where a wire's end is already on the card. The wire layer attaches to
+   * this body so a wire never stops short of the seat the operator can see.
+   */
+  const surfaceOf = (id: NodeId): Rect | undefined => {
+    if (currentTier !== "mid") return undefined;
+    const card = byId.get(id);
+    const body = card?.midBody;
+    if (card === undefined || body === undefined) return undefined;
+    return { x: card.rect.x + body.x, y: card.rect.y + body.y, width: body.width, height: body.height };
+  };
+
+  /**
    * The turning ring's angle as the DOM's rotate() shows it at `wall`. The
    * ring's own spin answers first: a card can carry another turning quad (a
    * band's chase, a cluster ring), and those have their own periods, so
@@ -1523,6 +1610,8 @@ export const createScene = (options: {
   let jumpDirty = false;
   /** In-view quads drawn with no image on the last presented frame (zero is the bar). */
   let visibleBlank = 0;
+  /** In-view sprites drawing their placeholder on the last presented frame. */
+  let visiblePlaceholders = 0;
   /** Cells rasterized in the frame because an in-view quad had no image. */
   let ensuredNow = 0;
 
@@ -1535,9 +1624,10 @@ export const createScene = (options: {
   // before anything has moved or landed both are zero, and the frame's own
   // blank check (ensureNow) covers the first reveal.
 
-  let peakScreenSpeed = 0;
-  let peakZoomRate = 0;
-  let peakLatency = 0;
+  const finite = (value: number | undefined): number => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
+  let peakScreenSpeed = finite(options.peaks?.screenSpeed);
+  let peakZoomRate = finite(options.peaks?.zoomRate);
+  let peakLatency = finite(options.peaks?.latencyMs);
   let lastMotion: { readonly cx: number; readonly cy: number; readonly zoom: number; readonly at: number; readonly width: number; readonly height: number } | undefined;
   /** When each record without an image took its cell, so a landing is a latency sample. */
   const waitingSince = new Map<number, number>();
@@ -1784,6 +1874,7 @@ export const createScene = (options: {
   /** A record's cell got its image: the wait is a raster latency sample. */
   const landed = (slot: number, at: number): void => {
     blankCandidates.delete(slot);
+    unholdPlaceholder(slot);
     const since = waitingSince.get(slot);
     waitingSince.delete(slot);
     if (since !== undefined && at - since > peakLatency) peakLatency = at - since;
@@ -1791,6 +1882,7 @@ export const createScene = (options: {
 
   const checkBlank = (view: Rect, at: number): void => {
     let blank = 0;
+    let held = 0;
     for (const [slot, ref] of blankCandidates) {
       const cell = cellOf(slot);
       if (cell === NO_ATLAS_CELL && options.acquire !== undefined) {
@@ -1814,12 +1906,19 @@ export const createScene = (options: {
           // Rasterized in the frame: not a latency the margin should carry.
           blankCandidates.delete(slot);
           waitingSince.delete(slot);
+          unholdPlaceholder(slot);
           continue;
         }
+      }
+      // A cold sprite with a placeholder draws its shape: not empty, but counted.
+      if (placeholding.has(slot)) {
+        held += 1;
+        continue;
       }
       blank += 1;
     }
     visibleBlank = blank;
+    visiblePlaceholders = held;
   };
 
   /** The record is in the draw list and its owner meets the view. */
@@ -2065,6 +2164,7 @@ export const createScene = (options: {
     query,
     rectOf,
     cardOf,
+    surfaceOf,
     ringAngle,
     /** The members of the badge under a board point, if any (the pointer's cluster hit). */
     clusterAt: (at: Point) => clusterSlotAt(at)?.members,
@@ -2073,9 +2173,12 @@ export const createScene = (options: {
     partsOf,
     badgePartsOf,
     clusters,
+    /** The peaks measured so far, to keep for the next session. */
+    motionPeaks: (): MotionPeaks => ({ screenSpeed: peakScreenSpeed, zoomRate: peakZoomRate, latencyMs: peakLatency }),
     /** In-view quads with no image on the last presented frame, and cells rasterized in the frame to prevent one. */
     blankStats: (): {
       readonly visibleBlank: number;
+      readonly placeholders: number;
       readonly ensuredNow: number;
       readonly marginScreenPx: number;
       readonly tierWindowOctaves: number;
@@ -2084,6 +2187,7 @@ export const createScene = (options: {
       readonly peakLatencyMs: number;
     } => ({
       visibleBlank,
+      placeholders: visiblePlaceholders,
       ensuredNow,
       marginScreenPx: marginScreenPx(),
       tierWindowOctaves: tierWindowOctaves(),

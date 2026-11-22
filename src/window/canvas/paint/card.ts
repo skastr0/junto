@@ -54,7 +54,7 @@ export const paintDefaultCard = (fact: CardFact, view: CardView, env: PaintEnv):
     quads.push(
       sprite(
         { key: "image", z: 10, rect: at(PAD.border + PAD.x, PAD.border + PAD.y, w - 2 * (PAD.border + PAD.x), h - 2 * (PAD.border + PAD.y)) },
-        { tiers: NEAR_MID, radii: 2, sprite: { atlas: "media", ref: row.path, fit: "contain" }, part: { kind: "image" } },
+        { tiers: NEAR_MID, radii: 2, sprite: { atlas: "media", ref: row.path, fit: "contain" }, placeholder: tok("inset"), part: { kind: "image" } },
       ),
     );
   }

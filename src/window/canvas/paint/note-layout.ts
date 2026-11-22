@@ -329,7 +329,7 @@ export const layoutNote = (source: string, width: number, origin: { readonly x: 
             const rect: Rect = at(0, y0, width, boxH);
             local.push(
               shape({ key: `${k}.frame`, z: 9, rect }, { fill: { kind: "flat", color: tok("inset") }, stroke: { color: tok("stroke", 0.8), width: 1 } }, { tiers, radii: 3 }),
-              sprite({ key: `${k}.image`, z: 10, rect }, { tiers, radii: 3, sprite: { atlas: "media", ref: block.src, fit: "contain" }, part: { kind: "image" } }),
+              sprite({ key: `${k}.image`, z: 10, rect }, { tiers, radii: 3, sprite: { atlas: "media", ref: block.src, fit: "contain" }, placeholder: tok("inset"), part: { kind: "image" } }),
             );
             let hh = boxH;
             if (block.alt !== "") {

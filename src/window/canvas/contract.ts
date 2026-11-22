@@ -508,6 +508,12 @@ export type Quad = {
   readonly flip?: boolean;
   readonly radii?: Radii;
   readonly sprite?: SpriteRef;
+  /**
+   * Drawn in the sprite's place, its own shape filled at full opacity, while
+   * its atlas cell has no image yet (a cold file): the portrait disc in its
+   * tone, the media box. Nothing on screen is ever empty.
+   */
+  readonly placeholder?: ColorRef;
   readonly text?: TextRun;
   /**
    * A shadow's element inset in board units: the quad is grown past the
@@ -730,6 +736,30 @@ export type EngineStats = {
   readonly lastFrameMs: number;
   /** Text and image rasters waiting for budget. */
   readonly rasterQueue: number;
+  /** The scene's blank guarantee and measured margin, as of the last frame. */
+  readonly blank?: {
+    readonly visibleBlank: number;
+    /** In-view sprites drawing their placeholder while their image is cold. */
+    readonly placeholders: number;
+    readonly ensuredNow: number;
+    readonly marginScreenPx: number;
+    readonly tierWindowOctaves: number;
+  };
+  /** GPU buffers the device could not give (limit, validation or out of memory). */
+  readonly bufferFailures?: ReadonlyArray<{ readonly buffer: string; readonly bytes: number; readonly limit?: number; readonly reason: string }>;
+};
+
+/**
+ * The camera and raster peaks the scene measured (`blankStats`), kept across
+ * sessions so a fresh boot starts at the last measured margin and tier window.
+ */
+export type MotionPeaks = {
+  /** Screen px per ms. */
+  readonly screenSpeed: number;
+  /** Octaves per ms. */
+  readonly zoomRate: number;
+  /** Acquire to image, ms. */
+  readonly latencyMs: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -758,6 +788,12 @@ export interface Engine {
   readonly boardToScreen: (board: Point) => Point;
   readonly pick: (screen: Point) => Hit | null;
   readonly rectOf: (id: NodeId) => Rect | undefined;
+  /**
+   * The filled body a card actually draws at this tier when it is narrower
+   * than its card (the mid tier's name-hugging seat pill), in board units.
+   * Absent when the card draws its whole box, so a wire's end is already on it.
+   */
+  readonly surfaceOf?: (id: NodeId) => Rect | undefined;
   /** Ask for a card's screen rectangle in every frame's facts. */
   readonly anchor: (id: NodeId) => () => void;
   readonly onIntent: (listener: (intent: Intent) => void) => () => void;

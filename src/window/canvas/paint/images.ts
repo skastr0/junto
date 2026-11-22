@@ -5,13 +5,13 @@
  * (architecture section 9); each key names content and nothing else.
  */
 
-import { portraitConfigKey, portraitDetailFor, portraitSvg, type PortraitConfig } from "@shared/agent-portrait";
-import { kindIconSvg, type KindIconKind } from "@shared/kind-icon";
+import { portraitConfigKey, portraitDetailFor, portraitSvg, portraitTileTone, type PortraitConfig } from "@shared/agent-portrait";
+import { kindIconSvg, kindIconTileTone, type KindIconKind } from "@shared/kind-icon";
 import { EXPRESSION_FACES, type PortraitExpression } from "@shared/portrait-expression";
 import type { ThemeMode } from "@shared/theme";
 import { bandBackground, bandSvg, kindBandLayers, BAND_BOX, type BandLayer, type KindLedger, type KindState } from "../../lib/kind-band";
 import { markTileFor } from "../../lib/harness-icons";
-import type { SpriteRef } from "../contract";
+import type { ColorRef, SpriteRef } from "../contract";
 
 /**
  * O(1) LRU cache sized from reported device memory (UTF-16 string bytes):
@@ -76,6 +76,12 @@ export const portraitSprite = (
   const svg = lruGet(portraits, key, () => portraitSvg({ seed, mode, detail, frame: "round", config, face: EXPRESSION_FACES[expression] }));
   return { atlas: "image", key, svg, size: { width: px, height: px } };
 };
+
+/** A portrait's tone, drawn as its disc while the raster is cold (ruling 6). */
+export const portraitPlaceholder = (seed: string, mode: ThemeMode, config?: PortraitConfig): ColorRef => ({ custom: portraitTileTone(seed, mode, config) });
+
+/** A kind icon's tone, drawn as its disc while the raster is cold. */
+export const kindIconPlaceholder = (kind: KindIconKind, mode: ThemeMode): ColorRef => ({ custom: kindIconTileTone(kind, mode) });
 
 const icons = createLru<string>();
 

@@ -26,7 +26,7 @@ import {
   type SeatCluster,
 } from "../../lib/seat-clusters";
 import { SEAT } from "./card-spec";
-import { portraitSprite } from "./images";
+import { portraitPlaceholder, portraitSprite } from "./images";
 import { ringQuads } from "./motion";
 import { at, shadow, shape, sprite, text, tok } from "./refs";
 import type { ThemeMode } from "@shared/theme";
@@ -156,7 +156,7 @@ export const paintClusterBadge = (cluster: SeatCluster, byId: ReadonlyMap<string
     ...rings.under.map((q) => ({ ...q, band: "lifted" as const, tiers: FAR_UP })),
     sprite(
       { key: `${p}portrait`, z: z + 2, rect: at(centre.x - SEAT.portrait / 2, centre.y - SEAT.portrait / 2, SEAT.portrait, SEAT.portrait) },
-      { ...base, shape: "disc", sprite: portraitSprite(portrait.seed, input.mode, SEAT.portrait, portrait.expression, portrait.config) },
+      { ...base, shape: "disc", sprite: portraitSprite(portrait.seed, input.mode, SEAT.portrait, portrait.expression, portrait.config), placeholder: portraitPlaceholder(portrait.seed, input.mode, portrait.config) },
     ),
     ...rings.over.map((q) => ({ ...q, band: "lifted" as const, tiers: FAR_UP })),
     shape({ key: `${p}count`, z: z + 6, rect: badge }, { fill: { kind: "flat", color: tok("ink") } }, { ...base, radii: CLUSTER.count.height / 2 }),
