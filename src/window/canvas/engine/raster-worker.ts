@@ -1,5 +1,5 @@
 /**
- * OffscreenCanvas raster worker (#911): rasterizes text runs (with true-ink
+ * OffscreenCanvas raster worker (issue 911): rasterizes text runs (with true-ink
  * coverage and halo blur) and lucide glyphs off the main thread, transferring
  * the resulting ImageBitmap back with zero copy so background/prefetch rasters
  * never stall a frame. `ensureNow()` stays on the main thread as last resort.

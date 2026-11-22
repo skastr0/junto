@@ -21,7 +21,7 @@ import { canvasZoomRequest$ } from "../../lib/canvas-zoom";
 import { createEngine, type SeamEngine, type WireLayer } from "../engine/engine";
 import { measureRun } from "../engine/text";
 import { createWireLayer, type WiresLayer } from "../engine/wires";
-import type { Camera, MotionPeaks, Rect, TextRun } from "../contract";
+import type { Camera, Rect, TextRun } from "../contract";
 import { takeCamera, leaveCamera } from "./camera-handoff";
 import { pageDeviceKeeper } from "./gpu-device";
 import { onGpuAtlasDirty, pageGpuAtlas } from "./gpu-atlas-page";
@@ -51,9 +51,6 @@ import { viewportForBounds } from "./camera-targets";
 import { paintCard } from "../paint";
 import { isMac } from "../../lib/platform";
 import { WindowRuntimeContext } from "../../rpc/runtime";
-
-/** Where the scene's measured camera and raster peaks are kept between sessions. */
-const MOTION_PEAKS_KEY = "junto.canvas.motionPeaks";
 
 type Props = {
   /** Heard once if this machine cannot run the GPU canvas, with the reason. */
@@ -153,27 +150,11 @@ export function GpuCanvas({ onUnavailable }: Props) {
       atlas: atlas.binding,
       sourceOf: (quad, scale) => atlas.sourceFor(quad, scale),
       atlasRevision: () => atlas.revision(),
-      // Records hold the cells they draw (#912): the scene takes, lets go and
+      // Records hold the cells they draw (issue 912): the scene takes, lets go and
       // rasterizes an in-view cell with no image before the frame is submitted.
       cells: atlas,
-      // The measured margin and tier window carry over to the next boot.
-      peaks: {
-        load: () => {
-          try {
-            const raw = window.localStorage.getItem(MOTION_PEAKS_KEY);
-            return raw === null ? undefined : (JSON.parse(raw) as MotionPeaks);
-          } catch {
-            return undefined;
-          }
-        },
-        save: (peaks) => {
-          try {
-            window.localStorage.setItem(MOTION_PEAKS_KEY, JSON.stringify(peaks));
-          } catch {
-            // Storage refused (private window, quota): this session still measures.
-          }
-        },
-      },
+      // The margin and tier window are measured afresh each session (scene.ts):
+      // the window keeps no state between sessions.
       // A paused surface shows a ring's rest pose; hidden or reduced motion
       // stops its parts (surface-motion.ts). The canvas reads the same gate
       // the DOM rings do, and repaints when it flips.

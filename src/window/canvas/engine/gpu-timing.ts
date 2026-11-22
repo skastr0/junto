@@ -1,5 +1,5 @@
 /**
- * GPU pass times (#912): when the device has `timestamp-query`, the frame's
+ * GPU pass times (issue 912): when the device has `timestamp-query`, the frame's
  * render pass writes a timestamp at its start and end, the pair is resolved
  * and copied to a mappable buffer, and the duration is read back when the
  * GPU is done. Readback buffers are pooled: a frame whose every buffer is

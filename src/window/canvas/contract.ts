@@ -768,7 +768,7 @@ export type EngineStats = {
   /** Every frame's CPU time summed. */
   readonly frameMsTotal?: number;
   /**
-   * Device pixels shaded (#915 damage): the last frame's, and running sums of
+   * Device pixels shaded (issue 915 damage): the last frame's, and running sums of
    * shaded and screen pixels, so a window's share is a difference of each.
    */
   readonly damage?: { readonly lastPixels: number; readonly drawnPixelsTotal: number; readonly screenPixelsTotal: number };

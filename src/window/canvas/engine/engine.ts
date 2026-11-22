@@ -131,7 +131,7 @@ export interface EngineHost {
   /** The atlas's cell-table revision; a change re-uploads the UV table. */
   readonly atlasRevision?: () => number;
   /**
-   * The atlas's referenced cells (#911/#912): records take and let go of
+   * The atlas's referenced cells (issue 911/issue 912): records take and let go of
    * cells, and the scene rasterizes an in-view cell with no image before the
    * frame is submitted. Wins over `sourceOf`.
    */
@@ -499,7 +499,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     if (state.kind !== "ready") return;
     const start = clock();
     if (configuredGeneration !== state.generation) {
-      // The canvas takes the kept frame by copy (damage, #915): RENDER_ATTACHMENT | COPY_DST.
+      // The canvas takes the kept frame by copy (damage, issue 915): RENDER_ATTACHMENT | COPY_DST.
       context.configure({ device: state.device, format: state.format, alphaMode: "opaque", usage: TEXTURE_USAGE.RENDER_ATTACHMENT | TEXTURE_USAGE.COPY_DST });
       kept?.texture.destroy();
       kept = undefined;
@@ -588,7 +588,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     const encoder = device.createCommandEncoder();
     renderer.cull(encoder, () => timer?.computeWrites());
     const canvasTexture = context.getCurrentTexture();
-    // Damage (#915): the frame is drawn into a kept texture and copied to the
+    // Damage (issue 915): the frame is drawn into a kept texture and copied to the
     // canvas, so a frame that only motion drives redraws the pixels its
     // in-view movers reach and keeps the rest. Anything else (a camera move,
     // an op, an upload, a landed cell, a wire change, a style fade) draws whole.

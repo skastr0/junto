@@ -1,5 +1,5 @@
 /**
- * Damage (#915): a frame that only motion drives redraws the device pixels
+ * Damage (issue 915): a frame that only motion drives redraws the device pixels
  * its in-view movers can reach, not the whole screen. The engine keeps the
  * last frame in a texture of its own, draws the damaged rectangles into it
  * with `loadOp: "load"` and a scissor each, and copies it to the canvas.

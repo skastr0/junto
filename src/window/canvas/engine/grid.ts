@@ -43,7 +43,7 @@ export class RectGrid {
   /**
    * The cells any rectangle has ever covered, since the last clear: a query
    * walks no cell outside them, so a huge rectangle costs the board, not the
-   * rectangle (#915). It only grows; a removal leaves it as an upper bound.
+   * rectangle (issue 915). It only grows; a removal leaves it as an upper bound.
    */
   private span = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
 

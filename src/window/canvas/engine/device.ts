@@ -64,7 +64,7 @@ const machineLimits = (adapter: GPUAdapter): GPUDeviceDescriptor => {
     const value = reported[name];
     if (typeof value === "number" && Number.isFinite(value) && value > 0) requiredLimits[name] = value;
   }
-  // GPU pass times (#912): asked for only when the adapter offers it.
+  // GPU pass times (issue 912): asked for only when the adapter offers it.
   const timestamps = adapter.features?.has("timestamp-query") === true;
   return timestamps ? { requiredLimits, requiredFeatures: ["timestamp-query"] } : { requiredLimits };
 };

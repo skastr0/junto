@@ -1,5 +1,5 @@
 /**
- * The scene's current state as ops (#912): what a late subscriber (the
+ * The scene's current state as ops (issue 912): what a late subscriber (the
  * magnifier's lens) is seeded from instead of a capped replay buffer. Every
  * op folds into the state it leaves behind, so the snapshot is the size of
  * the board, never of its history, and a lens attached at any time, or

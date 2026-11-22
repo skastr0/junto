@@ -45,7 +45,7 @@ const TRANSITION_MS = ${DURATION.state.toFixed(1)};
 
 ${QUAD_STRUCTS}// Everything a quad's pixels share is worked out once per vertex and handed
 // down flat; only the local position and the gradient parameters (affine in
-// it, so exact under interpolation) vary across the quad (#915).
+// it, so exact under interpolation) vary across the quad (issue 915).
 struct VSOut {
   @builtin(position) pos: vec4f,
   @location(0) local: vec2f,
@@ -83,7 +83,7 @@ struct AtlasCell {
 @group(0) @binding(7) var<storage, read> styles: array<f32>;
 @group(0) @binding(8) var<storage, read> shadowMeta: array<vec4u>;
 @group(0) @binding(9) var<storage, read> shadowLayers: array<vec4f>;
-// Text coverage, one channel (r8unorm pages, #911). u.misc.z is 1 when the
+// Text coverage, one channel (r8unorm pages, issue 911). u.misc.z is 1 when the
 // atlas splits it out; otherwise text sits in the rgba pages' alpha.
 @group(0) @binding(10) var coverageAtlas: texture_2d_array<f32>;
 
@@ -242,7 +242,7 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
   }
 
   // The cell, and its mip level: its texels over the device pixels it
-  // covers, so a sprite drawn smaller than its raster reads the mips (#911).
+  // covers, so a sprite drawn smaller than its raster reads the mips (issue 911).
   // A per-instance branch is not uniform control flow, where textureSample
   // and derivatives are not allowed, so the level is worked out here.
   var lod = 0.0;

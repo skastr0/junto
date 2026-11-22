@@ -177,7 +177,7 @@ type CardSlot = {
   /**
    * Where its quads sit in the draw list, per band: start and length, three
    * pairs. Valid only when `runsEpoch` is the current rebuild's, so one card's
-   * repaint can splice its own runs instead of rebuilding the list (#915).
+   * repaint can splice its own runs instead of rebuilding the list (issue 915).
    */
   runs?: number[];
   runsEpoch?: number;
@@ -344,7 +344,7 @@ export const createScene = (options: {
    */
   readonly source?: (quad: Quad, scale: number) => number;
   /**
-   * The atlas (scene-to-atlas interface, #911/#912): a record takes one
+   * The atlas (scene-to-atlas interface, issue 911/issue 912): a record takes one
    * reference to the cell for this quad at this scale; `previous` is the cell
    * it held, and the atlas settles that reference itself (same key: kept;
    * new key: released once the new image lands). The index is stable while
@@ -500,7 +500,7 @@ export const createScene = (options: {
    * The drawn quads that move, from the last rebuild, with their owners. Each
    * frame tests them against the real view, not the build range's margin: a
    * periodic motion in view keeps the loop running, a one-shot only until it
-   * ends (#915). Nothing visible stops.
+   * ends (issue 915). Nothing visible stops.
    */
   let movers: Array<{ readonly ref: QuadRef; readonly owner: number }> = [];
   /** Page-clock instant the last one-shot in view ends. */
@@ -1918,7 +1918,7 @@ export const createScene = (options: {
   };
 
   /**
-   * One card's runs, rewritten in place (#915): its new quads go where its
+   * One card's runs, rewritten in place (issue 915): its new quads go where its
    * old run was, the tail moves by the difference, and every later run's
    * start with it. No query, no sort, no other card touched.
    */

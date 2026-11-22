@@ -1,5 +1,5 @@
 /**
- * GPU culling (#912): a compute pass culls the scene's candidate list by
+ * GPU culling (issue 912): a compute pass culls the scene's candidate list by
  * tier and by view, per quad, into a compacted list in the same order, and
  * writes each band's drawIndirect arguments. The draw then reads the
  * compacted list instead of the CPU's.
