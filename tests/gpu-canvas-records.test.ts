@@ -7,7 +7,7 @@ import { farSeatScale, hoverCardScale } from "@shared/canvas-tier";
 import type { CardFact, CardView, PaintEnv, Quad, QuadStyle } from "../src/window/canvas/contract";
 import { atlasScale, createScene } from "../src/window/canvas/engine/scene";
 import { SCALE_RULE, QUAD_FLOATS } from "../src/window/canvas/engine/quad";
-import { seat } from "./support/model-nodes";
+import { region, seat } from "./support/model-nodes";
 
 const fact = (): CardFact => ({ id: "a", row: seat("a"), derived: { regionDepth: 0, blocked: false, z: 0 } });
 const env: PaintEnv = { measure: (run) => run.text.length * run.size * 0.6 };
@@ -460,6 +460,34 @@ describe("a hovered part", () => {
     expect(seen.at(-1)).toBe("regionTitle");
     scene.setHover("a");
     expect(seen.at(-1)).toBeUndefined();
+  });
+});
+
+describe("the hovered bloom the pick may answer", () => {
+  it("is drawn for a hovered seat at far, never for a hovered region, whose interior a seat over it keeps", () => {
+    const scene = createScene({
+      painter: (card, _live, view) => ({
+        quads:
+          card.id === "s" && view.hovered
+            ? [{ key: "hover.shell", kind: "shape", band: "lifted", z: 1, rect: { x: 0, y: 0, width: 216, height: 56 }, tiers: 6, scale: { kind: "board" }, style: {} }]
+            : [{ key: "shell", kind: "shape", band: card.id === "s" ? "cards" : "regions", z: 0, rect: { x: 0, y: 0, width: 216, height: 56 }, tiers: 15, scale: { kind: "board" }, style: {} }],
+        dim: { opacity: 1, saturate: 1 },
+        lift: 0,
+      }),
+    });
+    const regionFact: CardFact = { id: "r", row: region("r", { x: -50, y: -50, width: 600, height: 400 }), derived: { regionDepth: 0, blocked: false, z: 5 } };
+    const seatFact: CardFact = { id: "s", row: seat("s"), derived: { regionDepth: 1, blocked: false, z: 0 } };
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [regionFact, seatFact], wires: [] });
+    scene.prepare(VIEW, "far");
+    scene.setHover("r", "regionTitle");
+    scene.prepare(VIEW, "far");
+    expect(scene.hoveredId()).toBe("r");
+    expect(scene.hoveredBloom()).toBe(false);
+    scene.setHover("s", "body");
+    scene.prepare(VIEW, "far");
+    expect(scene.hoveredBloom()).toBe(true);
+    scene.setHover(null);
+    expect(scene.hoveredBloom()).toBe(false);
   });
 });
 

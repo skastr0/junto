@@ -2835,6 +2835,18 @@ export const createScene = (options: {
     setHover,
     /** The card the pointer is over, for the hover bloom's pick and rect. */
     hoveredId: (): NodeId | null => hovered,
+    /**
+     * Whether the hovered card draws its bloom at this tier. Only a seat
+     * blooms (paint/hover.ts); a hovered region or note draws none, so the
+     * pick must not answer it over the bloom's box.
+     */
+    hoveredBloom: (): boolean => {
+      if (hovered === null) return false;
+      const card = byId.get(hovered);
+      if (card === undefined || card.stamp !== liveEpoch) return false;
+      for (const ref of card.ordered) if ((ref.tiers & liveMask) !== 0 && ref.painted.key.startsWith("hover.")) return true;
+      return false;
+    },
     setConnectTarget,
     setDragging,
     moveCard,

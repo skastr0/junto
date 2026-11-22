@@ -413,7 +413,9 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   const hoveredPick = (): HoveredCard | undefined => {
     if (tier !== "mid" && tier !== "far") return undefined;
     const id = scene.hoveredId();
-    if (id === null) return undefined;
+    // A hovered region (its title or frame) or any card without a bloom keeps
+    // its drawn shape: only a bloom's box takes the points it covers.
+    if (id === null || !scene.hoveredBloom()) return undefined;
     const rect = scene.rectOf(id);
     if (rect === undefined) return undefined;
     const origin = { x: rect.x + SEAT_RING_CENTRE.x, y: rect.y + SEAT_RING_CENTRE.y };
