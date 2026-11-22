@@ -493,8 +493,21 @@ type Gpu = {
   totalBytes: number;
 };
 
-const SHADOW_META_CAPACITY = 256;
-const SHADOW_LAYER_CAPACITY = 512;
+/**
+ * A buffer the scene needs that the device cannot give: past its reported
+ * limit, or an allocation the driver refused. Kept and reported, never
+ * truncated in silence.
+ */
+export type BufferFailure = {
+  readonly buffer: string;
+  readonly bytes: number;
+  readonly limit?: number;
+  readonly reason: "limit" | "out-of-memory" | "validation";
+};
+
+/** Initial shadow table sizes only: both grow on demand, up to the device's limits. */
+const SHADOW_META_INITIAL = 256;
+const SHADOW_LAYER_INITIAL = 512;
 
 export const createRenderer = () => {
   let gpu: Gpu | undefined;
@@ -512,6 +525,59 @@ export const createRenderer = () => {
       size: Math.max(4, Math.ceil(size / 4) * 4),
       usage: BUFFER.STORAGE | BUFFER.COPY_DST,
     });
+
+  const failures: BufferFailure[] = [];
+  const fail = (failure: BufferFailure): void => {
+    failures.push(failure);
+    console.error(`[canvas] GPU buffer "${failure.buffer}" of ${String(failure.bytes)} bytes: ${failure.reason}${failure.limit === undefined ? "" : ` (limit ${String(failure.limit)})`}`);
+  };
+
+  /** The largest storage binding this device takes: the smaller of its two reported limits. */
+  const storageLimit = (device: GPUDevice): number | undefined => {
+    const limits = device.limits as Partial<Record<"maxStorageBufferBindingSize" | "maxBufferSize", number>> | undefined;
+    const binding = limits?.maxStorageBufferBindingSize;
+    const buffer = limits?.maxBufferSize;
+    const known = [binding, buffer].filter((value): value is number => typeof value === "number" && value > 0);
+    return known.length === 0 ? undefined : Math.min(...known);
+  };
+
+  /**
+   * A storage buffer grown to `bytes`, within the device's limits. Past the
+   * limit it is reported and the old buffer stays; an allocation the driver
+   * refuses is reported when its error scope settles.
+   */
+  const grown = (state: Gpu, name: string, old: GPUBuffer, bytes: number): GPUBuffer | undefined => {
+    const limit = storageLimit(state.device);
+    const size = Math.max(4, Math.ceil(bytes / 4) * 4);
+    if (limit !== undefined && size > limit) {
+      fail({ buffer: name, bytes: size, limit, reason: "limit" });
+      return undefined;
+    }
+    const device = state.device;
+    const scoped = typeof device.pushErrorScope === "function";
+    if (scoped) {
+      device.pushErrorScope("out-of-memory");
+      device.pushErrorScope("validation");
+    }
+    const next = bufferOf(device, size);
+    if (scoped) {
+      void device.popErrorScope().then((error) => {
+        if (error !== null) fail({ buffer: name, bytes: size, reason: "validation" });
+      });
+      void device.popErrorScope().then((error) => {
+        if (error !== null) fail({ buffer: name, bytes: size, reason: "out-of-memory" });
+      });
+    }
+    old.destroy();
+    return next;
+  };
+
+  /** Double a capacity until it holds `needed`. */
+  const doubled = (from: number, needed: number): number => {
+    let capacity = Math.max(1, from);
+    while (capacity < needed) capacity *= 2;
+    return capacity;
+  };
 
   const dummyTexture = (device: GPUDevice): GPUTexture =>
     device.createTexture({
@@ -548,11 +614,38 @@ export const createRenderer = () => {
     state.device.queue.writeBuffer(state.styles, 0, scene.styleBuffer, 0, Math.min(scene.styleBuffer.length, floats));
     note(state, "styles", 0, Math.min(scene.styleBuffer.byteLength, floats * 4));
     const shadows = scene.shadowSnapshot();
+    // The tables grow with the specs and layers interned (a custom region
+    // colour is a new tint); only a device limit stops them, and that is reported.
+    const specs = Math.ceil(shadows.meta.length / SHADOW_SPEC_WORDS);
+    let rebind = false;
+    if (specs > state.shadowMetaCapacity) {
+      const capacity = doubled(state.shadowMetaCapacity, specs);
+      const next = grown(state, "shadowMeta", state.shadowMeta, capacity * SHADOW_SPEC_WORDS * 4);
+      if (next !== undefined) {
+        state.shadowMeta = next;
+        state.shadowMetaCapacity = capacity;
+        rebind = true;
+      }
+    }
+    const layers = Math.ceil(shadows.layers.length / SHADOW_LAYER_FLOATS);
+    if (layers > state.shadowLayerCapacity) {
+      const capacity = doubled(state.shadowLayerCapacity, layers);
+      const next = grown(state, "shadowLayers", state.shadowLayers, capacity * SHADOW_LAYER_FLOATS * 4);
+      if (next !== undefined) {
+        state.shadowLayers = next;
+        state.shadowLayerCapacity = capacity;
+        rebind = true;
+      }
+    }
+    if (rebind) {
+      state.bind = makeBindGroup(state);
+      state.standaloneBinds = new WeakMap();
+    }
     // writeBuffer's size is in elements of the typed array, not bytes.
-    const metaElements = Math.min(shadows.meta.length, SHADOW_META_CAPACITY * SHADOW_SPEC_WORDS);
+    const metaElements = Math.min(shadows.meta.length, state.shadowMetaCapacity * SHADOW_SPEC_WORDS);
     if (metaElements > 0) state.device.queue.writeBuffer(state.shadowMeta, 0, shadows.meta, 0, metaElements);
     note(state, "shadows", 0, metaElements * 4);
-    const layerElements = Math.min(shadows.layers.length, SHADOW_LAYER_CAPACITY * SHADOW_LAYER_FLOATS);
+    const layerElements = Math.min(shadows.layers.length, state.shadowLayerCapacity * SHADOW_LAYER_FLOATS);
     if (layerElements > 0) state.device.queue.writeBuffer(state.shadowLayers, 0, shadows.layers, 0, layerElements);
     note(state, "shadows", 0, layerElements * 4);
     state.styleRevision = scene.styleRevision;
@@ -560,42 +653,54 @@ export const createRenderer = () => {
 
   const ensure = (state: Gpu, scene: Scene): void => {
     let rebind = false;
+    // Each buffer follows the scene's capacity; one past the device's limit is
+    // reported and keeps its old size, never cut silently.
     if (scene.quadCapacity > state.quadCapacity) {
-      state.quads = bufferOf(state.device, scene.quadCapacity * QUAD_BYTES);
-      state.quadCapacity = scene.quadCapacity;
-      rebind = true;
+      const next = grown(state, "quads", state.quads, scene.quadCapacity * QUAD_BYTES);
+      if (next !== undefined) {
+        state.quads = next;
+        state.quadCapacity = scene.quadCapacity;
+        rebind = true;
+      }
     }
     if (scene.ownerCapacity > state.ownerCapacity) {
-      state.owners = bufferOf(state.device, scene.ownerCapacity * 8 * 4);
-      state.ownerCapacity = scene.ownerCapacity;
-      rebind = true;
+      const next = grown(state, "owners", state.owners, scene.ownerCapacity * 8 * 4);
+      if (next !== undefined) {
+        state.owners = next;
+        state.ownerCapacity = scene.ownerCapacity;
+        rebind = true;
+      }
     }
     if (scene.orderBuffer.length > state.orderCapacity) {
-      state.order = bufferOf(state.device, scene.orderBuffer.length * 4);
-      state.orderCapacity = scene.orderBuffer.length;
-      rebind = true;
+      const next = grown(state, "order", state.order, scene.orderBuffer.length * 4);
+      if (next !== undefined) {
+        state.order = next;
+        state.orderCapacity = scene.orderBuffer.length;
+        rebind = true;
+      }
     }
     if (scene.styleCount * STYLE_STRIDE > state.styleCapacity) {
-      state.styleCapacity = Math.max(STYLE_STRIDE * 16, scene.styleCount * STYLE_STRIDE);
-      state.styles = bufferOf(state.device, state.styleCapacity * 4);
-      state.styleRevision = -1;
-      rebind = true;
+      const capacity = doubled(state.styleCapacity, scene.styleCount * STYLE_STRIDE);
+      const next = grown(state, "styles", state.styles, capacity * 4);
+      if (next !== undefined) {
+        state.styles = next;
+        state.styleCapacity = capacity;
+        state.styleRevision = -1;
+        rebind = true;
+      }
     }
     const atlas = state.atlas;
     if (atlas !== undefined) {
       const cellCount = atlas.cellCount ?? Math.floor(atlas.cells.length / ATLAS_CELL_FLOATS);
       const neededCells = Math.max(1, cellCount);
       if (neededCells > state.cellCapacity) {
-        let nextCap = Math.max(1, state.cellCapacity);
-        while (nextCap < neededCells) nextCap *= 2;
-        const maxStorage = state.device.limits?.maxStorageBufferBindingSize;
-        if (typeof maxStorage === "number" && maxStorage > 0) {
-          const maxByLimit = Math.max(1, Math.floor(maxStorage / (ATLAS_CELL_FLOATS * 4)));
-          nextCap = Math.min(nextCap, maxByLimit);
-        }
-        if (nextCap > state.cellCapacity) {
-          state.cells.destroy();
-          state.cells = bufferOf(state.device, nextCap * ATLAS_CELL_FLOATS * 4);
+        let nextCap = doubled(state.cellCapacity, neededCells);
+        // Doubling may overshoot the limit where the exact need does not.
+        const limit = storageLimit(state.device);
+        if (limit !== undefined) nextCap = Math.max(neededCells, Math.min(nextCap, Math.floor(limit / (ATLAS_CELL_FLOATS * 4))));
+        const next = grown(state, "cells", state.cells, nextCap * ATLAS_CELL_FLOATS * 4);
+        if (next !== undefined) {
+          state.cells = next;
           state.cellCapacity = nextCap;
           state.cellsRevision = -1;
           rebind = true;
@@ -670,16 +775,16 @@ export const createRenderer = () => {
       uniform: device.createBuffer({ size: uniform.byteLength, usage: BUFFER.UNIFORM | BUFFER.COPY_DST }),
       cells: bufferOf(device, initialCells * ATLAS_CELL_FLOATS * 4),
       styles: bufferOf(device, styleFloats(scene) * 4),
-      shadowMeta: bufferOf(device, SHADOW_META_CAPACITY * SHADOW_SPEC_WORDS * 4),
-      shadowLayers: bufferOf(device, SHADOW_LAYER_CAPACITY * SHADOW_LAYER_FLOATS * 4),
+      shadowMeta: bufferOf(device, SHADOW_META_INITIAL * SHADOW_SPEC_WORDS * 4),
+      shadowLayers: bufferOf(device, SHADOW_LAYER_INITIAL * SHADOW_LAYER_FLOATS * 4),
       bind: undefined as unknown as GPUBindGroup,
       quadCapacity: Math.max(1, scene.quadCapacity),
       ownerCapacity: Math.max(1, scene.ownerCapacity),
       orderCapacity: Math.max(1, scene.orderBuffer.length),
       cellCapacity: initialCells,
       styleCapacity: styleFloats(scene),
-      shadowMetaCapacity: SHADOW_META_CAPACITY,
-      shadowLayerCapacity: SHADOW_LAYER_CAPACITY,
+      shadowMetaCapacity: SHADOW_META_INITIAL,
+      shadowLayerCapacity: SHADOW_LAYER_INITIAL,
       styleRevision: -1,
       cellsRevision: 0,
       atlasTextureGeneration: atlas?.textureGeneration ?? 0,
@@ -898,6 +1003,10 @@ export const createRenderer = () => {
     },
     get totalBytes(): number {
       return gpu?.totalBytes ?? 0;
+    },
+    /** Buffers the device could not give, in the order they failed (the test hook reads it). */
+    get bufferFailures(): ReadonlyArray<BufferFailure> {
+      return failures;
     },
     reset(): void {
       gpu?.quads.destroy();
