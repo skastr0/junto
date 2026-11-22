@@ -445,6 +445,11 @@ export interface FrameTrace {
   readonly mainBusyMsPerSecond: number | null;
   readonly mainTasksOver16ms: number;
   readonly mainTasksOver50ms: number;
+  readonly cameraMoves: number;
+  readonly movedNoPresent: number;
+  readonly inputEvents: number;
+  readonly inputGapP50: number | null;
+  readonly inputGapMax: number | null;
   readonly rawPath: string;
 }
 
@@ -458,7 +463,30 @@ const pct = (sorted: ReadonlyArray<number>, p: number): number | null =>
  * scripts read it: presented frames are viz Display::DrawAndSwap, the renderer
  * main thread is the CrRendererMain with the most task time.
  */
-export const traceRun = async (page: Page, run: () => Promise<void>, rawPath: string): Promise<FrameTrace> => {
+export interface MotionProbe {
+  readonly ticks: number;
+  readonly cameraMoves: number;
+  readonly movedNoPresent: number;
+  readonly inputEvents: number;
+  readonly inputGapP50: number | null;
+  readonly inputGapMax: number | null;
+}
+
+const EMPTY_MOTION: MotionProbe = {
+  ticks: 0,
+  cameraMoves: 0,
+  movedNoPresent: 0,
+  inputEvents: 0,
+  inputGapP50: null,
+  inputGapMax: null,
+};
+
+export const traceRun = async (
+  page: Page,
+  run: () => Promise<void>,
+  rawPath: string,
+  readMotion: () => Promise<MotionProbe> = async () => EMPTY_MOTION,
+): Promise<FrameTrace> => {
   const cdp = await page.context().newCDPSession(page);
   const chunks: TraceEvent[] = [];
   mkdirSync(dirname(rawPath), { recursive: true });
@@ -484,11 +512,16 @@ export const traceRun = async (page: Page, run: () => Promise<void>, rawPath: st
     await finished;
     await cdp.detach();
     closeSync(sink);
-    return summarizeFrames(chunks, seconds, rawPath);
+    return summarizeFrames(chunks, seconds, rawPath, await readMotion());
   }
 };
 
-const summarizeFrames = (events: ReadonlyArray<TraceEvent>, seconds: number, rawPath: string): FrameTrace => {
+const summarizeFrames = (
+  events: ReadonlyArray<TraceEvent>,
+  seconds: number,
+  rawPath: string,
+  motion: MotionProbe,
+): FrameTrace => {
   const threads = new Map<string, string>();
   const processes = new Map<number, string>();
   for (const event of events) {
@@ -529,8 +562,128 @@ const summarizeFrames = (events: ReadonlyArray<TraceEvent>, seconds: number, raw
     mainBusyMsPerSecond: mainKey === undefined ? null : round((busy.get(mainKey) ?? 0) / seconds, 1),
     mainTasksOver16ms: tasks.filter((ms) => ms > 16.7).length,
     mainTasksOver50ms: tasks.filter((ms) => ms > 50).length,
+    cameraMoves: motion.cameraMoves,
+    movedNoPresent: motion.movedNoPresent,
+    inputEvents: motion.inputEvents,
+    inputGapP50: motion.inputGapP50,
+    inputGapMax: motion.inputGapMax,
     rawPath,
   };
+};
+
+// --- camera motion probe --------------------------------------------------------
+
+/**
+ * Watch the camera and the drawn-frame counter every rAF while input runs.
+ * A rAF where the camera moved and the frame counter did not is a camera
+ * move that presented nothing, which no trace gap alone can name.
+ */
+export const startMotionProbe = (page: Page): Promise<void> =>
+  page.evaluate(() => {
+    const w = window as unknown as { __gpuMotion?: Record<string, unknown> };
+    const probe: Record<string, unknown> = { ticks: 0, cameraMoves: 0, movedNoPresent: 0, lastFrames: -1, lastCamera: null };
+    w.__gpuMotion = probe;
+    (window as unknown as { __gpuInputGaps?: number[] }).__gpuInputGaps = [];
+    const tick = (): void => {
+      const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+      if (hook !== undefined) {
+        probe["ticks"] = Number(probe["ticks"]) + 1;
+        const camera = hook["camera"]() as { x: number; y: number; zoom: number };
+        const frames = Number((hook["stats"]() as { frames?: number }).frames ?? -1);
+        const key = `${String(camera.x)}:${String(camera.y)}:${String(camera.zoom)}`;
+        if (probe["lastCamera"] !== null && probe["lastCamera"] !== key) {
+          probe["cameraMoves"] = Number(probe["cameraMoves"]) + 1;
+          if (frames === Number(probe["lastFrames"])) probe["movedNoPresent"] = Number(probe["movedNoPresent"]) + 1;
+        }
+        probe["lastCamera"] = key;
+        probe["lastFrames"] = frames;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+
+export const readMotionProbe = async (page: Page): Promise<MotionProbe> => {
+  const raw = await page.evaluate(() => {
+    const motion = (window as unknown as { __gpuMotion?: Record<string, unknown> }).__gpuMotion;
+    if (motion === undefined) return null;
+    return {
+      ticks: Number(motion["ticks"] ?? 0),
+      cameraMoves: Number(motion["cameraMoves"] ?? 0),
+      movedNoPresent: Number(motion["movedNoPresent"] ?? 0),
+      inputEvents: Number(motion["inputEvents"] ?? 0),
+    };
+  });
+  if (raw === null) return EMPTY_MOTION;
+  const gaps = (await page.evaluate(() => (window as unknown as { __gpuInputGaps?: number[] }).__gpuInputGaps ?? [])) as number[];
+  const sorted = [...gaps].sort((a, b) => a - b);
+  return {
+    ticks: raw.ticks,
+    cameraMoves: raw.cameraMoves,
+    movedNoPresent: raw.movedNoPresent,
+    inputEvents: raw.inputEvents,
+    inputGapP50: sorted.length === 0 ? null : round(sorted[Math.floor(sorted.length / 2)]!, 1),
+    inputGapMax: sorted.length === 0 ? null : round(sorted.at(-1)!, 1),
+  };
+};
+
+/**
+ * Zoom through `targets` the way a trackpad does: one wheel event per display
+ * frame, small deltas, and no reads of the engine between events. Reading
+ * between steps stops the motion, which is what made the first trace measure
+ * the driver instead of the canvas.
+ */
+export const wheelSweep = async (page: Page, targets: ReadonlyArray<number>, deltaPerEvent = 4, frameMs = 16): Promise<void> => {
+  const camera = await page.evaluate(() => {
+    const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+    return hook?.["camera"]() as { zoom: number } | undefined;
+  });
+  let zoom = camera?.zoom ?? 1;
+  const stamps: number[] = [];
+  for (const target of targets) {
+    const events = Math.ceil(Math.abs(Math.log2(target / zoom)) / (deltaPerEvent * 0.02));
+    const direction = target > zoom ? 1 : -1;
+    for (let index = 0; index < events; index += 1) {
+      await page.mouse.wheel(0, -direction * deltaPerEvent);
+      stamps.push(Date.now());
+      await page.waitForTimeout(frameMs);
+    }
+    zoom = target;
+  }
+  const gaps = stamps.slice(1).map((ts, index) => ts - stamps[index]!);
+  await page.evaluate(
+    (input: { events: number; gaps: number[] }) => {
+      const w = window as unknown as { __gpuMotion?: Record<string, unknown>; __gpuInputGaps?: number[] };
+      if (w.__gpuMotion !== undefined) w.__gpuMotion["inputEvents"] = Number(w.__gpuMotion["inputEvents"]) + input.events;
+      w.__gpuInputGaps = input.gaps;
+    },
+    { events: stamps.length, gaps },
+  );
+};
+
+/** A fling as a trackpad sends it: a burst of pointer moves with no reads. */
+export const flingSweep = async (page: Page, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> => {
+  const steps = 20;
+  const stamps: number[] = [];
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  for (let step = 1; step <= steps; step += 1) {
+    const t = step / steps;
+    await page.mouse.move(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
+    stamps.push(Date.now());
+    await page.waitForTimeout(8);
+  }
+  await page.mouse.up();
+  const gaps = stamps.slice(1).map((ts, index) => ts - stamps[index]!);
+  await page.evaluate(
+    (input: { events: number; gaps: number[] }) => {
+      const w = window as unknown as { __gpuMotion?: Record<string, unknown>; __gpuInputGaps?: number[] };
+      if (w.__gpuMotion !== undefined) w.__gpuMotion["inputEvents"] = Number(w.__gpuMotion["inputEvents"]) + input.events;
+      const previous = w.__gpuInputGaps ?? [];
+      w.__gpuInputGaps = previous.concat(input.gaps);
+    },
+    { events: stamps.length, gaps },
+  );
 };
 
 // --- screencast -----------------------------------------------------------------

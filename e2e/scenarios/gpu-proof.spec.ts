@@ -50,14 +50,16 @@ import {
   paneRect,
   placeCamera,
   readBlankProbe,
+  readMotionProbe,
   readProofState,
   recordRun,
   seatBoardRects,
   settleAtlas,
   startBlankProbe,
+  startMotionProbe,
   traceRun,
   waitGpuReady,
-  wheelZoomTo,
+  wheelSweep,
   type BlankProbe,
   type FrameTrace,
   type ProofBoard,
@@ -491,7 +493,20 @@ const addressSeat = async (page: Page, id: string, pane: ScreenRect): Promise<Se
 };
 
 /** Connect the seat's opening: double-click opens its focus surface, Escape closes. */
-const openSeat = async (page: Page, id: string, rect: ScreenRect, pane: ScreenRect): Promise<boolean> => {
+interface OpenDiagnostics {
+  readonly selection: ReadonlyArray<string>;
+  readonly surfaces: number;
+  readonly backdrops: number;
+  readonly dialogs: number;
+  readonly active: string;
+}
+
+const openSeat = async (
+  page: Page,
+  id: string,
+  rect: ScreenRect,
+  pane: ScreenRect,
+): Promise<{ opened: boolean; diagnostics: OpenDiagnostics }> => {
   const candidates = [
     { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
     { x: rect.x + rect.width * 0.4, y: rect.y + rect.height / 2 },
@@ -499,7 +514,7 @@ const openSeat = async (page: Page, id: string, rect: ScreenRect, pane: ScreenRe
   ].filter((point) => insidePane(point, pane));
   const hits = await hypothesize(page, candidates, pane, id);
   const own = hits.find((hit) => hit.hit === "own");
-  if (own === undefined) return false;
+  if (own === undefined) return { opened: false, diagnostics: { selection: [], surfaces: 0, backdrops: 0, dialogs: 0, active: "" } };
   const point = own.point;
   await resetOperator(page);
   await page.mouse.dblclick(point.x, point.y);
@@ -509,8 +524,18 @@ const openSeat = async (page: Page, id: string, rect: ScreenRect, pane: ScreenRe
     .waitFor({ state: "visible", timeout: 15_000 })
     .then(() => true)
     .catch(() => false);
+  const diagnostics = await page.evaluate((): { selection: string[]; surfaces: number; backdrops: number; dialogs: number; active: string } => {
+    const selection = ((window as unknown as { __juntoCanvas?: { selection?: () => unknown[] } }).__juntoCanvas?.selection?.() ?? []) as Array<{ id?: string } | string>;
+    return {
+      selection: selection.map((entry) => (typeof entry === "string" ? entry : String(entry.id ?? "?"))),
+      surfaces: document.querySelectorAll(".focus-surface").length,
+      backdrops: document.querySelectorAll("[data-layer-backdrop]").length,
+      dialogs: document.querySelectorAll('[role="dialog"]').length,
+      active: document.activeElement?.className?.toString().slice(0, 80) ?? "",
+    };
+  });
   if (opened) await closeSurfaces(page);
-  return opened && (await page.locator(".focus-surface").count()) === 0;
+  return { opened: opened && (await page.locator(".focus-surface").count()) === 0, diagnostics };
 };
 
 // --- visuals: side by side, near pixels and mid/far structure ---------------------
@@ -1028,15 +1053,18 @@ test.describe("#913 GPU canvas proof", () => {
         if (process.env["JUNTO_GPU_PROOF_TRACES"] !== "0") await timed("traces", async () => {
         await placeCamera(page, await cameraOn(page, centre, 0.15));
         await settleAtlas(page);
+        await startMotionProbe(page);
         traces["zoom"] = await traceRun(
           page,
           async () => {
-            for (const zoom of [0.3, 0.52, 0.9, 1.2, 0.9, 0.52, 0.3, 0.15]) await wheelZoomTo(page, zoom);
+            await wheelSweep(page, [0.3, 0.52, 0.9, 1.2, 0.9, 0.52, 0.3, 0.15]);
           },
           join(dir, "trace-zoom.json"),
+          () => readMotionProbe(page),
         );
         await placeCamera(page, await cameraOn(page, centre, 0.3));
         await settleAtlas(page);
+        await startMotionProbe(page);
         traces["pan"] = await traceRun(
           page,
           async () => {
@@ -1046,6 +1074,7 @@ test.describe("#913 GPU canvas proof", () => {
             }
           },
           join(dir, "trace-pan.json"),
+          () => readMotionProbe(page),
         );
         report["traces"] = traces;
         });
@@ -1102,16 +1131,19 @@ test.describe("#913 GPU canvas proof", () => {
         const nearScreens = await seatScreens(page, board);
         let opened = false;
         let openedId: string | null = null;
+        let diagnostics: OpenDiagnostics = { selection: [], surfaces: 0, backdrops: 0, dialogs: 0, active: "" };
         for (const candidate of nearScreens.onPane.slice(0, 12)) {
           const node = rects[candidate.id]!;
           await placeCamera(page, await cameraOn(page, { x: node.x + node.width / 2, y: node.y + node.height / 2 }, 1));
-          if (await openSeat(page, candidate.id, candidate.rect, pane)) {
+          const attempt = await openSeat(page, candidate.id, candidate.rect, pane);
+          diagnostics = attempt.diagnostics;
+          if (attempt.opened) {
             opened = true;
             openedId = candidate.id;
             break;
           }
         }
-        report["open"] = { seat: openedId, opened, tried: Math.min(12, nearScreens.onPane.length) };
+        report["open"] = { seat: openedId, opened, tried: Math.min(12, nearScreens.onPane.length), last: diagnostics };
         if (!opened) fail(`${String(scale)}x: double-click did not open a seat's focus surface at near`);
         });
 
@@ -1335,8 +1367,8 @@ test.describe("#913 GPU canvas proof", () => {
         async () => {
           for (let pass = 0; pass < 3; pass += 1) {
             await fling(page, { x: pane.x + pane.width * 0.85, y: pane.y + pane.height * 0.3 }, { x: pane.x + pane.width * 0.15, y: pane.y + pane.height * 0.7 }, 10);
-            await wheelZoomTo(page, 0.15);
-            await wheelZoomTo(page, 1.2);
+            await wheelSweep(page, [0.15]);
+            await wheelSweep(page, [1.2]);
             await placeCamera(page, { x: -pane.width * pass, y: -pane.height * pass, zoom: 0.3 });
             await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "bright" } }));
             await placeCamera(page, await cameraOn(page, focus, 0.52));
