@@ -173,6 +173,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
             // Storage refused (private window, quota): this session still measures.
           }
         },
+      },
       // A paused surface shows a ring's rest pose; hidden or reduced motion
       // stops its parts (surface-motion.ts). The canvas reads the same gate
       // the DOM rings do, and repaints when it flips.
