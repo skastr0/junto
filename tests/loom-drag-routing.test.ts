@@ -221,4 +221,55 @@ describe("a drag of 4 cards over 90 moves on a canvas of 80 cards", () => {
     expect(movedObstacles(cards(), cards())).toEqual([]);
     expect(edgesTouchedByMove(wires(cards()), []).size).toBe(0);
   });
+
+  it("a deleted card takes its wires, and no other wire is routed", () => {
+    const held = cards();
+    const gone = idOf(2, 2);
+    const remaining = held.filter((card) => card.nodeId !== gone);
+    const before = wires(held);
+    // The post-delete edge set: the card's own wires left with it, every other
+    // wire is the same wire (its anchors did not move).
+    const now = before.filter((edge) => edge.sourceNodeId !== gone && edge.targetNodeId !== gone);
+    const owed = routesOwedWithCause({
+      edges: now,
+      specsBefore: new Map(before.map((edge) => [edge.id, edge.id] as const)),
+      specsNow: new Map(now.map((edge) => [edge.id, edge.id] as const)),
+      obstaclesBefore: held,
+      obstaclesNow: remaining,
+      movedNodeIds: new Set<string>(),
+      dropped: new Set<string>(),
+      strandsBefore: NO_STRANDS,
+      strandsNow: NO_STRANDS,
+    });
+    // Only a wire whose corridor ran past the card's old box can change; the
+    // rest of the board keeps every route it had.
+    expect(owed.size).toBeLessThan(12);
+    expect([...owed.keys()].every((id) => now.some((edge) => edge.id === id))).toBe(true);
+    expect(now.some((edge) => edge.sourceNodeId === gone || edge.targetNodeId === gone)).toBe(false);
+  });
+
+  it("a seed from before the app closed routes exactly what changed", () => {
+    const seed = cards();
+    const movedId = idOf(5, 4);
+    const now = cards().map((card) => (card.nodeId === movedId ? { ...card, x: card.x + 400 } : card));
+    const before = wires(seed);
+    const after = wires(now);
+    const owed = routesOwedWithCause({
+      edges: after,
+      specsBefore: new Map(before.map((edge) => [edge.id, edge.id] as const)),
+      specsNow: new Map(after.map((edge) => [edge.id, edge.id] as const)),
+      obstaclesBefore: seed,
+      obstaclesNow: now,
+      movedNodeIds: new Set<string>(),
+      dropped: new Set<string>(),
+      strandsBefore: NO_STRANDS,
+      strandsNow: NO_STRANDS,
+    });
+    // Every wire on the moved card, and only wires it can have passed: no
+    // wire elsewhere on the board is sent back through the router.
+    for (const id of incidentEdgeIds(after, new Set([movedId]))) expect(owed.has(id)).toBe(true);
+    const far = after.find((edge) => edge.sourceNodeId === idOf(0, 0) && edge.targetNodeId === idOf(1, 0))!;
+    expect(owed.has(far.id)).toBe(false);
+    expect(owed.size).toBeLessThan(30);
+  });
 });
