@@ -197,7 +197,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
     // DOM, as it is today, so a pointer and a screen reader can select one
     // while the strokes are deaf at rest.
     const wireLabels = mountWireLabels({ canvas, layer: () => wires });
-    const offWireLabels = engine.onFrame((facts) => wireLabels.frame(facts.camera));
+    const offWireLabels = engine.onFrame((facts) => wireLabels.frame(facts.camera, facts.tier));
     // The loom routes from the view outwards: hand it the board the camera
     // shows. The canvas's CSS size is read on resize only, never per frame,
     // where a layout read forces style and layout at display rate.

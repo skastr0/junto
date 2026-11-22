@@ -24,14 +24,22 @@
  * The label is silent by design (no visible text); `labelOf`'s point is the
  * midpoint of a route or the longest run of an elbow, exactly React Flow's
  * `labelX`/`labelY`.
+ *
+ * The buttons live at near only. The old canvas hides every edge label at
+ * mid, far and overview (canvas-lod-regions.css), so there they take no
+ * focus and no screen reader reads them, and a press on a wire is the
+ * engine's pick either way. Past near this module unmounts them all: at 2x
+ * some 1,860 hidden buttons were otherwise kept in view during a far pan,
+ * and every major GC traced them (issue 912).
  */
 import { selectEdge } from "../../lib/state";
+import type { CanvasTier } from "@shared/canvas-tier";
 import type { Camera, Point } from "../contract";
 import type { WiresLayer } from "../engine/wires";
 
 export type WireLabels = {
-  /** Follow the engine's frame: place the buttons for the camera it drew. */
-  readonly frame: (camera: Camera) => void;
+  /** Follow the engine's frame: place the buttons for the camera and tier it drew. */
+  readonly frame: (camera: Camera, tier: CanvasTier) => void;
   readonly dispose: () => void;
 };
 
@@ -119,9 +127,24 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
   const verbs = new Map<string, string>();
   let stamp = 0;
 
-  const frame = (camera: Camera): void => {
+  /** Unmount every button: past near they are hidden, and kept they cost every GC. */
+  const clear = (): void => {
+    if (buttons.size > 0) host.replaceChildren();
+    buttons.clear();
+    seen.clear();
+    verbs.clear();
+    // The next frame at near places everything again.
+    lastCamera = undefined;
+    lastRevision = -1;
+  };
+
+  const frame = (camera: Camera, tier: CanvasTier): void => {
     const wires = layer();
     if (wires === undefined) return;
+    if (tier !== "near") {
+      if (lastCamera !== undefined) clear();
+      return;
+    }
     const revision = wires.labelsRevision();
     const last = lastCamera;
     const posed =
@@ -185,6 +208,7 @@ export const mountWireLabels = ({ canvas, layer }: WireLabelsOptions): WireLabel
       window.removeEventListener("scroll", measure, { capture: true });
       host.remove();
       buttons.clear();
+      seen.clear();
       verbs.clear();
     },
   };

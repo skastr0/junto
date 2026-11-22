@@ -10,6 +10,10 @@
  * button now takes no pointer; the engine answers the label point itself, in
  * every wire mode, after cards and clusters.
  *
+ * The button lives at near only, as the old canvas's label does (it hides at
+ * mid and below): past near the press goes at the label point, where the
+ * button would be, and no button is mounted.
+ *
  * Run: `bunx electron-vite build && scripts/run-e2e.sh e2e/scenarios/wire-label-pick.spec.ts`
  */
 import type { Page } from "@playwright/test";
@@ -47,7 +51,14 @@ test("a wire label point selects its wire at every tier, by press or by keyboard
 
   for (const zoom of [1.0, 0.52, 0.3]) {
     await placeCamera(page, zoom);
-    const box = (await labelButton(page).boundingBox())!;
+    let box: { x: number; y: number; width: number; height: number };
+    if (zoom >= 0.62) box = (await labelButton(page).boundingBox())!;
+    else {
+      // Past near there is no button; the label point sits at the pane's centre.
+      await expect(page.locator(".junto-edge-label")).toHaveCount(0);
+      const at = (await pane(page).box())!;
+      box = { x: at.x + at.width / 2, y: at.y + at.height / 2, width: 0, height: 0 };
+    }
     // Clear first, so the wire's selection is this press's.
     await page.mouse.click(5, 5);
     await page.waitForTimeout(150);
@@ -64,7 +75,9 @@ test("a wire label point selects its wire at every tier, by press or by keyboard
   }
 
   // A keyboard reaches the button and Enter selects the wire: the button
-  // stays focusable even though it takes no pointer.
+  // stays focusable even though it takes no pointer. It lives at near.
+  await placeCamera(page, 1.0);
+  await expect(labelButton(page)).toBeAttached({ timeout: 5_000 });
   await page.keyboard.press("Tab");
   let reached = false;
   for (let i = 0; i < 40; i += 1) {

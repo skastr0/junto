@@ -110,7 +110,7 @@ describe("wire select labels on the GPU canvas", () => {
     // Once, at mount.
     expect(reads.count).toBe(1);
 
-    labels.frame({ x: 0, y: 0, zoom: 1 });
+    labels.frame({ x: 0, y: 0, zoom: 1 }, "near");
     expect(hostNow().style.transform).toBe("translate3d(100px, 40px, 0) scale(1)");
     expect(buttonsNow()).toHaveLength(2);
     expect(buttonsNow()[0]!.style.transform).toBe(BOARD_AT(-100, 50));
@@ -123,7 +123,7 @@ describe("wire select labels on the GPU canvas", () => {
     watcher.observe(hostNow(), { attributes: true, subtree: true, childList: true });
 
     // A pan: the wrapper follows, the buttons do not move in board space.
-    labels.frame({ x: 64, y: -21, zoom: 1 });
+    labels.frame({ x: 64, y: -21, zoom: 1 }, "near");
     expect(hostNow().style.transform).toBe("translate3d(164px, 19px, 0) scale(1)");
     expect(buttonsNow().map((button) => button.style.transform)).toEqual(stamped);
     expect(writes).toEqual([]);
@@ -131,8 +131,8 @@ describe("wire select labels on the GPU canvas", () => {
 
     // A resting frame: the loop keeps drawing for a seat ring, and this
     // module neither writes nor forces a layout read.
-    labels.frame({ x: 64, y: -21, zoom: 1 });
-    labels.frame({ x: 64, y: -21, zoom: 1 });
+    labels.frame({ x: 64, y: -21, zoom: 1 }, "near");
+    labels.frame({ x: 64, y: -21, zoom: 1 }, "near");
     expect(hostNow().style.transform).toBe("translate3d(164px, 19px, 0) scale(1)");
     expect(wires.calls.labelsInView).toBe(atRest);
     expect(writes).toEqual([]);
@@ -142,18 +142,18 @@ describe("wire select labels on the GPU canvas", () => {
   it("scales the wrapper and hands each button the inverse, so its target stays 14 px", () => {
     const { canvas } = canvasAt({ left: 100, top: 40 });
     const labels = mount(world([LABEL("w1", -100, 50)]), canvas);
-    labels.frame({ x: 0, y: 0, zoom: 1 });
+    labels.frame({ x: 0, y: 0, zoom: 1 }, "near");
     const host = hostNow();
 
-    labels.frame({ x: 0, y: 0, zoom: 2 });
+    labels.frame({ x: 0, y: 0, zoom: 2 }, "near");
     expect(host.style.transform).toBe("translate3d(100px, 40px, 0) scale(2)");
     expect(host.style.getPropertyValue("--wire-label-scale")).toBe("0.5");
     // The button stays in board space: the camera is the wrapper's business.
     expect(buttonsNow()[0]!.style.transform).toBe(BOARD_AT(-100, 50));
 
-    labels.frame({ x: 0, y: 0, zoom: 0.25 });
-    expect(host.style.transform).toBe("translate3d(100px, 40px, 0) scale(0.25)");
-    expect(host.style.getPropertyValue("--wire-label-scale")).toBe("4");
+    labels.frame({ x: 0, y: 0, zoom: 0.8 }, "near");
+    expect(host.style.transform).toBe("translate3d(100px, 40px, 0) scale(0.8)");
+    expect(host.style.getPropertyValue("--wire-label-scale")).toBe("1.25");
     expect(buttonsNow()[0]!.style.transform).toBe(BOARD_AT(-100, 50));
   });
 
@@ -161,13 +161,13 @@ describe("wire select labels on the GPU canvas", () => {
     const { canvas } = canvasAt({ left: 100, top: 40 });
     const wires = world([LABEL("w1", -100, 50), LABEL("w2", 240, 50)]);
     const labels = mount(wires, canvas);
-    labels.frame({ x: 0, y: 0, zoom: 1 });
+    labels.frame({ x: 0, y: 0, zoom: 1 }, "near");
     const w2 = buttonsNow()[1]!;
     expect(buttonsNow()).toHaveLength(2);
 
     // A pan brought w3 into view and carried w1 out: no wire moved.
     wires.seen([LABEL("w2", 240, 50), LABEL("w3", 410, -30)]);
-    labels.frame({ x: 12, y: 8, zoom: 1 });
+    labels.frame({ x: 12, y: 8, zoom: 1 }, "near");
 
     const now = buttonsNow();
     expect(now).toHaveLength(2);
@@ -184,11 +184,11 @@ describe("wire select labels on the GPU canvas", () => {
     const { canvas } = canvasAt({ left: 100, top: 40 });
     const wires = world([LABEL("w1", -100, 50)]);
     const labels = mount(wires, canvas);
-    labels.frame({ x: 0, y: 0, zoom: 1 });
+    labels.frame({ x: 0, y: 0, zoom: 1 }, "near");
     const button = buttonsNow()[0]!;
 
     wires.moved([LABEL("w1", 30, 12)]);
-    labels.frame({ x: 0, y: 0, zoom: 1 });
+    labels.frame({ x: 0, y: 0, zoom: 1 }, "near");
     expect(buttonsNow()[0]).toBe(button);
     expect(button.style.transform).toBe(BOARD_AT(30, 12));
   });
@@ -197,22 +197,48 @@ describe("wire select labels on the GPU canvas", () => {
     const box = { left: 100, top: 40 };
     const { canvas, reads } = canvasAt(box);
     const labels = mount(world([LABEL("w1", -100, 50)]), canvas);
-    labels.frame({ x: 0, y: 0, zoom: 1 });
+    labels.frame({ x: 0, y: 0, zoom: 1 }, "near");
     expect(hostNow().style.transform).toBe("translate3d(100px, 40px, 0) scale(1)");
 
     box.left = 260;
     box.top = 72;
     window.dispatchEvent(new Event("resize"));
     expect(reads.count).toBe(2);
-    labels.frame({ x: 0, y: 0, zoom: 1 });
+    labels.frame({ x: 0, y: 0, zoom: 1 }, "near");
     expect(hostNow().style.transform).toBe("translate3d(260px, 72px, 0) scale(1)");
     expect(reads.count).toBe(2);
+  });
+
+  it("mounts its buttons at near only: past near the old canvas hides them, and kept they cost every GC (issue 912)", () => {
+    const { canvas } = canvasAt({ left: 100, top: 40 });
+    const wires = world([LABEL("w1", -100, 50), LABEL("w2", 240, 50)]);
+    const labels = mount(wires, canvas);
+    labels.frame({ x: 0, y: 0, zoom: 1 }, "near");
+    expect(buttonsNow()).toHaveLength(2);
+
+    // Past near, every button goes, and a pan there asks the wires for nothing.
+    for (const tier of ["mid", "far", "overview"] as const) {
+      labels.frame({ x: 0, y: 0, zoom: 0.3 }, tier);
+      expect(buttonsNow()).toHaveLength(0);
+    }
+    const asked = wires.calls.labelsInView;
+    labels.frame({ x: 40, y: 9, zoom: 0.3 }, "far");
+    labels.frame({ x: 80, y: 18, zoom: 0.3 }, "far");
+    expect(wires.calls.labelsInView).toBe(asked);
+    expect(buttonsNow()).toHaveLength(0);
+
+    // Back at near, every button returns at its label point, scaled for the camera.
+    labels.frame({ x: 10, y: 0, zoom: 0.8 }, "near");
+    expect(buttonsNow().map((button) => button.style.transform)).toEqual([BOARD_AT(-100, 50), BOARD_AT(240, 50)]);
+    expect(hostNow().style.transform).toBe("translate3d(110px, 40px, 0) scale(0.8)");
+    expect(hostNow().style.getPropertyValue("--wire-label-scale")).toBe("1.25");
+    expect(buttonsNow()[0]!.getAttribute("aria-label")).toBe("Select edge - messages");
   });
 
   it("takes its buttons away with the canvas", () => {
     const { canvas } = canvasAt({ left: 100, top: 40 });
     const labels = mount(world([LABEL("w1", -100, 50), LABEL("w2", 240, 50)]), canvas);
-    labels.frame({ x: 0, y: 0, zoom: 1 });
+    labels.frame({ x: 0, y: 0, zoom: 1 }, "near");
     expect(buttonsNow()).toHaveLength(2);
 
     labels.dispose();
