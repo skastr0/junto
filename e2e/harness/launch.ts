@@ -19,7 +19,7 @@
  *    that mode has no authoring renderer at all).
  */
 import { appendFileSync, mkdirSync } from "node:fs";
-import { lstat, readdir, stat, unlink } from "node:fs/promises";
+import { copyFile, lstat, readdir, stat, unlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
@@ -98,6 +98,8 @@ export interface LaunchOptions {
   readonly offline?: boolean;
   /** Canvas name -> native model rows, seeded into the sandbox's SQLite database. */
   readonly seedModels?: Readonly<Record<string, ModelFixture>>;
+  /** A pre-seeded junto.db copied into the sandbox before boot (large proof boards). */
+  readonly seedDatabasePath?: string;
   /** Open (or closed) agent signals seeded as durable rows before boot. */
   readonly seedAgentSignals?: ReadonlyArray<AgentSignal>;
   /**
@@ -488,6 +490,9 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
   try {
     if (options.seedRetiredCommercialState === true) {
       await writeFixtureRetiredCommercialState(sandbox);
+    }
+    if (options.seedDatabasePath !== undefined) {
+      await copyFile(options.seedDatabasePath, join(sandbox.homeDir, ".junto", "state", "junto.db"));
     }
     for (const [name, fixture] of Object.entries(seedModels)) {
       await writeFixtureModel(sandbox, name, fixture);

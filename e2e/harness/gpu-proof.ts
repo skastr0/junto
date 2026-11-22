@@ -16,8 +16,9 @@
  * are the operator's board and never enter the repo.
  */
 
-import { writeFile, mkdir } from "node:fs/promises";
-import { closeSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname } from "node:path";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
@@ -29,6 +30,7 @@ import {
   loadFactoryShapeCanvas,
   type NestedCanvasFixture,
 } from "./nested-canvas-fixture";
+import { createSandbox, destroySandbox, writeFixtureExperimentalFeatures, writeFixtureModel } from "./sandbox";
 
 export const PROOF_CANVAS = "factory";
 
@@ -176,6 +178,42 @@ export const buildProofBoard = (fixture: NestedCanvasFixture, scale: ProofScale)
 
 
 /** Launch one arm: the GPU canvas with its experimental switch, or the DOM canvas. */
+/** The build this run uses, so a schema change cannot reuse an old seed. */
+const buildTag = (): string => {
+  try {
+    const source = JSON.parse(readFileSync(join(process.cwd(), "out", "build-source.json"), "utf8")) as { commit?: string };
+    return (source.commit ?? "unknown").slice(0, 12);
+  } catch {
+    return "unknown";
+  }
+};
+
+/**
+ * Seed a large board into one SQLite file, once per scale and build, and let
+ * every launch copy it in. A 100x board is 44k nodes: writing it through the
+ * app's command path at every launch measured about 90 s of the rig's time,
+ * and an operator opens a board that is already stored, not one being written.
+ */
+const preparedSeed = async (board: ProofBoard): Promise<{ path: string; builtMs: number; cached: boolean }> => {
+  const dir = join(tmpdir(), "junto-gpu-proof-seeds");
+  await mkdir(dir, { recursive: true });
+  const path = join(
+    dir,
+    `${String(board.scale)}x-${String(board.stats.seats)}s-${String(board.stats.notes)}n-${String(board.stats.regions)}r-${buildTag()}.db`,
+  );
+  if (existsSync(path)) return { path, builtMs: 0, cached: true };
+  const started = Date.now();
+  const sandbox = await createSandbox();
+  try {
+    await writeFixtureModel(sandbox, PROOF_CANVAS, board.model);
+    await writeFixtureExperimentalFeatures(sandbox, ["gpuCanvas"]);
+    await copyFile(join(sandbox.homeDir, ".junto", "state", "junto.db"), path);
+  } finally {
+    await destroySandbox(sandbox);
+  }
+  return { path, builtMs: Date.now() - started, cached: false };
+};
+
 export const launchProofArm = async (
   board: ProofBoard,
   options: { readonly gpu: boolean; readonly extraEnv?: Readonly<Record<string, string>> },
@@ -187,8 +225,13 @@ export const launchProofArm = async (
     process.env["JUNTO_GPU_PROOF_WINDOW"] === "mini"
       ? { windowContentSize: { width: 1440, height: 900 } }
       : OPERATOR_DISPLAY;
+  const seed = await preparedSeed(board);
+  console.log(
+    `${String(board.scale)}x seed: ${seed.cached ? "reused" : `${String((seed.builtMs / 1000).toFixed(1))}s built`} (${seed.path})`,
+  );
   return launchJunto({
-    seedModels: { [PROOF_CANVAS]: board.model },
+    seedDatabasePath: seed.path,
+    seedModels: {},
     ...(options.gpu ? { seedExperimentalFeatures: ["gpuCanvas" as const] } : {}),
     ...display,
     ...(options.extraEnv === undefined ? {} : { extraEnv: options.extraEnv }),
