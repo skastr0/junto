@@ -62,4 +62,29 @@ describe("the planner's seed", () => {
     expect(change.removedCards).toEqual([]);
     expect(change.removedWires).toEqual([]);
   });
+
+  it("a seeded launch draws exactly the facts a fresh route draws", () => {
+    const fresh = createLoomPlanner();
+    const freshSet = fresh.plan(cards, wires).set;
+    const second = createLoomPlanner();
+    second.seed(seedOf(fresh));
+    const replay = second.begin(cards, wires).set;
+    const byId = (facts: ReadonlyArray<{ readonly id: string }>) => [...facts].sort((a, b) => a.id.localeCompare(b.id));
+    expect(byId(replay)).toEqual(byId(freshSet));
+  });
+
+  it("a board changed while closed routes exactly a fresh plan's facts", () => {
+    const first = createLoomPlanner();
+    first.plan(cards, wires);
+    const seed = seedOf(first);
+    const moved = cards.map((card) => (card.id === "c" ? { ...card, x: card.x + 400 } : card));
+    const seeded = createLoomPlanner();
+    seeded.seed(seed);
+    const updates = [...seeded.begin(moved, wires).set];
+    while (seeded.owed() > 0) updates.push(...seeded.step(Number.POSITIVE_INFINITY, () => 0).set);
+    const fresh = createLoomPlanner();
+    const freshSet = fresh.plan(moved, wires).set;
+    const byId = (facts: ReadonlyArray<{ readonly id: string }>) => [...facts].sort((a, b) => a.id.localeCompare(b.id));
+    expect(byId(updates)).toEqual(byId(freshSet));
+  });
 });
