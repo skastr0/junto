@@ -249,6 +249,29 @@ describe("the wire scene", () => {
     }
   });
 
+  it("re-attaches only when a tier changes the body a card draws, not on every crossing", () => {
+    const cards = board();
+    const surfaces = new Map<string, Rect>();
+    const { scene } = makeScene(cards, false, surfaces);
+    scene.apply(load([wire("w", "a", "b")]));
+    const frame = (at: number, tier: WireFrame["tier"]): boolean =>
+      scene.frame({ camera: { x: 0, y: 0, zoom: 1 }, width: 1600, height: 1000, pixelRatio: 2, tier, wall: at });
+    frame(T0, "near");
+    const near = scene.builds();
+    // Near to far changes only the paint: the plan and the strips stay.
+    frame(T0 + 16, "far");
+    expect(scene.builds()).toBe(near);
+    // Mid draws a pill where the card was: every wire re-attaches once.
+    surfaces.set("a", rect(0, 0, 150, 96));
+    frame(T0 + 32, "mid");
+    expect(scene.builds()).toBeGreaterThan(near);
+    const mid = scene.builds();
+    // Leaving mid puts the card's own edge back.
+    surfaces.clear();
+    frame(T0 + 48, "near");
+    expect(scene.builds()).toBeGreaterThan(mid);
+  });
+
   it("re-lays a track when a later run moves even though the first run and path length do not", () => {
     const { scene, frame } = makeScene(board());
     scene.apply(load([wire("f", "a", "b", "flows")]));

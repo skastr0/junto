@@ -131,6 +131,8 @@ type Entry = {
   glowStrip: Slice | undefined;
   glowKey: string;
   layout: ReadonlyArray<TrackRun>;
+  /** The runs a tier was laid at; a crossing swaps them instead of parsing the path again. */
+  layoutByTier: Partial<Record<CanvasTier, ReadonlyArray<TrackRun>>>;
   trackStrip: Slice | undefined;
   /** The layout and fits its track strip was built from; a rebuild that changes neither keeps the strip. */
   trackLayoutAt: ReadonlyArray<TrackRun> | undefined;
@@ -611,6 +613,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       syncGlowStrip(entry);
       if (entry.layout.length > 0) {
         entry.layout = [];
+        entry.layoutByTier = {};
         tracksDirty = true;
       }
       writeRecord(entry, now);
@@ -636,13 +639,16 @@ export const createWireScene = (host: WireHost): WireScene => {
       entry.strip = undefined;
     }
     if (isTrackVerb(entry.fact.row.verb)) {
+      entry.layoutByTier = {};
       entry.layout = trackLayout(route, tier);
+      entry.layoutByTier[tier] = entry.layout;
       if (entry.layout.length > 0) tracked.add(entry.id);
       else tracked.delete(entry.id);
       tracksDirty = true;
     } else if (entry.layout.length > 0) {
       // A Rewire to a plain verb leaves no track behind.
       entry.layout = [];
+      entry.layoutByTier = {};
       tracked.delete(entry.id);
       tracksDirty = true;
     }
@@ -680,7 +686,11 @@ export const createWireScene = (host: WireHost): WireScene => {
   const relayoutTracks = (): void => {
     for (const entry of entries.values()) {
       if (!isTrackVerb(entry.fact.row.verb) || entry.route === undefined) continue;
-      entry.layout = trackLayout(entry.route, tier);
+      // The runs at a tier are the same every time the camera comes back to
+      // it: parse the route once per tier, not once per crossing.
+      const cached = entry.layoutByTier[tier];
+      entry.layout = cached ?? trackLayout(entry.route, tier);
+      entry.layoutByTier[tier] = entry.layout;
       if (entry.layout.length > 0) tracked.add(entry.id);
       else tracked.delete(entry.id);
     }
@@ -723,6 +733,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       glowStrip: undefined,
       glowKey: "",
       layout: [],
+      layoutByTier: {},
       trackStrip: undefined,
       trackLayoutAt: undefined,
       fits: [],
@@ -1073,6 +1084,15 @@ export const createWireScene = (host: WireHost): WireScene => {
     visibleRevision += 1;
   };
 
+  const sameEnds = (a: Entry["ends"], b: Entry["ends"]): boolean => {
+    for (let i = 0; i < a.length; i += 1) {
+      const x = a[i]!;
+      const y = b[i]!;
+      if (x !== y && !(Number.isNaN(x) && Number.isNaN(y))) return false;
+    }
+    return true;
+  };
+
   const frame: WireScene["frame"] = (f) => {
     const moved = camera.x !== f.camera.x || camera.y !== f.camera.y || camera.zoom !== f.camera.zoom;
     const resized = viewSize.width !== f.width || viewSize.height !== f.height;
@@ -1085,11 +1105,14 @@ export const createWireScene = (host: WireHost): WireScene => {
     if (moved || resized) visibleDirty = true;
     if (f.tier !== tier) {
       tier = f.tier;
-      // The body every wire attaches to and the track layout are the tier's:
-      // every wire is rebuilt once, when the tier flips.
       refreshAll(now);
       relayoutTracks();
-      for (const id of entries.keys()) dirty.add(id);
+      // A tier changes what a card draws (the mid pill), not the plan: only a
+      // wire whose body changed re-attaches. The rest keep their strips.
+      for (const entry of entries.values()) {
+        const { ends } = readEnds(entry);
+        if (!sameEnds(ends, entry.ends)) dirty.add(entry.id);
+      }
     }
     // A card a pointer owns this frame can be somewhere its row is not yet.
     if (f.live !== undefined) {
