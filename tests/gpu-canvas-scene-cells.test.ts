@@ -426,3 +426,40 @@ describe("the card grid", () => {
     expect(grid.query({ x: 0, y: 0, width: 100, height: 100 }, [])).toEqual([]);
   });
 });
+
+describe("a pan's allocations (issue 912)", () => {
+  it("reuse the damage list and its rectangles from frame to frame, moved with the movers", () => {
+    const ring = (id: string): Quad => ({
+      key: `${id}.ring`,
+      kind: "shape",
+      band: "cards",
+      z: 1,
+      rect: { x: 0, y: 0, width: 40, height: 40 },
+      tiers: 15,
+      scale: { kind: "board" },
+      style: {},
+      motion: { kind: "turn", periodMs: 1200 },
+    });
+    const scene = createScene({ painter: (fact) => ({ quads: [ring(fact.id)], dim: { opacity: 1, saturate: 1 }, lift: 0 }) });
+    const cards = Array.from({ length: 40 }, (_, index) => factAt(`s${String(index)}`, index * 300));
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards, wires: [] });
+    const reach = (x: number) => {
+      scene.prepare({ x, y: 0, width: 1440, height: 836 }, "near");
+      return scene.motionDamage(0)!;
+    };
+    const first = reach(0);
+    const rects = [...first];
+    const firstAt = rects.map((rect) => rect.x);
+    expect(rects.length).toBeGreaterThan(2);
+    // Far enough that the range rebuilds: other cards move into view.
+    const later = reach(3_000);
+    expect(later).toBe(first);
+    expect(later.length).toBeGreaterThan(2);
+    for (const [index, rect] of later.entries()) if (index < rects.length) expect(rect).toBe(rects[index]);
+    expect(later.map((rect) => rect.x)).not.toEqual(firstAt);
+    // Each is still the ring's reach about its own centre: card x + 20, half the diagonal grown and shifted.
+    const near = later.map((rect) => rect.x + rect.width / 2).sort((a, b) => a - b);
+    expect(near.every((cx) => (cx - 20) % 300 === 0)).toBe(true);
+    expect(near.every((cx) => cx >= 3_000 - 300 && cx <= 3_000 + 1440 + 300)).toBe(true);
+  });
+});

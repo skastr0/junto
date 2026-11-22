@@ -177,6 +177,8 @@ type CardSlot = {
   stale: boolean;
   /** The rebuild that last gave it a role; a card with an older stamp holds no cells. */
   stamp: number;
+  /** The rebuild that painted it, which took its cells as it painted. */
+  paintedEpoch?: number;
   role: Role;
   /** Its place in paint order (z, then id), from the sorted master list. */
   paintIndex: number;
@@ -251,6 +253,8 @@ const rectOfFact = (fact: CardFact): Rect => {
 
 const contains = (rect: Rect, at: Point): boolean =>
   at.x >= rect.x && at.x <= rect.x + rect.width && at.y >= rect.y && at.y <= rect.y + rect.height;
+
+type MutableRect = { x: number; y: number; width: number; height: number };
 
 const intersects = (a: Rect, b: Rect): boolean =>
   a.x <= b.x + b.width && b.x <= a.x + a.width && a.y <= b.y + b.height && b.y <= a.y + a.height;
@@ -480,7 +484,7 @@ export const createScene = (options: {
   let ownerCapacity = 256;
   let order = new Uint32Array(1024);
   let orderCount = 0;
-  let bandEnds: [number, number, number] = [0, 0, 0];
+  const bandEnds: [number, number, number] = [0, 0, 0];
   let orderDirty = true;
   /** The draw list is culled on the GPU (renderer `setCull("gpu")`): candidates keep every tier. */
   let cullOnGpu = false;
@@ -527,11 +531,15 @@ export const createScene = (options: {
    * periodic motion in view keeps the loop running, a one-shot only until it
    * ends (issue 915). Nothing visible stops.
    */
-  let movers: Array<{ readonly ref: QuadRef; readonly owner: number }> = [];
+  /** The draw list's moving records and their owners, side by side (no object per mover). */
+  const moverRefs: QuadRef[] = [];
+  const moverOwners: number[] = [];
   /** Page-clock instant the last one-shot in view ends. */
   let oneShotUntil = 0;
   /** The board rectangles the in-view movers can reach this frame (the damage). */
-  const moverRects: Rect[] = [];
+  const moverRects: MutableRect[] = [];
+  /** Every rectangle the damage list has used; a shorter list keeps the rest for later. */
+  const moverPool: MutableRect[] = [];
   /** Page-clock instant of the last motion test, so a one-shot that ended since is drawn at rest once. */
   let motionTestedAt = 0;
   /** The empty set a board with no clusters gathers. */
@@ -1592,7 +1600,7 @@ export const createScene = (options: {
     dirtyOwners.clear();
     allQuadsDirty = true;
     orderCount = 0;
-    bandEnds = [0, 0, 0];
+    bandEnds.fill(0);
     transitionUntil = 0;
     fadeOwed = false;
     fadeEnding = false;
@@ -1833,6 +1841,12 @@ export const createScene = (options: {
   /** Cards and badges the last rebuild gave a role, so the next can drop what left. */
   let liveCards: CardSlot[] = [];
   let liveBadges: ClusterSlot[] = [];
+  /** Storage the rebuild reuses: the live lists' spares, and its scratch lists. */
+  let liveSpare: CardSlot[] = [];
+  let badgeSpare: ClusterSlot[] = [];
+  const jumpScratch: CardSlot[] = [];
+  const jumpFound: number[] = [];
+  const lensScratch: CardSlot[] = [];
   let lastRange = "";
   /**
    * Design values for the range's hysteresis: a new range reaches an eighth
@@ -2179,19 +2193,24 @@ export const createScene = (options: {
     if (lensHeld === undefined || !containsRect(lensHeld, next.view)) lensHeld = insetBy(next.view, Math.max(next.view.width, next.view.height) / 3);
   };
 
-  const settleLive = (exact: boolean, reask: boolean, fresh?: ReadonlySet<CardSlot>): void => {
-    for (const card of liveCards) {
+  const settleLive = (exact: boolean, reask: boolean, skipFresh = false): void => {
+    for (let c = 0; c < liveCards.length; c += 1) {
+      const card = liveCards[c]!;
       // A card painted in this rebuild took its cells as it painted.
-      if (fresh?.has(card)) continue;
+      if (skipFresh && card.paintedEpoch === liveEpoch) continue;
       const gathered = gatheredSeats.has(card.id);
-      for (const ref of card.ordered) {
+      const ordered = card.ordered;
+      for (let i = 0; i < ordered.length; i += 1) {
+        const ref = ordered[i]!;
         settleQuad(ref, card.role, gathered, exact);
         if (reask && ref.atlas && cellOf(ref.slot) !== NO_ATLAS_CELL) holdCell(ref, heldScale[ref.slot]!);
         else if (reask && ref.atlas && card.role.view && (ref.tiers & liveMask) !== 0 && gateOpen(ref.painted) && !gathered) holdCell(ref, sourceScaleFor(ref.painted));
       }
     }
-    for (const badge of liveBadges) {
-      for (const ref of badge.ordered) {
+    for (let b = 0; b < liveBadges.length; b += 1) {
+      const ordered = liveBadges[b]!.ordered;
+      for (let i = 0; i < ordered.length; i += 1) {
+        const ref = ordered[i]!;
         settleQuad(ref, VIEW_ROLE, false, exact);
         if (reask && ref.atlas && cellOf(ref.slot) !== NO_ATLAS_CELL) holdCell(ref, heldScale[ref.slot]!);
       }
@@ -2205,15 +2224,20 @@ export const createScene = (options: {
    * jump's destination arrives.
    */
   /** Write a card's draw-list run for one band at `at`; returns the end. */
-  const writeRun = (card: CardSlot, band: number, mask: number, at: number, moved: Array<{ readonly ref: QuadRef; readonly owner: number }>): number => {
-    for (const ref of card.bands[band]!) {
+  const writeRun = (card: CardSlot, band: number, mask: number, at: number): number => {
+    const refs = card.bands[band]!;
+    for (let i = 0; i < refs.length; i += 1) {
+      const ref = refs[i]!;
       if ((ref.tiers & mask) === 0) continue;
       // Motion's gate: a ring's rest pose draws only while motion is off,
       // its moving parts only while it runs (contract, `Quad.gate`).
       if (!gateOpen(ref.painted)) continue;
       order[at] = ref.slot;
       at += 1;
-      if (ref.motion !== undefined && (ref.tiers & liveMask) !== 0) moved.push({ ref, owner: card.slot });
+      if (ref.motion !== undefined && (ref.tiers & liveMask) !== 0) {
+        moverRefs.push(ref);
+        moverOwners.push(card.slot);
+      }
     }
     return at;
   };
@@ -2227,12 +2251,22 @@ export const createScene = (options: {
     const runs = card.runs!;
     const mask = cullOnGpu ? ALL_TIERS : liveMask;
     const gathered = gatheredSeats.has(card.id);
-    const moved: Array<{ readonly ref: QuadRef; readonly owner: number }> = [];
+    // Its old movers go; writeRun appends its new ones.
+    let kept = 0;
+    for (let i = 0; i < moverRefs.length; i += 1) {
+      if (moverOwners[i] === card.slot) continue;
+      moverRefs[kept] = moverRefs[i]!;
+      moverOwners[kept] = moverOwners[i]!;
+      kept += 1;
+    }
+    moverRefs.length = kept;
+    moverOwners.length = kept;
     for (let band = 0; band < BAND_COUNT; band += 1) {
       const start = runs[band * 2]!;
       const length = runs[band * 2 + 1]!;
       let fresh = 0;
-      if (!gathered) for (const ref of card.bands[band]!) if ((ref.tiers & mask) !== 0 && gateOpen(ref.painted)) fresh += 1;
+      const refs = card.bands[band]!;
+      if (!gathered) for (let i = 0; i < refs.length; i += 1) if ((refs[i]!.tiers & mask) !== 0 && gateOpen(refs[i]!.painted)) fresh += 1;
       const delta = fresh - length;
       if (delta !== 0) {
         if (orderCount + delta > order.length) {
@@ -2244,13 +2278,12 @@ export const createScene = (options: {
         }
         order.copyWithin(start + fresh, start + length, orderCount);
         orderCount += delta;
-        bandEnds = [
-          bandEnds[0] + (band <= 0 ? delta : 0),
-          bandEnds[1] + (band <= 1 ? delta : 0),
-          bandEnds[2] + delta,
-        ];
+        if (band <= 0) bandEnds[0] += delta;
+        if (band <= 1) bandEnds[1] += delta;
+        bandEnds[2] += delta;
         // Later runs move: later cards in this band, every card in later bands.
-        for (const other of visibleCards) {
+        for (let i = 0; i < visibleCards.length; i += 1) {
+          const other = visibleCards[i]!;
           if (other === card || other.runsEpoch !== liveEpoch) continue;
           const theirs = other.runs!;
           if (other.paintIndex > card.paintIndex) theirs[band * 2] = theirs[band * 2]! + delta;
@@ -2258,10 +2291,19 @@ export const createScene = (options: {
         }
         for (let later = band + 1; later < BAND_COUNT; later += 1) runs[later * 2] = runs[later * 2]! + delta;
       }
-      if (!gathered) writeRun(card, band, mask, start, moved);
+      if (!gathered) writeRun(card, band, mask, start);
       runs[band * 2 + 1] = fresh;
     }
-    movers = movers.filter((mover) => mover.owner !== card.slot).concat(moved);
+  };
+
+  /** Paint the cards in a list that are new or stale; each takes its cells as it paints. */
+  const paintNear = (list: ReadonlyArray<CardSlot>): void => {
+    for (let i = 0; i < list.length; i += 1) {
+      const card = list[i]!;
+      if (card.painted && !card.stale) continue;
+      paint(card);
+      card.paintedEpoch = liveEpoch;
+    }
   };
 
   const rebuild = (view: Rect, tier: CanvasTier, zoom: number, exact: boolean): void => {
@@ -2275,20 +2317,22 @@ export const createScene = (options: {
     visibleSlots.length = 0;
     grid.query(range.rect, visibleSlots);
     visibleCards.length = 0;
-    for (const slot of visibleSlots) {
-      const card = slots[slot];
+    for (let i = 0; i < visibleSlots.length; i += 1) {
+      const card = slots[visibleSlots[i]!];
       if (card === undefined) continue;
       card.stamp = liveEpoch;
       card.role = inwardRect !== undefined && overlaps(card.rect, inwardRect) ? VIEW_INWARD_ROLE : VIEW_ROLE;
       visibleCards.push(card);
     }
     visibleCards.sort(byPaintIndex);
-    const jumpCards: CardSlot[] = [];
+    const jumpCards = jumpScratch;
+    jumpCards.length = 0;
     if (jump !== undefined) {
-      const found: number[] = [];
+      const found = jumpFound;
+      found.length = 0;
       grid.query(insetBy(jump.view, marginAt(jump.zoom)), found);
-      for (const slot of found) {
-        const card = slots[slot];
+      for (let i = 0; i < found.length; i += 1) {
+        const card = slots[found[i]!];
         if (card === undefined) continue;
         if (card.stamp === liveEpoch) {
           card.role = { ...card.role, jump: true };
@@ -2299,8 +2343,10 @@ export const createScene = (options: {
         jumpCards.push(card);
       }
     }
-    const lensOnly: CardSlot[] = [];
-    for (const card of lensCards) {
+    const lensOnly = lensScratch;
+    lensOnly.length = 0;
+    for (let i = 0; i < lensCards.length; i += 1) {
+      const card = lensCards[i]!;
       if (card.stamp === liveEpoch) {
         card.role = { ...card.role, lens: true };
         continue;
@@ -2311,48 +2357,47 @@ export const createScene = (options: {
     }
     // Build what came near; a stale card repaints with its role in force, so
     // its cells are taken in the same pass.
-    const fresh = new Set<CardSlot>();
-    for (const card of lensOnly) {
-      if (card.painted && !card.stale) continue;
-      paint(card);
-      fresh.add(card);
-    }
-    for (const card of visibleCards) {
-      if (card.painted && !card.stale) continue;
-      paint(card);
-      fresh.add(card);
-    }
-    for (const card of jumpCards) {
-      if (card.painted && !card.stale) continue;
-      paint(card);
-      fresh.add(card);
-    }
+    paintNear(lensOnly);
+    paintNear(visibleCards);
+    paintNear(jumpCards);
     // What left the view drops its cells; what left the keep ring (a screen
     // beyond the view on every side) lets go of its quads too.
     const keep = insetBy(view, Math.max(view.width, view.height));
-    for (const card of liveCards) {
+    for (let c = 0; c < liveCards.length; c += 1) {
+      const card = liveCards[c]!;
       if (card.stamp === liveEpoch) continue;
-      for (const ref of card.ordered) if (ref.atlas) dropCell(ref.slot);
+      for (let i = 0; i < card.ordered.length; i += 1) if (card.ordered[i]!.atlas) dropCell(card.ordered[i]!.slot);
     }
     for (const card of paintedCards) {
       if (card.stamp === liveEpoch || intersects(card.rect, keep)) continue;
       releaseShapes(card);
     }
-    liveCards = jumpCards.length === 0 && lensOnly.length === 0 ? visibleCards.slice() : [...visibleCards, ...jumpCards, ...lensOnly];
+    // The live lists swap with their spares, so a rebuild allocates none.
+    const nextLive = liveSpare;
+    nextLive.length = 0;
+    for (let i = 0; i < visibleCards.length; i += 1) nextLive.push(visibleCards[i]!);
+    for (let i = 0; i < jumpCards.length; i += 1) nextLive.push(jumpCards[i]!);
+    for (let i = 0; i < lensOnly.length; i += 1) nextLive.push(lensOnly[i]!);
+    liveSpare = liveCards;
+    liveCards = nextLive;
 
     // Badges near the screen draw and hold cells; the rest only answer the pointer.
-    const badges: ClusterSlot[] = [];
-    for (const badge of clustersActive) {
+    const badges = badgeSpare;
+    badges.length = 0;
+    for (let b = 0; b < clustersActive.length; b += 1) {
+      const badge = clustersActive[b]!;
       if (!intersects(badge.rect, range.rect)) continue;
       badge.stamp = liveEpoch;
       badges.push(badge);
     }
-    for (const badge of liveBadges) {
+    for (let b = 0; b < liveBadges.length; b += 1) {
+      const badge = liveBadges[b]!;
       if (badge.stamp === liveEpoch) continue;
-      for (const ref of badge.ordered) if (ref.atlas) dropCell(ref.slot);
+      for (let i = 0; i < badge.ordered.length; i += 1) if (badge.ordered[i]!.atlas) dropCell(badge.ordered[i]!.slot);
     }
+    badgeSpare = liveBadges;
     liveBadges = badges;
-    settleLive(exact, false, fresh);
+    settleLive(exact, false, true);
 
     // The draw list: the current tier's quads with their gate open, bands in
     // order, cards in paint index, badges over every card.
@@ -2363,9 +2408,9 @@ export const createScene = (options: {
     // With the cull on the GPU, every tier's quads are candidates: the
     // compute pass filters by tier and view per quad, each frame.
     const mask = cullOnGpu ? ALL_TIERS : liveMask;
-    const counts = [0, 0, 0];
     let at = 0;
-    const moved: Array<{ readonly ref: QuadRef; readonly owner: number }> = [];
+    moverRefs.length = 0;
+    moverOwners.length = 0;
     for (const card of visibleCards) {
       card.runs ??= [0, 0, 0, 0, 0, 0];
       card.runsEpoch = liveEpoch;
@@ -2374,10 +2419,9 @@ export const createScene = (options: {
       for (const card of visibleCards) {
         const start = at;
         // A gathered seat draws nothing: its badge stands for it.
-        if (!gatheredSeats.has(card.id)) at = writeRun(card, band, mask, at, moved);
+        if (!gatheredSeats.has(card.id)) at = writeRun(card, band, mask, at);
         card.runs![band * 2] = start;
         card.runs![band * 2 + 1] = at - start;
-        counts[band] = counts[band]! + (at - start);
       }
       // Badges paint in the lifted band, over every card (DOM z 3000).
       if (band === 2) {
@@ -2386,15 +2430,17 @@ export const createScene = (options: {
             if ((ref.tiers & mask) === 0) continue;
             order[at] = ref.slot;
             at += 1;
-            counts[2] = counts[2]! + 1;
-            if (ref.motion !== undefined && (ref.tiers & liveMask) !== 0) moved.push({ ref, owner: badge.owner });
+            if (ref.motion !== undefined && (ref.tiers & liveMask) !== 0) {
+              moverRefs.push(ref);
+              moverOwners.push(badge.owner);
+            }
           }
         }
       }
+      // Each band ends where the list stands after it (the renderer copies them).
+      bandEnds[band] = at;
     }
-    bandEnds = [counts[0]!, counts[0]! + counts[1]!, counts[0]! + counts[1]! + counts[2]!];
-    orderCount = bandEnds[2];
-    movers = moved;
+    orderCount = at;
   };
 
   /**
@@ -2405,8 +2451,10 @@ export const createScene = (options: {
   const refreshMotion = (view: Rect): void => {
     let periodic = false;
     let until = 0;
-    moverRects.length = 0;
-    for (const { ref, owner } of movers) {
+    let rects = 0;
+    for (let index = 0; index < moverRefs.length; index += 1) {
+      const ref = moverRefs[index]!;
+      const owner = moverOwners[index]!;
       const motion = ref.motion!;
       const oneShot = motion.kind === "land" || motion.kind === "landed" || motion.kind === "rise";
       let end = 0;
@@ -2417,16 +2465,23 @@ export const createScene = (options: {
         if (end <= motionTestedAt) continue;
       }
       // Turned, grown and shifted at most this far from its centre.
-      const rect = placedRect(ref, owner);
-      const half = Math.hypot(rect.width, rect.height) * 0.5 * MOTION_GROWTH + MOTION_SHIFT;
+      const rect = placeInto(ref, owner, placedScratch);
+      const half = Math.sqrt(rect.width * rect.width + rect.height * rect.height) * 0.5 * MOTION_GROWTH + MOTION_SHIFT;
       const cx = rect.x + rect.width / 2;
       const cy = rect.y + rect.height / 2;
-      const reach = { x: cx - half, y: cy - half, width: half * 2, height: half * 2 };
-      if (!intersects(reach, view)) continue;
-      moverRects.push(reach);
+      if (cx + half < view.x || cx - half > view.x + view.width || cy + half < view.y || cy - half > view.y + view.height) continue;
+      // The damage list reuses its rectangles; the frame reads them before the next test.
+      const reach = (moverPool[rects] ??= { x: 0, y: 0, width: 0, height: 0 });
+      moverRects[rects] = reach;
+      reach.x = cx - half;
+      reach.y = cy - half;
+      reach.width = half * 2;
+      reach.height = half * 2;
+      rects += 1;
       if (!oneShot) periodic = true;
       else if (end > clockNow) until = Math.max(until, end);
     }
+    moverRects.length = rects;
     motionTestedAt = clockNow;
     motionVisible = periodic;
     oneShotUntil = until;
@@ -2739,7 +2794,8 @@ export const createScene = (options: {
   // --- drawn parts, for the proof's part-level ink check (test hook only) ----
 
   /** A quad's board rectangle as the shader places it this frame, motion aside (renderer.ts vs). */
-  const placedRect = (ref: QuadRef, owner: number): Rect => {
+  /** Where a record draws on the board this frame, written into `out` (no object per call). */
+  const placeInto = (ref: QuadRef, owner: number, out: MutableRect): MutableRect => {
     const quad = ref.painted;
     const at = owner * 8;
     const ox = owners[at]!;
@@ -2751,43 +2807,60 @@ export const createScene = (options: {
     const tier = currentTier;
     const farOrOverview = tier === "far" || tier === "overview";
     const { rect } = quad;
-    const relCentre = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-    const sized = (scale: number, cx: number, cy: number): Rect => ({
-      x: cx - (rect.width * scale) / 2,
-      y: cy - (rect.height * scale) / 2,
-      width: rect.width * scale,
-      height: rect.height * scale,
-    });
-    const boxCentre = { x: boxW * 0.5 + centreDx, y: boxH * 0.5 };
+    const relX = rect.x + rect.width / 2;
+    const relY = rect.y + rect.height / 2;
+    const boxX = boxW * 0.5 + centreDx;
+    const boxY = boxH * 0.5;
     const rule = quad.scale;
+    let scale = 1;
+    let cx = 0;
+    let cy = 0;
     switch (rule.kind) {
       case "board":
-        return { x: ox + rect.x, y: oy + rect.y, width: rect.width, height: rect.height };
+        out.x = ox + rect.x;
+        out.y = oy + rect.y;
+        out.width = rect.width;
+        out.height = rect.height;
+        return out;
       case "seat": {
-        const scale = scaleMultiplier(quad, tier, zoom);
-        const base = farOrOverview ? boxCentre : rule.anchor;
-        return sized(scale, ox + base.x + (relCentre.x - rule.anchor.x) * scale, oy + base.y + (relCentre.y - rule.anchor.y) * scale);
+        scale = scaleMultiplier(quad, tier, zoom);
+        const far = farOrOverview;
+        cx = ox + (far ? boxX : rule.anchor.x) + (relX - rule.anchor.x) * scale;
+        cy = oy + (far ? boxY : rule.anchor.y) + (relY - rule.anchor.y) * scale;
+        break;
       }
       case "node": {
-        const scale = nodeScale(zoom);
-        return sized(scale, ox + rule.anchor.x + (relCentre.x - rule.anchor.x) * scale, oy + rule.anchor.y + (relCentre.y - rule.anchor.y) * scale);
+        scale = nodeScale(zoom);
+        cx = ox + rule.anchor.x + (relX - rule.anchor.x) * scale;
+        cy = oy + rule.anchor.y + (relY - rule.anchor.y) * scale;
+        break;
       }
       case "hover": {
-        const scale = hoverCardScale(zoom);
-        const base = tier === "far" ? boxCentre : rule.anchor;
-        return sized(scale, ox + base.x + (relCentre.x - rule.anchor.x) * scale, oy + base.y + (relCentre.y - rule.anchor.y) * scale);
+        scale = hoverCardScale(zoom);
+        const far = tier === "far";
+        cx = ox + (far ? boxX : rule.anchor.x) + (relX - rule.anchor.x) * scale;
+        cy = oy + (far ? boxY : rule.anchor.y) + (relY - rule.anchor.y) * scale;
+        break;
       }
       case "seatTag": {
         const far = Math.max(1, Math.min(farSeatScale(zoom), rule.cap));
         const seatScale = tier === "far" ? far : tier === "overview" ? Math.max(seatFloorScale(zoom), Math.min(farSeatScale(zoom), rule.cap)) : 1;
-        const base = farOrOverview ? boxCentre : rule.anchor;
-        const topX = base.x + (relCentre.x - rule.anchor.x) * seatScale;
-        const topY = base.y + (rect.y - rule.anchor.y) * seatScale;
-        const scale = farSeatScale(zoom) * 1.4;
-        return sized(scale, ox + topX, oy + topY + (rect.height * scale) / 2);
+        const topX = (farOrOverview ? boxX : rule.anchor.x) + (relX - rule.anchor.x) * seatScale;
+        const topY = (farOrOverview ? boxY : rule.anchor.y) + (rect.y - rule.anchor.y) * seatScale;
+        scale = farSeatScale(zoom) * 1.4;
+        cx = ox + topX;
+        cy = oy + topY + (rect.height * scale) / 2;
+        break;
       }
     }
+    out.width = rect.width * scale;
+    out.height = rect.height * scale;
+    out.x = cx - out.width / 2;
+    out.y = cy - out.height / 2;
+    return out;
   };
+  const placedScratch: MutableRect = { x: 0, y: 0, width: 0, height: 0 };
+  const placedRect = (ref: QuadRef, owner: number): Rect => placeInto(ref, owner, { x: 0, y: 0, width: 0, height: 0 });
 
   const partOf = (ref: QuadRef, owner: number, drawnOwner: boolean): DrawnPart => {
     const quad = ref.painted;
