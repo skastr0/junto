@@ -198,18 +198,21 @@ describe("gpu atlas (#911)", () => {
     expect(seen[0]!.r === 1 && seen[0]!.g === 1 && seen[0]!.b === 1).toBe(false);
   });
 
-  it("reclaims unreferenced LRU cells before adding a page", async () => {
+  it("reclaims unreferenced LRU plots before adding a page (lazy pool init)", async () => {
     const { atlas } = atlasWith({
       size: 64,
       rasterizeText: async () => pixels(40, 40),
     });
     atlas.attach(fakeDevice().device);
+    // Lazy pool init: 0 pages and 0 bytes allocated before content arrives
+    expect(atlas.stats().pages).toBe(0);
+    expect(atlas.stats().bytesInUse).toBe(0);
 
     const a = atlas.acquire(textQuad({ ...textRun, text: "a" }), 1);
     await settle();
     await settle();
-    // 1 rgba page + 1 r8unorm coverage page
-    expect(atlas.stats().pages).toBe(2);
+    // Only the coverage pool page was created (not RGBA)
+    expect(atlas.stats().pages).toBe(1);
     expect(atlas.stats().evictions).toBe(0);
 
     // Release a: stays cached until space is needed
@@ -217,23 +220,22 @@ describe("gpu atlas (#911)", () => {
     expect(atlas.stats().pinnedCells).toBe(0);
     expect(atlas.stats().evictions).toBe(0);
 
-    // Acquire b (40x40 doesn't fit beside 40x40 on a 64x64 page): reclaims a instead of adding a page!
+    // Acquire b (40x40 doesn't fit beside 40x40 on a 64x64 plot): reclaims the plot instead of adding a page!
     const b = atlas.acquire(textQuad({ ...textRun, text: "b" }), 1);
     await settle();
     await settle();
     expect(atlas.hasImage(b)).toBe(true);
-    expect(atlas.stats().pages).toBe(2);
+    expect(atlas.stats().pages).toBe(1);
     expect(atlas.stats().evictions).toBe(1);
   });
 
-  it("adds a page on demand only when referenced cells do not fit", async () => {
+  it("adds an independent page on demand with zero copies when referenced plots are full", async () => {
     const { atlas } = atlasWith({
       size: 64,
       rasterizeText: async () => pixels(40, 40),
     });
     const fake = fakeDevice();
     atlas.attach(fake.device);
-    const genBefore = atlas.binding.textureGeneration;
 
     const a = atlas.acquire(textQuad({ ...textRun, text: "a" }), 1);
     const b = atlas.acquire(textQuad({ ...textRun, text: "b" }), 1);
@@ -242,13 +244,11 @@ describe("gpu atlas (#911)", () => {
 
     expect(atlas.hasImage(a)).toBe(true);
     expect(atlas.hasImage(b)).toBe(true);
-    expect(atlas.stats().pages).toBe(3); // 1 rgba + 2 coverage pages
+    expect(atlas.stats().pages).toBe(2); // 2 independent coverage pages
     expect(atlas.stats().evictions).toBe(0);
-    expect(atlas.binding.textureGeneration).toBeGreaterThan(genBefore!);
-    expect(fake.textureCopies.length).toBe(1);
-    // a on layer 0, b on layer 1
-    expect(atlas.binding.cells[a * ATLAS_CELL_FLOATS + 4]).toBe(0);
-    expect(atlas.binding.cells[b * ATLAS_CELL_FLOATS + 4]).toBe(1);
+    expect(fake.textureCopies.length).toBe(0); // zero copies on page growth!
+    expect(atlas.binding.standalone?.has(a)).toBe(false); // page 0 uses default binding
+    expect(atlas.binding.standalone?.has(b)).toBe(true);  // page 1 binds via standalone map
   });
 
   it("overwrites fixed-box status lines in place when refCount is 1", async () => {
@@ -450,7 +450,7 @@ describe("gpu atlas (#911)", () => {
     atlas.attach(second.device);
     await settle();
     await settle();
-    expect(second.textures()).toBe(2); // 1 rgba + 1 r8unorm coverage texture
+    expect(second.textures()).toBe(3); // 2 1x1 dummies + 1 lazy coverage page for the pinned text cell
     // Only the referenced cell was re-rasterized (1 copy, not 2)
     expect(second.copies.length).toBe(1);
     expect(atlas.hasImage(pinned)).toBe(true);
