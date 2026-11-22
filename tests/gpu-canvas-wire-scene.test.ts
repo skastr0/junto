@@ -234,6 +234,36 @@ describe("the wire scene", () => {
     expect(scene.trackPool.extent()).toBeGreaterThan(0);
   });
 
+  it("re-lays a track when a later run moves even though the first run and path length do not", () => {
+    const { scene, frame } = makeScene(board());
+    scene.apply(load([wire("f", "a", "b", "flows")]));
+    const plan = (x: number): WireRouteFact => ({
+      id: "f",
+      sourceSide: "right",
+      targetSide: "left",
+      source: { x: 260, y: 48 },
+      target: { x: 600, y: 48 },
+      lane: { source: { x: 0, y: 0 }, target: { x: 0, y: 0 } },
+      points: [
+        { x: 260, y: 48 },
+        { x, y: 48 },
+        { x, y: 200 },
+        { x: 600, y: 200 },
+        { x: 600, y: 48 },
+      ],
+      cable: false,
+    });
+    scene.apply({ kind: "routes", set: [plan(430)], remove: [] });
+    frame(T0);
+    const before = scene.trackPool.vertices().slice();
+    expect(before.length).toBeGreaterThan(0);
+    // 430 to 420 keeps every coordinate the same width, so the path string is
+    // as long as before while the second horizontal run grows ten units.
+    scene.apply({ kind: "routes", set: [plan(420)], remove: [] });
+    frame(T0 + 16);
+    expect(scene.trackPool.vertices().slice()).not.toEqual(before);
+  });
+
   it("selects a wire to full opacity with a glow strip, and lets the glow go when it is released", () => {
     const { scene, frame } = makeScene(board());
     scene.apply(load([wire("w", "a", "b")]));

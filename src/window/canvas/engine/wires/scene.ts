@@ -132,8 +132,9 @@ type Entry = {
   glowKey: string;
   layout: ReadonlyArray<TrackRun>;
   trackStrip: Slice | undefined;
-  /** The runs and fits its track strip was built from; a rebuild with the same key keeps the strip. */
-  trackKey: string;
+  /** The layout and fits its track strip was built from; a rebuild that changes neither keeps the strip. */
+  trackLayoutAt: ReadonlyArray<TrackRun> | undefined;
+  fits: ReadonlyArray<number>;
   paint: WirePaint;
   look: WireLook;
   opacity: Tween;
@@ -636,9 +637,13 @@ export const createWireScene = (host: WireHost): WireScene => {
     }
     if (isTrackVerb(entry.fact.row.verb)) {
       entry.layout = trackLayout(route, tier);
-      entry.trackKey = "";
       if (entry.layout.length > 0) tracked.add(entry.id);
       else tracked.delete(entry.id);
+      tracksDirty = true;
+    } else if (entry.layout.length > 0) {
+      // A Rewire to a plain verb leaves no track behind.
+      entry.layout = [];
+      tracked.delete(entry.id);
       tracksDirty = true;
     }
     syncGlowStrip(entry);
@@ -653,20 +658,21 @@ export const createWireScene = (host: WireHost): WireScene => {
     const fits = trackFits(layouts, tier);
     for (const entry of entries.values()) {
       const runs = entry.layout;
-      if (runs.length === 0) {
+      if (runs.length === 0 || !isTrackVerb(entry.fact.row.verb)) {
         trackPool.free(entry.trackStrip);
         entry.trackStrip = undefined;
-        entry.trackKey = "";
+        entry.trackLayoutAt = undefined;
+        entry.fits = [];
         continue;
       }
       const fit = fits[entry.id] ?? [];
       // A rebuild that changes nothing near this track leaves its strip where
-      // it is: only a changed run or fit re-puts vertices.
-      const key = `${runs.length}|${fit.join(",")}|${runs[0]?.x ?? 0},${runs[0]?.y ?? 0}|${entry.line?.length ?? 0}`;
-      if (key === entry.trackKey && entry.trackStrip !== undefined) continue;
+      // it is: only a changed layout or fit re-puts vertices.
+      if (entry.trackStrip !== undefined && entry.trackLayoutAt === runs && entry.fits.length === fit.length && entry.fits.every((v, i) => v === fit[i])) continue;
       const strip = buildTrackStrip(runs, tier, { fits: fit, slot: entry.slot });
       entry.trackStrip = strip.count > 0 ? trackPool.put(entry.trackStrip, strip.vertices, strip.count) : undefined;
-      entry.trackKey = entry.trackStrip === undefined ? "" : key;
+      entry.trackLayoutAt = runs;
+      entry.fits = fit;
     }
     tracksDirty = false;
   };
@@ -675,7 +681,6 @@ export const createWireScene = (host: WireHost): WireScene => {
     for (const entry of entries.values()) {
       if (!isTrackVerb(entry.fact.row.verb) || entry.route === undefined) continue;
       entry.layout = trackLayout(entry.route, tier);
-      entry.trackKey = "";
       if (entry.layout.length > 0) tracked.add(entry.id);
       else tracked.delete(entry.id);
     }
@@ -716,7 +721,8 @@ export const createWireScene = (host: WireHost): WireScene => {
       glowKey: "",
       layout: [],
       trackStrip: undefined,
-      trackKey: "",
+      trackLayoutAt: undefined,
+      fits: [],
       paint,
       look,
       // A new wire is at its paint at once: it does not fade in from nothing.
