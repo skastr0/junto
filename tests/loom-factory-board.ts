@@ -26,7 +26,10 @@ export type FactoryBoard = {
 export const factoryFixturePath = (): string =>
   process.env.JUNTO_FACTORY_FIXTURE ?? join(__dirname, "..", "e2e/scenarios/zz-idle-probe.factory.json");
 
-export const factoryBoard = (path = factoryFixturePath()): FactoryBoard => {
+const GAP = 1200;
+const columnsFor = (copies: number): number => (copies === 1 ? 1 : copies === 10 ? 5 : 10);
+
+export const factoryBoard = (copies = 1, path = factoryFixturePath()): FactoryBoard => {
   const fixture = JSON.parse(readFileSync(path, "utf8")) as {
     readonly model: {
       readonly nodes: ReadonlyArray<{
@@ -46,22 +49,37 @@ export const factoryBoard = (path = factoryFixturePath()): FactoryBoard => {
       }>;
     };
   };
-  const geometry: LoomNode[] = fixture.model.nodes.map((node) => ({
-    nodeId: node.id,
-    x: node.x,
-    y: node.y,
-    width: node.width,
-    height: node.height,
-    obstacle: node.kind !== "region",
-    dragging: false,
-  }));
-  const wires: LoomWire[] = fixture.model.wires.map((wire) => ({
-    id: wire.id,
-    source: wire.from,
-    target: wire.to,
-    heldSource: wire.fromSide ?? "right",
-    heldTarget: wire.toSide ?? "left",
-  }));
+  const base = fixture.model.nodes;
+  const boundWidth = Math.max(...base.map((node) => node.x + node.width));
+  const boundHeight = Math.max(...base.map((node) => node.y + node.height));
+  const columns = columnsFor(copies);
+  const geometry: LoomNode[] = [];
+  const wires: LoomWire[] = [];
+  for (let tile = 0; tile < copies; tile += 1) {
+    const prefix = copies === 1 ? "" : `t${tile}-`;
+    const dx = (tile % columns) * (boundWidth + GAP);
+    const dy = Math.floor(tile / columns) * (boundHeight + GAP);
+    for (const node of base) {
+      geometry.push({
+        nodeId: `${prefix}${node.id}`,
+        x: node.x + dx,
+        y: node.y + dy,
+        width: node.width,
+        height: node.height,
+        obstacle: node.kind !== "region",
+        dragging: false,
+      });
+    }
+    for (const wire of fixture.model.wires) {
+      wires.push({
+        id: `${prefix}${wire.id}`,
+        source: `${prefix}${wire.from}`,
+        target: `${prefix}${wire.to}`,
+        heldSource: wire.fromSide ?? "right",
+        heldTarget: wire.toSide ?? "left",
+      });
+    }
+  }
   const specs = specsOf(wires, geometry);
   const { inputs } = buildInputs(specs, geometry);
   return { geometry, wires, edges: inputs, obstacles: collectObstacles(geometry) };

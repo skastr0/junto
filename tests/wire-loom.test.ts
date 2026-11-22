@@ -232,6 +232,21 @@ function fanFrom(nodeId: string, hub: WirePoint): LoomEdgeInput[] {
 }
 
 describe("wire-loom planning", () => {
+  it("keeps a fan whose hub card is the spine's own start", () => {
+    // The hub's handle is on the card's right edge; the spine route leaves
+    // from that point. Passing the hub's card to the router would make the
+    // source look buried in its own card and dissolve the fan.
+    const plan = planLoom({
+      edges: fanOf([-100, 0, 100]),
+      obstacles: [
+        { nodeId: "hub", x: -216, y: -28, width: 216, height: 56 },
+        // A card on the straight corridor, so the spine has to route.
+        { nodeId: "block", x: 200, y: -30, width: 40, height: 60 },
+      ],
+    });
+    expect(plan.strands.size).toBe(3);
+  });
+
   it("needs three members before a fan becomes a cable", () => {
     const two = planLoom({ edges: fanOf([-100, 100]), obstacles: [] });
     expect(two.strands.size).toBe(0);
