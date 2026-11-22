@@ -124,6 +124,8 @@ export interface GpuAtlas {
   stats(): AtlasStats;
   readonly requests: number;
   readonly pending: number;
+  /** Evict unreferenced decoded sources on a real memory-pressure event. */
+  notifyMemoryPressure?(): void;
   dispose(): void;
 }
 
@@ -140,6 +142,7 @@ interface Plot {
   rowH: number;
   readonly cells: Set<number>;
   pinnedCount: number;
+  floorPinnedCount: number;
   lastUsedTick: number;
 }
 
@@ -216,6 +219,7 @@ interface SlotRecord {
   standalone?: StandalonePlaced;
   aliasOf?: number;
   inPlace?: boolean;
+  isFloor?: boolean;
   attempts: number;
   retryAfter: number;
   desc?: CellDesc;
@@ -363,8 +367,21 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   let landedCount = 0;
   let evictions = 0;
   let failures = 0;
+  let compactions = 0;
+  let lostPixels = 0;
   let visibleBlank = 0;
   let visibleBlankTotal = 0;
+
+  /**
+   * Never-evicted smallest-drawn-size floor cell per contentKey (enabled on real
+   * multi-plot pages >= 512px). Guarantees findStandIn always has pixels for any
+   * seen item even after sharper cells are evicted.
+   */
+  const floorEnabled = explicitSize === undefined || explicitSize >= 512;
+  const floorByContent = new Map<string, number>();
+  let floorBytes = 0;
+  /** Every contentKey that has landed at least once (for lostPixels rule-6 telemetry). */
+  const seenContentKeys = new Set<string>();
 
   const takeDirtyCells = (): AtlasDirtyCells => {
     if (allCellsDirty) {
@@ -616,6 +633,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         ...(mipLevelCount > 1 ? { mipLevelCount } : {}),
       });
     } catch (error) {
+      evictUnreferencedSourcesOnPressure();
       reportFailure(`atlas texture allocation failed (${width}x${height}x${layers} ${format}): ${String(error)}`);
       if (hasScope) void targetDevice.popErrorScope().catch(() => undefined);
       return undefined;
@@ -624,6 +642,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       const texRef = created;
       void targetDevice.popErrorScope().then((err) => {
         if (err !== null) {
+          evictUnreferencedSourcesOnPressure();
           reportFailure(`atlas GPU out-of-memory (${width}x${height}x${layers} ${format}): ${err.message}`);
           onAsyncOom?.(texRef);
         }
@@ -724,6 +743,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
             rowH: 0,
             cells: new Set(),
             pinnedCount: 0,
+            floorPinnedCount: 0,
             lastUsedTick: ++plotTick,
           });
         }
@@ -741,6 +761,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
           rowH: 0,
           cells: new Set(),
           pinnedCount: 0,
+          floorPinnedCount: 0,
           lastUsedTick: ++plotTick,
         });
       }
@@ -755,6 +776,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         rowH: 0,
         cells: new Set(),
         pinnedCount: 0,
+        floorPinnedCount: 0,
         lastUsedTick: ++plotTick,
       });
     }
@@ -801,15 +823,35 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     return { pool: pool.kind, page, plot, x, y, w, h };
   };
 
-  const tryPlaceOnPages = (pool: PagePool, w: number, h: number, preferredLayout: PageLayout): Placed | undefined => {
+  const tryPlaceOnPages = (
+    pool: PagePool,
+    w: number,
+    h: number,
+    preferredLayout: PageLayout,
+    excludePlot?: Plot,
+  ): Placed | undefined => {
     for (const page of pool.pages) {
       if (page.dead || page.layout !== preferredLayout) continue;
       for (const plot of page.plots) {
+        if (plot === excludePlot) continue;
         const at = tryPlaceInPlot(pool, page, plot, w, h);
         if (at !== undefined) return at;
       }
     }
     return undefined;
+  };
+
+  const demoteFloor = (rec: SlotRecord): void => {
+    if (!rec.isFloor) return;
+    rec.isFloor = false;
+    if (floorByContent.get(rec.contentKey) === rec.index) {
+      floorByContent.delete(rec.contentKey);
+    }
+    if (rec.placed !== undefined) {
+      const bpp = poolFor(rec.placed.pool).bytesPerPixel;
+      floorBytes = Math.max(0, floorBytes - rec.placed.w * rec.placed.h * bpp);
+      rec.placed.plot.floorPinnedCount = Math.max(0, rec.placed.plot.floorPinnedCount - 1);
+    }
   };
 
   /** Evict all unreferenced cells in a single plot in one shot (zero fragmentation). */
@@ -819,6 +861,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       unreferencedLru.delete(idx);
       standaloneTextures.delete(idx);
       if (rec !== undefined) {
+        demoteFloor(rec);
         rec.placed = undefined;
         if (rec.state === "landed") {
           landedCount = Math.max(0, landedCount - 1);
@@ -834,6 +877,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
     plot.cells.clear();
     plot.pinnedCount = 0;
+    plot.floorPinnedCount = 0;
     plot.cursorX = page.pageIndex === 0 && plot.x0 === 0 && plot.y0 === 0 ? 1 : 0;
     plot.cursorY = 0;
     plot.rowH = 0;
@@ -851,7 +895,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     for (const page of pool.pages) {
       if (page.dead || page.layout !== preferredLayout) continue;
       for (const plot of page.plots) {
-        if (plot.pinnedCount > 0 || plot.cells.size === 0) continue;
+        if (plot.pinnedCount > 0 || plot.floorPinnedCount > 0 || plot.cells.size === 0) continue;
         if (plot.w < needW || plot.h < needH) continue;
         if (plot.lastUsedTick < oldest) {
           oldest = plot.lastUsedTick;
@@ -865,11 +909,118 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     return { page: bestPage, plot: bestPlot };
   };
 
+  /**
+   * GPU-side plot compaction (gpucanvas rescue pattern): when no plot is completely
+   * unpinned, rescue live (refCount > 0 or floor) cells out of the most fragmented plot
+   * via `copyTextureToTexture` into other plots, then wipe the victim plot in one shot.
+   */
+  const compactFragmentedPlot = (
+    pool: PagePool,
+    needW: number,
+    needH: number,
+    preferredLayout: PageLayout,
+  ): { readonly page: Page; readonly plot: Plot } | undefined => {
+    if (device === undefined || typeof device.createCommandEncoder !== "function") return undefined;
+    let bestPage: Page | undefined;
+    let bestPlot: Plot | undefined;
+    let bestLive: SlotRecord[] = [];
+    let bestDeadCount = 0;
+    for (const page of pool.pages) {
+      if (page.dead || page.layout !== preferredLayout) continue;
+      for (const plot of page.plots) {
+        if (plot.w < needW || plot.h < needH || plot.cells.size === 0) continue;
+        const live: SlotRecord[] = [];
+        let dead = 0;
+        for (const idx of plot.cells) {
+          const rec = slots[idx];
+          if (rec !== undefined && (rec.refCount > 0 || rec.isFloor)) live.push(rec);
+          else dead += 1;
+        }
+        if (dead === 0 || live.length === 0) continue;
+        // Prefer the plot with the most dead cells and fewest live cells to copy.
+        if (dead > bestDeadCount || (dead === bestDeadCount && live.length < bestLive.length)) {
+          bestDeadCount = dead;
+          bestPage = page;
+          bestPlot = plot;
+          bestLive = live;
+        }
+      }
+    }
+    if (bestPage === undefined || bestPlot === undefined || bestDeadCount === 0) return undefined;
+
+    const encoder = device.createCommandEncoder();
+    if (typeof encoder.copyTextureToTexture !== "function") return undefined;
+    const gutter = gutterFor(pool.kind);
+    const moved: Array<{ readonly rec: SlotRecord; readonly from: Placed; readonly to: Placed }> = [];
+    let allMoved = true;
+    for (const rec of bestLive) {
+      const from = rec.placed;
+      if (from === undefined) continue;
+      const to = tryPlaceOnPages(pool, from.w, from.h, preferredLayout, bestPlot);
+      if (to === undefined) {
+        allMoved = false;
+        break;
+      }
+      moved.push({ rec, from, to });
+    }
+    if (!allMoved) {
+      // Roll back speculative plot cursor moves by leaving dead/live untouched? Better: only commit if all fit.
+      // Because tryPlaceInPlot mutated target plot cursors, free those empty reservations if unused.
+      for (const m of moved) {
+        if (m.to.plot.cells.size === 0) {
+          m.to.plot.cursorX = m.to.page.pageIndex === 0 && m.to.plot.x0 === 0 && m.to.plot.y0 === 0 ? 1 : 0;
+          m.to.plot.cursorY = 0;
+          m.to.plot.rowH = 0;
+        }
+      }
+      return undefined;
+    }
+
+    for (const { rec, from, to } of moved) {
+      const cw = Math.min(from.w + gutter, from.page.size - from.x, to.page.size - to.x);
+      const ch = Math.min(from.h + gutter, from.page.size - from.y, to.page.size - to.y);
+      if (cw > 0 && ch > 0) {
+        encoder.copyTextureToTexture(
+          { texture: from.page.texture, origin: { x: from.x, y: from.y, z: 0 } },
+          { texture: to.page.texture, origin: { x: to.x, y: to.y, z: 0 } },
+          { width: cw, height: ch, depthOrArrayLayers: 1 },
+        );
+      }
+      if (pool.kind === "rgba" && to.page.mipCount > 1) {
+        dirtyMipRects.push({
+          texture: to.page.texture,
+          mipCount: to.page.mipCount,
+          x: to.x,
+          y: to.y,
+          w: from.w,
+          h: from.h,
+          gutter,
+        });
+      }
+      bestPlot.cells.delete(rec.index);
+      to.plot.cells.add(rec.index);
+      if (rec.refCount > 0) to.plot.pinnedCount += 1;
+      if (rec.isFloor) to.plot.floorPinnedCount += 1;
+      to.plot.lastUsedTick = ++plotTick;
+      rec.placed = to;
+      const inBindGroup = to.page.pageIndex < pool.bindLimit;
+      if (inBindGroup) standaloneTextures.delete(rec.index);
+      else standaloneTextures.set(rec.index, to.page.texture);
+      writeCellUV(rec.index, to.x, to.y, from.w, from.h, inBindGroup ? to.page.pageIndex : 0, to.page.size);
+    }
+    device.queue.submit([encoder.finish()]);
+    evictPlot(bestPage, bestPlot);
+    compactions += 1;
+    markDirty();
+    return { page: bestPage, plot: bestPlot };
+  };
+
   const freePlaced = (at: Placed, cellIndex: number): void => {
     at.plot.cells.delete(cellIndex);
     standaloneTextures.delete(cellIndex);
     if (at.plot.cells.size === 0) {
       at.plot.pinnedCount = 0;
+      at.plot.floorPinnedCount = 0;
       at.plot.cursorX = at.page.pageIndex === 0 && at.plot.x0 === 0 && at.plot.y0 === 0 ? 1 : 0;
       at.plot.cursorY = 0;
       at.plot.rowH = 0;
@@ -894,14 +1045,21 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     let at = tryPlaceOnPages(pool, w, h, layout);
     if (at !== undefined) return at;
 
-    // Reclaim least-recently-used unpinned plot of matching layout in one shot (zero fragmentation).
+    // Reclaim least-recently-used unpinned non-floor plot in one shot (zero fragmentation).
     const reclaimed = evictLruUnpinnedPlot(pool, needW, needH, layout);
     if (reclaimed !== undefined) {
       at = tryPlaceInPlot(pool, reclaimed.page, reclaimed.plot, w, h);
       if (at !== undefined) return at;
     }
 
-    // All plots hold referenced on-screen cells: add a new independent page (zero copies!).
+    // Compact a fragmented plot via GPU copyTextureToTexture before growing past bindLimit.
+    const compacted = compactFragmentedPlot(pool, needW, needH, layout);
+    if (compacted !== undefined) {
+      at = tryPlaceInPlot(pool, compacted.page, compacted.plot, w, h);
+      if (at !== undefined) return at;
+    }
+
+    // All plots hold referenced/floor cells: add a new independent page (zero copies!).
     const nextPage = addPage(pool, layout);
     if (nextPage !== undefined) {
       at = tryPlaceInPlot(pool, nextPage, nextPage.plots[0]!, w, h);
@@ -1136,9 +1294,32 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (rec.placed !== at) {
       at.plot.cells.add(rec.index);
       if (rec.refCount > 0) at.plot.pinnedCount += 1;
+      if (rec.isFloor) at.plot.floorPinnedCount += 1;
     }
     at.plot.lastUsedTick = ++plotTick;
     rec.placed = at;
+    // Pin each contentKey's smallest drawn size as its never-evicted floor copy so
+    // findStandIn always has pixels even after sharper scales are evicted.
+    if (floorEnabled) {
+      const prevFloorIdx = floorByContent.get(rec.contentKey);
+      const prevFloorRec = prevFloorIdx !== undefined ? slots[prevFloorIdx] : undefined;
+      if (
+        prevFloorRec === undefined ||
+        prevFloorRec.state !== "landed" ||
+        prevFloorRec.placed === undefined ||
+        rec.scale < prevFloorRec.scale
+      ) {
+        if (prevFloorRec !== undefined && prevFloorRec !== rec) {
+          demoteFloor(prevFloorRec);
+        }
+        if (!rec.isFloor) {
+          rec.isFloor = true;
+          at.plot.floorPinnedCount += 1;
+          floorBytes += w * h * pool.bytesPerPixel;
+        }
+        floorByContent.set(rec.contentKey, rec.index);
+      }
+    }
     // Pages within the bind-group budget are sampled directly by pageIndex (no standalone split);
     // only pages past the device's sampled-texture limit fall back to standalone per cell.
     const inBindGroup = at.page.pageIndex < pool.bindLimit;
@@ -1154,6 +1335,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     rec.retryAfter = 0;
     if (!wasLanded) landedCount += 1;
     addContentLanded(rec.contentKey, rec.index);
+    seenContentKeys.add(rec.contentKey);
     writeCellUV(rec.index, at.x, at.y, w, h, inBindGroup ? at.page.pageIndex : 0, at.page.size);
     releaseAlias(rec);
     if (rec.refCount === 0) {
@@ -1578,7 +1760,11 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       rec.retryAfter = nowMs() + Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts - 1));
       reportFailure(`atlas ensureNow failed (${rec.key}): ${String(error)}`);
     }
-    return hasImage(cell);
+    const ok = hasImage(cell);
+    if (!ok && seenContentKeys.has(rec.contentKey)) {
+      lostPixels += 1;
+    }
+    return ok;
   };
 
   const sourceFor = (quad: Quad, scale: number): number => {
@@ -1628,6 +1814,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       standaloneCount: standaloneTextures.size,
       decodedSourceBytes: decodedSvgBytes + decodedMediaBytes,
       decodedSvgCount: decodedSvgs.size,
+      floorBytes,
+      floorCells: floorByContent.size,
+      compactions,
+      lostPixels,
       visibleBlank,
       visibleBlankTotal,
     };
@@ -1725,12 +1915,15 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       // async queued for SVG/media) before the first frame presents.
       unreferencedLru.clear();
       contentLanded.clear();
+      floorByContent.clear();
+      floorBytes = 0;
       landedCount = 0;
       for (let i = 0; i < highWaterCells; i += 1) {
         const rec = slots[i];
         if (rec === undefined) continue;
         rec.placed = undefined;
         rec.standalone = undefined;
+        rec.isFloor = false;
         clearCellUV(i);
         if (rec.refCount === 0) {
           keyToIndex.delete(rec.key);
@@ -1777,8 +1970,14 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     get pending() {
       return queuedSet.size + inFlightCount;
     },
+    notifyMemoryPressure: () => {
+      evictUnreferencedSourcesOnPressure();
+    },
     dispose: () => {
       disposed = true;
+      floorByContent.clear();
+      floorBytes = 0;
+      seenContentKeys.clear();
       drainChannel?.port1.close();
       drainChannel?.port2.close();
       drainChannel = undefined;
@@ -1978,35 +2177,6 @@ interface DecodedMediaEntry {
 
 const DECODE_SLICE_MS = 2;
 
-type PerfMemory = { readonly jsHeapSizeLimit?: number; readonly usedJSHeapSize?: number };
-
-/**
- * Derive the decoded-source cache byte budget from the machine's real memory
- * (`performance.memory.jsHeapSizeLimit`, falling back to `navigator.deviceMemory`).
- * Evicts unreferenced sources only under real byte or heap pressure.
- */
-const decodedSourceBudgetBytes = (): number => {
-  const mem = typeof performance !== "undefined" ? (performance as unknown as { readonly memory?: PerfMemory }).memory : undefined;
-  if (typeof mem?.jsHeapSizeLimit === "number" && mem.jsHeapSizeLimit > 0) {
-    return Math.round(mem.jsHeapSizeLimit * 0.15);
-  }
-  const gb = typeof navigator !== "undefined" ? (navigator as { readonly deviceMemory?: number }).deviceMemory : undefined;
-  if (typeof gb === "number" && gb > 0) {
-    return Math.round(gb * 0.05 * 1024 * 1024 * 1024);
-  }
-  return 256 * 1024 * 1024;
-};
-
-const underHeapPressure = (): boolean => {
-  const mem = typeof performance !== "undefined" ? (performance as unknown as { readonly memory?: PerfMemory }).memory : undefined;
-  return (
-    typeof mem?.jsHeapSizeLimit === "number" &&
-    mem.jsHeapSizeLimit > 0 &&
-    typeof mem.usedJSHeapSize === "number" &&
-    mem.usedJSHeapSize > mem.jsHeapSizeLimit * 0.85
-  );
-};
-
 const decodedSvgs = new Map<string, DecodedSvgEntry>();
 const unreferencedSvgs = new Map<string, true>();
 let decodedSvgBytes = 0;
@@ -2041,27 +2211,22 @@ const postDecodeDrain = (): void => {
   }
 };
 
-const evictUnreferencedSourcesIfNeeded = (): void => {
-  const budget = decodedSourceBudgetBytes();
-  while ((decodedSvgBytes + decodedMediaBytes > budget || underHeapPressure()) && (unreferencedMedia.size > 0 || unreferencedSvgs.size > 0)) {
-    // Prefer evicting large unreferenced media bitmaps before lightweight vector SVGs.
-    if (unreferencedMedia.size > 0) {
-      const oldest = unreferencedMedia.keys().next();
-      if (!oldest.done) {
-        const key = oldest.value;
-        unreferencedMedia.delete(key);
-        const entry = decodedMedia.get(key);
-        if (entry !== undefined && entry.refCount <= 0) {
-          decodedMediaBytes = Math.max(0, decodedMediaBytes - entry.bytes);
-          entry.bitmap.close();
-          decodedMedia.delete(key);
-        }
-        continue;
-      }
+/**
+ * Evict unreferenced decoded sources ONLY under real memory pressure (GPU OOM /
+ * allocation failure or host memory-pressure event). Under normal operation, no
+ * arbitrary ceiling evicts warm decoded sources (Ruling 2).
+ */
+const evictUnreferencedSourcesOnPressure = (): void => {
+  for (const key of [...unreferencedMedia.keys()]) {
+    unreferencedMedia.delete(key);
+    const entry = decodedMedia.get(key);
+    if (entry !== undefined && entry.refCount <= 0) {
+      decodedMediaBytes = Math.max(0, decodedMediaBytes - entry.bytes);
+      entry.bitmap.close();
+      decodedMedia.delete(key);
     }
-    const oldest = unreferencedSvgs.keys().next();
-    if (oldest.done) break;
-    const key = oldest.value;
+  }
+  for (const key of [...unreferencedSvgs.keys()]) {
     unreferencedSvgs.delete(key);
     const entry = decodedSvgs.get(key);
     if (entry !== undefined && entry.refCount <= 0) {
@@ -2193,7 +2358,6 @@ const decodeSvgSourceOnce = (
     decodedSvgBytes += bytes;
     if (entry.refCount <= 0) {
       unreferencedSvgs.set(key, true);
-      evictUnreferencedSourcesIfNeeded();
     } else {
       unreferencedSvgs.delete(key);
     }
@@ -2229,7 +2393,6 @@ const decodeMediaSourceOnce = (
     decodedMediaBytes += bytes;
     if (entry.refCount <= 0) {
       unreferencedMedia.set(ref.ref, true);
-      evictUnreferencedSourcesIfNeeded();
     } else {
       unreferencedMedia.delete(ref.ref);
     }
@@ -2282,7 +2445,6 @@ const releaseDecodedSpriteSource = (ref: NonNullable<Quad["sprite"]>, mode: Them
       if (hit.refCount <= 0) {
         unreferencedSvgs.delete(key);
         unreferencedSvgs.set(key, true);
-        evictUnreferencedSourcesIfNeeded();
       }
       return;
     }
@@ -2298,7 +2460,6 @@ const releaseDecodedSpriteSource = (ref: NonNullable<Quad["sprite"]>, mode: Them
       if (hit.refCount <= 0) {
         unreferencedMedia.delete(ref.ref);
         unreferencedMedia.set(ref.ref, true);
-        evictUnreferencedSourcesIfNeeded();
       }
       return;
     }

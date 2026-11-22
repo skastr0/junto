@@ -646,11 +646,92 @@ describe("gpu atlas (#911)", () => {
       expect(decodeCalls).toBe(1);
       expect(atlas.stats().decodedSourceBytes).toBeGreaterThan(0);
       expect(atlas.stats().decodedSvgCount).toBeGreaterThanOrEqual(1);
+
+      // Under real memory pressure, unreferenced decoded sources are evicted.
+      atlas.releaseSource(spriteQuad);
+      atlas.notifyMemoryPressure?.();
+      expect(atlas.stats().decodedSvgCount).toBe(0);
     } finally {
       g["document"] = prevDoc;
       g["Image"] = prevImage;
       URL.createObjectURL = origCreateObjectURL;
       URL.revokeObjectURL = origRevokeObjectURL;
     }
+  });
+
+  it("keeps each item's smallest-drawn-size floor copy never evicted and serves it via stand-in with zero lostPixels", async () => {
+    const fake = fakeDevice();
+    const { atlas } = atlasWith({
+      size: 512,
+      rasterizeText: async (_run, scale) => pixels(Math.round(60 * scale), Math.round(30 * scale)),
+    });
+    atlas.attach(fake.device);
+
+    // Land a cell at overview scale (0.5) -> becomes the never-evicted floor.
+    const floorCell = atlas.acquire(textQuad({ ...textRun, text: "floor-item" }), 0.5);
+    await settle();
+    await settle();
+    expect(atlas.hasImage(floorCell)).toBe(true);
+    expect(atlas.stats().floorCells).toBe(1);
+    expect(atlas.stats().floorBytes).toBe(30 * 15 * 1); // r8unorm 1 byte/px
+
+    // Release the overview cell; floor stays pinned and never evicted.
+    atlas.release(floorCell);
+    expect(atlas.stats().floorCells).toBe(1);
+
+    // Acquire the same item at near scale (2.0): immediately gets the floor stand-in (hasImage === true, lostPixels === 0).
+    const nearCell = atlas.acquire(textQuad({ ...textRun, text: "floor-item" }), 2.0);
+    expect(atlas.hasImage(nearCell)).toBe(true);
+    expect(atlas.stats().lostPixels).toBe(0);
+    await settle();
+    await settle();
+    // Floor stays at the smaller scale (0.5), not replaced by 2.0.
+    expect(atlas.stats().floorCells).toBe(1);
+    expect(atlas.stats().floorBytes).toBe(30 * 15 * 1);
+  });
+
+  it("compacts fragmented plots via GPU copyTextureToTexture before growing pages", async () => {
+    const fake = fakeDevice();
+    const { atlas } = atlasWith({
+      size: 1024, // 2x2 grid of 512x512 plots
+      rasterizeText: async (run, scale) => {
+        if (run.text === "big-extra") return pixels(300, 300);
+        return pixels(scale < 1 ? 30 : 250, scale < 1 ? 30 : 250);
+      },
+    });
+    atlas.attach(fake.device);
+
+    // Fill plot 0 with 4 cells (2x2 of 250x250 in 512x512).
+    const p0: number[] = [];
+    for (let i = 0; i < 4; i += 1) p0.push(atlas.acquire(textQuad({ ...textRun, text: `p0-${i}` }), 1));
+    await settle();
+    await settle();
+    // Fill plots 1, 2, and half of plot 3 (10 cells of 250x250) so plot 3 keeps room for 30x30 floors + one 250x250 rescue.
+    const others: number[] = [];
+    for (let i = 0; i < 10; i += 1) others.push(atlas.acquire(textQuad({ ...textRun, text: `other-${i}` }), 1));
+    await settle();
+    await settle();
+    expect(atlas.stats().pages).toBe(1);
+
+    // Demote p0[1..3] from floor by landing smaller scale (0.5, 30x30) copies, so p0[1..3] become dead when released.
+    for (let i = 1; i <= 3; i += 1) {
+      atlas.release(p0[i]!);
+      const smaller = atlas.acquire(textQuad({ ...textRun, text: `p0-${i}` }), 0.5);
+      await settle();
+      await settle();
+      atlas.release(smaller);
+    }
+
+    // Plot 0 has 1 live pinned cell (p0[0], 250x250) + 3 dead cells; plot 3 has room for 250x250 but NOT 300x300.
+    // Acquiring big-extra (300x300) rescues p0[0] into plot 3 via copyTextureToTexture, wipes plot 0, and stays on 1 page!
+    const big = atlas.acquire(textQuad({ ...textRun, text: "big-extra" }), 1);
+    await settle();
+    await settle();
+    expect(atlas.hasImage(big)).toBe(true);
+    expect(atlas.hasImage(p0[0]!)).toBe(true);
+    expect(atlas.stats().pages).toBe(1);
+    expect(atlas.stats().compactions).toBeGreaterThanOrEqual(1);
+    expect(fake.textureCopies.length).toBeGreaterThanOrEqual(1);
+    expect(atlas.stats().standaloneCount).toBe(0);
   });
 });

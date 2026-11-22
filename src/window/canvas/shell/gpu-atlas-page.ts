@@ -30,6 +30,10 @@ const EMPTY_ATLAS_STATS: AtlasStats = {
   standaloneCount: 0,
   decodedSourceBytes: 0,
   decodedSvgCount: 0,
+  floorBytes: 0,
+  floorCells: 0,
+  compactions: 0,
+  lostPixels: 0,
   visibleBlank: 0,
   visibleBlankTotal: 0,
 };

@@ -73,6 +73,14 @@ export type AtlasStats = {
   readonly decodedSourceBytes: number;
   /** Number of decoded SVG sources currently cached. */
   readonly decodedSvgCount: number;
+  /** GPU bytes held by never-evicted floor plots (smallest drawn size per seen item). */
+  readonly floorBytes: number;
+  /** Number of landed cells currently held in never-evicted floor plots. */
+  readonly floorCells: number;
+  /** Number of GPU plot compactions performed via copyTextureToTexture. */
+  readonly compactions: number;
+  /** Cumulative count of previously-seen content keys that drew without an image (rule 6). */
+  readonly lostPixels: number;
   /** On-screen text/sprite quads drawn with no image in the last frame. */
   readonly visibleBlank: number;
   /** Cumulative on-screen text/sprite quads drawn with no image across all frames. */

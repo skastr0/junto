@@ -193,11 +193,30 @@ export const createGpuCull = (device: GPUDevice): GpuCull => {
   ];
   const layout = device.createBindGroupLayout({ entries });
   const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
-  const pipeline = (entryPoint: string): GPUComputePipeline =>
-    device.createComputePipeline({ layout: pipelineLayout, compute: { module, entryPoint } });
-  const flagScan = pipeline("flagScan");
-  const scanBlocks = pipeline("scanBlocks");
-  const scatter = pipeline("scatter");
+  type CullPipelines = {
+    readonly flagScan: GPUComputePipeline;
+    readonly scanBlocks: GPUComputePipeline;
+    readonly scatter: GPUComputePipeline;
+  };
+  let destroyed = false;
+  let pipelines: CullPipelines | undefined;
+  if (typeof device.createComputePipelineAsync === "function") {
+    void Promise.all([
+      device.createComputePipelineAsync({ layout: pipelineLayout, compute: { module, entryPoint: "flagScan" } }),
+      device.createComputePipelineAsync({ layout: pipelineLayout, compute: { module, entryPoint: "scanBlocks" } }),
+      device.createComputePipelineAsync({ layout: pipelineLayout, compute: { module, entryPoint: "scatter" } }),
+    ]).then(([flagScan, scanBlocks, scatter]) => {
+      if (!destroyed) pipelines = { flagScan, scanBlocks, scatter };
+    }).catch(() => undefined);
+  } else {
+    const sync = (entryPoint: string): GPUComputePipeline =>
+      device.createComputePipeline({ layout: pipelineLayout, compute: { module, entryPoint } });
+    pipelines = {
+      flagScan: sync("flagScan"),
+      scanBlocks: sync("scanBlocks"),
+      scatter: sync("scatter"),
+    };
+  }
   const args = device.createBuffer({ size: BANDS * ARGS_WORDS * 4, usage: BUFFER.STORAGE | BUFFER.INDIRECT | BUFFER.COPY_DST });
   const params = device.createBuffer({ size: 32, usage: BUFFER.UNIFORM | BUFFER.COPY_DST });
   const paramWords = new Uint32Array(8);
@@ -229,6 +248,7 @@ export const createGpuCull = (device: GPUDevice): GpuCull => {
   return {
     args,
     encode: (encoder, inputs) => {
+      if (pipelines === undefined) return undefined;
       const count = Math.max(1, inputs.count);
       if (!ensure(count)) return undefined;
       if (
@@ -267,17 +287,19 @@ export const createGpuCull = (device: GPUDevice): GpuCull => {
       const pass = encoder.beginComputePass(timestampWrites === undefined ? undefined : { timestampWrites });
       pass.setBindGroup(0, bind);
       if (inputs.count > 0) {
-        pass.setPipeline(flagScan);
+        pass.setPipeline(pipelines.flagScan);
         pass.dispatchWorkgroups(groupsX, groupsY);
       }
-      pass.setPipeline(scanBlocks);
+      pass.setPipeline(pipelines.scanBlocks);
       pass.dispatchWorkgroups(1);
-      pass.setPipeline(scatter);
+      pass.setPipeline(pipelines.scatter);
       pass.dispatchWorkgroups(groupsX, groupsY);
       pass.end();
       return culled;
     },
     destroy: () => {
+      destroyed = true;
+      pipelines = undefined;
       local?.destroy();
       blocks?.destroy();
       culled?.destroy();
