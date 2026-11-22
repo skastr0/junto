@@ -757,13 +757,20 @@ function planFan(
     // out costs a whole visibility graph over every card in the corridor. On a
     // dense canvas most detour attempts are exactly this shape, so the cheap
     // proof runs first.
-    if (index.hits([hub, hub], spineMoat) || index.hits([anchor, anchor], spineMoat)) {
+    if (
+      index.hits([hub, hub], spineMoat, (rect) => rect.nodeId === hubNodeId) ||
+      index.hits([anchor, anchor], spineMoat, (rect) => rect.nodeId === hubNodeId)
+    ) {
       return null;
     }
     const routed = routeWire({
       source: hub,
       target: anchor,
       obstacles: routeField,
+      index,
+      // The old field left the hub out; the router must not treat its own
+      // source card as something to route around.
+      skip: (rect) => (rect as LoomObstacle).nodeId === hubNodeId,
       padding: spineMoat,
       borderRadius: SPINE_RADIUS,
       sourceDirection: hubAxis,
