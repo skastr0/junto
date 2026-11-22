@@ -98,9 +98,14 @@ export interface GpuAtlas {
   hasImage(cell: number): boolean;
   /**
    * Last-resort synchronous raster + copy before frame submit for an in-view cell
-   * that still has no image. Returns `hasImage(cell)` afterward.
+   * that still has no image. Draws a tone placeholder in place if a cold image/media
+   * source is still decoding so nothing on screen is ever blank. Returns `hasImage(cell)`.
    */
   ensureNow(cell: number): boolean;
+  /** Pre-decode an image/media sprite source ahead of time (e.g. in the shape build range). */
+  prepareSource(quad: Quad): void;
+  /** Release a pre-decoded image/media source reference when a card leaves the build range. */
+  releaseSource(quad: Quad): void;
   /** Record the count of on-screen text/sprite quads drawn with no image on a presented frame. */
   recordVisibleBlank(count: number): void;
   /** Compat wrapper for callers that have not switched to `acquire`/`release` yet. */
@@ -1225,6 +1230,30 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         queuedSet.delete(cell);
         rec.jobToken = ++nextJobToken;
         landPixels(rec, px);
+        return hasImage(cell);
+      }
+      // Genuinely cold async image/media source: paint a full-opacity tone placeholder
+      // in place so nothing on screen is ever empty while the single decode completes.
+      if (rec.desc.kind === "sprite" && typeof document !== "undefined") {
+        const placeholder = rasterizePlaceholderSync(rec.desc.quad, rec.desc.mode, rec.desc.scale);
+        if (placeholder !== undefined) {
+          const pool = poolFor("rgba");
+          const w = Math.max(1, placeholder.width);
+          const h = Math.max(1, placeholder.height);
+          if (w + 1 <= pageSize && h + 1 <= pageSize) {
+            const at = alloc(pool, w, h);
+            if (at !== undefined) {
+              copyPixels(pool, placeholder, at);
+              rec.placed = at;
+              rec.inPlace = true;
+              writeCellUV(rec.index, at.x, at.y, w, h, at.layer);
+              markDirty();
+              // Keep async decode queued so the real image overwrites this rect in place.
+              enqueue(cell);
+              return true;
+            }
+          }
+        }
       }
     } catch (error) {
       rec.state = "failed";
@@ -1376,6 +1405,14 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     release,
     hasImage,
     ensureNow,
+    prepareSource: (quad: Quad) => {
+      if (quad.sprite === undefined) return;
+      prepareDecodedSpriteSource(quad.sprite, mode);
+    },
+    releaseSource: (quad: Quad) => {
+      if (quad.sprite === undefined) return;
+      releaseDecodedSpriteSource(quad.sprite, mode);
+    },
     recordVisibleBlank: (count: number) => {
       visibleBlank = count;
       visibleBlankTotal += count;
@@ -1550,50 +1587,224 @@ const tagAttr = (tag: string, name: string): string | undefined => {
   return m?.[1];
 };
 
-const compositeNestedImages = async (
-  ctx: CanvasRenderingContext2D,
-  svg: string,
-  userToPx: { readonly x: number; readonly y: number },
-): Promise<void> => {
-  const tags = svg.match(IMAGE_TAG) ?? [];
-  for (const tag of tags) {
-    const href = tagAttr(tag, "href") ?? tagAttr(tag, "xlink:href");
-    if (href === undefined || href === "") continue;
-    const x = Number(tagAttr(tag, "x") ?? 0);
-    const y = Number(tagAttr(tag, "y") ?? 0);
-    const w = Number(tagAttr(tag, "width") ?? 0);
-    const h = Number(tagAttr(tag, "height") ?? 0);
-    if (!Number.isFinite(x + y + w + h) || w <= 0 || h <= 0) continue;
+// --- Decoded image/media source cache (decode once per theme/file, draw sync at any scale) ---
+
+interface DecodedNestedImage {
+  readonly image: HTMLImageElement;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+interface DecodedSvgEntry {
+  readonly image: HTMLImageElement;
+  readonly nested: ReadonlyArray<DecodedNestedImage>;
+  readonly width: number;
+  readonly height: number;
+  refCount: number;
+}
+
+interface DecodedMediaEntry {
+  readonly bitmap: ImageBitmap;
+  refCount: number;
+}
+
+const decodedSvgs = new Map<string, DecodedSvgEntry>();
+const decodingSvgs = new Map<string, Promise<DecodedSvgEntry>>();
+const decodedNestedImages = new Map<string, HTMLImageElement>();
+const decodingNestedImages = new Map<string, Promise<HTMLImageElement | undefined>>();
+const decodedMedia = new Map<string, DecodedMediaEntry>();
+const decodingMedia = new Map<string, Promise<DecodedMediaEntry>>();
+
+const loadNestedCached = (href: string): Promise<HTMLImageElement | undefined> => {
+  const hit = decodedNestedImages.get(href);
+  if (hit !== undefined) return Promise.resolve(hit);
+  const inFlight = decodingNestedImages.get(href);
+  if (inFlight !== undefined) return inFlight;
+  const p = loadImage(href)
+    .then((img) => {
+      decodedNestedImages.set(href, img);
+      return img;
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      decodingNestedImages.delete(href);
+    });
+  decodingNestedImages.set(href, p);
+  return p;
+};
+
+const decodeSvgSourceOnce = (
+  ref: Extract<NonNullable<Quad["sprite"]>, { readonly atlas: "image" }>,
+  mode: ThemeMode,
+): Promise<DecodedSvgEntry> => {
+  const key = `${mode}:${ref.key}`;
+  const hit = decodedSvgs.get(key);
+  if (hit !== undefined) return Promise.resolve(hit);
+  const inFlight = decodingSvgs.get(key);
+  if (inFlight !== undefined) return inFlight;
+
+  const p = (async (): Promise<DecodedSvgEntry> => {
+    const svg = resolveSvgVars(ref.svg, themeFor(mode));
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    let image: HTMLImageElement;
     try {
-      const image = await loadImage(href);
-      ctx.drawImage(image, x * userToPx.x, y * userToPx.y, w * userToPx.x, h * userToPx.y);
-    } catch {
-      // A mark that will not decode leaves the badge's plate, as the DOM's broken <img> would.
+      image = await loadImage(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    const tags = svg.match(IMAGE_TAG) ?? [];
+    const nested: DecodedNestedImage[] = [];
+    for (const tag of tags) {
+      const href = tagAttr(tag, "href") ?? tagAttr(tag, "xlink:href");
+      if (href === undefined || href === "") continue;
+      const x = Number(tagAttr(tag, "x") ?? 0);
+      const y = Number(tagAttr(tag, "y") ?? 0);
+      const w = Number(tagAttr(tag, "width") ?? 0);
+      const h = Number(tagAttr(tag, "height") ?? 0);
+      if (!Number.isFinite(x + y + w + h) || w <= 0 || h <= 0) continue;
+      const nestedImg = await loadNestedCached(href);
+      if (nestedImg !== undefined) nested.push({ image: nestedImg, x, y, w, h });
+    }
+    const entry: DecodedSvgEntry = {
+      image,
+      nested,
+      width: Math.max(1, ref.size.width),
+      height: Math.max(1, ref.size.height),
+      refCount: 0,
+    };
+    decodedSvgs.set(key, entry);
+    return entry;
+  })().finally(() => {
+    decodingSvgs.delete(key);
+  });
+  decodingSvgs.set(key, p);
+  return p;
+};
+
+const decodeMediaSourceOnce = (
+  ref: Extract<NonNullable<Quad["sprite"]>, { readonly atlas: "media" }>,
+): Promise<DecodedMediaEntry> => {
+  const hit = decodedMedia.get(ref.ref);
+  if (hit !== undefined) return Promise.resolve(hit);
+  const inFlight = decodingMedia.get(ref.ref);
+  if (inFlight !== undefined) return inFlight;
+
+  const p = (async (): Promise<DecodedMediaEntry> => {
+    const response = await fetch(ref.ref);
+    if (!response.ok) throw new Error(`media fetch ${response.status}`);
+    const bitmap = await createImageBitmap(await response.blob());
+    const entry: DecodedMediaEntry = { bitmap, refCount: 0 };
+    decodedMedia.set(ref.ref, entry);
+    return entry;
+  })().finally(() => {
+    decodingMedia.delete(ref.ref);
+  });
+  decodingMedia.set(ref.ref, p);
+  return p;
+};
+
+const prepareDecodedSpriteSource = (ref: NonNullable<Quad["sprite"]>, mode: ThemeMode): void => {
+  if (typeof document === "undefined") return;
+  if (ref.atlas === "image") {
+    const key = `${mode}:${ref.key}`;
+    const hit = decodedSvgs.get(key);
+    if (hit !== undefined) {
+      hit.refCount += 1;
+      return;
+    }
+    void decodeSvgSourceOnce(ref, mode).then((e) => { e.refCount += 1; }).catch(() => undefined);
+  } else if (ref.atlas === "media") {
+    const hit = decodedMedia.get(ref.ref);
+    if (hit !== undefined) {
+      hit.refCount += 1;
+      return;
+    }
+    void decodeMediaSourceOnce(ref).then((e) => { e.refCount += 1; }).catch(() => undefined);
+  }
+};
+
+const releaseDecodedSpriteSource = (ref: NonNullable<Quad["sprite"]>, mode: ThemeMode): void => {
+  if (ref.atlas === "image") {
+    const key = `${mode}:${ref.key}`;
+    const hit = decodedSvgs.get(key);
+    if (hit !== undefined && hit.refCount > 0) {
+      hit.refCount -= 1;
+      if (hit.refCount === 0) decodedSvgs.delete(key);
+    }
+  } else if (ref.atlas === "media") {
+    const hit = decodedMedia.get(ref.ref);
+    if (hit !== undefined && hit.refCount > 0) {
+      hit.refCount -= 1;
+      if (hit.refCount === 0) {
+        hit.bitmap.close();
+        decodedMedia.delete(ref.ref);
+      }
     }
   }
 };
 
-const drawFitted = (
-  ctx: CanvasRenderingContext2D,
-  image: CanvasImageSource,
-  iw: number,
-  ih: number,
-  fit: "contain" | "cover",
-): void => {
-  const { width: w, height: h } = ctx.canvas;
-  const scale = fit === "cover" ? Math.max(w / iw, h / ih) : Math.min(w / iw, h / ih);
-  const dw = iw * scale;
-  const dh = ih * scale;
-  ctx.drawImage(image, (w - dw) / 2, (h - dh) / 2, dw, dh);
+const drawDecodedSvg = (ctx: CanvasRenderingContext2D, entry: DecodedSvgEntry): void => {
+  const cw = ctx.canvas.width;
+  const ch = ctx.canvas.height;
+  ctx.drawImage(entry.image, 0, 0, cw, ch);
+  if (entry.nested.length > 0) {
+    const sx = cw / entry.width;
+    const sy = ch / entry.height;
+    for (const item of entry.nested) {
+      ctx.drawImage(item.image, item.x * sx, item.y * sy, item.w * sx, item.h * sy);
+    }
+  }
 };
 
-/** Synchronous sprite rasterizer for marks and glyphs (zero ImageBitmap allocation). */
+const drawDecodedMedia = (ctx: CanvasRenderingContext2D, entry: DecodedMediaEntry, fit: "contain" | "cover", mode: ThemeMode): void => {
+  const ground = resolveColour({ token: "shadow-2" }, themeFor(mode));
+  if (ground !== undefined) {
+    ctx.fillStyle = gpuColorCss(ground);
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  }
+  drawFitted(ctx, entry.bitmap, entry.bitmap.width, entry.bitmap.height, fit);
+};
+
+/** Full-opacity tone placeholder for genuinely cold image/media sources while first decode runs. */
+const rasterizePlaceholderSync = (quad: Quad, mode: ThemeMode, scale: number): HTMLCanvasElement | undefined => {
+  const ref = quad.sprite;
+  if (ref === undefined || (ref.atlas !== "image" && ref.atlas !== "media")) return undefined;
+  const w = Math.max(1, Math.ceil(quad.rect.width * scale));
+  const h = Math.max(1, Math.ceil(quad.rect.height * scale));
+  const { canvas, ctx } = getDrawScratch(w, h);
+  const theme = themeFor(mode);
+  const tone = resolveColour({ token: ref.atlas === "media" ? "shadow-2" : "raise" }, theme)
+    ?? { r: 0.2, g: 0.2, b: 0.2, a: 1 };
+  ctx.fillStyle = gpuColorCss({ ...tone, a: 1 });
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  return canvas;
+};
+
+/** Synchronous sprite rasterizer: marks, glyphs, and any already-decoded SVG or media source. */
 export const rasterizeSpriteSync: SpriteRasterizeSync = (quad, mode, scale) => {
   const ref = quad.sprite;
   if (ref === undefined) return undefined;
-  if (ref.atlas !== "mark" && ref.atlas !== "glyph") return undefined;
   const w = Math.max(1, Math.ceil(quad.rect.width * scale));
   const h = Math.max(1, Math.ceil(quad.rect.height * scale));
+
+  if (ref.atlas === "image") {
+    const cached = decodedSvgs.get(`${mode}:${ref.key}`);
+    if (cached === undefined) return undefined;
+    const { canvas, ctx } = getDrawScratch(w, h);
+    drawDecodedSvg(ctx, cached);
+    return canvas;
+  }
+
+  if (ref.atlas === "media") {
+    const cached = decodedMedia.get(ref.ref);
+    if (cached === undefined) return undefined;
+    const { canvas, ctx } = getDrawScratch(w, h);
+    drawDecodedMedia(ctx, cached, ref.fit, mode);
+    return canvas;
+  }
+
   const { canvas, ctx } = getDrawScratch(w, h);
   if (ref.atlas === "mark") {
     const atlas = markAtlasCanvas(mode);
@@ -1623,38 +1834,18 @@ export const rasterizeSprite: SpriteRasterize = async (quad, mode, scale) => {
   }
   const w = Math.max(1, Math.ceil(quad.rect.width * scale));
   const h = Math.max(1, Math.ceil(quad.rect.height * scale));
-  const { canvas, ctx } = canvas2d(w, h);
 
   if (ref.atlas === "image") {
-    const svg = resolveSvgVars(ref.svg, themeFor(mode));
-    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
-    try {
-      const image = await loadImage(url);
-      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-      await compositeNestedImages(ctx, svg, {
-        x: canvas.width / Math.max(1, ref.size.width),
-        y: canvas.height / Math.max(1, ref.size.height),
-      });
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    const entry = await decodeSvgSourceOnce(ref, mode);
+    const { canvas, ctx } = canvas2d(w, h);
+    drawDecodedSvg(ctx, entry);
     return createImageBitmap(canvas);
   }
 
-  // media
-  const ground = resolveColour({ token: "shadow-2" }, themeFor(mode));
-  if (ground !== undefined) {
-    ctx.fillStyle = gpuColorCss(ground);
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
-  const response = await fetch(ref.ref);
-  if (!response.ok) throw new Error(`media fetch ${response.status}`);
-  const bitmap = await createImageBitmap(await response.blob());
-  try {
-    drawFitted(ctx, bitmap, bitmap.width, bitmap.height, ref.fit);
-  } finally {
-    bitmap.close();
-  }
+  // media: decode once per file, draw fitted at any scale
+  const entry = await decodeMediaSourceOnce(ref);
+  const { canvas, ctx } = canvas2d(w, h);
+  drawDecodedMedia(ctx, entry, ref.fit, mode);
   return createImageBitmap(canvas);
 };
 
