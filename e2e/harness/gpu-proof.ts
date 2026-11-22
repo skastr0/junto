@@ -61,28 +61,35 @@ const TILE_GAP = 1_200;
 
 const prefixOf = (tile: number): string => `t${String(tile)}-`;
 
-/** A node with this tile's id, keys and offset; its kind's own fields otherwise. */
-const remapNode = (node: Node, tile: number, dx: number, dy: number): Node => {
+/** A node with this tile's id, keys, offset and (past 1x) its own words. */
+const remapNode = (node: Node, tile: number, dx: number, dy: number, unique: boolean): Node => {
   const prefix = prefixOf(tile);
   const at = { x: node.x + dx, y: node.y + dy };
-  if (node.kind === "agent") {
-    return {
-      ...node,
-      id: `${prefix}${node.id}` as Node["id"],
-      agentKey: `${prefix}${node.agentKey}` as typeof node.agentKey,
-      bindingId: `${prefix}${node.bindingId}` as typeof node.bindingId,
-      ...at,
-    };
-  }
-  if (node.kind === "terminal") {
-    return {
-      ...node,
-      id: `${prefix}${node.id}` as Node["id"],
-      bindingId: `${prefix}${node.bindingId}` as typeof node.bindingId,
-      ...at,
-    };
-  }
-  return { ...node, id: `${prefix}${node.id}` as Node["id"], ...at };
+  const remapped: Node =
+    node.kind === "agent"
+      ? {
+          ...node,
+          id: `${prefix}${node.id}` as Node["id"],
+          agentKey: `${prefix}${node.agentKey}` as typeof node.agentKey,
+          bindingId: `${prefix}${node.bindingId}` as typeof node.bindingId,
+          ...at,
+        }
+      : node.kind === "terminal"
+        ? {
+            ...node,
+            id: `${prefix}${node.id}` as Node["id"],
+            bindingId: `${prefix}${node.bindingId}` as typeof node.bindingId,
+            ...at,
+          }
+        : { ...node, id: `${prefix}${node.id}` as Node["id"], ...at };
+  if (!unique) return remapped;
+  // A tiled board is only a board if the tiles are different content: the
+  // same name, note or label in every tile bakes one atlas cell, not 100.
+  const words = remapped as unknown as Record<string, unknown>;
+  if (typeof words["label"] === "string") words["label"] = `${prefix}${words["label"]}`;
+  if (typeof words["text"] === "string") words["text"] = `${prefix}${words["text"]}`;
+  if (typeof words["title"] === "string") words["title"] = `${prefix}${words["title"]}`;
+  return remapped;
 };
 
 const remapWire = (wire: Wire, tile: number): Wire => {
@@ -111,7 +118,8 @@ export const tileFactory = (fixture: NestedCanvasFixture, copies: number, column
   for (let tile = 0; tile < copies; tile += 1) {
     const dx = (tile % columns) * stepX;
     const dy = Math.floor(tile / columns) * stepY;
-    for (const node of unit.nodes) nodes.push(remapNode(node, tile, dx, dy));
+    const unique = copies > 1;
+    for (const node of unit.nodes) nodes.push(remapNode(node, tile, dx, dy, unique));
     // A live board can hold the same relationship twice from before the model
     // refused it; the product refuses that add now, so the fixture keeps the
     // first of each pair and says how many it dropped.
