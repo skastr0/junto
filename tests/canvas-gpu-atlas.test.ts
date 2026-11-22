@@ -590,4 +590,65 @@ describe("gpu atlas (#911)", () => {
     expect(atlas.binding.standalone?.size).toBe(0);
     expect(fake.destroyedTextures()).toBe(destroyedBefore + 1);
   });
+
+  it("defers SVG source decode off-frame and retains warm decoded SVGs across tier release/re-prepare", async () => {
+    const fake = fakeDevice();
+    const { atlas } = atlasWith({ size: 256 });
+    atlas.attach(fake.device);
+
+    const g = globalThis as Record<string, unknown>;
+    const prevDoc = g["document"];
+    const prevImage = g["Image"];
+    const origCreateObjectURL = URL.createObjectURL;
+    const origRevokeObjectURL = URL.revokeObjectURL;
+    let createUrlCalls = 0;
+    let decodeCalls = 0;
+
+    g["document"] = {};
+    g["Image"] = class FakeImage {
+      src = "";
+      async decode(): Promise<void> {
+        decodeCalls += 1;
+      }
+    };
+    URL.createObjectURL = () => {
+      createUrlCalls += 1;
+      return `blob:fake-${createUrlCalls}`;
+    };
+    URL.revokeObjectURL = () => undefined;
+
+    try {
+      const spriteQuad = quad({
+        key: "portrait-warm-test",
+        kind: "sprite",
+        sprite: { atlas: "image", key: "portrait-warm-lru-test-1", svg: "<svg></svg>", size: { width: 40, height: 40 } },
+      });
+
+      // Cold prepareSource must do zero synchronous Blob/URL/Image work inside the frame.
+      atlas.prepareSource(spriteQuad);
+      expect(createUrlCalls).toBe(0);
+      expect(decodeCalls).toBe(0);
+
+      // Macrotask runs the deferred decode off-frame.
+      await new Promise((r) => setTimeout(r, 10));
+      await settle();
+      expect(createUrlCalls).toBe(1);
+      expect(decodeCalls).toBe(1);
+
+      // Release to refCount 0 (simulating leaving overview tier) and re-prepare (returning to overview).
+      atlas.releaseSource(spriteQuad);
+      atlas.prepareSource(spriteQuad);
+      await new Promise((r) => setTimeout(r, 10));
+      await settle();
+
+      // Warm hit: zero re-decode!
+      expect(createUrlCalls).toBe(1);
+      expect(decodeCalls).toBe(1);
+    } finally {
+      g["document"] = prevDoc;
+      g["Image"] = prevImage;
+      URL.createObjectURL = origCreateObjectURL;
+      URL.revokeObjectURL = origRevokeObjectURL;
+    }
+  });
 });

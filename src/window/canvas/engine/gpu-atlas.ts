@@ -1176,7 +1176,13 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const scheduleDrain = (): void => {
     if (drainScheduled || disposed || device === undefined) return;
     drainScheduled = true;
-    queueMicrotask(drainQueue);
+    // In a browser/Electron, run background rasterization in a macrotask AFTER the
+    // current rAF frame presents (queueMicrotask runs inside FireAnimationFrame).
+    if (typeof requestAnimationFrame === "function") {
+      setTimeout(drainQueue, 0);
+    } else {
+      queueMicrotask(drainQueue);
+    }
   };
 
   const rasterizeSync = (desc: CellDesc): AtlasPixels | undefined => {
@@ -1946,17 +1952,94 @@ interface DecodedSvgEntry {
 
 interface DecodedMediaEntry {
   readonly bitmap: ImageBitmap;
+  readonly bytes: number;
   refCount: number;
 }
 
+const DECODED_SVG_LRU_MAX = 1024;
+const DECODED_MEDIA_LRU_MAX_BYTES = 32 * 1024 * 1024;
+const DECODE_SLICE_MS = 2;
+
 const decodedSvgs = new Map<string, DecodedSvgEntry>();
+const unreferencedSvgs = new Map<string, true>();
 const decodingSvgs = new Map<string, Promise<DecodedSvgEntry>>();
 const svgPendingRefs = new Map<string, number>();
 const decodedNestedImages = new Map<string, HTMLImageElement>();
 const decodingNestedImages = new Map<string, Promise<HTMLImageElement | undefined>>();
 const decodedMedia = new Map<string, DecodedMediaEntry>();
+const unreferencedMedia = new Map<string, true>();
+let unreferencedMediaBytes = 0;
 const decodingMedia = new Map<string, Promise<DecodedMediaEntry>>();
 const mediaPendingRefs = new Map<string, number>();
+
+type QueuedDecode =
+  | { readonly kind: "svg"; readonly key: string; readonly ref: Extract<NonNullable<Quad["sprite"]>, { readonly atlas: "image" }>; readonly mode: ThemeMode }
+  | { readonly kind: "media"; readonly key: string; readonly ref: Extract<NonNullable<Quad["sprite"]>, { readonly atlas: "media" }> };
+
+const pendingDecodeQueue: QueuedDecode[] = [];
+const pendingDecodeKeys = new Set<string>();
+let decodeDrainScheduled = false;
+
+const evictUnreferencedSvgsIfNeeded = (): void => {
+  while (unreferencedSvgs.size > DECODED_SVG_LRU_MAX) {
+    const oldest = unreferencedSvgs.keys().next();
+    if (oldest.done) break;
+    const key = oldest.value;
+    unreferencedSvgs.delete(key);
+    const entry = decodedSvgs.get(key);
+    if (entry !== undefined && entry.refCount <= 0) {
+      decodedSvgs.delete(key);
+    }
+  }
+};
+
+const evictUnreferencedMediaIfNeeded = (): void => {
+  while (unreferencedMediaBytes > DECODED_MEDIA_LRU_MAX_BYTES && unreferencedMedia.size > 0) {
+    const oldest = unreferencedMedia.keys().next();
+    if (oldest.done) break;
+    const key = oldest.value;
+    unreferencedMedia.delete(key);
+    const entry = decodedMedia.get(key);
+    if (entry !== undefined && entry.refCount <= 0) {
+      unreferencedMediaBytes = Math.max(0, unreferencedMediaBytes - entry.bytes);
+      entry.bitmap.close();
+      decodedMedia.delete(key);
+    }
+  }
+};
+
+const drainDecodeQueue = (): void => {
+  decodeDrainScheduled = false;
+  const start = nowMs();
+  while (pendingDecodeQueue.length > 0) {
+    const item = pendingDecodeQueue.shift()!;
+    pendingDecodeKeys.delete(item.key);
+    if (item.kind === "svg") {
+      if (!svgPendingRefs.has(item.key) || decodedSvgs.has(item.key) || decodingSvgs.has(item.key)) continue;
+      void decodeSvgSourceOnce(item.ref, item.mode).catch(() => {
+        svgPendingRefs.delete(item.key);
+      });
+    } else {
+      if (!mediaPendingRefs.has(item.key) || decodedMedia.has(item.key) || decodingMedia.has(item.key)) continue;
+      void decodeMediaSourceOnce(item.ref).catch(() => {
+        mediaPendingRefs.delete(item.key);
+      });
+    }
+    if (pendingDecodeQueue.length > 0 && nowMs() - start >= DECODE_SLICE_MS) {
+      decodeDrainScheduled = true;
+      setTimeout(drainDecodeQueue, 0);
+      return;
+    }
+  }
+};
+
+const scheduleDecodeDrain = (): void => {
+  if (decodeDrainScheduled) return;
+  decodeDrainScheduled = true;
+  // Always run SVG/media decode setup (resolveSvgVars, Blob, createObjectURL, new Image)
+  // in a macrotask outside rAF so paint/holdSource never stalls a frame.
+  setTimeout(drainDecodeQueue, 0);
+};
 
 const drawFitted = (
   ctx: CanvasRenderingContext2D,
@@ -2039,8 +2122,12 @@ const decodeSvgSourceOnce = (
       refCount: svgPendingRefs.get(key) ?? 0,
     };
     svgPendingRefs.delete(key);
-    if (entry.refCount >= 0) {
-      decodedSvgs.set(key, entry);
+    decodedSvgs.set(key, entry);
+    if (entry.refCount <= 0) {
+      unreferencedSvgs.set(key, true);
+      evictUnreferencedSvgsIfNeeded();
+    } else {
+      unreferencedSvgs.delete(key);
     }
     return entry;
   })().finally(() => {
@@ -2062,10 +2149,16 @@ const decodeMediaSourceOnce = (
     const response = await fetch(ref.ref);
     if (!response.ok) throw new Error(`media fetch ${response.status}`);
     const bitmap = await createImageBitmap(await response.blob());
-    const entry: DecodedMediaEntry = { bitmap, refCount: mediaPendingRefs.get(ref.ref) ?? 0 };
+    const bytes = Math.max(1, bitmap.width * bitmap.height * 4);
+    const entry: DecodedMediaEntry = { bitmap, bytes, refCount: mediaPendingRefs.get(ref.ref) ?? 0 };
     mediaPendingRefs.delete(ref.ref);
-    if (entry.refCount >= 0) {
-      decodedMedia.set(ref.ref, entry);
+    decodedMedia.set(ref.ref, entry);
+    if (entry.refCount <= 0) {
+      unreferencedMedia.set(ref.ref, true);
+      unreferencedMediaBytes += bytes;
+      evictUnreferencedMediaIfNeeded();
+    } else {
+      unreferencedMedia.delete(ref.ref);
     }
     return entry;
   })().finally(() => {
@@ -2082,18 +2175,30 @@ const prepareDecodedSpriteSource = (ref: NonNullable<Quad["sprite"]>, mode: Them
     const hit = decodedSvgs.get(key);
     if (hit !== undefined) {
       hit.refCount += 1;
+      unreferencedSvgs.delete(key);
       return;
     }
     svgPendingRefs.set(key, (svgPendingRefs.get(key) ?? 0) + 1);
-    void decodeSvgSourceOnce(ref, mode).catch(() => { svgPendingRefs.delete(key); });
+    if (!decodingSvgs.has(key) && !pendingDecodeKeys.has(key)) {
+      pendingDecodeKeys.add(key);
+      pendingDecodeQueue.push({ kind: "svg", key, ref, mode });
+      scheduleDecodeDrain();
+    }
   } else if (ref.atlas === "media") {
     const hit = decodedMedia.get(ref.ref);
     if (hit !== undefined) {
       hit.refCount += 1;
+      if (unreferencedMedia.delete(ref.ref)) {
+        unreferencedMediaBytes = Math.max(0, unreferencedMediaBytes - hit.bytes);
+      }
       return;
     }
     mediaPendingRefs.set(ref.ref, (mediaPendingRefs.get(ref.ref) ?? 0) + 1);
-    void decodeMediaSourceOnce(ref).catch(() => { mediaPendingRefs.delete(ref.ref); });
+    if (!decodingMedia.has(ref.ref) && !pendingDecodeKeys.has(ref.ref)) {
+      pendingDecodeKeys.add(ref.ref);
+      pendingDecodeQueue.push({ kind: "media", key: ref.ref, ref });
+      scheduleDecodeDrain();
+    }
   }
 };
 
@@ -2103,7 +2208,11 @@ const releaseDecodedSpriteSource = (ref: NonNullable<Quad["sprite"]>, mode: Them
     const hit = decodedSvgs.get(key);
     if (hit !== undefined) {
       if (hit.refCount > 0) hit.refCount -= 1;
-      if (hit.refCount <= 0) decodedSvgs.delete(key);
+      if (hit.refCount <= 0) {
+        unreferencedSvgs.delete(key);
+        unreferencedSvgs.set(key, true);
+        evictUnreferencedSvgsIfNeeded();
+      }
       return;
     }
     const pending = svgPendingRefs.get(key);
@@ -2115,9 +2224,10 @@ const releaseDecodedSpriteSource = (ref: NonNullable<Quad["sprite"]>, mode: Them
     const hit = decodedMedia.get(ref.ref);
     if (hit !== undefined) {
       if (hit.refCount > 0) hit.refCount -= 1;
-      if (hit.refCount <= 0) {
-        hit.bitmap.close();
-        decodedMedia.delete(ref.ref);
+      if (hit.refCount <= 0 && !unreferencedMedia.has(ref.ref)) {
+        unreferencedMedia.set(ref.ref, true);
+        unreferencedMediaBytes += hit.bytes;
+        evictUnreferencedMediaIfNeeded();
       }
       return;
     }
