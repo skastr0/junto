@@ -35,11 +35,13 @@ import { TermCore } from "../../contract/core/term-ipc";
 import { TermTemplatesCore } from "../../contract/core/term-templates";
 import { ThreadsCore } from "../../contract/core/threads";
 import { ViewStateCore } from "../../contract/core/view-state";
+import { LoomSeedCore } from "../../contract/core/loom-seed";
 import { WatchCore } from "../../contract/core/watch";
 import { WorkCore } from "../../contract/core/work";
 
 export const CoreClientsLive = Layer.mergeAll(
   ViewStateCore.layer,
+  LoomSeedCore.layer,
   TermCore.layer,
   TermTemplatesCore.layer,
   SeatHoldsCore.layer,

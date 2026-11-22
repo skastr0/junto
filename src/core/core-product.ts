@@ -44,6 +44,7 @@ import { HarnessInventoryLive } from "./term/templates/harness-inventory";
 import { NativeConfigLive } from "./native-config/service";
 import { ProductModelDependentsLive } from "./view-state/model-dependents";
 import { ViewStateRepositoryLive } from "./view-state/repository";
+import { LoomSeedRepositoryLive } from "./loom-seed/repository";
 import { ModelLive } from "./model/layer";
 import { VaultTokensLive } from "./vault/repository";
 import { CodexLive } from "./services/codex";
@@ -94,6 +95,8 @@ export const makeCoreProductLayer = (home: string, log: Log) => {
       OpRepositoryLive,
       // The operator's arrangement: machine-local rows, written as it changes.
       ViewStateRepositoryLive,
+      // The loom's settled routes, derived local data keyed by router version.
+      LoomSeedRepositoryLive,
       // The automation store, and the recorder its ruler records each ruling through.
       makeAutomationRepositoryLive(),
       Layer.provide(RulingRecorderLive, Layer.merge(WorkRepositoryLive, makeMachineRepositoryLive({ log }))),

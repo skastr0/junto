@@ -35,11 +35,13 @@ import { TermRpcs } from "./term-ipc";
 import { TermTemplatesRpcs } from "./term-templates";
 import { ThreadsRpcs } from "./threads";
 import { ViewStateRpcs } from "./view-state";
+import { LoomSeedRpcs } from "./loom-seed";
 import { WatchRpcs } from "./watch";
 import { WorkRpcs } from "./work";
 
 export const CoreRpcs = RpcGroup.make().merge(
   ViewStateRpcs,
+  LoomSeedRpcs,
   TermRpcs,
   TermTemplatesRpcs,
   SeatHoldsRpcs,

@@ -39,12 +39,14 @@ import { TermHandlers } from "./ops/term-ipc";
 import { TermTemplatesHandlers } from "./ops/term-templates";
 import { ThreadsHandlers } from "./ops/ipc-threads";
 import { ViewStateHandlers } from "./ops/ipc-view-state";
+import { LoomSeedHandlers } from "./ops/ipc-loom-seed";
 import { WatchHandlers } from "./ops/ipc-watch";
 import { WorkHandlers } from "./ops/ipc-work";
 
 export const CoreServerLive = RpcServer.layer(CoreRpcs).pipe(
   Layer.provide([
     ViewStateHandlers,
+    LoomSeedHandlers,
     TermHandlers,
     TermTemplatesHandlers,
     SeatHoldsHandlers,

@@ -577,6 +577,11 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   loginItemSet: (openAtLogin: boolean) =>
     invoke<LoginItemOpResult>(IPC_CHANNELS.loginItemSet, IPC_TIMEOUT_MS, openAtLogin),
   onSettingsChanged: (listener) => subscribe<Settings>(IPC_CHANNELS.settingsChanged, listener),
+  loomSeed: {
+    load: (canvas) => invoke<{ routerVersion: number; seedJson: string } | null>(IPC_CHANNELS.loomSeedLoad, IPC_TIMEOUT_MS, canvas),
+    save: (canvas, routerVersion, seedJson) =>
+      invoke<boolean>(IPC_CHANNELS.loomSeedSave, IPC_TIMEOUT_MS, { canvas, routerVersion, seedJson }),
+  },
   viewState: {
     snapshot: () => invoke<ViewStateSnapshot>(IPC_CHANNELS.viewStateSnapshot, IPC_TIMEOUT_MS),
     apply: (write: ViewStateWrite) =>

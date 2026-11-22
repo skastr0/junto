@@ -240,6 +240,8 @@ export const IPC_CHANNELS = {
   /** View state (0.11, 04): the snapshot at window load, one row's write, and the push to every window. */
   viewStateSnapshot: "junto:view-state-snapshot",
   viewStateApply: "junto:view-state-apply",
+  loomSeedLoad: "junto:loom-seed-load",
+  loomSeedSave: "junto:loom-seed-save",
   viewStateChanged: "junto:view-state-changed",
   /** A new core took over: what a window read from the last one may be stale. */
   coreRestarted: "junto:core-restarted",
@@ -548,6 +550,12 @@ export type ModelActorRefsChanged = {
 /** One view-state write's receipt; a refusal leaves the mirror as it was. */
 export type { ViewStateApplyResult } from "./view-state";
 
+/** The loom's settled routes for one canvas, kept in junto.db beside it. */
+export interface JuntoLoomSeedApi {
+  readonly load: (canvas: string) => Promise<{ routerVersion: number; seedJson: string } | null>;
+  readonly save: (canvas: string, routerVersion: number, seedJson: string) => Promise<boolean>;
+}
+
 /** How the operator arranged Junto (0.11, 04): read once, written per row, pushed to every window. */
 export interface JuntoViewStateApi {
   readonly snapshot: () => Promise<ViewStateSnapshot>;
@@ -564,6 +572,8 @@ export interface JuntoApi extends OverseerLiveApi {
   readonly openWindowLink: () => void;
   /** Machine-local view state: the load snapshot and one row per write (view-state/ipc.ts). */
   readonly viewState: JuntoViewStateApi;
+  /** The loom seed: one read at launch, one write when the planner settles (loom-seed/ipc.ts). */
+  readonly loomSeed: JuntoLoomSeedApi;
   /**
    * Tasks and artifacts from main's stores, written through main's ruler as
    * the operator (resource-ipc.ts). Each domain is there only with its feature.
