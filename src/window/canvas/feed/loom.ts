@@ -233,8 +233,8 @@ export const retainWireRoutes = (
   const host = inWorker() ? workerHost(send, snapshot) : pageHost(send, snapshot);
   const onView = (view: Rect): void => host.request({ kind: "focus", view });
   viewListeners.add(onView);
-  // The passphrase the seed arrives after the first board is read: hold the
-  // board until then, so a launch never routes what the seed already holds.
+  // The seed is read before the first board is planned: hold the board until
+  // then, so a launch never routes what the seed already holds.
   let ready = false;
   let latest: Extract<LoomRequest, { kind: "plan" }> | undefined;
   void loadLoomSeed(canvasName).then((seed) => {
