@@ -857,6 +857,28 @@ const placeDomCamera = async (page: Page, target: { x: number; y: number; zoom: 
   await page.waitForTimeout(400);
 };
 
+/** A rect minus another: up to four uncovered pieces, empty ones dropped. */
+const subtractRect = (rect: ScreenRect, box: ScreenRect): ScreenRect[] => {
+  const left = Math.max(rect.x, box.x);
+  const right = Math.min(rect.x + rect.width, box.x + box.width);
+  const top = Math.max(rect.y, box.y);
+  const bottom = Math.min(rect.y + rect.height, box.y + box.height);
+  if (left >= right || top >= bottom) return [rect];
+  const out: ScreenRect[] = [];
+  if (top > rect.y) out.push({ x: rect.x, y: rect.y, width: rect.width, height: top - rect.y });
+  if (bottom < rect.y + rect.height) out.push({ x: rect.x, y: bottom, width: rect.width, height: rect.y + rect.height - bottom });
+  if (left > rect.x) out.push({ x: rect.x, y: top, width: left - rect.x, height: bottom - top });
+  if (right < rect.x + rect.width) out.push({ x: right, y: top, width: rect.x + rect.width - right, height: bottom - top });
+  return out;
+};
+
+const largestUncovered = (rect: ScreenRect, chrome: ReadonlyArray<ScreenRect>): ScreenRect | null => {
+  let pieces: ScreenRect[] = [rect];
+  for (const box of chrome) pieces = pieces.flatMap((piece) => subtractRect(piece, box));
+  const biggest = pieces.sort((a, b) => b.width * b.height - a.width * a.height)[0];
+  return biggest === undefined || biggest.width * biggest.height < rect.width * rect.height * 0.15 ? null : biggest;
+};
+
 // --- report ---------------------------------------------------------------------
 
 const writeReport = async (name: string, payload: Report): Promise<void> => {
@@ -1160,19 +1182,44 @@ test.describe("#913 GPU canvas proof", () => {
           // A canvas that draws nothing must fail loudly: ink in the pane and
           // in every visible card's rect, plus a reference image per tier.
           const paneInk = partInk(image, viewport, pane);
+          const chrome = await page.evaluate(() => {
+            const boxes: ScreenRect[] = [];
+            for (const el of document.querySelectorAll(".rts-shell, .rts-quiet, [aria-label*='Strategic minimap']")) {
+              if (el instanceof HTMLElement) {
+                const box = el.getBoundingClientRect();
+                boxes.push({ x: box.left, y: box.top, width: box.width, height: box.height });
+              }
+            }
+            return boxes;
+          });
+          const badges = (await drawnClusters(page)).filter((cluster) => cluster.drawn);
+          const heldByBadge = new Set<string>();
+          for (const badge of badges) for (const member of badge.memberIds) heldByBadge.add(member);
           const cardRects = await page.evaluate((ids) => {
             const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
             return ids.flatMap((id) => {
               const rect = hook?.["rectOf"]?.(id) as ScreenRect | undefined;
               if (rect === undefined || rect.width <= 4 || rect.height <= 4) return [];
               if (rect.x < 0 || rect.y < 0 || rect.x + rect.width > window.innerWidth || rect.y + rect.height > window.innerHeight) return [];
-              return [{ id, rect }];
+              const drawn = ((hook?.["partsOf"]?.(id) ?? []) as Array<Record<string, unknown>>).some((part) => part["drawn"] === true);
+              return [{ id, rect, drawn }];
             });
           }, board.model.nodes.map((node) => node.id));
           const inkless = cardRects
             .slice(0, 300)
-            .filter((card) => partInk(image, viewport, card.rect) < 0.004)
-            .map((card) => ({ id: card.id, rect: card.rect, ink: round(partInk(image, viewport, card.rect), 4) }));
+            .flatMap((card) => {
+              if (!card.drawn && heldByBadge.has(card.id)) return [];
+              const visible = largestUncovered(card.rect, chrome);
+              if (visible === null) return [];
+              const ink = partInk(image, viewport, visible);
+              return ink < 0.004 ? [{ id: card.id, rect: visible, ink: round(ink, 4) }] : [];
+            });
+          const badgeInkless = badges
+            .map((badge) => {
+              const rect = { x: badge.x - badge.radius, y: badge.y - badge.radius, width: badge.radius * 2, height: badge.radius * 2 };
+              return { key: badge.key, ink: round(partInk(image, viewport, rect), 4), rect };
+            })
+            .filter((badge) => badge.ink < 0.01);
           const referenceDir = join(OUT, "reference");
           await mkdir(referenceDir, { recursive: true });
           const referencePath = join(referenceDir, `${String(scale)}x-${tier.name}.png`);
@@ -1187,11 +1234,13 @@ test.describe("#913 GPU canvas proof", () => {
           }
           if (paneInk < 0.005) fail(`${String(scale)}x ${tier.name}: the pane carries ${(paneInk * 100).toFixed(2)}% ink; the canvas drew nothing`);
           if (inkless.length > 0) fail(`${String(scale)}x ${tier.name}: ${String(inkless.length)} visible cards carry no ink: ${JSON.stringify(inkless.slice(0, 6))}`);
+          if (badgeInkless.length > 0) fail(`${String(scale)}x ${tier.name}: ${String(badgeInkless.length)} drawn badges carry no ink: ${JSON.stringify(badgeInkless.slice(0, 6))}`);
           if (referenceMismatch !== null && referenceMismatch > 0.05) {
             fail(`${String(scale)}x ${tier.name}: the frame differs from the reference on ${(referenceMismatch * 100).toFixed(2)}% of pixels`);
           }
           const blank = await readBlankProbe(page);
           const row = {
+            display: await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio, screen: { width: screen.width, height: screen.height } })),
             tier: tier.name,
             zoom: tier.zoom,
             cameraTier: at.tier,
@@ -1215,6 +1264,7 @@ test.describe("#913 GPU canvas proof", () => {
             fullRedrawDelta: round(fullRedrawDelta, 4),
             paneInk: round(paneInk, 4),
             inkless,
+            badgeInkless,
             gpuErrors: at.gpuErrors,
             referenceMismatch: referenceMismatch === null ? null : round(referenceMismatch, 4),
             shippedCullFrames: shippedCullFrames ?? null,

@@ -245,7 +245,9 @@ export const launchProofArm = async (
   const display =
     process.env["JUNTO_GPU_PROOF_WINDOW"] === "mini"
       ? { windowContentSize: { width: 1440, height: 900 } }
-      : OPERATOR_DISPLAY;
+      : process.env["JUNTO_GPU_PROOF_WINDOW"] === "full"
+        ? { windowContentSize: { width: 1920, height: 1080 } }
+        : OPERATOR_DISPLAY;
   const seed = await preparedSeed(board);
   rememberSeed({ scale: board.scale, builtMs: seed.builtMs, cached: seed.cached });
   console.log(
