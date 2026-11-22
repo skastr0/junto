@@ -53,6 +53,8 @@ export type WireStats = {
   readonly uploadBytes: number;
   /** Wires the scene holds. */
   readonly wires: number;
+  /** Wires with a fact: every wire drawn, once this equals `wires`. */
+  readonly posed: number;
   /** The last tier-crossing repaint, ms. */
   readonly refreshMs: number;
   /** The last motion step: the wires' tweens and pulses, ms. */
@@ -148,6 +150,7 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
       indices: gpu.indices(),
       uploadBytes: gpu.lastBytes(),
       wires: scene.wires(),
+      posed: scene.withFact(),
       refreshMs: scene.refreshMs(),
       stepMs: scene.stepMs(),
       poolBytes: scene.poolBytes(),

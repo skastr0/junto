@@ -219,6 +219,8 @@ export type WireScene = {
   readonly builds: () => number;
   /** How many wires the scene holds, strips or not. */
   readonly wires: () => number;
+  /** How many wires have a fact: a wire with none draws nothing. */
+  readonly withFact: () => number;
   /** The last tier-crossing repaint, ms. */
   readonly refreshMs: () => number;
   /** The last motion step, ms. */
@@ -1422,6 +1424,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     inspect,
     builds: () => builds,
     wires: () => entries.size,
+    withFact: () => facts.size,
     refreshMs: () => refreshMs,
     stepMs: () => stepMs,
     wireIds: () => [...entries.keys()],
