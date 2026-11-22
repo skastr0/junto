@@ -4,7 +4,8 @@
  * them inside `observe` and every input they touch is tracked.
  */
 import type { Node } from "@shared/model";
-import { regionStack, type Placed } from "@shared/model/canvas";
+import { regionIndex } from "@shared/model/canvas";
+import type { Region } from "@shared/model";
 import { deriveExecutionGraph, type ExecutionGraphContext } from "@shared/execution-graph";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { kernel$ } from "../../lib/kernel-view";
@@ -49,12 +50,12 @@ export const regionParentOf = (canvasName: string): ReadonlyMap<string, string> 
     const node = node$.peek();
     if (node !== undefined) nodes.set(id, node);
   }
-  const placedNodes = new Map<Node["id"], Node>();
-  for (const node of nodes.values()) placedNodes.set(node.id, node);
-  const placed: Placed = { nodes: placedNodes };
+  // One index of the board's regions: each node is tested against the
+  // regions near it, not every node on the board for regions.
+  const index = regionIndex([...nodes.values()].filter((node): node is Region => node.kind === "region"));
   const parentOf = new Map<string, string>();
   for (const node of nodes.values()) {
-    const stack = regionStack(placed, node.id);
+    const stack = index.stack(node, node.id);
     const parent = stack[stack.length - 1];
     if (parent !== undefined) parentOf.set(node.id, parent.id);
   }

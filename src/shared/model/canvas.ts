@@ -117,6 +117,58 @@ export const regionStack = (canvas: Placed, target: NodeId | Frame): ReadonlyArr
     .sort((a, b) => b.width * b.height - a.width * a.height || a.id.localeCompare(b.id));
 };
 
+/** The stack order: outermost first (larger area first; equal areas by id). */
+const outermostFirst = (a: Region, b: Region): number => b.width * b.height - a.width * a.height || a.id.localeCompare(b.id);
+
+export type RegionIndex = {
+  /** `regionStack` over the indexed regions: every region wholly containing the target, outermost first. */
+  readonly stack: (target: Frame, self?: NodeId) => ReadonlyArray<Region>;
+};
+
+/**
+ * The regions bucketed on a grid, so a whole board's stacks cost each node the
+ * regions near it, not every region. The cell is the regions' median side,
+ * read from the board; a region spanning more cells than there are regions is
+ * kept aside and tested for every target, so no board costs more than the
+ * plain scan. Any region holding a target holds its top-left corner, so the
+ * corner's cell names every candidate.
+ */
+export const regionIndex = (regions: ReadonlyArray<Region>): RegionIndex => {
+  if (regions.length === 0) return { stack: () => [] };
+  const sides = regions.map((region) => Math.max(1, region.width, region.height)).sort((a, b) => a - b);
+  const cell = sides[sides.length >> 1]!;
+  const buckets = new Map<string, Region[]>();
+  const wide: Region[] = [];
+  for (const region of regions) {
+    const x0 = Math.floor(region.x / cell);
+    const y0 = Math.floor(region.y / cell);
+    const x1 = Math.floor((region.x + region.width) / cell);
+    const y1 = Math.floor((region.y + region.height) / cell);
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > regions.length) {
+      wide.push(region);
+      continue;
+    }
+    for (let cx = x0; cx <= x1; cx += 1) {
+      for (let cy = y0; cy <= y1; cy += 1) {
+        const key = `${String(cx)},${String(cy)}`;
+        const list = buckets.get(key);
+        if (list === undefined) buckets.set(key, [region]);
+        else list.push(region);
+      }
+    }
+  }
+  return {
+    stack: (target, self) => {
+      const key = `${String(Math.floor(target.x / cell))},${String(Math.floor(target.y / cell))}`;
+      const found: Region[] = [];
+      for (const list of [buckets.get(key), wide]) {
+        for (const region of list ?? []) if (region.id !== self && frameContains(region, target)) found.push(region);
+      }
+      return found.sort(outermostFirst);
+    },
+  };
+};
+
 /** The things inside a region that are not themselves regions. */
 export const regionMembers = (canvas: Placed, region: Region): ReadonlyArray<Node> => {
   const found: Array<Node> = [];

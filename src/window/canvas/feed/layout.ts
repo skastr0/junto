@@ -7,7 +7,7 @@
  * canvas's flow node data says.
  */
 import type { Node, Region } from "@shared/model";
-import { regionStack, type Placed } from "@shared/model/canvas";
+import { regionIndex } from "@shared/model/canvas";
 import type { RegionNameSlot as ContractNameSlot } from "../contract";
 import { holdsSeatRing, renderedNodeSize, SEAT_RING_PX } from "../../lib/node-geometry";
 import { regionNameSlot, type RegionNameSlot } from "../../lib/region-name-slot";
@@ -42,14 +42,12 @@ const regionFacts = (
   parentOf: Map<string, string>,
 ): ReadonlyMap<string, RegionFacts> => {
   const regions = nodes.filter((node): node is Region => node.kind === "region");
-  const regionsOnly: Placed = {
-    nodes: new Map(regions.map((region) => [region.id, region])),
-  };
+  const index = regionIndex(regions);
   const depths = new Map<string, number>();
   const children = new Map<string, Region[]>();
   const members = new Map<string, Rect[]>();
   for (const region of regions) {
-    const stack = regionStack(regionsOnly, region.id);
+    const stack = index.stack(region, region.id);
     depths.set(region.id, stack.length);
     const parent = stack[stack.length - 1];
     if (parent !== undefined) {
@@ -59,7 +57,7 @@ const regionFacts = (
   }
   for (const node of nodes) {
     if (node.kind === "region") continue;
-    const stack = regionStack(regionsOnly, node);
+    const stack = index.stack(node);
     const parent = stack[stack.length - 1];
     if (parent === undefined) continue;
     parentOf.set(node.id, parent.id);

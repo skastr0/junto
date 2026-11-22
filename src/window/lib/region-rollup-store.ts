@@ -1,8 +1,8 @@
 import { batch, observable, observe } from "@legendapp/state";
 import type { ActorRef } from "@shared/work-protocol";
-import type { Node, Wire } from "@shared/model";
+import type { Node, Region, Wire } from "@shared/model";
 import { asCanvasName } from "@shared/model";
-import { regionMembers } from "@shared/model/canvas";
+import { regionIndex } from "@shared/model/canvas";
 import { titleOf } from "@shared/model/title";
 import { actorRefResolverFromProjection } from "@shared/graph";
 import {
@@ -136,16 +136,37 @@ export const createRegionRollupStore = (
           const node = node$.peek();
           if (node) nodes.set(node.id, node);
         }
-        const canvas = { nodes };
         const regions = ids.filter((id) => nodes.get(id as Node["id"])?.kind === "region");
+        const regionSet = new Set(regions);
         const wires = model.wireIds.get().map((id) => {
           const wire$ = model.wires[id];
           wire$.from.get(); wire$.to.get();
           return wire$.peek();
         }).filter((wire): wire is Wire => wire !== undefined);
+        // Membership in one pass over the nodes and one over the wires, each
+        // node tested only against the regions near it (regionIndex): the
+        // board's every region against its every node and wire froze the
+        // page for seconds at scale (issue 912).
+        const index = regionIndex(regions.map((id) => nodes.get(id as Node["id"])).filter((node): node is Region => node?.kind === "region"));
+        const membersOf = new Map<string, string[]>(regions.map((id) => [id, []]));
+        const regionsOfAgent = new Map<string, ReadonlyArray<Region>>();
+        for (const id of ids) {
+          const node = nodes.get(id as Node["id"]);
+          if (node === undefined || node.kind === "region") continue;
+          const inside = index.stack(node);
+          for (const region of inside) membersOf.get(region.id)?.push(id);
+          if (node.kind === "agent" && inside.length > 0) regionsOfAgent.set(id, inside);
+        }
+        const wiresOf = new Map<string, string[]>(regions.map((id) => [id, []]));
+        for (const wire of wires) {
+          const from = nodes.get(wire.from), to = nodes.get(wire.to);
+          const seat = from?.kind === "agent" && to?.kind === "task" ? wire.from : to?.kind === "agent" && from?.kind === "task" ? wire.to : undefined;
+          if (seat === undefined) continue;
+          for (const region of regionsOfAgent.get(seat) ?? []) wiresOf.get(region.id)?.push(wire.id);
+        }
         batch(() => {
           for (const [id, off] of regional) {
-            if (regions.includes(id)) continue;
+            if (regionSet.has(id)) continue;
             off(); regional.delete(id);
             state.byRegionId[id].delete();
             membership.members[id].delete(); membership.wires[id].delete();
@@ -153,14 +174,8 @@ export const createRegionRollupStore = (
           for (const id of regions) {
             const region = nodes.get(id as Node["id"]);
             if (region?.kind !== "region") continue;
-            const members = new Set(regionMembers(canvas, region).map((node) => node.id));
-            const ordered = ids.filter((member) => members.has(member as Node["id"]));
-            const agents = new Set(ordered.filter((member) => nodes.get(member as Node["id"])?.kind === "agent"));
-            const relevantWires = wires.filter((wire) => {
-              const from = nodes.get(wire.from), to = nodes.get(wire.to);
-              return (agents.has(wire.from) && to?.kind === "task") ||
-                (agents.has(wire.to) && from?.kind === "task");
-            }).map((wire) => wire.id);
+            const ordered = membersOf.get(id) ?? [];
+            const relevantWires = wiresOf.get(id) ?? [];
             if (!sameIds(membership.members[id].peek(), ordered)) membership.members[id].set(ordered);
             if (!sameIds(membership.wires[id].peek(), relevantWires)) membership.wires[id].set(relevantWires);
             if (!regional.has(id)) regional.set(id, followRegion(id));
