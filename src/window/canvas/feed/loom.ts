@@ -122,13 +122,29 @@ const workerHost = (send: (update: LoomUpdate) => void, snapshot: (change: LoomS
         return;
       }
       if (request.kind === "seed") {
-        // Each worker plans the whole board and draws only its share: it gets
-        // every card and meta, and only the wires its share owns.
+        // Each worker plans the whole board and draws only its share: the
+        // cards are packed once as flat memory and each worker is posted
+        // only the wires its share owns, in one pass.
         const count = workers.length;
+        const cards = packCards(
+          request.seed.cards.map((card) => ({
+            id: card.nodeId,
+            x: card.x,
+            y: card.y,
+            width: card.width,
+            height: card.height,
+            region: !card.obstacle,
+          })),
+        );
+        const shares: Array<LoomSeed["wires"][number][]> = Array.from({ length: count }, () => []);
+        for (const wire of request.seed.wires) shares[shareOf(wire.wireId, count)]!.push(wire);
         for (const [index, worker] of workers.entries()) {
           worker.postMessage({
             kind: "seed",
-            seed: { ...request.seed, wires: request.seed.wires.filter((wire) => shareOf(wire.wireId, count) === index) },
+            version: request.seed.version,
+            meta: request.seed.meta,
+            cards,
+            wires: shares[index]!,
           } satisfies LoomRequest);
         }
         return;

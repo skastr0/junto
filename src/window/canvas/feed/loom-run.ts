@@ -8,7 +8,7 @@
  */
 import type { Rect } from "../contract";
 import { createLoomPlanner, type LoomCard, type LoomShare, type LoomUpdate, type LoomWireRow } from "./loom-planner";
-import type { LoomSeed, LoomSeedChange } from "./loom-seed";
+import type { LoomSeedChange, LoomSeedMeta, LoomSeedWire } from "./loom-seed";
 import { unpackCards, unpackWires, type PackedCards } from "./loom-board";
 
 export type LoomRequest =
@@ -17,8 +17,14 @@ export type LoomRequest =
   | { readonly kind: "board"; readonly cards: PackedCards; readonly wires: string; readonly view?: Rect }
   | { readonly kind: "focus"; readonly view: Rect }
   | { readonly kind: "reset" }
-  /** The stored seed from the page, before the first board. */
-  | { readonly kind: "seed"; readonly seed: LoomSeed }
+  /** The stored seed from the page, before the first board; cards packed once. */
+  | {
+      readonly kind: "seed";
+      readonly version: number;
+      readonly meta: LoomSeedMeta;
+      readonly cards: PackedCards;
+      readonly wires: ReadonlyArray<LoomSeedWire>;
+    }
   /** The page wants a seed back now (the board settled). */
   | { readonly kind: "settled" }
   /** This run's part of the board among several (sent first, before any board). */
@@ -84,9 +90,18 @@ export const createLoomRun = (
           board = request;
           schedule();
           return;
-        case "seed":
-          planner.seed(request.seed);
+        case "seed": {
+          const cards = unpackCards(request.cards).map((card) => ({
+            nodeId: card.id,
+            x: card.x,
+            y: card.y,
+            width: card.width,
+            height: card.height,
+            obstacle: !card.region,
+          }));
+          planner.seed({ version: request.version, meta: request.meta, cards, wires: request.wires });
           return;
+        }
         case "settled":
           snapshot?.(planner.snapshot());
           return;
