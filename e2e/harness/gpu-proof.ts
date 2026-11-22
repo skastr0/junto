@@ -35,7 +35,7 @@ import { createSandbox, destroySandbox, writeFixtureExperimentalFeatures, writeF
 export const PROOF_CANVAS = "factory";
 
 /** The three sizes the proof runs, in board copies of the factory canvas. */
-export type ProofScale = 1 | 10 | 100;
+export type ProofScale = 1 | 2 | 10 | 100;
 
 export interface ProofStats {
   readonly copies: number;
