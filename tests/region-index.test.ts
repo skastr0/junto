@@ -1,10 +1,11 @@
 /**
- * The region index (issue 912) answers every stack exactly as `regionStack`
- * does, at a cost of the regions near each target instead of every region.
+ * The region index (issue 912) answers every stack exactly as a scan of
+ * every region does, at a cost of the regions near each target instead of
+ * every region. `regionStack` asks one index per board.
  */
 import { describe, expect, it } from "vitest";
 import { asNodeId, type Node, type Region } from "../src/shared/model";
-import { regionIndex, regionStack } from "../src/shared/model/canvas";
+import { frameContains, regionIndex, regionStack, type Placed } from "../src/shared/model/canvas";
 
 const region = (name: string, x: number, y: number, width: number, height: number): Region => ({
   kind: "region",
@@ -18,6 +19,16 @@ const region = (name: string, x: number, y: number, width: number, height: numbe
   height,
 });
 
+/** Every region tested against the target: the rule the index must keep. */
+const scan = (placed: Placed, target: Node["id"] | { x: number; y: number; width: number; height: number }): string[] => {
+  const self = typeof target === "string" ? target : undefined;
+  const rect = typeof target === "string" ? placed.nodes.get(target)! : target;
+  return [...placed.nodes.values()]
+    .filter((node): node is Region => node.kind === "region" && node.id !== self && frameContains(node, rect))
+    .sort((a, b) => b.width * b.height - a.width * a.height || a.id.localeCompare(b.id))
+    .map((r) => r.id);
+};
+
 /** A fixed pseudo-random sequence, so the board is the same on every run. */
 const random = (seed: number) => () => {
   seed = (Math.imul(seed, 1_103_515_245) + 12_345) >>> 0;
@@ -25,7 +36,7 @@ const random = (seed: number) => () => {
 };
 
 describe("the region index", () => {
-  it("gives every target the stack regionStack gives it, nested, overlapping and board-wide regions included", () => {
+  it("gives every target the stack a scan of every region gives it, nested, overlapping and board-wide regions included", () => {
     const next = random(912);
     const regions: Region[] = [region("board", -50_000, -50_000, 100_000, 100_000)];
     for (let i = 0; i < 300; i += 1) {
@@ -37,12 +48,24 @@ describe("the region index", () => {
     regions.push(region("inner-a", 100, 100, 400, 300), region("inner-b", 100, 100, 400, 300), region("outer", 0, 0, 2000, 2000));
     const placed = { nodes: new Map<Node["id"], Node>(regions.map((r) => [r.id, r])) };
     const index = regionIndex(regions);
-    for (const r of regions) expect(index.stack(r, r.id).map((s) => s.id), r.id).toEqual(regionStack(placed, r.id).map((s) => s.id));
+    for (const r of regions) {
+      expect(index.stack(r, r.id).map((s) => s.id), r.id).toEqual(scan(placed, r.id));
+      expect(regionStack(placed, r.id).map((s) => s.id), r.id).toEqual(scan(placed, r.id));
+    }
     for (let i = 0; i < 2000; i += 1) {
       const frame = { x: (next() - 0.5) * 44_000, y: (next() - 0.5) * 34_000, width: 216, height: 56 };
-      expect(index.stack(frame).map((s) => s.id)).toEqual(regionStack(placed, frame).map((s) => s.id));
+      expect(index.stack(frame).map((s) => s.id)).toEqual(scan(placed, frame));
+      expect(regionStack(placed, frame).map((s) => s.id)).toEqual(scan(placed, frame));
     }
     expect(index.stack({ x: 150, y: 150, width: 10, height: 10 }).map((s) => s.id)).toEqual(["board", "outer", "inner-a", "inner-b"]);
+  });
+
+  it("follows a board that grows after it was asked", () => {
+    const nodes = new Map<Node["id"], Node>([[asNodeId("a"), region("a", 0, 0, 1000, 1000)]]);
+    const target = { x: 10, y: 10, width: 5, height: 5 };
+    expect(regionStack({ nodes }, target).map((s) => s.id)).toEqual(["a"]);
+    nodes.set(asNodeId("b"), region("b", 0, 0, 2000, 2000));
+    expect(regionStack({ nodes }, target).map((s) => s.id)).toEqual(["b", "a"]);
   });
 
   it("answers nothing on a board with no regions", () => {

@@ -112,9 +112,23 @@ export const regionStack = (canvas: Placed, target: NodeId | Frame): ReadonlyArr
   const self = typeof target === "string" ? target : undefined;
   const rect = typeof target === "string" ? canvas.nodes.get(target) : target;
   if (rect === undefined) return [];
-  return nodesOf(canvas, "region")
-    .filter((region) => region.id !== self && frameContains(region, rect))
-    .sort((a, b) => b.width * b.height - a.width * a.height || a.id.localeCompare(b.id));
+  return indexOfBoard(canvas.nodes).stack(rect, self);
+};
+
+/**
+ * One region index per board (issue 912). A board's node map is read only,
+ * and every change makes a new one, so the index built for a map stays true
+ * for it; callers asking for the stack of every card on a board (the feed's
+ * regions, the companion's reads) pay for the regions once, not per card.
+ * The size is checked too, for a caller that fills a map after asking.
+ */
+const indexes = new WeakMap<Placed["nodes"], { readonly size: number; readonly index: RegionIndex }>();
+const indexOfBoard = (nodes: Placed["nodes"]): RegionIndex => {
+  const held = indexes.get(nodes);
+  if (held !== undefined && held.size === nodes.size) return held.index;
+  const index = regionIndex(nodesOf({ nodes }, "region"));
+  indexes.set(nodes, { size: nodes.size, index });
+  return index;
 };
 
 /** The stack order: outermost first (larger area first; equal areas by id). */
