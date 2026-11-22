@@ -371,7 +371,18 @@ const hypothesize = (
       if (hook === undefined) return [];
       return (input.points as Array<{ x: number; y: number }>).map((point) => {
         const element = document.elementFromPoint(point.x, point.y);
-        if (!(element instanceof HTMLCanvasElement && element.classList.contains("junto-gpu-canvas"))) return { point, hit: "chrome" };
+        if (!(element instanceof HTMLCanvasElement && element.classList.contains("junto-gpu-canvas"))) {
+          const near = element?.closest("[data-testid], [role], [data-component], [aria-label]") as HTMLElement | null | undefined;
+          return {
+            point,
+            hit: "chrome",
+            element: element === null ? "none" : `${element.tagName.toLowerCase()}.${String(element.className).slice(0, 100)}`,
+            near:
+              near === null || near === undefined
+                ? ""
+                : `${near.tagName.toLowerCase()} ${String(near.className).slice(0, 80)} ${near.getAttribute("data-testid") ?? near.getAttribute("aria-label") ?? ""}`.trim(),
+          };
+        }
         const hit = hook["pick"]({ x: point.x - input.pane.x, y: point.y - input.pane.y }) as
           | { nodeId?: string; part?: { kind?: string; memberIds?: string[] } }
           | null;
@@ -1086,6 +1097,7 @@ test.describe("#913 GPU canvas proof", () => {
             cullParity: cullParity === null ? null : round(cullParity, 4),
             gpuCullFrames,
             clusterPicks,
+            chromeClicks,
             gpuLastMs: at.gpuPass?.lastMs ?? null,
             gpuPeakMs: at.gpuPass?.peakMs ?? null,
             gpuSamples: at.gpuPass?.samples ?? null,
