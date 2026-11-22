@@ -37,6 +37,8 @@ type FullHook = CanvasTestHook & {
   readonly badgePartsOf: (key: string) => ReadonlyArray<DrawnPart>;
   /** Painted cluster badges at far/overview, with x, y, radius in page screen pixels. */
   readonly clusters: () => ReadonlyArray<DrawnCluster>;
+  /** Cull the draw list on the CPU or the GPU, for the #912 comparison. */
+  readonly setCull: (mode: "cpu" | "gpu") => void;
 };
 
 const inset = (rect: Rect, dx: number, dy: number): Rect => ({
@@ -159,6 +161,7 @@ const build = (
     atlasStats,
     pick: (screen) => engine()?.pick(screen) ?? null,
     partsOf: (id) => mapParts(engine()?.partsOf?.(id) ?? []),
+    setCull: (mode) => engine()?.setCull?.(mode),
     badgePartsOf: (key) => mapParts(engine()?.badgePartsOf?.(key) ?? []),
     clusters: () => {
       const cam = mirror.camera();

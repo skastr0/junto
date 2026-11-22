@@ -59,7 +59,7 @@ import type {
   WireMode,
   WireFact,
 } from "../contract";
-import { TIER_BIT } from "../contract";
+import { ALL_TIERS, TIER_BIT } from "../contract";
 import {
   createQuadBuffer,
   MOTION,
@@ -450,6 +450,8 @@ export const createScene = (options: {
   let orderCount = 0;
   let bandEnds: [number, number, number] = [0, 0, 0];
   let orderDirty = true;
+  /** The draw list is culled on the GPU (renderer `setCull("gpu")`): candidates keep every tier. */
+  let cullOnGpu = false;
 
   const slots: Array<CardSlot | undefined> = [];
   const freeSlots: number[] = [];
@@ -1870,7 +1872,9 @@ export const createScene = (options: {
     for (const card of visibleCards) if (!gatheredSeats.has(card.id)) needed += card.ordered.length;
     for (const badge of badges) needed += badge.ordered.length;
     ensureOrderCapacity(needed);
-    const mask = liveMask;
+    // With the cull on the GPU, every tier's quads are candidates: the
+    // compute pass filters by tier and view per quad, each frame.
+    const mask = cullOnGpu ? ALL_TIERS : liveMask;
     const counts = [0, 0, 0];
     let at = 0;
     let moving = false;
@@ -2217,6 +2221,12 @@ export const createScene = (options: {
     partsOf,
     badgePartsOf,
     clusters,
+    /** Build the draw list for a GPU cull (every tier) or the CPU one (the current tier only). */
+    setCullOnGpu: (on: boolean): void => {
+      if (on === cullOnGpu) return;
+      cullOnGpu = on;
+      markOrder();
+    },
     /** The peaks measured so far, to keep for the next session. */
     motionPeaks: (): MotionPeaks => ({ screenSpeed: peakScreenSpeed, zoomRate: peakZoomRate, latencyMs: peakLatency }),
     /** In-view quads with no image on the last presented frame, and cells rasterized in the frame to prevent one. */

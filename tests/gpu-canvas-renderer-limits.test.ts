@@ -123,3 +123,20 @@ describe("the atlas cells table", () => {
     ]);
   });
 });
+
+describe("the cull's candidates", () => {
+  it("keep every tier when the GPU culls, and only the current tier when the CPU does", () => {
+    const tiered = (key: string, tiers: number): Quad =>
+      ({ key, kind: "shape", band: "cards", z: 1, rect: { x: 0, y: 0, width: 10, height: 10 }, tiers, scale: { kind: "board" }, style: {} }) as unknown as Quad;
+    const scene = createScene({ painter: () => ({ quads: [tiered("near", 1), tiered("far", 4)], dim: { opacity: 1, saturate: 1 }, lift: 0 }) });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    expect(scene.prepare(VIEW, "near").orderChanged).toBe(true);
+    expect(scene.orderCount).toBe(1);
+    scene.setCullOnGpu(true);
+    scene.prepare(VIEW, "near");
+    expect(scene.orderCount).toBe(2);
+    scene.setCullOnGpu(false);
+    scene.prepare(VIEW, "near");
+    expect(scene.orderCount).toBe(1);
+  });
+});

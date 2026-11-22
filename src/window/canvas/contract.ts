@@ -756,6 +756,8 @@ export type EngineStats = {
   readonly bufferFailures?: ReadonlyArray<{ readonly buffer: string; readonly bytes: number; readonly limit?: number; readonly reason: string }>;
   /** The frame's render pass in GPU time (timestamp-query), when the device can time it. */
   readonly gpuPass?: { readonly available: boolean; readonly samples: number; readonly lastMs?: number; readonly peakMs?: number };
+  /** Where the draw list is culled. */
+  readonly cull?: "cpu" | "gpu";
 };
 
 /**
@@ -811,6 +813,8 @@ export interface Engine {
   readonly ringAngle?: (id: NodeId) => number | undefined;
   /** Every quad the scene has built for a card, as drawn in the last frame (the part-level ink check). */
   readonly partsOf?: (id: NodeId) => ReadonlyArray<DrawnPart>;
+  /** Cull the draw list on the CPU (as built) or the GPU (a compute pass, per quad). */
+  readonly setCull?: (mode: "cpu" | "gpu") => void;
   /** The same for a cluster badge, by its key. */
   readonly badgePartsOf?: (key: string) => ReadonlyArray<DrawnPart>;
   /** The badges the last frame planned, each standing for its members. */

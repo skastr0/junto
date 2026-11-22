@@ -569,6 +569,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     if (surface.width !== pixelWidth) surface.width = pixelWidth;
     if (surface.height !== pixelHeight) surface.height = pixelHeight;
     const encoder = device.createCommandEncoder();
+    renderer.cull(encoder);
     const timestampWrites = timer?.writes();
     const pass = encoder.beginRenderPass({
       ...(timestampWrites === undefined ? {} : { timestampWrites }),
@@ -781,6 +782,11 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     // animation, and a last-frame angle can be a frame behind it.
     ringAngle: (id) => scene.ringAngle(id, wallNow()),
     partsOf: (id) => scene.partsOf(id),
+    setCull: (mode) => {
+      scene.setCullOnGpu(mode === "gpu");
+      renderer.setCull(mode);
+      invalidate();
+    },
     badgePartsOf: (key) => scene.badgePartsOf(key),
     clusters: () => scene.clusters(),
     stats: (): EngineStats => ({
@@ -799,6 +805,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       }))(scene.blankStats()),
       bufferFailures: renderer.bufferFailures,
       gpuPass: timer?.times() ?? { available: false, samples: 0 },
+      cull: renderer.cullMode,
     }),
     dispose: () => {
       if (disposed) return;
