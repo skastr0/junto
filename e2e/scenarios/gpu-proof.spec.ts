@@ -485,13 +485,38 @@ const addressSeat = async (page: Page, id: string, pane: ScreenRect): Promise<Se
   if (target === undefined) {
     const canvasPoints = hypotheses.filter((hypothesis) => hypothesis.hit !== "chrome").length;
     const others = hypotheses.filter((hypothesis) => hypothesis.hit === "other");
+    const state = await readProofState(page);
+    const detail = await page.evaluate((seat) => {
+      const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+      if (hook === undefined) return null;
+      const pane = hook["rectOf"]("") as ScreenRect;
+      const clusters = (hook["clusters"]?.() ?? []) as Array<Record<string, any>>;
+      return {
+        pane,
+        parts: ((hook["partsOf"]?.(seat) ?? []) as Array<Record<string, unknown>>).map((part) => ({
+          key: part["key"],
+          drawn: part["drawn"] === true,
+          rect: part["rect"],
+        })),
+        clustersNamingSeat: clusters
+          .filter((cluster) => (cluster["memberIds"] ?? []).includes(seat))
+          .map((cluster) => ({
+            key: cluster["key"],
+            drawn: cluster["drawn"],
+            x: cluster["x"],
+            y: cluster["y"],
+            radius: cluster["radius"],
+            members: (cluster["memberIds"] as string[]).length,
+          })),
+      };
+    }, id);
     const coveredByDrawnCard = others.length > 0 && others.every((hypothesis) => hypothesis.body === true);
     return {
       id,
       result: canvasPoints === 0 ? "offscreen" : coveredByDrawnCard ? "covered" : "miss",
       detail: coveredByDrawnCard
         ? `covered by a drawn card at every one of ${String(canvasPoints)} canvas points`
-        : `not pickable at ${String(canvasPoints)} canvas points (${JSON.stringify(hypotheses.slice(0, 6))})`,
+        : `not pickable at ${String(canvasPoints)} canvas points (${JSON.stringify(hypotheses.slice(0, 6))}) at camera ${JSON.stringify(state.camera)} view ${JSON.stringify(detail?.pane ?? null)} clusters ${JSON.stringify(detail?.clustersNamingSeat ?? null)} parts ${JSON.stringify(detail?.parts ?? null)}`,
     };
   }
 
