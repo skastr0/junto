@@ -1020,7 +1020,7 @@ test.describe("#913 GPU canvas proof", () => {
                     tag: element?.tagName ?? "none",
                     className: String(element?.className ?? "").slice(0, 120),
                     id: (element as HTMLElement | null)?.id ?? "",
-                    near: near === null ? "" : `${near.tagName.toLowerCase()} ${String(near.className).slice(0, 80)} ${near.getAttribute("data-testid") ?? near.getAttribute("aria-label") ?? ""}`.trim(),
+                    near: near === null || near === undefined ? "" : `${near.tagName.toLowerCase()} ${String(near.className).slice(0, 80)} ${near.getAttribute("data-testid") ?? near.getAttribute("aria-label") ?? ""}`.trim(),
                   });
                 }
                 continue;
