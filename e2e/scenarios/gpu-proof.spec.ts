@@ -488,11 +488,16 @@ const addressSeat = async (page: Page, id: string, pane: ScreenRect): Promise<Se
         const parts = (hook["partsOf"](input.id) as Array<Record<string, any>>)
           .filter((part) => part["drawn"] === true)
           .map((part) => ({ key: part["key"], kind: part["kind"], rect: part["rect"] }));
+        const clusters = (hook["clusters"]?.() ?? []) as Array<Record<string, any>>;
         return {
           selected,
           pick: hit === null || hit === undefined ? null : { nodeId: hit.nodeId ?? null, part: hit.part?.key ?? hit.part?.kind ?? null },
           element: element === null ? null : String(element.className).slice(0, 120),
           parts,
+          clustersNamingSeat: clusters
+            .filter((cluster) => (cluster["memberIds"] ?? []).includes(input.id))
+            .map((cluster) => ({ key: cluster["key"], drawn: cluster["drawn"], x: cluster["x"], y: cluster["y"], radius: cluster["radius"], members: (cluster["memberIds"] as string[]).length })),
+          clusterMarks: clusters.filter((cluster) => cluster["drawn"] === true).length,
         };
       },
       { id, point: target.point },
