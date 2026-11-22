@@ -2336,6 +2336,12 @@ export const createScene = (options: {
         meta[index * 4] = spec.layers.length;
         // The shader indexes vec4s; a layer is two of them.
         meta[index * 4 + 1] = layers.length / 4;
+        // Bit i: layer i is inset. The shader reads at most 32 layers.
+        let inset = 0;
+        spec.layers.forEach((layer, at) => {
+          if (layer.inset === true && at < 32) inset |= 1 << at;
+        });
+        meta[index * 4 + 2] = inset >>> 0;
         for (const layer of spec.layers) {
           const named = layer.color === undefined ? undefined : theme.colors[layer.color];
           const colour = named ?? spec.tint ?? { r: 0, g: 0, b: 0, a: 0 };

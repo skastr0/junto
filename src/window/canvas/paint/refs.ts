@@ -16,6 +16,7 @@ import {
   type Rect,
   type ScaleRule,
 } from "../contract";
+import { SHADOW, type ShadowLayer } from "@shared/theme/chrome";
 
 export const tok = (name: string, alpha?: number): ColorRef =>
   alpha === undefined ? { token: name } : { token: name, alpha };
@@ -114,14 +115,41 @@ const make = (kind: Quad["kind"], base: Base, extra: Extra): Quad => {
 };
 
 export const shape = (base: Base, style: QuadStyle, extra: Extra = {}): Quad => make("shape", base, { ...extra, style });
-export const shadow = (base: Base, style: QuadStyle, extra: Extra = {}): Quad =>
-  make("shadow", base, {
+/**
+ * How far a recipe's outer layers reach past the element, as the shader
+ * draws them: the larger offset, the spread, and half the blur (where a
+ * layer's coverage, `0.5 - d / blur`, reaches zero). Inset layers stay inside.
+ */
+export const shadowReach = (name: string): number => {
+  const layers: ReadonlyArray<ShadowLayer> | undefined = (SHADOW as Record<string, ReadonlyArray<ShadowLayer>>)[name];
+  let reach = 0;
+  for (const layer of layers ?? []) {
+    if (layer.inset === true) continue;
+    reach = Math.max(reach, Math.max(Math.abs(layer.dx), Math.abs(layer.dy)) + Math.max(0, layer.spread) + Math.max(layer.blur, 0.5) / 2);
+  }
+  return Math.ceil(reach);
+};
+
+/**
+ * A shadow quad: the element's box, grown by the recipe's reach so the drop
+ * has room, with the element named as the hole no outer layer paints inside
+ * (the fragment stage stops there). A caller that grew the box itself names
+ * its own hole.
+ */
+export const shadow = (base: Base, style: QuadStyle, extra: Extra = {}): Quad => {
+  const reach = extra.hole ?? (style.shadow === undefined ? 0 : shadowReach(style.shadow.name));
+  const rect = extra.hole === undefined ? grow(base.rect, reach) : base.rect;
+  const element = { width: Math.max(0, rect.width - reach * 2), height: Math.max(0, rect.height - reach * 2) };
+  // A disc's shadow is round: its radius is half the element's side.
+  const radii = extra.radii ?? (extra.shape === "disc" ? Math.min(element.width, element.height) / 2 : undefined);
+  return make("shadow", { ...base, rect }, {
     ...extra,
     style,
-    ...(extra.hole === undefined
-      ? {}
-      : { element: { width: Math.max(0, base.rect.width - extra.hole * 2), height: Math.max(0, base.rect.height - extra.hole * 2) } }),
+    ...(radii === undefined ? {} : { radii }),
+    hole: reach,
+    element,
   });
+};
 export const sprite = (base: Base, extra: Extra): Quad => make("sprite", base, extra);
 export const text = (base: Base, style: QuadStyle, extra: Extra): Quad => make("text", base, { ...extra, style });
 

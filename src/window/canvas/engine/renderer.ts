@@ -225,32 +225,43 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
     // glow room and names the growth as its hole; without the hole the solid
     // first layer of a ring shadow fills the card with its tint.
     let baseHalf = max(in.half - vec2f(qHole), vec2f(0.0));
+    let p0 = abs(in.local * in.half);
+    // The element: q.radii are its used radii already (shadow() clamps them
+    // to the element box), each corner its own.
+    let holeRight = select(qRadii.x, qRadii.y, in.local.x > 0.0);
+    let holeLeft = select(qRadii.w, qRadii.z, in.local.x > 0.0);
+    let holeR = max(select(holeRight, holeLeft, in.local.y > 0.0), 0.0);
+    let hc = p0 - baseHalf + holeR;
+    let hd = length(max(hc, vec2f(0.0))) + min(max(hc.x, hc.y), 0.0) - holeR;
+    let outside = 1.0 - clamp(0.5 - hd * ppu, 0.0, 1.0);
+    let inside = 1.0 - outside;
+    // Bit i of spec.z: layer i is inset (drawn inside the element only).
+    let insetMask = spec.z;
+    // Inside the hole with no inset layer, nothing paints: stop before the loop.
+    if (insetMask == 0u && outside <= 0.0) { return vec4f(0.0); }
+    if (insetMask == 0xffffffffu >> (32u - max(count, 1u)) && inside <= 0.0) { return vec4f(0.0); }
     for (var i = 0u; i < count; i = i + 1u) {
       let layer = shadowLayers[spec.y + i * 2u];
       let tint = shadowLayers[spec.y + i * 2u + 1u];
+      let inset = (insetMask & (1u << i)) != 0u;
       let lp = in.local * in.half - vec2f(layer.x, layer.y);
       let p = abs(lp);
-      let p0 = abs(in.local * in.half);
-      let halfSize = baseHalf + vec2f(layer.w);
+      // An outer layer is the element grown by its spread; an inset one is
+      // the element shrunk by it, and its shadow is what that box leaves.
+      let spread = select(layer.w, -layer.w, inset);
+      let halfSize = max(baseHalf + vec2f(spread), vec2f(0.0));
       // Every corner keeps its own radius. One radius for all four painted
       // a seat's 28 left end into its 14 bottom corners and filled the
       // rounded cutouts with the drop.
       let layerRight = select(qRadii.x, qRadii.y, lp.x > 0.0);
       let layerLeft = select(qRadii.w, qRadii.z, lp.x > 0.0);
-      let layerR = max(select(layerRight, layerLeft, lp.y > 0.0) + layer.w, 0.0);
+      let layerR = max(select(layerRight, layerLeft, lp.y > 0.0) + spread, 0.0);
       let r = max(0.0, min(layerR, min(halfSize.x, halfSize.y)));
       let corner = p - halfSize + r;
       let d = length(max(corner, vec2f(0.0))) + min(max(corner.x, corner.y), 0.0) - r;
-      let holeRight = select(qRadii.x, qRadii.y, in.local.x > 0.0);
-      let holeLeft = select(qRadii.w, qRadii.z, in.local.x > 0.0);
-      // q.radii are the element's used radii already: shadow() clamps them to
-      // the element box. Subtracting q.hole here squared the hole at the card
-      // corners and left the drop as a sharp grey triangle outside the border.
-      let holeR = max(select(holeRight, holeLeft, in.local.y > 0.0), 0.0);
-      let hc = p0 - baseHalf + holeR;
-      let hd = length(max(hc, vec2f(0.0))) + min(max(hc.x, hc.y), 0.0) - holeR;
       let blur = max(layer.z, 0.5);
-      let soft = clamp(0.5 - d / blur, 0.0, 1.0) * (1.0 - clamp(0.5 - hd * ppu, 0.0, 1.0));
+      let cover = clamp(0.5 - d / blur, 0.0, 1.0);
+      let soft = select(cover * outside, (1.0 - cover) * inside, inset);
       let a = tint.a * soft * styleOpacity * o.p.w * motionAlpha;
       outColour = outColour + tint.rgb * a * (1.0 - outAlpha);
       outAlpha = outAlpha + a * (1.0 - outAlpha);
