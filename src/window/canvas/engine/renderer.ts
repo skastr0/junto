@@ -23,7 +23,7 @@ import type { Prepared, Scene } from "./scene";
 import { QUAD_BYTES, QUAD_FLOATS } from "./quad";
 import { DURATION } from "@shared/theme";
 import { STYLE_STRIDE } from "./styles";
-import { ATLAS_CELL_FLOATS, type AtlasBinding } from "./types";
+import { ATLAS_CELL_FLOATS, atlasBindBudget, type AtlasBindBudget, type AtlasBinding } from "./types";
 import { PLACE_QUAD, QUAD_STRUCTS } from "./quad-wgsl";
 import { createGpuCull, type GpuCull } from "./gpu-cull";
 
@@ -40,7 +40,27 @@ const ATLAS_DUMMY_WIDTH = 1;
 const SHADOW_LAYER_FLOATS = 8;
 const SHADOW_SPEC_WORDS = 4;
 
-const SHADER = /* wgsl */ `
+const buildQuadShader = (rgbaSlots: number, coverageSlots: number): string => {
+  const extraRgbaDecls: string[] = [];
+  const rgbaCases: string[] = [
+    "    case 0u: { return textureSampleLevel(atlas, atlasSampler, uv, layer, lod); }",
+  ];
+  for (let i = 1; i < rgbaSlots; i += 1) {
+    const binding = 11 + (i - 1);
+    extraRgbaDecls.push(`@group(0) @binding(${binding}) var atlas${i}: texture_2d_array<f32>;`);
+    rgbaCases.push(`    case ${i}u: { return textureSampleLevel(atlas${i}, atlasSampler, uv, layer, lod); }`);
+  }
+  const extraCovDecls: string[] = [];
+  const covCases: string[] = [
+    "    case 0u: { return textureSampleLevel(coverageAtlas, atlasSampler, uv, layer, 0.0).r; }",
+  ];
+  for (let j = 1; j < coverageSlots; j += 1) {
+    const binding = 11 + (rgbaSlots - 1) + (j - 1);
+    extraCovDecls.push(`@group(0) @binding(${binding}) var coverageAtlas${j}: texture_2d_array<f32>;`);
+    covCases.push(`    case ${j}u: { return textureSampleLevel(coverageAtlas${j}, atlasSampler, uv, layer, 0.0).r; }`);
+  }
+  const extraDecls = [...extraRgbaDecls, ...extraCovDecls].join("\n");
+  return /* wgsl */ `
 const TRANSITION_MS = ${DURATION.state.toFixed(1)};
 
 ${QUAD_STRUCTS}// Everything a quad's pixels share is worked out once per vertex and handed
@@ -86,6 +106,21 @@ struct AtlasCell {
 // Text coverage, one channel (r8unorm pages, issue 911). u.misc.z is 1 when the
 // atlas splits it out; otherwise text sits in the rgba pages' alpha.
 @group(0) @binding(10) var coverageAtlas: texture_2d_array<f32>;
+${extraDecls}
+
+fn sampleRgba(pageIdx: u32, uv: vec2f, layer: i32, lod: f32) -> vec4f {
+  switch (pageIdx) {
+${rgbaCases.join("\n")}
+    default: { return textureSampleLevel(atlas, atlasSampler, uv, layer, lod); }
+  }
+}
+
+fn sampleCoverage(pageIdx: u32, uv: vec2f, layer: i32) -> f32 {
+  switch (pageIdx) {
+${covCases.join("\n")}
+    default: { return textureSampleLevel(coverageAtlas, atlasSampler, uv, layer, 0.0).r; }
+  }
+}
 
 const PI2 = 6.283185307179586;
 const STYLE = ${STYLE_STRIDE}u;
@@ -394,8 +429,10 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
     } else {
       let page = in.cellPage;
       var uv = mix(in.cellUv.xy, in.cellUv.zw, in.local * 0.5 + 0.5);
-      var layer = i32(page.x);
+      var pageIdx = u32(max(0.0, page.x));
+      var layer = 0;
       if (page.y > 0.5) {
+        pageIdx = 0u;
         let tx = clamp(i32(floor(uv.x * page.y)), 0, i32(page.y) - 1);
         let ty = clamp(i32(floor(uv.y * page.z)), 0, i32(page.z) - 1);
         layer = ty * i32(page.y) + tx;
@@ -408,14 +445,14 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
         // Only the texture the text lives in is sampled.
         var coverage = 0.0;
         if (u.misc.z > 0.5) {
-          coverage = textureSampleLevel(coverageAtlas, atlasSampler, uv, layer, 0.0).r;
+          coverage = sampleCoverage(pageIdx, uv, layer);
         } else {
-          coverage = textureSampleLevel(atlas, atlasSampler, uv, layer, 0.0).a;
+          coverage = sampleRgba(pageIdx, uv, layer, 0.0).a;
         }
         colour = ink.rgb;
         alpha = coverage * ink.a * outer;
       } else {
-        let tex = textureSampleLevel(atlas, atlasSampler, uv, layer, in.geo.z);
+        let tex = sampleRgba(pageIdx, uv, layer, in.geo.z);
         let tint = select(vec4f(1.0), fill, fill.a > 0.0);
         colour = tex.rgb * tint.rgb;
         alpha = tex.a * select(1.0, tint.a, fill.a > 0.0) * outer;
@@ -430,9 +467,10 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
   return vec4f(colour * alpha, alpha);
 }
 `;
+};
 
 /** The WGSL source, exported for the reserved-word guard and diagnostics. */
-export const QUAD_SHADER = SHADER;
+export const QUAD_SHADER = buildQuadShader(8, 8);
 export const WGSL_RESERVED = "NULL Self abstract active alignas alignof as asm asm_fragment async attribute auto await become binding_array cast catch class co_await co_return co_yield coherent column_major common compile compile_fragment concept const_cast consteval constexpr constinit crate debugger decltype delete demote demote_to_helper do dynamic_cast enum explicit export extends extern external fallthrough filter final finally friend from fxgroup get goto groupshared highp impl implements import inline instanceof interface layout lowp macro macro_rules match mediump meta mod module move mut mutable namespace new nil noexcept noinline nointerpolation noperspective null nullptr of operator package packoffset partition pass patch pixelfragment precise precision premerge priv protected pub public readonly ref regardless register reinterpret_cast require resource restrict self set shared sizeof smooth snorm static static_assert static_cast std subroutine super target template this thread_local throw trait try type typedef typeid typename typeof union unless unorm unsafe unsized use using varying virtual volatile wgsl where writeonly yield" as const;
 
 type Range = { readonly buffer: string; readonly offset: number; readonly size: number };
@@ -441,6 +479,8 @@ type Gpu = {
   readonly device: GPUDevice;
   readonly pipeline: GPURenderPipeline;
   readonly bindLayout: GPUBindGroupLayout;
+  readonly bindBudget: AtlasBindBudget;
+  readonly dummyTex: GPUTexture;
   atlas?: AtlasBinding;
   quads: GPUBuffer;
   owners: GPUBuffer;
@@ -582,24 +622,36 @@ export const createRenderer = () => {
     // A standalone override takes the binding its format names: an r8unorm
     // text texture is coverage (binding 10), anything else rgba (binding 4).
     const coverageOverride = textureOverride !== undefined && textureOverride.format === "r8unorm";
-    const texture = (coverageOverride ? undefined : textureOverride) ?? state.atlas?.texture ?? dummyTexture(device);
-    const coverage = (coverageOverride ? textureOverride : undefined) ?? state.atlas?.coverageTexture ?? texture;
+    const rgbaPages = state.atlas?.rgbaPages;
+    const covPages = state.atlas?.coveragePages;
+    const page0Rgba = (coverageOverride ? undefined : textureOverride) ?? rgbaPages?.[0] ?? state.atlas?.texture ?? state.dummyTex;
+    const page0Cov = (coverageOverride ? textureOverride : undefined) ?? covPages?.[0] ?? state.atlas?.coverageTexture ?? page0Rgba;
     const sampler = state.atlas?.sampler ?? device.createSampler({ magFilter: "nearest", minFilter: "nearest" });
+    const entries: GPUBindGroupEntry[] = [
+      { binding: 0, resource: { buffer: state.uniform } },
+      { binding: 1, resource: { buffer: orderOverride ?? state.order } },
+      { binding: 2, resource: { buffer: state.quads } },
+      { binding: 3, resource: { buffer: state.owners } },
+      { binding: 4, resource: page0Rgba.createView({ dimension: "2d-array" }) },
+      { binding: 5, resource: sampler },
+      { binding: 6, resource: { buffer: state.cells } },
+      { binding: 7, resource: { buffer: state.styles } },
+      { binding: 8, resource: { buffer: state.shadowMeta } },
+      { binding: 9, resource: { buffer: state.shadowLayers } },
+      { binding: 10, resource: page0Cov.createView({ dimension: "2d-array" }) },
+    ];
+    const { rgba: rgbaSlots, coverage: covSlots } = state.bindBudget;
+    for (let i = 1; i < rgbaSlots; i += 1) {
+      const tex = rgbaPages?.[i] ?? page0Rgba;
+      entries.push({ binding: 11 + (i - 1), resource: tex.createView({ dimension: "2d-array" }) });
+    }
+    for (let j = 1; j < covSlots; j += 1) {
+      const tex = covPages?.[j] ?? page0Cov;
+      entries.push({ binding: 11 + (rgbaSlots - 1) + (j - 1), resource: tex.createView({ dimension: "2d-array" }) });
+    }
     return device.createBindGroup({
       layout: state.bindLayout,
-      entries: [
-        { binding: 0, resource: { buffer: state.uniform } },
-        { binding: 1, resource: { buffer: orderOverride ?? state.order } },
-        { binding: 2, resource: { buffer: state.quads } },
-        { binding: 3, resource: { buffer: state.owners } },
-        { binding: 4, resource: texture.createView({ dimension: "2d-array" }) },
-        { binding: 5, resource: sampler },
-        { binding: 6, resource: { buffer: state.cells } },
-        { binding: 7, resource: { buffer: state.styles } },
-        { binding: 8, resource: { buffer: state.shadowMeta } },
-        { binding: 9, resource: { buffer: state.shadowLayers } },
-        { binding: 10, resource: coverage.createView({ dimension: "2d-array" }) },
-      ],
+      entries,
     });
   };
 
@@ -726,23 +778,37 @@ export const createRenderer = () => {
   ): void => {
     if (gpu !== undefined && configuredFor === generation) return;
     gpu?.cull?.destroy();
-    const module = device.createShaderModule({ code: SHADER });
-    const bindLayout = device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: STAGE.VERTEX | STAGE.FRAGMENT, buffer: { type: "uniform" } },
-        { binding: 1, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
-        { binding: 2, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
-        { binding: 3, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
-        // The vertex stage reads the atlas's size for a sprite's mip level.
-        { binding: 4, visibility: STAGE.VERTEX | STAGE.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d-array" } },
-        { binding: 5, visibility: STAGE.FRAGMENT, sampler: { type: "filtering" } },
-        { binding: 6, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
-        { binding: 7, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
-        { binding: 8, visibility: STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
-        { binding: 9, visibility: STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
-        { binding: 10, visibility: STAGE.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d-array" } },
-      ],
-    });
+    const bindBudget = atlasBindBudget(device);
+    const module = device.createShaderModule({ code: buildQuadShader(bindBudget.rgba, bindBudget.coverage) });
+    const layoutEntries: GPUBindGroupLayoutEntry[] = [
+      { binding: 0, visibility: STAGE.VERTEX | STAGE.FRAGMENT, buffer: { type: "uniform" } },
+      { binding: 1, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
+      { binding: 2, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
+      { binding: 3, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
+      // The vertex stage reads the atlas's size for a sprite's mip level.
+      { binding: 4, visibility: STAGE.VERTEX | STAGE.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d-array" } },
+      { binding: 5, visibility: STAGE.FRAGMENT, sampler: { type: "filtering" } },
+      { binding: 6, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
+      { binding: 7, visibility: STAGE.VERTEX, buffer: { type: "read-only-storage" } },
+      { binding: 8, visibility: STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
+      { binding: 9, visibility: STAGE.FRAGMENT, buffer: { type: "read-only-storage" } },
+      { binding: 10, visibility: STAGE.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d-array" } },
+    ];
+    for (let i = 1; i < bindBudget.rgba; i += 1) {
+      layoutEntries.push({
+        binding: 11 + (i - 1),
+        visibility: STAGE.FRAGMENT,
+        texture: { sampleType: "float", viewDimension: "2d-array" },
+      });
+    }
+    for (let j = 1; j < bindBudget.coverage; j += 1) {
+      layoutEntries.push({
+        binding: 11 + (bindBudget.rgba - 1) + (j - 1),
+        visibility: STAGE.FRAGMENT,
+        texture: { sampleType: "float", viewDimension: "2d-array" },
+      });
+    }
+    const bindLayout = device.createBindGroupLayout({ entries: layoutEntries });
     const layout = device.createPipelineLayout({ bindGroupLayouts: [bindLayout] });
     const pipeline = device.createRenderPipeline({
       layout,
@@ -770,6 +836,8 @@ export const createRenderer = () => {
       device,
       pipeline,
       bindLayout,
+      bindBudget,
+      dummyTex: dummyTexture(device),
       ...(atlas === undefined ? {} : { atlas }),
       quads: bufferOf(device, Math.max(1, scene.quadCapacity) * QUAD_BYTES),
       owners: bufferOf(device, Math.max(1, scene.ownerCapacity) * 8 * 4),
@@ -1103,6 +1171,7 @@ export const createRenderer = () => {
       gpu?.styles.destroy();
       gpu?.shadowMeta.destroy();
       gpu?.shadowLayers.destroy();
+      gpu?.dummyTex.destroy();
       gpu = undefined;
       configuredFor = 0;
     },

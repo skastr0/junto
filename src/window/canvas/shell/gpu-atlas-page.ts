@@ -27,6 +27,7 @@ const EMPTY_ATLAS_STATS: AtlasStats = {
   bytesInUse: 0,
   activeCells: 0,
   pinnedCells: 0,
+  standaloneCount: 0,
   visibleBlank: 0,
   visibleBlankTotal: 0,
 };

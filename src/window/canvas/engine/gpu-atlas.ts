@@ -16,7 +16,7 @@
 import type { ColorRef, Quad, TextRun } from "../contract";
 import { gpuColorCss, themeGpu, type GpuColor, type GpuTheme, type ThemeMode } from "@shared/theme";
 import { NO_ATLAS_CELL } from "./quad";
-import { ATLAS_CELL_FLOATS, type AtlasBinding, type AtlasDirtyCells, type AtlasStats } from "./types";
+import { ATLAS_CELL_FLOATS, atlasBindBudget, type AtlasBinding, type AtlasDirtyCells, type AtlasStats } from "./types";
 import { resolveColour } from "./styles";
 import { drawGlyph, glyphKnown } from "./glyphs";
 import {
@@ -128,11 +128,13 @@ export interface GpuAtlas {
 }
 
 type PoolKind = "rgba" | "coverage";
+type PageLayout = "grid" | "strip" | "full";
 
 interface Plot {
   readonly x0: number;
   readonly y0: number;
-  readonly size: number;
+  readonly w: number;
+  readonly h: number;
   cursorX: number;
   cursorY: number;
   rowH: number;
@@ -143,6 +145,7 @@ interface Plot {
 
 interface Page {
   readonly pageIndex: number;
+  readonly layout: PageLayout;
   readonly texture: GPUTexture;
   readonly size: number;
   readonly bytes: number;
@@ -166,7 +169,10 @@ interface PagePool {
   readonly format: GPUTextureFormat;
   readonly bytesPerPixel: number;
   readonly usage: number;
+  pageSize: number;
+  bindLimit: number;
   readonly pages: Page[];
+  readonly pageTextures: GPUTexture[];
 }
 
 interface DirtyMipRect {
@@ -217,6 +223,7 @@ interface SlotRecord {
 }
 
 const PREFERRED_PAGE_SIZE = 2048;
+const PREFERRED_COVERAGE_PAGE_SIZE = 4096; // 1 byte/px -> 16 MB, same memory as one 2048 RGBA page
 const PREFERRED_PLOT_SIZE = 512;
 const RGBA_MAX_MIP_LEVELS = 4; // 1x, 1/2x, 1/4x, 1/8x -> needs 8px gutter
 const INITIAL_CELL_CAPACITY = 256;
@@ -254,7 +261,8 @@ const closePixels = (pixels: AtlasPixels): void => {
 const nowMs = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
-  const preferredSize = Math.max(64, options.size ?? PREFERRED_PAGE_SIZE);
+  const explicitSize = options.size !== undefined ? Math.max(64, options.size) : undefined;
+  const preferredSize = explicitSize ?? PREFERRED_PAGE_SIZE;
   let pageSize = preferredSize;
   let maxTexDim = 8192;
   let maxArrayLayers = 256;
@@ -323,14 +331,20 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     format: "rgba8unorm",
     bytesPerPixel: 4,
     usage: TEXTURE_USAGE_ATLAS,
+    pageSize: preferredSize,
+    bindLimit: 8,
     pages: [],
+    pageTextures: [],
   };
   const coveragePool: PagePool = {
     kind: "coverage",
     format: "r8unorm",
     bytesPerPixel: 1,
     usage: TEXTURE_USAGE_COVERAGE,
+    pageSize: explicitSize ?? PREFERRED_COVERAGE_PAGE_SIZE,
+    bindLimit: 8,
     pages: [],
+    pageTextures: [],
   };
   const poolFor = (kind: PoolKind): PagePool => (kind === "coverage" ? coveragePool : rgbaPool);
   const poolKindOf = (cellKind: "text" | "sprite"): PoolKind => (cellKind === "text" ? "coverage" : "rgba");
@@ -367,6 +381,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const mutable = {
     texture: undefined as unknown as GPUTexture,
     coverageTexture: undefined as unknown as GPUTexture,
+    rgbaPages: rgbaPool.pageTextures as ReadonlyArray<GPUTexture>,
+    coveragePages: coveragePool.pageTextures as ReadonlyArray<GPUTexture>,
     sampler: undefined as unknown as GPUSampler,
     cells,
     cellCount: 0,
@@ -496,13 +512,13 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     return true;
   };
 
-  const writeCellUV = (index: number, x: number, y: number, w: number, h: number, layer: number): void => {
+  const writeCellUV = (index: number, x: number, y: number, w: number, h: number, pageOrLayer: number, dim: number = pageSize): void => {
     const base = index * ATLAS_CELL_FLOATS;
-    cells[base] = x / pageSize;
-    cells[base + 1] = y / pageSize;
-    cells[base + 2] = (x + w) / pageSize;
-    cells[base + 3] = (y + h) / pageSize;
-    cells[base + 4] = layer;
+    cells[base] = x / dim;
+    cells[base + 1] = y / dim;
+    cells[base + 2] = (x + w) / dim;
+    cells[base + 3] = (y + h) / dim;
+    cells[base + 4] = pageOrLayer;
     cells[base + 5] = 0;
     cells[base + 6] = 0;
     cells[base + 7] = 0;
@@ -570,7 +586,14 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
 
   // --- Skia-style plot allocator + independent per-page textures (zero-copy growth) ---
 
-  const plotSizeNow = (): number => Math.min(pageSize, PREFERRED_PLOT_SIZE);
+  const plotSizeFor = (pool: PagePool): number => Math.min(pool.pageSize, PREFERRED_PLOT_SIZE);
+
+  const layoutFor = (pool: PagePool, needW: number, needH: number): PageLayout => {
+    const pSize = plotSizeFor(pool);
+    if (needW <= pSize && needH <= pSize) return "grid";
+    if (needH <= pSize) return "strip";
+    return "full";
+  };
 
   const createTexture2DArray = (
     targetDevice: GPUDevice,
@@ -631,28 +654,28 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
 
   /**
    * Add a new independent 1-layer page texture to `pool` (zero copies of existing pages).
-   * Page 0 binds to `mutable.texture` / `mutable.coverageTexture`; pages >= 1 bind via
-   * `binding.standalone` per cell index so growth never copies or reallocates live pages.
+   * Pages within `pool.bindLimit` are published in `rgbaPages` / `coveragePages` so the
+   * renderer binds every page of both pools in one bind group (keeping GPU cull on).
+   * Only pages past the device's sampled-texture stage limit fall back to `standalone`.
    */
-  const addPage = (pool: PagePool): Page | undefined => {
+  const addPage = (pool: PagePool, layout: PageLayout): Page | undefined => {
     if (device === undefined) return undefined;
+    const dim = pool.pageSize;
     const mips = pool.kind === "rgba" ? rgbaMipCount : 1;
     const pageIndex = pool.pages.length;
     let pageRef: Page | undefined;
     const tex = createTexture2DArray(
       device,
-      pageSize,
-      pageSize,
+      dim,
+      dim,
       1,
       pool.format,
       pool.usage,
       mips,
       (deadTex) => {
-        // Async OOM: drop only this dead page, never touch live pages.
+        // Async OOM: drop only this dead page, never touch live pages or shift later page indices.
         if (pageRef === undefined || pageRef.dead) return;
         pageRef.dead = true;
-        const pos = pool.pages.indexOf(pageRef);
-        if (pos >= 0) pool.pages.splice(pos, 1);
         for (const plot of pageRef.plots) {
           for (const cellIdx of plot.cells) {
             const rec = slots[cellIdx];
@@ -666,9 +689,15 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
           }
           plot.cells.clear();
         }
-        if (pageRef.pageIndex === 0) {
-          if (pool.kind === "rgba" && dummyRgbaTex !== undefined) mutable.texture = dummyRgbaTex;
-          if (pool.kind === "coverage" && dummyCovTex !== undefined) mutable.coverageTexture = dummyCovTex;
+        const fallback = pool.kind === "rgba" ? dummyRgbaTex : dummyCovTex;
+        if (fallback !== undefined && pageRef.pageIndex < pool.pageTextures.length) {
+          pool.pageTextures[pageRef.pageIndex] = fallback;
+        }
+        if (pageRef.pageIndex === 0 && fallback !== undefined) {
+          if (pool.kind === "rgba") mutable.texture = fallback;
+          else mutable.coverageTexture = fallback;
+        }
+        if (pageRef.pageIndex < pool.bindLimit) {
           textureGeneration += 1;
           mutable.textureGeneration = textureGeneration;
         }
@@ -679,16 +708,35 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (tex === undefined) return undefined;
     clearNewPageMips(tex, mips);
 
-    const pSize = plotSizeNow();
-    const cols = Math.max(1, Math.floor(pageSize / pSize));
+    const pSize = plotSizeFor(pool);
     const plots: Plot[] = [];
-    for (let py = 0; py < cols; py += 1) {
-      for (let px = 0; px < cols; px += 1) {
+    if (layout === "grid") {
+      const cols = Math.max(1, Math.floor(dim / pSize));
+      for (let py = 0; py < cols; py += 1) {
+        for (let px = 0; px < cols; px += 1) {
+          plots.push({
+            x0: px * pSize,
+            y0: py * pSize,
+            w: pSize,
+            h: pSize,
+            cursorX: pageIndex === 0 && px === 0 && py === 0 ? 1 : 0, // reserve (0,0) on page 0 as transparent
+            cursorY: 0,
+            rowH: 0,
+            cells: new Set(),
+            pinnedCount: 0,
+            lastUsedTick: ++plotTick,
+          });
+        }
+      }
+    } else if (layout === "strip") {
+      const rows = Math.max(1, Math.floor(dim / pSize));
+      for (let py = 0; py < rows; py += 1) {
         plots.push({
-          x0: px * pSize,
+          x0: 0,
           y0: py * pSize,
-          size: pSize,
-          cursorX: pageIndex === 0 && px === 0 && py === 0 ? 1 : 0, // reserve (0,0) on page 0 as transparent
+          w: dim,
+          h: pSize,
+          cursorX: pageIndex === 0 && py === 0 ? 1 : 0,
           cursorY: 0,
           rowH: 0,
           cells: new Set(),
@@ -696,17 +744,33 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
           lastUsedTick: ++plotTick,
         });
       }
+    } else {
+      plots.push({
+        x0: 0,
+        y0: 0,
+        w: dim,
+        h: dim,
+        cursorX: pageIndex === 0 ? 1 : 0,
+        cursorY: 0,
+        rowH: 0,
+        cells: new Set(),
+        pinnedCount: 0,
+        lastUsedTick: ++plotTick,
+      });
     }
 
-    const baseBytes = pageSize * pageSize * pool.bytesPerPixel;
+    const baseBytes = dim * dim * pool.bytesPerPixel;
     const bytes = mips > 1 ? Math.round(baseBytes * (4 / 3)) : baseBytes;
-    const page: Page = { pageIndex, texture: tex, size: pageSize, bytes, mipCount: mips, plots, dead: false };
+    const page: Page = { pageIndex, layout, texture: tex, size: dim, bytes, mipCount: mips, plots, dead: false };
     pageRef = page;
     pool.pages.push(page);
+    pool.pageTextures.push(tex);
 
     if (pageIndex === 0) {
       if (pool.kind === "rgba") mutable.texture = tex;
       else mutable.coverageTexture = tex;
+    }
+    if (pageIndex < pool.bindLimit) {
       textureGeneration += 1;
       mutable.textureGeneration = textureGeneration;
       markDirty();
@@ -718,16 +782,16 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     const gutter = gutterFor(pool.kind);
     const needW = w + gutter;
     const needH = h + gutter;
-    if (needW > plot.size || needH > plot.size) return undefined;
+    if (needW > plot.w || needH > plot.h) return undefined;
     let cx = plot.cursorX;
     let cy = plot.cursorY;
     let rh = plot.rowH;
-    if (cx + needW > plot.size) {
+    if (cx + needW > plot.w) {
       cx = 0;
       cy += rh;
       rh = 0;
     }
-    if (cy + needH > plot.size) return undefined;
+    if (cy + needH > plot.h) return undefined;
     const x = plot.x0 + cx;
     const y = plot.y0 + cy;
     plot.cursorX = cx + needW;
@@ -737,9 +801,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     return { pool: pool.kind, page, plot, x, y, w, h };
   };
 
-  const tryPlaceOnPages = (pool: PagePool, w: number, h: number): Placed | undefined => {
+  const tryPlaceOnPages = (pool: PagePool, w: number, h: number, preferredLayout: PageLayout): Placed | undefined => {
     for (const page of pool.pages) {
-      if (page.dead) continue;
+      if (page.dead || page.layout !== preferredLayout) continue;
       for (const plot of page.plots) {
         const at = tryPlaceInPlot(pool, page, plot, w, h);
         if (at !== undefined) return at;
@@ -775,14 +839,20 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     plot.rowH = 0;
   };
 
-  const evictLruUnpinnedPlot = (pool: PagePool): { readonly page: Page; readonly plot: Plot } | undefined => {
+  const evictLruUnpinnedPlot = (
+    pool: PagePool,
+    needW: number,
+    needH: number,
+    preferredLayout: PageLayout,
+  ): { readonly page: Page; readonly plot: Plot } | undefined => {
     let bestPage: Page | undefined;
     let bestPlot: Plot | undefined;
     let oldest = Infinity;
     for (const page of pool.pages) {
-      if (page.dead) continue;
+      if (page.dead || page.layout !== preferredLayout) continue;
       for (const plot of page.plots) {
         if (plot.pinnedCount > 0 || plot.cells.size === 0) continue;
+        if (plot.w < needW || plot.h < needH) continue;
         if (plot.lastUsedTick < oldest) {
           oldest = plot.lastUsedTick;
           bestPage = page;
@@ -797,7 +867,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
 
   const freePlaced = (at: Placed, cellIndex: number): void => {
     at.plot.cells.delete(cellIndex);
-    if (at.page.pageIndex > 0) standaloneTextures.delete(cellIndex);
+    standaloneTextures.delete(cellIndex);
     if (at.plot.cells.size === 0) {
       at.plot.pinnedCount = 0;
       at.plot.cursorX = at.page.pageIndex === 0 && at.plot.x0 === 0 && at.plot.y0 === 0 ? 1 : 0;
@@ -815,23 +885,24 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   };
 
   const alloc = (pool: PagePool, w: number, h: number): Placed | undefined => {
-    // Lazy pool init: create Page 0 on first use
-    if (pool.pages.length === 0) {
-      const first = addPage(pool);
-      if (first === undefined) return undefined;
-    }
-    let at = tryPlaceOnPages(pool, w, h);
+    const gutter = gutterFor(pool.kind);
+    const needW = w + gutter;
+    const needH = h + gutter;
+    const layout = layoutFor(pool, needW, needH);
+
+    // Try existing pages of the matching layout first (lazy pool init: allocates on first use).
+    let at = tryPlaceOnPages(pool, w, h, layout);
     if (at !== undefined) return at;
 
-    // Reclaim least-recently-used unpinned plot in one shot (zero fragmentation)
-    const reclaimed = evictLruUnpinnedPlot(pool);
+    // Reclaim least-recently-used unpinned plot of matching layout in one shot (zero fragmentation).
+    const reclaimed = evictLruUnpinnedPlot(pool, needW, needH, layout);
     if (reclaimed !== undefined) {
       at = tryPlaceInPlot(pool, reclaimed.page, reclaimed.plot, w, h);
       if (at !== undefined) return at;
     }
 
-    // All plots hold referenced on-screen cells: add a new independent page (zero copies!)
-    const nextPage = addPage(pool);
+    // All plots hold referenced on-screen cells: add a new independent page (zero copies!).
+    const nextPage = addPage(pool, layout);
     if (nextPage !== undefined) {
       at = tryPlaceInPlot(pool, nextPage, nextPage.plots[0]!, w, h);
       if (at !== undefined) return at;
@@ -914,6 +985,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
    * - Beyond `maxTexDim`: a dedicated tiled `2d-array` texture of `tilesX * tilesY` layers.
    */
   const landStandalone = (pool: PagePool, rec: SlotRecord, pixels: AtlasPixels, w: number, h: number): boolean => {
+    if (rec.refCount === 0 && !rec.inPlace) return false;
     const tilesX = Math.max(1, Math.ceil(w / maxTexDim));
     const tilesY = Math.max(1, Math.ceil(h / maxTexDim));
     const layers = tilesX * tilesY;
@@ -1032,10 +1104,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     const w = Math.max(1, pixels.width);
     const h = Math.max(1, pixels.height);
     const gutter = gutterFor(pool.kind);
-    const pSize = plotSizeNow();
 
-    // Items larger than a plot get an exact-sized standalone (or tiled) texture — zero plot waste.
-    if (w + gutter > pSize || h + gutter > pSize) {
+    // Only items larger than a page get a dedicated standalone (or tiled) texture.
+    if (w + gutter > pool.pageSize || h + gutter > pool.pageSize) {
       return landStandalone(pool, rec, pixels, w, h);
     }
 
@@ -1068,11 +1139,13 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
     at.plot.lastUsedTick = ++plotTick;
     rec.placed = at;
-    // Page 0 binds via default binding; overflow pages >= 1 bind via standalone map (zero copy growth).
-    if (at.page.pageIndex > 0) {
-      standaloneTextures.set(rec.index, at.page.texture);
-    } else {
+    // Pages within the bind-group budget are sampled directly by pageIndex (no standalone split);
+    // only pages past the device's sampled-texture limit fall back to standalone per cell.
+    const inBindGroup = at.page.pageIndex < pool.bindLimit;
+    if (inBindGroup) {
       standaloneTextures.delete(rec.index);
+    } else {
+      standaloneTextures.set(rec.index, at.page.texture);
     }
     rec.inPlace = false;
     const wasLanded = rec.state === "landed";
@@ -1081,7 +1154,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     rec.retryAfter = 0;
     if (!wasLanded) landedCount += 1;
     addContentLanded(rec.contentKey, rec.index);
-    writeCellUV(rec.index, at.x, at.y, w, h, 0);
+    writeCellUV(rec.index, at.x, at.y, w, h, inBindGroup ? at.page.pageIndex : 0, at.page.size);
     releaseAlias(rec);
     if (rec.refCount === 0) {
       rec.desc = undefined;
@@ -1298,8 +1371,23 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
     releaseAlias(rec);
     if (rec.state === "landed") {
-      rec.desc = undefined;
-      unreferencedLru.set(cell, true);
+      if (rec.standalone !== undefined) {
+        // Off-screen standalone textures leave immediately so they never hold GPU memory or disable GPU cull.
+        freeStandalone(rec);
+        landedCount = Math.max(0, landedCount - 1);
+        removeContentLanded(rec.contentKey, cell);
+        keyToIndex.delete(rec.key);
+        compatHeld.delete(rec.key);
+        unreferencedLru.delete(cell);
+        clearCellUV(cell);
+        slots[cell] = undefined;
+        freeIndices.push(cell);
+        evictions += 1;
+        markDirty();
+      } else {
+        rec.desc = undefined;
+        unreferencedLru.set(cell, true);
+      }
     } else if (rec.state === "queued") {
       queuedSet.delete(cell);
       keyToIndex.delete(rec.key);
@@ -1512,11 +1600,12 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       landed: landedCount,
       evictions,
       failures,
-      pages: rgbaPool.pages.length + coveragePool.pages.length,
+      pages: rgbaPool.pages.filter((p) => !p.dead).length + coveragePool.pages.filter((p) => !p.dead).length,
       pageSize,
       bytesInUse: pageBytes + standaloneBytes,
       activeCells,
       pinnedCells,
+      standaloneCount: standaloneTextures.size,
       visibleBlank,
       visibleBlankTotal,
     };
@@ -1534,6 +1623,11 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       const maxDim = next.limits?.maxTextureDimension2D;
       maxTexDim = typeof maxDim === "number" && maxDim > 0 ? maxDim : 8192;
       pageSize = Math.min(preferredSize, maxTexDim);
+      rgbaPool.pageSize = Math.min(explicitSize ?? PREFERRED_PAGE_SIZE, maxTexDim);
+      coveragePool.pageSize = Math.min(explicitSize ?? PREFERRED_COVERAGE_PAGE_SIZE, maxTexDim);
+      const budget = atlasBindBudget(next);
+      rgbaPool.bindLimit = budget.rgba;
+      coveragePool.bindLimit = budget.coverage;
       const maxLayers = next.limits?.maxTextureArrayLayers;
       maxArrayLayers = typeof maxLayers === "number" && maxLayers > 0 ? maxLayers : 256;
       const maxStorage = next.limits?.maxStorageBufferBindingSize;
@@ -1542,8 +1636,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
           ? Math.max(1, Math.floor(maxStorage / (ATLAS_CELL_FLOATS * 4)))
           : Number.MAX_SAFE_INTEGER;
 
-      for (const p of rgbaPool.pages) p.texture.destroy();
-      for (const p of coveragePool.pages) p.texture.destroy();
+      for (const p of rgbaPool.pages) if (!p.dead) p.texture.destroy();
+      for (const p of coveragePool.pages) if (!p.dead) p.texture.destroy();
       for (const tex of standaloneTextures.values()) {
         // Standalone page textures were already destroyed above; destroy standalone oversized textures only
         if (!rgbaPool.pages.some((p) => p.texture === tex) && !coveragePool.pages.some((p) => p.texture === tex)) {
@@ -1555,7 +1649,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       standaloneTextures.clear();
       standaloneBytes = 0;
       rgbaPool.pages.length = 0;
+      rgbaPool.pageTextures.length = 0;
       coveragePool.pages.length = 0;
+      coveragePool.pageTextures.length = 0;
       dirtyMipRects.length = 0;
 
       // Build GPU mipmap blit pipeline when device supports render passes (real WebGPU).
@@ -1675,7 +1771,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       standaloneTextures.clear();
       standaloneBytes = 0;
       rgbaPool.pages.length = 0;
+      rgbaPool.pageTextures.length = 0;
       coveragePool.pages.length = 0;
+      coveragePool.pageTextures.length = 0;
       dirtyMipRects.length = 0;
       mipPipeline = undefined;
       mipBindLayout = undefined;
@@ -1913,7 +2011,7 @@ const decodeSvgSourceOnce = (
       URL.revokeObjectURL(url);
     }
     const tags = svg.match(IMAGE_TAG) ?? [];
-    const nested: DecodedNestedImage[] = [];
+    const nestedSpecs: Array<{ readonly href: string; readonly x: number; readonly y: number; readonly w: number; readonly h: number }> = [];
     for (const tag of tags) {
       const href = tagAttr(tag, "href") ?? tagAttr(tag, "xlink:href");
       if (href === undefined || href === "") continue;
@@ -1922,8 +2020,16 @@ const decodeSvgSourceOnce = (
       const w = Number(tagAttr(tag, "width") ?? 0);
       const h = Number(tagAttr(tag, "height") ?? 0);
       if (!Number.isFinite(x + y + w + h) || w <= 0 || h <= 0) continue;
-      const nestedImg = await loadNestedCached(href);
-      if (nestedImg !== undefined) nested.push({ image: nestedImg, x, y, w, h });
+      nestedSpecs.push({ href, x, y, w, h });
+    }
+    const nestedImgs = nestedSpecs.length === 0 ? [] : await Promise.all(nestedSpecs.map((s) => loadNestedCached(s.href)));
+    const nested: DecodedNestedImage[] = [];
+    for (let i = 0; i < nestedSpecs.length; i += 1) {
+      const nestedImg = nestedImgs[i];
+      if (nestedImg !== undefined) {
+        const s = nestedSpecs[i]!;
+        nested.push({ image: nestedImg, x: s.x, y: s.y, w: s.w, h: s.h });
+      }
     }
     const entry: DecodedSvgEntry = {
       image,

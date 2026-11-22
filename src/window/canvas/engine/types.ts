@@ -13,19 +13,43 @@ export type AtlasDirtyCells = {
   readonly slots: ReadonlyArray<number>;
 };
 
-/** Track B's atlas, once it exists: 2d-array textures, a sampler, and a UV + layer table. */
+/** Sampled-texture bind-group budget per atlas pool, derived from device.limits. */
+export type AtlasBindBudget = {
+  readonly rgba: number;
+  readonly coverage: number;
+};
+
+/**
+ * Split the device's `maxSampledTexturesPerShaderStage` evenly between the
+ * RGBA sprite pool and the R8 text-coverage pool so every page of both pools
+ * binds in one bind group. Falls back to the WebGPU minimum (16 -> 8 + 8)
+ * when device limits are absent.
+ */
+export const atlasBindBudget = (device?: Pick<GPUDevice, "limits">): AtlasBindBudget => {
+  const max = device?.limits?.maxSampledTexturesPerShaderStage;
+  const total = typeof max === "number" && max >= 2 ? Math.floor(max) : 16;
+  const rgba = Math.max(1, Math.floor(total / 2));
+  const coverage = Math.max(1, total - rgba);
+  return { rgba, coverage };
+};
+
+/** Track B's atlas, once it exists: per-page textures, a sampler, and a UV + page table. */
 export type AtlasBinding = {
   readonly texture: GPUTexture;
-  /** One-channel r8unorm 2d-array texture for text coverage (q.kind == 3u), when split from RGBA. */
+  /** One-channel r8unorm texture for text coverage (q.kind == 3u), when split from RGBA. */
   readonly coverageTexture?: GPUTexture;
+  /** All live RGBA atlas pages, indexed by `cell.page.x` (`0..rgbaPages.length - 1`). */
+  readonly rgbaPages?: ReadonlyArray<GPUTexture>;
+  /** All live R8 coverage atlas pages, indexed by `cell.page.x` (`0..coveragePages.length - 1`). */
+  readonly coveragePages?: ReadonlyArray<GPUTexture>;
   readonly sampler: GPUSampler;
-  /** Eight f32 words per cell: u0, v0, u1, v1, layer, tilesX, tilesY, 0. */
+  /** Eight f32 words per cell: u0, v0, u1, v1, pageOrLayer, tilesX, tilesY, 0. */
   readonly cells: Float32Array;
   /** Number of allocated cell slots, for upload and buffer growth. */
   readonly cellCount?: number;
-  /** Bumped whenever `texture` or `coverageTexture` is recreated so the renderer rebinds. */
+  /** Bumped whenever any bound page texture list changes so the renderer rebinds. */
   readonly textureGeneration?: number;
-  /** Dedicated full-resolution textures for cells larger than a packing page, keyed by cell index. */
+  /** Dedicated full-resolution textures ONLY for items larger than a page (or past bind budget). */
   readonly standalone?: ReadonlyMap<number, GPUTexture>;
   /** Take and clear cell indices whose UV/layer entry changed since the last upload. */
   readonly takeDirtyCells?: () => AtlasDirtyCells;
@@ -43,6 +67,8 @@ export type AtlasStats = {
   readonly bytesInUse: number;
   readonly activeCells: number;
   readonly pinnedCells: number;
+  /** Live standalone/overflow texture entries currently bound outside the main page bind group. */
+  readonly standaloneCount: number;
   /** On-screen text/sprite quads drawn with no image in the last frame. */
   readonly visibleBlank: number;
   /** Cumulative on-screen text/sprite quads drawn with no image across all frames. */

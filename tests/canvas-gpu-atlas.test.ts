@@ -13,7 +13,9 @@ import { settle } from "./gpu-canvas-fakes";
 const fakeDevice = (limits?: Partial<GPUSupportedLimits>) => {
   const copies: Array<{ readonly width: number; readonly height: number; readonly layer: number; readonly x: number; readonly y: number }> = [];
   const textureCopies: Array<{ readonly layers: number }> = [];
+  const createdTextures: Array<{ readonly width: number; readonly height: number; readonly format: string }> = [];
   let textures = 0;
+  let destroyedTextures = 0;
   const device = {
     limits: {
       maxTextureDimension2D: 8192,
@@ -24,12 +26,16 @@ const fakeDevice = (limits?: Partial<GPUSupportedLimits>) => {
     createTexture: (desc: GPUTextureDescriptor) => {
       textures += 1;
       const size = desc.size as GPUExtent3DDict;
+      createdTextures.push({ width: size.width, height: size.height ?? 1, format: desc.format });
       return {
         width: size.width,
         height: size.height,
         depthOrArrayLayers: size.depthOrArrayLayers ?? 1,
+        format: desc.format,
         createView: () => ({}),
-        destroy: () => undefined,
+        destroy: () => {
+          destroyedTextures += 1;
+        },
       };
     },
     createSampler: () => ({}),
@@ -73,7 +79,7 @@ const fakeDevice = (limits?: Partial<GPUSupportedLimits>) => {
       writeBuffer: () => undefined,
     },
   } as unknown as GPUDevice;
-  return { device, copies, textureCopies, textures: () => textures };
+  return { device, copies, textureCopies, createdTextures, textures: () => textures, destroyedTextures: () => destroyedTextures };
 };
 
 const pixels = (width: number, height: number, onClose?: () => void): AtlasPixels =>
@@ -247,8 +253,11 @@ describe("gpu atlas (#911)", () => {
     expect(atlas.stats().pages).toBe(2); // 2 independent coverage pages
     expect(atlas.stats().evictions).toBe(0);
     expect(fake.textureCopies.length).toBe(0); // zero copies on page growth!
-    expect(atlas.binding.standalone?.has(a)).toBe(false); // page 0 uses default binding
-    expect(atlas.binding.standalone?.has(b)).toBe(true);  // page 1 binds via standalone map
+    expect(atlas.binding.standalone?.has(a)).toBe(false); // page 0 uses bind group
+    expect(atlas.binding.standalone?.has(b)).toBe(false); // page 1 uses bind group (no standalone split!)
+    expect(atlas.binding.coveragePages?.length).toBe(2);
+    expect(atlas.binding.cells[a * ATLAS_CELL_FLOATS + 4]).toBe(0);
+    expect(atlas.binding.cells[b * ATLAS_CELL_FLOATS + 4]).toBe(1);
   });
 
   it("overwrites fixed-box status lines in place when refCount is 1", async () => {
@@ -515,5 +524,70 @@ describe("gpu atlas (#911)", () => {
   it("ignores quads with no text or sprite", () => {
     const { atlas } = atlasWith();
     expect(atlas.acquire(quad({}), 2)).toBe(NO_ATLAS_CELL);
+  });
+
+  it("packs items wider than one 512px plot into strip pages with zero standalone textures", async () => {
+    const fake = fakeDevice();
+    const widths: Record<string, number> = { "wide-a": 729, "wide-b": 1167, "wide-c": 2000 };
+    const { atlas } = atlasWith({
+      size: 2048,
+      rasterizeText: async (run) => pixels(widths[run.text] ?? 800, 85),
+    });
+    atlas.attach(fake.device);
+    const cells = [
+      atlas.acquire(textQuad({ ...textRun, text: "wide-a" }), 1),
+      atlas.acquire(textQuad({ ...textRun, text: "wide-b" }), 1),
+      atlas.acquire(textQuad({ ...textRun, text: "wide-c" }), 1),
+    ];
+    await settle();
+    await settle();
+    for (const c of cells) expect(atlas.hasImage(c)).toBe(true);
+    expect(atlas.stats().standaloneCount).toBe(0);
+    expect(atlas.binding.standalone?.size).toBe(0);
+    expect(atlas.binding.coveragePages?.length).toBe(1);
+    expect(fake.createdTextures.filter((t) => t.format === "r8unorm" && t.width === 2048).length).toBe(1);
+  });
+
+  it("binds overflow pages within device.limits in one bind group without standalone entries", async () => {
+    const fake = fakeDevice();
+    const { atlas } = atlasWith({
+      size: 128,
+      rasterizeText: async () => pixels(100, 100),
+    });
+    atlas.attach(fake.device);
+    const c1 = atlas.acquire(textQuad({ ...textRun, text: "page-0" }), 1);
+    const c2 = atlas.acquire(textQuad({ ...textRun, text: "page-1" }), 1);
+    await settle();
+    await settle();
+    expect(atlas.hasImage(c1)).toBe(true);
+    expect(atlas.hasImage(c2)).toBe(true);
+    expect(atlas.binding.coveragePages?.length).toBe(2);
+    expect(atlas.stats().standaloneCount).toBe(0);
+    expect(atlas.binding.standalone?.size).toBe(0);
+    // Page index lives in cell.page.x (offset + 4)
+    expect(atlas.binding.cells[c1 * ATLAS_CELL_FLOATS + 4]).toBe(0);
+    expect(atlas.binding.cells[c2 * ATLAS_CELL_FLOATS + 4]).toBe(1);
+  });
+
+  it("immediately destroys standalone textures when released off-screen", async () => {
+    const fake = fakeDevice();
+    const { atlas } = atlasWith({
+      size: 128,
+      rasterizeText: async () => pixels(200, 40),
+    });
+    atlas.attach(fake.device);
+    const cell = atlas.acquire(textQuad({ ...textRun, text: "oversized-watermark" }), 1);
+    await settle();
+    await settle();
+    expect(atlas.hasImage(cell)).toBe(true);
+    expect(atlas.stats().standaloneCount).toBe(1);
+    const standaloneTex = atlas.binding.standalone?.get(cell);
+    expect(standaloneTex).toBeDefined();
+    const destroyedBefore = fake.destroyedTextures();
+
+    atlas.release(cell);
+    expect(atlas.stats().standaloneCount).toBe(0);
+    expect(atlas.binding.standalone?.size).toBe(0);
+    expect(fake.destroyedTextures()).toBe(destroyedBefore + 1);
   });
 });

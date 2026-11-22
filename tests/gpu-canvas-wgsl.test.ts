@@ -31,8 +31,9 @@ describe("the quad shader's names", () => {
     // The atlas is white coverage over transparent, unpremultiplied: r is 1
     // inside edge texels, so using it made every antialiased glyph edge opaque.
     // Split r8unorm pages hold coverage in r; unsplit rgba pages in alpha.
-    expect(QUAD_SHADER).toContain("coverage = textureSampleLevel(coverageAtlas, atlasSampler, uv, layer, 0.0).r;");
-    expect(QUAD_SHADER).toContain("coverage = textureSampleLevel(atlas, atlasSampler, uv, layer, 0.0).a;");
+    expect(QUAD_SHADER).toContain("return textureSampleLevel(coverageAtlas, atlasSampler, uv, layer, 0.0).r;");
+    expect(QUAD_SHADER).toContain("coverage = sampleCoverage(pageIdx, uv, layer);");
+    expect(QUAD_SHADER).toContain("coverage = sampleRgba(pageIdx, uv, layer, 0.0).a;");
     expect(QUAD_SHADER).toContain("alpha = coverage * ink.a * outer;");
     expect(QUAD_SHADER).not.toContain("alpha = tex.r * ink.a * outer;");
   });
