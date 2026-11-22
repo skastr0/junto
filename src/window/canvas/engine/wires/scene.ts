@@ -208,6 +208,12 @@ export type WireScene = {
   readonly inspect: (id: WireId) => WireInspect | undefined;
   /** How many wires have had their strip rebuilt since the scene was made (a measurement). */
   readonly builds: () => number;
+  /** How many wires the scene holds, strips or not. */
+  readonly wires: () => number;
+  /** The last tier-crossing repaint, ms. */
+  readonly refreshMs: () => number;
+  /** Every strip pool's CPU bytes (vertices and indices). */
+  readonly poolBytes: () => number;
   /** The visible strips' index data, rebuilt when the camera or a strip changes. */
   readonly visibleIndices: () => WireVisibleIndex;
   readonly pool: StripPool;
@@ -462,8 +468,11 @@ export const createWireScene = (host: WireHost): WireScene => {
     writeRecord(entry, now);
   };
 
+  let refreshMs = 0;
   const refreshAll = (now: number): void => {
+    const started = performance.now();
     for (const entry of entries.values()) refreshPaint(entry, now);
+    refreshMs = performance.now() - started;
   };
 
   // --- routes ---------------------------------------------------------------
@@ -1350,6 +1359,13 @@ export const createWireScene = (host: WireHost): WireScene => {
     labelsRevision: () => labelsRevision,
     inspect,
     builds: () => builds,
+    wires: () => entries.size,
+    refreshMs: () => refreshMs,
+    poolBytes: () =>
+      [pool, glowPool, trackPool].reduce(
+        (bytes, each) => bytes + each.vertices().byteLength + each.indices().byteLength,
+        0,
+      ),
     visibleIndices: () => ({
       main: mainIndex,
       mainCount,

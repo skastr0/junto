@@ -49,6 +49,12 @@ export type WireStats = {
   readonly indices: number;
   /** Bytes the last upload wrote. */
   readonly uploadBytes: number;
+  /** Wires the scene holds. */
+  readonly wires: number;
+  /** The last tier-crossing repaint, ms. */
+  readonly refreshMs: number;
+  /** Every strip pool's CPU bytes: what keeping a body and a pill strip costs. */
+  readonly poolBytes: number;
 };
 
 export type WiresLayer = {
@@ -120,7 +126,18 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
     labelsInView: scene.labelsInView,
     labelsRevision: scene.labelsRevision,
     inspect: scene.inspect,
-    stats: () => ({ frames, lastFrameMs, frameMsTotal, rebuilds: scene.builds(), draws: gpu.draws(), indices: gpu.indices(), uploadBytes: gpu.lastBytes() }),
+    stats: () => ({
+      frames,
+      lastFrameMs,
+      frameMsTotal,
+      rebuilds: scene.builds(),
+      draws: gpu.draws(),
+      indices: gpu.indices(),
+      uploadBytes: gpu.lastBytes(),
+      wires: scene.wires(),
+      refreshMs: scene.refreshMs(),
+      poolBytes: scene.poolBytes(),
+    }),
     lastUploads: gpu.lastUploads,
     dispose: gpu.dispose,
   };
