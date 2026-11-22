@@ -9,6 +9,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { canvasColour, FactoryMinimap, minimapHits, type MinimapNodeRect } from "../src/window/components/FactoryMinimap";
+import { drawMap } from "../src/window/components/minimap-draw";
 import type { MinimapRect, MinimapSource } from "../src/window/canvas/shell/minimap-source";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -125,5 +126,52 @@ describe("the minimap's drawing", () => {
     const canvas = host.querySelector("canvas.junto-minimap-canvas")!;
     expect(canvas.getAttribute("aria-label")).toBe("map");
     expect(host.querySelectorAll("*").length).toBeLessThan(12);
+  });
+});
+
+describe("the minimap's draw, the worker's and the window's", () => {
+  it("draws cards on whole device pixels, then seats over them, setting a colour only when it changes", () => {
+    const calls: string[] = [];
+    const context = new Proxy(
+      { canvas: { width: 200, height: 100 } },
+      {
+        get: (target, key) =>
+          key === "canvas" ? target.canvas : (...args: unknown[]) => calls.push(`${String(key)}(${args.map((a) => (typeof a === "number" ? +a.toFixed(3) : a)).join(",")})`),
+        set: (_target, key, value) => {
+          calls.push(`${String(key)}=${String(value)}`);
+          return true;
+        },
+      },
+    ) as unknown as CanvasRenderingContext2D;
+    const boxes = Float64Array.from([0, 0, 100, 50, 100.4, 0, 100, 50, 40, 10, 20, 20]);
+    drawMap(
+      context,
+      { count: 3, boxes, kinds: Uint8Array.from([0, 0, 2]), fills: Uint16Array.from([0, 0, 1]), strokes: Uint16Array.from([2, 2, 3]), palette: ["#a", "#b", "#c", "#d"] },
+      { box: { x: 0, y: 0, width: 400, height: 200 }, width: 200, height: 100, ratio: 2, unit: 2, strokeWidth: 2, radius: 0 },
+    );
+    expect(calls).toEqual([
+      "setTransform(1,0,0,1,0,0)",
+      "clearRect(0,0,200,100)",
+      "lineWidth=2",
+      "beginPath()",
+      "rect(0,0,100,50)",
+      "fillStyle=#a",
+      "fill()",
+      "strokeStyle=#c",
+      "stroke()",
+      // 100.4 board units is device pixel 100.4: the edge rounds to 100.
+      "beginPath()",
+      "rect(100,0,100,50)",
+      "fill()",
+      "stroke()",
+      "setTransform(1,0,0,1,0,0)",
+      "lineWidth=1.6",
+      "beginPath()",
+      `arc(50,20,10,0,${String(+(Math.PI * 2).toFixed(3))})`,
+      "fillStyle=#b",
+      "fill()",
+      "strokeStyle=#d",
+      "stroke()",
+    ]);
   });
 });

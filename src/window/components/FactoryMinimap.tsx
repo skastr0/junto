@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as Rea
 import type { MinimapRect, MinimapSource } from "../canvas/shell/minimap-source";
 import type { Urgency } from "../lib/region-urgency";
 import { unseenRef } from "../lib/unseen";
+import { drawMap, SEAT_DOT_PX, URGENT_DOT_PX, type MapPaint, type MinimapWorkerMessage, type PackedMap } from "./minimap-draw";
 import "./factory-minimap.css";
 
 /**
@@ -38,6 +39,11 @@ import "./factory-minimap.css";
  * redrawn when the rectangles, their colours, the theme, the viewBox or the
  * map's size change, never on a pan, and a click finds its card through a
  * grid of the rectangles. The SVG keeps the camera mask and the pointer.
+ * The draw itself runs in a worker on the canvas's OffscreenCanvas
+ * (minimap-worker.ts): at 100x it is some 35,000 paths, 62 ms, which held a
+ * frame of the window's each time the map changed. Batching them by colour
+ * cannot keep the SVG's pixels: a card's stroke under the next card's fill,
+ * and 25,300 seat dots that overlap in 5,345 layers at 100x, need the order.
  *
  * Agents are dots with a size floor in map pixels, so a seat reads at any
  * board size; a seat that is blocked, needs the operator or has work for
@@ -88,8 +94,6 @@ export const sameRects = (
 export type SeatMark = { readonly urgency?: Urgency };
 
 /** Dot radius floors, in map pixels. */
-const SEAT_DOT_PX = 2.2;
-const URGENT_DOT_PX = 3;
 
 export type FactoryMinimapProps = {
   readonly source: MinimapSource;
@@ -304,60 +308,46 @@ export const canvasColour = (computed: string): string => {
   return `#${byte(red)}${byte(green)}${byte(blue)}${byte(Math.round(Math.min(1, Math.max(0, alpha)) * 255))}`;
 };
 
-/** Draw the map's cards and dots, in the SVG's order: cards, then seats over them. */
-const drawMap = (
-  context: CanvasRenderingContext2D,
-  rects: ReadonlyArray<MinimapNodeRect>,
-  paint: {
-    readonly box: Rect;
-    readonly width: number;
-    readonly height: number;
-    readonly ratio: number;
-    readonly unit: number;
-    readonly strokeWidth: number;
-    readonly radius: number;
-    readonly colour: (css: string) => string;
-  },
-): void => {
-  const { box, width, height, ratio, unit } = paint;
-  context.setTransform(1, 0, 0, 1, 0, 0);
-  context.clearRect(0, 0, context.canvas.width, context.canvas.height);
-  const unitsPerPixel = Math.max(box.width / Math.max(width, 1), box.height / Math.max(height, 1));
-  if (!(unitsPerPixel > 0) || !Number.isFinite(unitsPerPixel)) return;
-  // The viewBox's own placement (xMidYMid meet), at the device's pixel ratio.
-  const scale = 1 / unitsPerPixel;
-  const x = (width - box.width * scale) / 2 - box.x * scale;
-  const y = (height - box.height * scale) / 2 - box.y * scale;
-  // Cards in device pixels, as the SVG's crispEdges drew them: a pixel is the
-  // card's when its centre is inside it, so each edge rounds to a pixel line.
-  const k = scale * ratio;
-  context.lineWidth = paint.strokeWidth * k;
-  for (const rect of rects) {
-    if (rect.seat) continue;
-    const x0 = Math.round(x * ratio + rect.x * k);
-    const y0 = Math.round(y * ratio + rect.y * k);
-    const w = Math.round(x * ratio + (rect.x + rect.width) * k) - x0;
-    const h = Math.round(y * ratio + (rect.y + rect.height) * k) - y0;
-    if (w <= 0 || h <= 0) continue;
-    context.beginPath();
-    const r = Math.min(paint.radius * k, w / 2, h / 2);
-    if (r >= 0.5) context.roundRect(x0, y0, w, h, r);
-    else context.rect(x0, y0, w, h);
-    context.fillStyle = paint.colour(rect.fill);
-    context.fill();
-    context.strokeStyle = paint.colour(rect.stroke);
-    context.stroke();
+/** The rectangles as the drawing takes them: flat arrays, each colour resolved once. */
+const packMap = (rects: ReadonlyArray<MinimapNodeRect>, colour: (css: string) => string): PackedMap => {
+  const count = rects.length;
+  const boxes = new Float64Array(count * 4);
+  const kinds = new Uint8Array(count);
+  const fills = new Uint16Array(count);
+  const strokes = new Uint16Array(count);
+  const palette: string[] = [];
+  const indexOf = new Map<string, number>();
+  const paletteIndex = (css: string): number => {
+    const known = indexOf.get(css);
+    if (known !== undefined) return known;
+    const index = palette.length;
+    palette.push(colour(css));
+    indexOf.set(css, index);
+    return index;
+  };
+  for (let i = 0; i < count; i += 1) {
+    const rect = rects[i]!;
+    boxes[i * 4] = rect.x;
+    boxes[i * 4 + 1] = rect.y;
+    boxes[i * 4 + 2] = rect.width;
+    boxes[i * 4 + 3] = rect.height;
+    kinds[i] = rect.seat === undefined ? 0 : rect.seat.urgency ? 2 : 1;
+    fills[i] = paletteIndex(rect.fill);
+    strokes[i] = paletteIndex(rect.seat === undefined ? rect.stroke : rimOf(rect));
   }
-  context.setTransform(k, 0, 0, k, x * ratio, y * ratio);
-  context.lineWidth = 0.8 * unit;
-  for (const rect of rects) {
-    if (!rect.seat) continue;
-    context.beginPath();
-    context.arc(rect.x + rect.width / 2, rect.y + rect.height / 2, dotRadius(rect, unit), 0, Math.PI * 2);
-    context.fillStyle = paint.colour(rect.fill);
-    context.fill();
-    context.strokeStyle = paint.colour(rimOf(rect));
-    context.stroke();
+  return { count, boxes, kinds, fills, strokes, palette };
+};
+
+/** A worker that draws the map into its canvas, where the window can hand one over. */
+const minimapWorker = (canvas: HTMLCanvasElement): Worker | undefined => {
+  if (typeof Worker !== "function" || typeof canvas.transferControlToOffscreen !== "function") return undefined;
+  try {
+    const worker = new Worker(new URL("./minimap-worker.ts", import.meta.url), { type: "module" });
+    const offscreen = canvas.transferControlToOffscreen();
+    worker.postMessage({ kind: "canvas", canvas: offscreen } satisfies MinimapWorkerMessage, [offscreen]);
+    return worker;
+  } catch {
+    return undefined;
   }
 };
 
@@ -376,6 +366,10 @@ export function FactoryMinimap({
 }: FactoryMinimapProps): ReactElement {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  /** The worker that draws into the canvas; undefined where the window draws it. */
+  const workerRef = useRef<Worker | undefined>(undefined);
+  /** The packed map, and what it was packed from. */
+  const packedRef = useRef<{ readonly map: PackedMap; readonly rects: ReadonlyArray<MinimapNodeRect>; readonly colour: (css: string) => string } | undefined>(undefined);
   const probeRef = useRef<HTMLSpanElement | null>(null);
   const colourRef = useRef<((css: string) => string) | undefined>(undefined);
   const hitsRef = useRef<MinimapHits | undefined>(undefined);
@@ -417,14 +411,20 @@ export function FactoryMinimap({
     if (key === drawnRef.current) return;
     const pixelWidth = Math.max(1, Math.round(width * ratio));
     const pixelHeight = Math.max(1, Math.round(height * ratio));
-    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
-    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
-    const context = canvas.getContext("2d");
-    if (!context) return;
     if (colourRef.current === undefined && probeRef.current) colourRef.current = colourReader(probeRef.current);
     const colour = colourRef.current ?? ((css: string) => css);
+    const worker = workerRef.current;
+    let packed = packedRef.current;
+    if (packed === undefined || packed.rects !== rects || packed.colour !== colour) {
+      packed = { map: packMap(rects, colour), rects, colour };
+      packedRef.current = packed;
+      if (worker !== undefined) {
+        const { boxes, kinds, fills, strokes } = packed.map;
+        worker.postMessage({ kind: "map", map: packed.map } satisfies MinimapWorkerMessage, [boxes.buffer, kinds.buffer, fills.buffer, strokes.buffer]);
+      }
+    }
     drawnRef.current = key;
-    drawMap(context, rects, {
+    const paint: MapPaint = {
       box: parseViewBox(viewBoxRef.current),
       width,
       height,
@@ -432,8 +432,15 @@ export function FactoryMinimap({
       unit: unitRef.current,
       strokeWidth: strokeRef.current.width,
       radius: strokeRef.current.radius,
-      colour,
-    });
+    };
+    if (worker !== undefined) {
+      worker.postMessage({ kind: "paint", paint, pixelWidth, pixelHeight } satisfies MinimapWorkerMessage);
+      return;
+    }
+    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+    const context = canvas.getContext("2d");
+    if (context) drawMap(context, packed.map, paint);
   };
   const drawRef = useRef(draw);
   drawRef.current = draw;
@@ -448,6 +455,32 @@ export function FactoryMinimap({
   };
   const redrawRef = useRef(redraw);
   redrawRef.current = redraw;
+
+  // The canvas, made here so each mount has its own: a canvas handed to a
+  // worker cannot be handed again, nor drawn by the window.
+  useEffect(() => {
+    const panel = probeRef.current?.parentElement;
+    if (!panel) return;
+    const canvas = document.createElement("canvas");
+    canvas.className = "junto-minimap-canvas";
+    canvas.setAttribute("role", "img");
+    panel.prepend(canvas);
+    canvasRef.current = canvas;
+    workerRef.current = minimapWorker(canvas);
+    packedRef.current = undefined;
+    redrawRef.current(true);
+    return () => {
+      workerRef.current?.terminate();
+      workerRef.current = undefined;
+      packedRef.current = undefined;
+      canvasRef.current = null;
+      canvas.remove();
+    };
+  }, []);
+  useEffect(() => {
+    if (ariaLabel === undefined) canvasRef.current?.removeAttribute("aria-label");
+    else canvasRef.current?.setAttribute("aria-label", ariaLabel);
+  }, [ariaLabel]);
 
   // The theme moves what var() and color-mix() resolve to: read them again.
   useEffect(() => {
@@ -673,7 +706,6 @@ export function FactoryMinimap({
   return (
     // Scrolled out of the bottom bar (a narrow window), the map's pings stop (lib/unseen.ts).
     <div ref={unseenRef} className="react-flow__panel react-flow__minimap bottom right" data-testid="rf__minimap" style={style}>
-      <canvas ref={canvasRef} className="junto-minimap-canvas" role="img" aria-label={ariaLabel} />
       <span ref={probeRef} className="junto-minimap-probe" aria-hidden="true" />
       <svg
         ref={svgRef}
