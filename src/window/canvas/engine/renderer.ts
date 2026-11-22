@@ -158,10 +158,17 @@ fn gradientAt(base: u32, local: vec2f) -> f32 {
 
 ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VSOut {
   var out: VSOut;
-  let slot = order[ii];
+  // A band's first list entry rides in the vertex index (issue 917): an
+  // indirect draw's firstInstance needs the optional indirect-first-instance
+  // feature, and without it the draw is a no-op, while firstVertex works on
+  // every device. The GPU cull writes firstVertex = 4 * base; a direct draw
+  // passes the base as firstInstance with firstVertex 0. Either way the list
+  // entry is vi / 4 + ii and the corner is vi mod 4.
+  let slot = order[(vi >> 2u) + ii];
   let q = quads[slot];
   let o = owners[q.owner];
-  let corner = vec2f(f32(vi & 1u), f32(vi >> 1u));
+  let cornerIndex = vi & 3u;
+  let corner = vec2f(f32(cornerIndex & 1u), f32(cornerIndex >> 1u));
   let local = corner * 2.0 - 1.0;
 
   let tierBit = u32(u.camera.w);

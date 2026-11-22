@@ -141,8 +141,11 @@ fn exclusive(i: u32) -> u32 {
       let hi = exclusive(params.bandEnds[b]);
       args[b * 4u] = 4u;
       args[b * 4u + 1u] = hi - lo;
-      args[b * 4u + 2u] = 0u;
-      args[b * 4u + 3u] = lo;
+      // The band's base rides in firstVertex (the vertex stage reads vi / 4):
+      // a non-zero firstInstance needs indirect-first-instance, and a device
+      // without it draws nothing (issue 917).
+      args[b * 4u + 2u] = lo * 4u;
+      args[b * 4u + 3u] = 0u;
       start = params.bandEnds[b];
     }
   }
