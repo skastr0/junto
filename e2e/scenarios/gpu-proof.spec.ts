@@ -863,7 +863,7 @@ test.describe("#913 GPU canvas proof", () => {
             await settleAtlas(page);
           }
           if (shippedCull === null) fail(`${String(scale)}x ${tier.name}: the canvas reports no cull mode`);
-          if (globalThis.process.env["JUNTO_GPU_PROOF_CULL_PARITY"] === "1" && cullParity !== null) {
+          if (process.env["JUNTO_GPU_PROOF_CULL_PARITY"] !== "0" && cullParity !== null) {
             if (cullParity > 0.05) fail(`${String(scale)}x ${tier.name}: cull arms differ by ${(cullParity * 100).toFixed(2)}% of pixels`);
             if (shippedCull === "cpu" && gpuCullFrames === 0) fail(`${String(scale)}x ${tier.name}: the GPU cull arm drew no frames`);
           }
