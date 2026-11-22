@@ -415,7 +415,13 @@ const addressSeat = async (page: Page, id: string, pane: ScreenRect): Promise<Se
   );
   const points = [...body, ...probes].filter((point) => insidePane(point, pane));
   const hypotheses = await hypothesize(page, points, pane, id);
-  let target = hypotheses.find((hypothesis) => hypothesis.hit === "own");
+  // A seat held by a cluster draws no quads of its own: clicking its body
+  // cannot select it, so its badge is the only way in.
+  const drawnSeat = await page.evaluate((seat) => {
+    const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+    return ((hook?.["partsOf"]?.(seat) ?? []) as Array<Record<string, unknown>>).some((part) => part["drawn"] === true);
+  }, id);
+  let target = hypotheses.find((hypothesis) => hypothesis.hit === "own" && drawnSeat);
   if (target === undefined) {
     target = hypotheses.find((hypothesis) => hypothesis.hit === "cluster");
     if (target === undefined) {
@@ -524,6 +530,7 @@ interface OpenAttempt {
   readonly id: string;
   readonly point: { x: number; y: number } | null;
   readonly hit: string;
+  readonly elements: ReadonlyArray<string>;
   readonly reason: "no-hit" | "no-selection" | "no-surface" | "opened";
   readonly selection: ReadonlyArray<string>;
 }
@@ -542,10 +549,16 @@ const openSeat = async (
   const hits = await hypothesize(page, candidates, pane, id);
   const own = hits.find((hit) => hit.hit === "own");
   if (own === undefined) {
+    const elements = await page.evaluate((points) => {
+      return points.map((point) => {
+        const element = document.elementFromPoint(point.x, point.y);
+        return element === null ? "none" : `${element.tagName.toLowerCase()}.${String(element.className).slice(0, 80)}`;
+      });
+    }, candidates);
     return {
       opened: false,
       diagnostics: { selection: [], surfaces: 0, backdrops: 0, dialogs: 0, active: "" },
-      attempt: { id, point: null, hit: hits.map((hit) => hit.hit).join(","), reason: "no-hit", selection: [] },
+      attempt: { id, point: null, hit: hits.map((hit) => hit.hit).join(","), elements, reason: "no-hit", selection: [] },
     };
   }
   const point = own.point;
@@ -571,7 +584,7 @@ const openSeat = async (
   const closed = opened && (await page.locator(".focus-surface").count()) === 0;
   const reason: OpenAttempt["reason"] =
     diagnostics.selection.length === 0 ? "no-selection" : diagnostics.surfaces === 0 ? "no-surface" : closed ? "opened" : "no-surface";
-  return { opened: closed, diagnostics, attempt: { id, point, hit: "own", reason, selection: diagnostics.selection } };
+  return { opened: closed, diagnostics, attempt: { id, point, hit: "own", elements: [], reason, selection: diagnostics.selection } };
 };
 
 // --- visuals: side by side, near pixels and mid/far structure ---------------------
