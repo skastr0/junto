@@ -34,7 +34,11 @@ TMP=$(mktemp -d "${TMPDIR:-/tmp}/junto-mini.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
 remote() { # remote <shell…>: run on the mini with its tools on PATH
-  ssh "$MINI" "export PATH=\$HOME/.local/share/mise/shims:/opt/homebrew/bin:\$PATH; $*"
+  # JUNTO_E2E_SHOW=1: the mini's screen is the rig's own, so the app window
+  # shows there. Hidden (the e2e default on macOS, so it never steals the
+  # operator's focus), the canvas stops the motion no one sees and takes no
+  # focus, and the rig would measure a canvas no operator ever looks at.
+  ssh "$MINI" "export PATH=\$HOME/.local/share/mise/shims:/opt/homebrew/bin:\$PATH JUNTO_E2E_SHOW=\${JUNTO_E2E_SHOW:-1}; $*"
 }
 
 case "${1:-}" in
