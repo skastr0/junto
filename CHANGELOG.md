@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.11.14 — 2026-11-22
+
+No database change: 0.11.14 opens the same version 75 as 0.11.13.
+
 - Settled wire routes are saved, so a launch routes only what changed while
   the app was closed. 0.11.13 added the tables but refused every save, so it
   routed every wire at each launch.
