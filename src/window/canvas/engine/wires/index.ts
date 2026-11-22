@@ -19,7 +19,7 @@
 import type { ThemeMode } from "@shared/theme";
 import type { NodeId, Point, Rect, SceneOp, WireId } from "../../contract";
 import type { DeviceKeeper } from "../device";
-import { createWireGpu, type UploadRange } from "./gpu";
+import { createWireGpu, type UploadRange, type WireLensFrame } from "./gpu";
 import { createWireScene, type WireFrame, type WireInspect, type WireLabel } from "./scene";
 
 export type { WireFrame, WireInspect, WireLabel, UploadRange };
@@ -57,6 +57,10 @@ export type WiresLayer = {
   readonly upload: (device: GPUDevice) => void;
   readonly encodeRest: (pass: GPURenderPassEncoder) => void;
   readonly encodeTracks: (pass: GPURenderPassEncoder) => void;
+  /** The lens's camera for the same strips, then its draws (item 13 of issue 915). */
+  readonly uploadLens: (lens: WireLensFrame) => void;
+  readonly encodeLensRest: (pass: GPURenderPassEncoder) => void;
+  readonly encodeLensTracks: (pass: GPURenderPassEncoder) => void;
   readonly hit: (at: Point) => WireId | undefined;
   readonly busy: (now: number) => boolean;
   /** The wire under the pointer, for hover glow; none clears it. */
@@ -106,6 +110,9 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
     },
     encodeRest: gpu.encodeRest,
     encodeTracks: gpu.encodeTracks,
+    uploadLens: gpu.uploadLens,
+    encodeLensRest: gpu.encodeLensRest,
+    encodeLensTracks: gpu.encodeLensTracks,
     hit: scene.pick,
     busy: () => scene.busy(wall),
     setHover: scene.setHover,

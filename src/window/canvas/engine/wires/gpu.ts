@@ -46,9 +46,12 @@ type Resources = {
   readonly track: GPURenderPipeline;
   readonly pulse: GPURenderPipeline;
   readonly uniform: GPUBuffer;
+  /** The lens's camera (item 13 of issue 915): the same strips, drawn through a second uniform. */
+  readonly lensUniform: GPUBuffer;
   records: GPUBuffer;
   recordsGeneration: number;
   bind: GPUBindGroup;
+  lensBind: GPUBindGroup;
   main: PoolBuffers;
   glowBuffers: PoolBuffers;
   trackBuffers: PoolBuffers;
@@ -59,6 +62,11 @@ export type WireGpu = {
   readonly upload: (device: GPUDevice, format: GPUTextureFormat) => void;
   readonly encodeRest: (pass: GPURenderPassEncoder) => void;
   readonly encodeTracks: (pass: GPURenderPassEncoder) => void;
+  /** Write the lens's camera and viewport into its uniform, after `upload`. */
+  readonly uploadLens: (lens: WireLensFrame) => void;
+  /** The same draws as encodeRest and encodeTracks, through the lens's camera. */
+  readonly encodeLensRest: (pass: GPURenderPassEncoder) => void;
+  readonly encodeLensTracks: (pass: GPURenderPassEncoder) => void;
   /** The ranges written by the last `upload`, for the engine's counters. */
   readonly lastUploads: () => ReadonlyArray<UploadRange>;
   /** Bytes the last upload wrote. */
@@ -89,6 +97,14 @@ const VERTEX_LAYOUT: GPUVertexBufferLayout = {
     { shaderLocation: 3, offset: STRIP_ATTRIBUTES.across.offset, format: STRIP_ATTRIBUTES.across.format },
     { shaderLocation: 4, offset: STRIP_ATTRIBUTES.slot.offset, format: STRIP_ATTRIBUTES.slot.format },
   ],
+};
+
+/** The lens's camera and viewport, in its own CSS pixels. */
+export type WireLensFrame = {
+  readonly camera: { readonly x: number; readonly y: number; readonly zoom: number };
+  readonly width: number;
+  readonly height: number;
+  readonly pixelRatio: number;
 };
 
 /** A buffer is never empty (a zero size is a validation error). */
@@ -167,6 +183,11 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
       size: UNIFORM_FLOATS * 4,
       usage: BUFFER.UNIFORM | BUFFER.COPY_DST,
     });
+    const lensUniform = device.createBuffer({
+      label: "wires lens uniforms",
+      size: UNIFORM_FLOATS * 4,
+      usage: BUFFER.UNIFORM | BUFFER.COPY_DST,
+    });
     const records = makeRecords(device);
     scene.dirtyRecords.markAll(scene.records().length);
     return {
@@ -178,9 +199,11 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
       track: pipeline("vs_track", "fs_track", true),
       pulse: pipeline("vs_pulse", "fs_pulse", false),
       uniform,
+      lensUniform,
       records,
       recordsGeneration: scene.recordsGeneration(),
       bind: makeBind(device, layout, uniform, records),
+      lensBind: makeBind(device, layout, lensUniform, records),
       main: makePool(device, scene.pool, "strips"),
       glowBuffers: makePool(device, scene.glowPool, "glow"),
       trackBuffers: makePool(device, scene.trackPool, "tracks"),
@@ -192,6 +215,7 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
     if (r === undefined) return;
     for (const buffer of [
       r.uniform,
+      r.lensUniform,
       r.records,
       r.main.vertex,
       r.glowBuffers.vertex,
@@ -235,6 +259,7 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
       r.records = makeRecords(device);
       r.recordsGeneration = scene.recordsGeneration();
       r.bind = makeBind(device, r.layout, r.uniform, r.records);
+      r.lensBind = makeBind(device, r.layout, r.lensUniform, r.records);
       scene.dirtyRecords.markAll(scene.records().length);
     }
     for (const run of scene.dirtyRecords.take()) {
@@ -288,11 +313,25 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
     for (const range of uploads) bytes += range.size;
   };
 
-  const drawIndexed = (pass: GPURenderPassEncoder, pipeline: GPURenderPipeline, vertex: GPUBuffer, index: GPUBuffer, count: number): void => {
+  const lensData = new Float32Array(UNIFORM_FLOATS);
+  const uploadLens: WireGpu["uploadLens"] = (lens) => {
+    if (res === undefined) return;
+    // The main uniform as written this frame, with the lens's camera and viewport.
+    lensData.set(uniformData);
+    lensData[0] = lens.camera.x;
+    lensData[1] = lens.camera.y;
+    lensData[2] = lens.camera.zoom;
+    lensData[3] = lens.pixelRatio;
+    lensData[4] = lens.width;
+    lensData[5] = lens.height;
+    res.device.queue.writeBuffer(res.lensUniform, 0, lensData);
+  };
+
+  const drawIndexed = (pass: GPURenderPassEncoder, pipeline: GPURenderPipeline, vertex: GPUBuffer, index: GPUBuffer, count: number, bind?: GPUBindGroup): void => {
     if (res === undefined || count <= 0) return;
     drawCalls += 1;
     pass.setPipeline(pipeline);
-    pass.setBindGroup(0, res.bind);
+    pass.setBindGroup(0, bind ?? res.bind);
     pass.setVertexBuffer(0, vertex);
     pass.setIndexBuffer(index, "uint32");
     pass.drawIndexed(count);
@@ -306,13 +345,19 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
     drawIndexed(pass, res.wire, res.main.vertex, res.visible.main, res.visible.mainCount);
   };
 
-  const encodeTracks: WireGpu["encodeTracks"] = (pass) => {
+  const encodeLensRest: WireGpu["encodeLensRest"] = (pass) => {
     if (res === undefined) return;
-    drawIndexed(pass, res.track, res.trackBuffers.vertex, res.visible.tracks, res.visible.tracksCount);
+    drawIndexed(pass, res.glow, res.glowBuffers.vertex, res.visible.glow, res.visible.glowCount, res.lensBind);
+    drawIndexed(pass, res.wire, res.main.vertex, res.visible.main, res.visible.mainCount, res.lensBind);
+  };
+
+  const encodeTracks = (pass: GPURenderPassEncoder, bind?: GPUBindGroup): void => {
+    if (res === undefined) return;
+    drawIndexed(pass, res.track, res.trackBuffers.vertex, res.visible.tracks, res.visible.tracksCount, bind);
     const pulses = scene.pulses();
     if (pulses.length === 0) return;
     pass.setPipeline(res.pulse);
-    pass.setBindGroup(0, res.bind);
+    pass.setBindGroup(0, bind ?? res.bind);
     pass.setVertexBuffer(0, res.main.vertex);
     for (const pulse of pulses) {
       drawCalls += 1;
@@ -323,7 +368,12 @@ export const createWireGpu = (scene: WireScene): WireGpu => {
   return {
     upload,
     encodeRest,
-    encodeTracks,
+    encodeTracks: (pass) => encodeTracks(pass),
+    uploadLens,
+    encodeLensRest,
+    encodeLensTracks: (pass) => {
+      if (res !== undefined) encodeTracks(pass, res.lensBind);
+    },
     lastUploads: () => uploads,
     lastBytes: () => bytes,
     draws: () => drawCalls,

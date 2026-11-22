@@ -145,7 +145,7 @@ const NO_BANDS: Banded = [[], [], []];
  * view (draw now, and the next tier ahead), a camera jump's destination, or
  * nothing. Only a card with a role holds atlas cells.
  */
-type Role = { readonly view: boolean; readonly jump: boolean };
+type Role = { readonly view: boolean; readonly jump: boolean; readonly lens: boolean };
 
 type CardSlot = {
   readonly slot: number;
@@ -252,6 +252,10 @@ const insetBy = (rect: Rect, by: number): Rect => ({
   width: rect.width + by * 2,
   height: rect.height + by * 2,
 });
+
+/** Whether `outer` holds all of `inner`. */
+const containsRect = (outer: Rect, inner: Rect): boolean =>
+  outer.x <= inner.x && outer.y <= inner.y && outer.x + outer.width >= inner.x + inner.width && outer.y + outer.height >= inner.y + inner.height;
 
 /**
  * Motion encoded as the shader's switch reads it.
@@ -849,6 +853,25 @@ export const createScene = (options: {
   let jumpMask = 0;
   let jumpTier: CanvasTier | undefined;
   let jumpZoom = 1;
+  /**
+   * The lens (item 13 of issue 915): the magnifier draws this scene a second
+   * time through its own camera, so it needs no engine or scene of its own.
+   * Its view holds the cards under it at its own tier (cells at the lens's
+   * scale), and builds a second draw list from their quads: every seat drawn
+   * as itself, gathered or not, and no badges. The card set follows the view
+   * with slack, like the main range, so a moving loupe rebuilds it rarely.
+   */
+  let lens: { readonly view: Rect; readonly zoom: number; readonly tier: CanvasTier; readonly mask: number } | undefined;
+  let lensHeld: Rect | undefined;
+  let lensCards: CardSlot[] = [];
+  let lensOrder = new Uint32Array(0);
+  let lensCount = 0;
+  let lensBands: [number, number, number] = [0, 0, 0];
+  let lensRevision = 0;
+  /** The lens's list wants building: its view moved, a lens card repainted, or a rebuild reset the roles. */
+  let lensDirty = false;
+  let lensEpoch = -1;
+  let lensHeldSeen: Rect | undefined;
   let liveMotion = true;
   /** Bumped by every draw-list rebuild; a card or badge stamped with it is near the screen. */
   let liveEpoch = 0;
@@ -866,12 +889,16 @@ export const createScene = (options: {
     if (!ref.atlas) return;
     const quad = ref.painted;
     const slot = ref.slot;
-    if (gathered || !gateOpen(quad)) {
+    // The lens draws every seat, gathered or not, at its own tier.
+    const inLens = role.lens && lens !== undefined && (quad.tiers & lens.mask) !== 0;
+    if ((gathered && !inLens) || !gateOpen(quad)) {
       dropCell(slot);
       return;
     }
     let scale: number | undefined;
-    if (role.view && (quad.tiers & liveMask) !== 0) scale = sourceScaleFor(quad);
+    if (gathered) {
+      // Wanted by the lens alone.
+    } else if (role.view && (quad.tiers & liveMask) !== 0) scale = sourceScaleFor(quad);
     else if (role.view) {
       for (const ahead of aheadTiers) {
         if ((quad.tiers & TIER_BIT[ahead]) === 0) continue;
@@ -879,7 +906,12 @@ export const createScene = (options: {
         break;
       }
     }
-    if (scale === undefined && role.jump && jumpTier !== undefined && (quad.tiers & jumpMask) !== 0) scale = scaleAt(quad, jumpTier, jumpZoom);
+    if (!gathered && scale === undefined && role.jump && jumpTier !== undefined && (quad.tiers & jumpMask) !== 0) scale = scaleAt(quad, jumpTier, jumpZoom);
+    // A record the main view and the lens both draw holds the sharper of the two.
+    if (inLens) {
+      const lensScale = scaleAt(quad, lens!.tier, lens!.zoom);
+      scale = scale === undefined ? lensScale : Math.max(scale, lensScale);
+    }
     if (scale === undefined) {
       dropCell(slot);
       return;
@@ -918,7 +950,7 @@ export const createScene = (options: {
     return out;
   };
 
-  const NO_ROLE: Role = { view: false, jump: false };
+  const NO_ROLE: Role = { view: false, jump: false, lens: false };
   const roleOf = (card: CardSlot): Role => (card.stamp === liveEpoch ? card.role : NO_ROLE);
 
   const paint = (card: CardSlot): void => {
@@ -976,6 +1008,7 @@ export const createScene = (options: {
     const role = roleOf(card);
     const gathered = gatheredSeats.has(card.id);
     for (const ref of ordered) refreshQuad(ref, role, gathered);
+    if (role.lens) lensDirty = true;
     // A style-only repaint (a seat report, a selection) leaves the order
     // list alone; a new key, a restack or a band move rewrites it.
     let orderChanged = previous.length !== ordered.length;
@@ -1137,7 +1170,7 @@ export const createScene = (options: {
     for (const ref of slot.ordered) refreshQuad(ref, role, false);
   };
 
-  const VIEW_ROLE: Role = { view: true, jump: false };
+  const VIEW_ROLE: Role = { view: true, jump: false, lens: false };
 
   /** The badge each gathered seat stands in, from the last plan. */
   let badgeOfSeat = new Map<NodeId, string>();
@@ -1952,6 +1985,102 @@ export const createScene = (options: {
   };
 
   /** Settle every live record's cell: exact at rest, the cell in hand inside a gesture. */
+  const LENS_ROLE: Role = { view: false, jump: false, lens: true };
+
+  /**
+   * Take the cards under the lens's held rect: a card that came under it
+   * takes the lens role and its cells; a card that left drops the role and
+   * the cells it held for the lens alone. A card already stamped by the last
+   * rebuild keeps its other roles; one the rebuild never saw is stamped now,
+   * so the next rebuild sees it in `liveCards` and drops what it holds.
+   */
+  const refreshLensCards = (exact: boolean): void => {
+    const found: number[] = [];
+    if (lensHeld !== undefined) grid.query(lensHeld, found);
+    const next = new Set<CardSlot>();
+    for (const slot of found) {
+      const card = slots[slot];
+      if (card !== undefined) next.add(card);
+    }
+    const added: CardSlot[] = [];
+    for (const card of next) {
+      const role = roleOf(card);
+      if (role.lens) continue;
+      if (card.stamp !== liveEpoch) {
+        card.stamp = liveEpoch;
+        liveCards.push(card);
+      }
+      card.role = { view: role.view, jump: role.jump, lens: true };
+      added.push(card);
+    }
+    for (const card of lensCards) {
+      if (next.has(card) || card.stamp !== liveEpoch) continue;
+      card.role = { view: card.role.view, jump: card.role.jump, lens: false };
+      const gathered = gatheredSeats.has(card.id);
+      for (const ref of card.ordered) settleQuad(ref, card.role, gathered, exact);
+    }
+    for (const card of added) {
+      if (!card.painted || card.stale) {
+        paint(card);
+        continue;
+      }
+      const gathered = gatheredSeats.has(card.id);
+      for (const ref of card.ordered) settleQuad(ref, card.role, gathered, exact);
+    }
+    lensCards = [...next];
+  };
+
+  /** The lens's draw list: its cards' quads at its tier, gate open, bands in order, cards in paint index. */
+  const buildLensOrder = (): void => {
+    if (lens === undefined) {
+      if (lensCount !== 0) lensRevision += 1;
+      lensCount = 0;
+      lensBands = [0, 0, 0];
+      return;
+    }
+    ensurePaintIndex();
+    const cards = lensCards.filter((card) => intersects(card.rect, lens!.view)).sort(byPaintIndex);
+    let needed = 0;
+    for (const card of cards) needed += card.ordered.length;
+    const next = lensOrder.length >= needed ? lensOrder : new Uint32Array(Math.max(needed, lensOrder.length * 2, 64));
+    const counts = [0, 0, 0];
+    let at = 0;
+    let changed = next !== lensOrder;
+    for (let band = 0; band < BAND_COUNT; band += 1) {
+      for (const card of cards) {
+        for (const ref of card.bands[band]!) {
+          if ((ref.tiers & lens.mask) === 0 || !gateOpen(ref.painted)) continue;
+          if (next[at] !== ref.slot) changed = true;
+          next[at] = ref.slot;
+          at += 1;
+          counts[band] = counts[band]! + 1;
+        }
+      }
+    }
+    const bands: [number, number, number] = [counts[0]!, counts[0]! + counts[1]!, at];
+    if (changed || at !== lensCount || bands[0] !== lensBands[0] || bands[1] !== lensBands[1]) lensRevision += 1;
+    lensOrder = next;
+    lensCount = at;
+    lensBands = bands;
+  };
+
+  /** Point the lens at a board view at a zoom, or close it (undefined). */
+  const setLens = (next: { readonly view: Rect; readonly zoom: number } | undefined): void => {
+    if (next === undefined) {
+      if (lens === undefined) return;
+      lens = undefined;
+      lensHeld = undefined;
+      lensDirty = true;
+      return;
+    }
+    if (lens !== undefined && lens.zoom === next.zoom && sameRect(lens.view, next.view)) return;
+    lensDirty = true;
+    const tier = tierForZoom(next.zoom);
+    lens = { view: next.view, zoom: next.zoom, tier, mask: TIER_BIT[tier] };
+    // The held rect keeps a third of the view's size spare on each side.
+    if (lensHeld === undefined || !containsRect(lensHeld, next.view)) lensHeld = insetBy(next.view, Math.max(next.view.width, next.view.height) / 3);
+  };
+
   const settleLive = (exact: boolean, reask: boolean, fresh?: ReadonlySet<CardSlot>): void => {
     for (const card of liveCards) {
       // A card painted in this rebuild took its cells as it painted.
@@ -2064,17 +2193,32 @@ export const createScene = (options: {
         const card = slots[slot];
         if (card === undefined) continue;
         if (card.stamp === liveEpoch) {
-          card.role = { view: true, jump: true };
+          card.role = { view: true, jump: true, lens: false };
           continue;
         }
         card.stamp = liveEpoch;
-        card.role = { view: false, jump: true };
+        card.role = { view: false, jump: true, lens: false };
         jumpCards.push(card);
       }
+    }
+    const lensOnly: CardSlot[] = [];
+    for (const card of lensCards) {
+      if (card.stamp === liveEpoch) {
+        card.role = { view: card.role.view, jump: card.role.jump, lens: true };
+        continue;
+      }
+      card.stamp = liveEpoch;
+      card.role = LENS_ROLE;
+      lensOnly.push(card);
     }
     // Build what came near; a stale card repaints with its role in force, so
     // its cells are taken in the same pass.
     const fresh = new Set<CardSlot>();
+    for (const card of lensOnly) {
+      if (card.painted && !card.stale) continue;
+      paint(card);
+      fresh.add(card);
+    }
     for (const card of visibleCards) {
       if (card.painted && !card.stale) continue;
       paint(card);
@@ -2096,7 +2240,7 @@ export const createScene = (options: {
       if (card.stamp === liveEpoch || intersects(card.rect, keep)) continue;
       releaseShapes(card);
     }
-    liveCards = jumpCards.length === 0 ? visibleCards.slice() : [...visibleCards, ...jumpCards];
+    liveCards = jumpCards.length === 0 && lensOnly.length === 0 ? visibleCards.slice() : [...visibleCards, ...jumpCards, ...lensOnly];
 
     // Badges near the screen draw and hold cells; the rest only answer the pointer.
     const badges: ClusterSlot[] = [];
@@ -2397,6 +2541,18 @@ export const createScene = (options: {
       spliced = true;
     }
     if ((settle && !rebuilt) || reask) settleLive(exact, reask);
+    if (lens !== undefined || lensCards.length > 0) {
+      if (lensHeldSeen !== lensHeld || lensEpoch !== liveEpoch) {
+        refreshLensCards(exact);
+        lensHeldSeen = lensHeld;
+        lensEpoch = liveEpoch;
+        lensDirty = true;
+      }
+      if (lensDirty) {
+        lensDirty = false;
+        buildLensOrder();
+      }
+    }
     if (exact) {
       lastExactScale = exactScale;
       lastExactZoom = zoom;
@@ -2540,6 +2696,23 @@ export const createScene = (options: {
     wiresAt: () => [],
   };
 
+  /** The lens's picking: every card as itself, a gathered seat too, since the lens draws each seat. */
+  const lensIndex: SpatialIndex = {
+    cardsAt: (at) => {
+      const found: number[] = [];
+      grid.query({ x: at.x, y: at.y, width: 0, height: 0 }, found);
+      return orderCards(found)
+        .filter((card) => contains(card.rect, at))
+        .map((card) => card.id);
+    },
+    cardsNear: (at, slop) => {
+      const found: number[] = [];
+      grid.query({ x: at.x - slop, y: at.y - slop, width: slop * 2, height: slop * 2 }, found);
+      return orderCards(found).map((card) => card.id);
+    },
+    wiresAt: () => [],
+  };
+
   const takeQuadDirty = (): SceneDirty => {
     const all = allQuadsDirty;
     allQuadsDirty = false;
@@ -2619,6 +2792,7 @@ export const createScene = (options: {
      */
     motionDamage: (at: number = clockNow): ReadonlyArray<Rect> | undefined => (at < transitionUntil ? undefined : moverRects),
     index,
+    lensIndex,
     takeQuadDirty,
     takeOwnerDirty,
     setClocks: (next: { readonly now: number; readonly wall: number }): void => {
@@ -2701,6 +2875,20 @@ export const createScene = (options: {
     },
     get bandEnds(): readonly [number, number, number] {
       return bandEnds;
+    },
+    setLens,
+    /** The lens's draw list (item 13 of issue 915): its slots, count, band ends and a revision bumped when it changes. */
+    get lensOrder(): Uint32Array {
+      return lensOrder;
+    },
+    get lensCount(): number {
+      return lensCount;
+    },
+    get lensBandEnds(): readonly [number, number, number] {
+      return lensBands;
+    },
+    get lensRevision(): number {
+      return lensRevision;
     },
     get wireMode(): WireMode {
       return wireMode;

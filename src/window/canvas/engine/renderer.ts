@@ -553,6 +553,20 @@ export type BufferFailure = {
 const SHADOW_META_INITIAL = 256;
 const SHADOW_LAYER_INITIAL = 512;
 
+/** What a uniform takes from a frame: the main draw's or the lens's. */
+type LensFrame = {
+  readonly width: number;
+  readonly height: number;
+  readonly pixelRatio: number;
+  readonly wallMs: number;
+  readonly camera: { readonly x: number; readonly y: number; readonly zoom: number };
+  readonly tierBit: number;
+  readonly farSeat: number;
+  readonly seatFloor: number;
+  readonly nodeScale: number;
+  readonly hoverScale: number;
+};
+
 export const createRenderer = () => {
   let gpu: Gpu | undefined;
   let configuredFor = 0;
@@ -630,7 +644,7 @@ export const createRenderer = () => {
       usage: TEXTURE.TEXTURE_BINDING | TEXTURE.COPY_DST,
     });
 
-  const makeBindGroup = (state: Omit<Gpu, "bind">, textureOverride?: GPUTexture, orderOverride?: GPUBuffer): GPUBindGroup => {
+  const makeBindGroup = (state: Omit<Gpu, "bind">, textureOverride?: GPUTexture, orderOverride?: GPUBuffer, uniformOverride?: GPUBuffer): GPUBindGroup => {
     const device = state.device;
     // A standalone override takes the binding its format names: an r8unorm
     // text texture is coverage (binding 10), anything else rgba (binding 4).
@@ -641,7 +655,7 @@ export const createRenderer = () => {
     const page0Cov = (coverageOverride ? textureOverride : undefined) ?? covPages?.[0] ?? state.atlas?.coverageTexture ?? page0Rgba;
     const sampler = state.atlas?.sampler ?? state.dummySampler;
     const entries: GPUBindGroupEntry[] = [
-      { binding: 0, resource: { buffer: state.uniform } },
+      { binding: 0, resource: { buffer: uniformOverride ?? state.uniform } },
       { binding: 1, resource: { buffer: orderOverride ?? state.order } },
       { binding: 2, resource: { buffer: state.quads } },
       { binding: 3, resource: { buffer: state.owners } },
@@ -1041,24 +1055,173 @@ export const createRenderer = () => {
   ): void => {
     const state = gpu;
     if (state === undefined) return;
-    uniform[0] = frame.width;
-    uniform[1] = frame.height;
-    uniform[2] = frame.pixelRatio;
-    uniform[3] = frame.wallMs;
-    uniform[4] = frame.camera.x;
-    uniform[5] = frame.camera.y;
-    uniform[6] = frame.camera.zoom;
-    uniform[7] = frame.tierBit;
-    uniform[8] = frame.farSeat;
-    uniform[9] = frame.seatFloor;
-    uniform[10] = frame.nodeScale;
-    uniform[11] = 0;
-    uniform[12] = scene.orderCount;
-    uniform[13] = frame.hoverScale;
-    uniform[14] = state.atlas?.coverageTexture === undefined ? 0 : 1;
-    uniform[15] = 0;
+    fillUniform(uniform, state, frame, scene.orderCount);
     state.device.queue.writeBuffer(state.uniform, 0, uniform);
     note(state, "uniform", 0, uniform.byteLength);
+  };
+
+  const fillUniform = (
+    target: Float32Array,
+    state: Gpu,
+    frame: LensFrame,
+    count: number,
+  ): void => {
+    target[0] = frame.width;
+    target[1] = frame.height;
+    target[2] = frame.pixelRatio;
+    target[3] = frame.wallMs;
+    target[4] = frame.camera.x;
+    target[5] = frame.camera.y;
+    target[6] = frame.camera.zoom;
+    target[7] = frame.tierBit;
+    target[8] = frame.farSeat;
+    target[9] = frame.seatFloor;
+    target[10] = frame.nodeScale;
+    target[11] = 0;
+    target[12] = count;
+    target[13] = frame.hoverScale;
+    target[14] = state.atlas?.coverageTexture === undefined ? 0 : 1;
+    target[15] = 0;
+  };
+
+  /**
+   * The lens (item 13 of issue 915): the scene's second draw list, drawn
+   * through the lens's own uniform into the lens's own pass. Every other
+   * buffer, the pipeline and the atlas are the main draw's; only the uniform
+   * and the order differ, so the bind group differs in those two entries.
+   */
+  type LensGpu = {
+    readonly uniform: GPUBuffer;
+    order: GPUBuffer;
+    capacity: number;
+    revision: number;
+    bind?: GPUBindGroup;
+    /** The main bind group `bind` was made beside; a rebind of either remakes it. */
+    bindFor?: GPUBindGroup;
+    bindOrder?: GPUBuffer;
+    standalone: WeakMap<GPUTexture, GPUBindGroup>;
+  };
+  const lensUniform = new Float32Array(16);
+  let lensGpu: LensGpu | undefined;
+  let lensFor: Gpu | undefined;
+
+  const lensState = (state: Gpu): LensGpu => {
+    if (lensGpu !== undefined && lensFor === state) return lensGpu;
+    lensGpu?.uniform.destroy();
+    lensGpu?.order.destroy();
+    lensGpu = {
+      uniform: state.device.createBuffer({ size: lensUniform.byteLength, usage: BUFFER.UNIFORM | BUFFER.COPY_DST }),
+      order: bufferOf(state.device, 64 * 4),
+      capacity: 64,
+      revision: -1,
+      standalone: new WeakMap(),
+    };
+    lensFor = state;
+    return lensGpu;
+  };
+
+  const lensBind = (state: Gpu, lens: LensGpu): GPUBindGroup => {
+    if (lens.bind === undefined || lens.bindFor !== state.bind || lens.bindOrder !== lens.order) {
+      lens.bind = makeBindGroup(state, undefined, lens.order, lens.uniform);
+      lens.bindFor = state.bind;
+      lens.bindOrder = lens.order;
+      lens.standalone = new WeakMap();
+    }
+    return lens.bind;
+  };
+
+  /** Write the lens's uniform and, when it changed, its draw list. */
+  const uploadLens = (scene: Scene, frame: LensFrame): void => {
+    const state = gpu;
+    if (state === undefined) return;
+    const lens = lensState(state);
+    fillUniform(lensUniform, state, frame, scene.lensCount);
+    state.device.queue.writeBuffer(lens.uniform, 0, lensUniform);
+    const count = scene.lensCount;
+    if (count > lens.capacity) {
+      let next = lens.capacity;
+      while (next < count) next *= 2;
+      lens.order.destroy();
+      lens.order = bufferOf(state.device, next * 4);
+      lens.capacity = next;
+      lens.revision = -1;
+    }
+    if (lens.revision === scene.lensRevision) return;
+    if (count > 0) state.device.queue.writeBuffer(lens.order, 0, scene.lensOrder, 0, count);
+    lens.revision = scene.lensRevision;
+  };
+
+  /** Encode one band of the lens's list into the lens's pass. */
+  const encodeLens = (pass: GPURenderPassEncoder, band: 0 | 1 | 2): void => {
+    const state = gpu;
+    const scene = state?.lastScene;
+    if (state === undefined || scene === undefined || lensGpu === undefined || lensFor !== state) return;
+    const ends = scene.lensBandEnds;
+    const first = band === 0 ? 0 : ends[band - 1]!;
+    const count = ends[band]! - first;
+    if (count <= 0) return;
+    const bind = lensBind(state, lensGpu);
+    pass.setPipeline(state.pipeline);
+    drawRuns(pass, state, first, count, scene.lensOrder, bind, lensStandaloneBind);
+  };
+
+  const NO_ORDER = new Uint32Array(0);
+  const mainStandaloneBind = (state: Gpu, texture: GPUTexture): GPUBindGroup => {
+    let group = state.standaloneBinds.get(texture);
+    if (group === undefined) {
+      group = makeBindGroup(state, texture);
+      state.standaloneBinds.set(texture, group);
+    }
+    return group;
+  };
+  const lensStandaloneBind = (state: Gpu, texture: GPUTexture): GPUBindGroup => {
+    const lens = lensState(state);
+    let group = lens.standalone.get(texture);
+    if (group === undefined) {
+      group = makeBindGroup(state, texture, lens.order, lens.uniform);
+      lens.standalone.set(texture, group);
+    }
+    return group;
+  };
+
+  /**
+   * Draw `count` list entries from `first`, split into runs where oversized
+   * standalone textures need their own bind group.
+   */
+  const drawRuns = (
+    pass: GPURenderPassEncoder,
+    state: Gpu,
+    first: number,
+    count: number,
+    order: Uint32Array,
+    bind: GPUBindGroup,
+    standaloneBind: (state: Gpu, texture: GPUTexture) => GPUBindGroup,
+  ): void => {
+    const standalone = state.atlas?.standalone;
+    const scene = state.lastScene;
+    if (standalone === undefined || standalone.size === 0 || scene === undefined) {
+      pass.setBindGroup(0, bind);
+      pass.draw(4, count, 0, first);
+      return;
+    }
+    const u32 = scene.quadBuffer.u32;
+    let runStart = first;
+    let runTex: GPUTexture | undefined = standalone.get(u32[order[first]! * QUAD_FLOATS + 23]!);
+    const flushRun = (end: number): void => {
+      const len = end - runStart;
+      if (len <= 0) return;
+      pass.setBindGroup(0, runTex === undefined ? bind : standaloneBind(state, runTex));
+      pass.draw(4, len, 0, runStart);
+    };
+    for (let i = first + 1; i < first + count; i += 1) {
+      const tex = standalone.get(u32[order[i]! * QUAD_FLOATS + 23]!);
+      if (tex !== runTex) {
+        flushRun(i);
+        runStart = i;
+        runTex = tex;
+      }
+    }
+    flushRun(first + count);
   };
 
   type BandEnds = readonly [number, number, number];
@@ -1077,42 +1240,7 @@ export const createRenderer = () => {
       pass.drawIndirect(state.cull.args, band * 16);
       return;
     }
-    const standalone = state.atlas?.standalone;
-    const scene = state.lastScene;
-    if (standalone === undefined || standalone.size === 0 || scene === undefined) {
-      pass.setBindGroup(0, state.bind);
-      pass.draw(4, count, 0, first);
-      return;
-    }
-    // Split the band into contiguous runs when oversized standalone textures are present.
-    const order = scene.orderBuffer;
-    const u32 = scene.quadBuffer.u32;
-    let runStart = first;
-    let runTex: GPUTexture | undefined = standalone.get(u32[order[first]! * QUAD_FLOATS + 23]!);
-    const flushRun = (end: number): void => {
-      const len = end - runStart;
-      if (len <= 0) return;
-      if (runTex === undefined) {
-        pass.setBindGroup(0, state.bind);
-      } else {
-        let bg = state.standaloneBinds.get(runTex);
-        if (bg === undefined) {
-          bg = makeBindGroup(state, runTex);
-          state.standaloneBinds.set(runTex, bg);
-        }
-        pass.setBindGroup(0, bg);
-      }
-      pass.draw(4, len, 0, runStart);
-    };
-    for (let i = first + 1; i < first + count; i += 1) {
-      const tex = standalone.get(u32[order[i]! * QUAD_FLOATS + 23]!);
-      if (tex !== runTex) {
-        flushRun(i);
-        runStart = i;
-        runTex = tex;
-      }
-    }
-    flushRun(first + count);
+    drawRuns(pass, state, first, count, state.lastScene?.orderBuffer ?? NO_ORDER, state.bind, mainStandaloneBind);
   };
 
   /**
@@ -1164,6 +1292,8 @@ export const createRenderer = () => {
     upload,
     writeUniform,
     encode,
+    uploadLens,
+    encodeLens,
     cull,
     /** Choose where the draw list is culled; takes effect at the next frame. */
     setCull: (mode: "cpu" | "gpu"): void => {

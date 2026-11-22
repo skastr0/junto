@@ -24,8 +24,6 @@ import type {
 } from "../contract";
 import type { SeamEngine } from "../engine/engine";
 import { cameraForTarget, interpolateCamera, sameCamera } from "./camera-targets";
-import { createGpuLensSession, type GpuLensSession } from "./gpu-lens";
-import { createSceneSnapshot } from "./scene-snapshot";
 import type { SurfaceMirror } from "./surface-mirror";
 
 type Scheduler = {
@@ -67,17 +65,49 @@ export const createGpuCanvasApi = (
   let offFrame: (() => void) | undefined;
   let animation: number | undefined;
   let disposed = false;
-  // The magnifier's lens: one session at a time, fed by applyScene's fan-out.
-  // The lens portals in after this canvas's effect starts the feed, so each
-  // attach is seeded from the scene's current state (a snapshot the size of
-  // the board, not a capped replay of its history); then ops go straight to
-  // the session. A failed attach (no WebGPU context) leaves the magnifier on
-  // its own path.
-  const lensBox: { session: GpuLensSession | undefined; active: boolean } = {
-    session: undefined,
-    active: false,
+  // The magnifier's lens (item 13 of issue 915): its surface draws this
+  // canvas's engine a second time, through the lens's camera. It has no
+  // scene of its own and takes no ops. One surface at a time; it reaches the
+  // engine whenever both exist, in either order. A failed attach (no WebGPU
+  // context) leaves the magnifier on its own path.
+  type LensBox = {
+    surface: HTMLCanvasElement | undefined;
+    context: GPUCanvasContext | undefined;
+    sizes: ResizeObserver | undefined;
+    active: boolean;
+    at: Point | undefined;
   };
-  const snapshot = createSceneSnapshot();
+  const lensBox: LensBox = { surface: undefined, context: undefined, sizes: undefined, active: false, at: undefined };
+
+  const lensSize = (surface: HTMLCanvasElement): { width: number; height: number; pixelRatio: number } => {
+    const rect = surface.getBoundingClientRect();
+    return { width: rect.width, height: rect.height, pixelRatio: window.devicePixelRatio || 1 };
+  };
+
+  /** Hand the lens surface to the engine, when both are here. */
+  const lensToEngine = (): void => {
+    const surface = lensBox.surface;
+    const context = lensBox.context;
+    if (engine === undefined || surface === undefined || context === undefined) return;
+    const size = lensSize(surface);
+    engine.lens.attach(surface, context, size.width, size.height, size.pixelRatio);
+    engine.lens.setActive(lensBox.active);
+    if (lensBox.at !== undefined) engine.lens.lookAt(lensBox.at);
+  };
+
+  const setLensActive = (on: boolean): void => {
+    lensBox.active = on;
+    if (lensBox.surface !== undefined) engine?.lens.setActive(on);
+  };
+
+  const detachLens = (surface: HTMLCanvasElement): void => {
+    if (lensBox.surface !== surface) return;
+    lensBox.sizes?.disconnect();
+    engine?.lens.detach(surface);
+    lensBox.surface = undefined;
+    lensBox.context = undefined;
+    lensBox.sizes = undefined;
+  };
 
   const viewport = () => mirror.viewport();
 
@@ -122,6 +152,7 @@ export const createGpuCanvasApi = (
     attachEngine: (next) => {
       offFrame?.();
       engine = next;
+      lensToEngine();
       // The mirror follows the engine's frames: the camera, and the live
       // rectangle of every card a pointer is dragging or resizing. Overlays
       // and anchors read those rectangles, so they cannot stay where the row
@@ -134,12 +165,10 @@ export const createGpuCanvasApi = (
     applyScene: (ops) => {
       mirror.apply(ops);
       engine?.apply(ops);
-      snapshot.apply(ops);
-      lensBox.session?.apply(ops);
     },
     lensPick: (screen) => {
-      const session = lensBox.session;
-      if (!lensBox.active || session === undefined) return undefined;
+      const lens = engine?.lens;
+      if (!lensBox.active || lensBox.surface === undefined || lens === undefined) return undefined;
       // Engine points are canvas-local; the mirror's are page pixels.
       const element = mirror.element();
       const page =
@@ -149,33 +178,38 @@ export const createGpuCanvasApi = (
               const rect = element.getBoundingClientRect();
               return { x: screen.x + rect.left, y: screen.y + rect.top };
             })();
-      return session.pick(mirror.screenToBoard(page));
+      return lens.pick(mirror.screenToBoard(page));
     },
     lens: {
       attach: (surface) => {
-        lensBox.session?.dispose();
-        const session = createGpuLensSession(surface);
-        lensBox.session = session;
-        if (session === undefined) return undefined;
-        const seed = snapshot.ops();
-        if (seed.length > 0) session.apply(seed);
-        session.setActive(lensBox.active);
+        if (lensBox.surface !== undefined) detachLens(lensBox.surface);
+        // The DOM lib types WebGPU but not this overload of getContext.
+        const context = surface.getContext("webgpu") as GPUCanvasContext | null;
+        if (context === null) return undefined;
+        lensBox.surface = surface;
+        lensBox.context = context;
+        if (typeof ResizeObserver === "function") {
+          const sizes = new ResizeObserver(() => {
+            const size = lensSize(surface);
+            engine?.lens.resize(size.width, size.height, size.pixelRatio);
+          });
+          sizes.observe(surface);
+          lensBox.sizes = sizes;
+        }
+        lensToEngine();
         const handle: CanvasLensHandle = {
-          lookAt: (at) => session.lookAt(at),
-          pick: (at) => session.pick(at),
-          setActive: (on) => session.setActive(on),
-          ready: () => session.ready(),
-          dispose: () => {
-            if (lensBox.session === session) lensBox.session = undefined;
-            session.dispose();
+          lookAt: (at) => {
+            lensBox.at = at;
+            engine?.lens.lookAt(at);
           },
+          pick: (at) => engine?.lens.pick(at),
+          setActive: setLensActive,
+          ready: () => engine?.lens.ready() ?? false,
+          dispose: () => detachLens(surface),
         };
         return handle;
       },
-      setActive: (on) => {
-        lensBox.active = on;
-        lensBox.session?.setActive(on);
-      },
+      setActive: setLensActive,
     },
     screenToBoard: (screen) => mirror.screenToBoard(screen),
     boardToScreen: (board) => mirror.boardToScreen(board),
@@ -254,8 +288,7 @@ export const createGpuCanvasApi = (
       stopAnimation();
       offFrame?.();
       offFrame = undefined;
-      lensBox.session?.dispose();
-      lensBox.session = undefined;
+      if (lensBox.surface !== undefined) detachLens(lensBox.surface);
       lensBox.active = false;
       engine = undefined;
     },

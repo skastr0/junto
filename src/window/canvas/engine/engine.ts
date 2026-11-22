@@ -41,7 +41,7 @@ import type {
   TextRun,
   WireId,
 } from "../contract";
-import { CAMERA_MAX_ZOOM, CAMERA_MIN_ZOOM, TIER_BIT } from "../contract";
+import { CAMERA_MAX_ZOOM, CAMERA_MIN_ZOOM, LENS_ZOOM, TIER_BIT } from "../contract";
 import type { DeviceKeeper, DeviceState } from "./device";
 import {
   CAMERA_SETTLE_MS,
@@ -102,6 +102,10 @@ export interface WireLayer {
   readonly upload: (device: GPUDevice) => void;
   readonly encodeRest: (pass: GPURenderPassEncoder) => void;
   readonly encodeTracks: (pass: GPURenderPassEncoder) => void;
+  /** The lens's camera for the same strips, then its draws (item 13 of issue 915). */
+  readonly uploadLens?: (lens: { readonly camera: Camera; readonly width: number; readonly height: number; readonly pixelRatio: number }) => void;
+  readonly encodeLensRest?: (pass: GPURenderPassEncoder) => void;
+  readonly encodeLensTracks?: (pass: GPURenderPassEncoder) => void;
   readonly hit: (at: Point) => WireId | undefined;
   readonly busy: (now: number) => boolean;
   /** The ranges the last `upload` wrote; any at all means wires changed this frame. */
@@ -198,7 +202,19 @@ export type SeamStats = EngineStats;
  */
 export type SeamEngine = Omit<Engine, "moveCamera"> & {
   readonly moveCamera: (to: CameraTarget | Camera, options?: CameraMoveOptions) => void;
+  /** The magnifier's lens: this engine's scene drawn again through the lens's camera (item 13 of issue 915). */
+  readonly lens: EngineLens;
 };
+
+export interface EngineLens {
+  readonly attach: (surface: DrawSurface, context: GPUCanvasContext, width: number, height: number, pixelRatio: number) => void;
+  readonly resize: (width: number, height: number, pixelRatio: number) => void;
+  readonly detach: (surface: DrawSurface) => void;
+  readonly setActive: (on: boolean) => void;
+  readonly lookAt: (at: Point) => void;
+  readonly pick: (at?: Point) => Hit | undefined;
+  readonly ready: () => boolean;
+}
 
 const HOME: Camera = { x: 0, y: 0, zoom: 1 };
 
@@ -318,6 +334,75 @@ export const createEngine = (host: EngineHost): SeamEngine => {
 
   /** The magnifier's answer while the loupe is up; undefined is the canvas's own pick. */
   const viaLens = (screen: Point): Hit | undefined => host.lensPick?.(screen);
+
+  /**
+   * The lens (item 13 of issue 915): the magnifier's surface draws this
+   * engine's scene a second time, through a camera centred on the loupe's
+   * board point at LENS_ZOOM, at that zoom's tier. One scene, one atlas, one
+   * set of buffers: the lens adds a uniform, a short draw list and a pass.
+   * Closed, it costs nothing; it never takes ops of its own.
+   */
+  type LensTarget = {
+    readonly surface: DrawSurface;
+    readonly context: GPUCanvasContext;
+    width: number;
+    height: number;
+    pixelRatio: number;
+    configured: number;
+  };
+  let lensTarget: LensTarget | undefined;
+  let lensActive = false;
+  let lensAt: Point | undefined;
+  let loaded = false;
+  const lensTier = tierForZoom(LENS_ZOOM);
+  const lensOn = (): boolean => lensActive && lensAt !== undefined && lensTarget !== undefined && lensTarget.width > 0 && lensTarget.height > 0;
+  const lensCamera = (): Camera | undefined =>
+    lensOn() ? centreCamera({ width: lensTarget!.width, height: lensTarget!.height }, lensAt!, LENS_ZOOM) : undefined;
+  const lensWorld = (): PickWorld => ({
+    index: { ...spatialIndex, cardsAt: scene.lensIndex.cardsAt, cardsNear: scene.lensIndex.cardsNear },
+    card: scene.cardOf,
+    wire: scene.wire,
+    selection: scene.selection(),
+    scale: LENS_ZOOM,
+    tier: lensTier,
+    wireMode: scene.wireMode,
+    rectOf: scene.rectOf,
+  });
+
+  /** Draw the lens's pass into its own surface, in the frame's encoder. */
+  const encodeLens = (encoder: GPUCommandEncoder, device: GPUDevice, format: GPUTextureFormat, generation: number, lensCam: Camera, shaderNow: number): void => {
+    const target = lensTarget!;
+    if (target.configured !== generation) {
+      target.context.configure({ device, format, alphaMode: "opaque" });
+      target.configured = generation;
+    }
+    const pixelWidth = Math.max(1, Math.round(target.width * target.pixelRatio));
+    const pixelHeight = Math.max(1, Math.round(target.height * target.pixelRatio));
+    if (target.surface.width !== pixelWidth) target.surface.width = pixelWidth;
+    if (target.surface.height !== pixelHeight) target.surface.height = pixelHeight;
+    renderer.uploadLens(scene, {
+      width: target.width,
+      height: target.height,
+      pixelRatio: target.pixelRatio,
+      wallMs: shaderNow,
+      camera: lensCam,
+      tierBit: TIER_BIT[lensTier],
+      farSeat: farSeatScale(LENS_ZOOM),
+      seatFloor: seatFloorScale(LENS_ZOOM),
+      nodeScale: nodeScale(LENS_ZOOM),
+      hoverScale: hoverCardScale(LENS_ZOOM),
+    });
+    host.wires?.uploadLens?.({ camera: lensCam, width: target.width, height: target.height, pixelRatio: target.pixelRatio });
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{ view: target.context.getCurrentTexture().createView(), clearValue: ground, loadOp: "clear", storeOp: "store" }],
+    });
+    renderer.encodeLens(pass, 0);
+    host.wires?.encodeLensRest?.(pass);
+    renderer.encodeLens(pass, 1);
+    host.wires?.encodeLensTracks?.(pass);
+    renderer.encodeLens(pass, 2);
+    pass.end();
+  };
 
   /** The bloomed hit box of the card under the pointer, at mid and far. */
   const hoveredPick = (): HoveredCard | undefined => {
@@ -475,7 +560,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   const schedule = (): void => {
     if (disposed || !visible || pending !== undefined) return;
     if (keeper.state().kind !== "ready") return;
-    const busy = dirty || animation !== undefined || keys.size > 0 || !settled || autoPan !== null || scene.hasMotion(clock()) || (host.wires?.busy(wallNow()) ?? false);
+    const busy = dirty || lensOn() || animation !== undefined || keys.size > 0 || !settled || autoPan !== null || scene.hasMotion(clock()) || (host.wires?.busy(wallNow()) ?? false);
     if (!busy) return;
     pending = scheduler.request(frame);
   };
@@ -559,7 +644,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       dirty = true;
     }
 
-    // 3: the visible set and the order list (culling by whole cards).
+    // 3: the visible set and the order list (culling by whole cards). The
+    // lens's view goes in first, so its cards take their cells in this pass.
+    const lensCam = lensCamera();
+    scene.setLens(lensCam === undefined ? undefined : { view: viewRect(lensCam, { width: lensTarget!.width, height: lensTarget!.height }), zoom: LENS_ZOOM });
     const prepared = scene.prepare(viewRect(camera, size), tier);
     const blank = scene.blankStats();
     keepPeaks();
@@ -675,6 +763,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       encoder.copyTextureToTexture({ texture: kept!.texture }, { texture: canvasTexture }, [pixelWidth, pixelHeight, 1]);
       kept!.valid = true;
     }
+    if (lensCam !== undefined) encodeLens(encoder, device, state.format, state.generation, lensCam, shaderNow);
     lastDrawnPixels = drawnPixels;
     drawnPixelsTotal += drawnPixels;
     screenPixelsTotal += pixelWidth * pixelHeight;
@@ -706,7 +795,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     frameMsTotal += lastFrameMs;
     dirty = false;
 
-    const moving = scene.hasMotion(clock()) || (host.wires?.busy(wallNow()) ?? false);
+    // An open lens draws every display frame: its rings turn whatever the main view shows.
+    const moving = lensOn() || scene.hasMotion(clock()) || (host.wires?.busy(wallNow()) ?? false);
     if (moving || animation !== undefined || keys.size > 0 || !settled || autoPan !== null) schedule();
   };
 
@@ -836,6 +926,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       scene.setClocks({ now: clock(), wall: wallNow() });
       for (const op of ops) {
         if (op.kind === "theme") ground = clearColour(themeRuntime(op.mode).ground ?? "");
+        if (op.kind === "load") loaded = true;
         scene.apply(op);
       }
       host.wires?.apply(ops);
@@ -843,6 +934,43 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     },
     input,
     invalidate,
+    lens: {
+      /** Draw the lens into this surface, sized in CSS pixels; false where it offers no WebGPU context. */
+      attach: (surface: DrawSurface, context: GPUCanvasContext, width: number, height: number, pixelRatio: number): void => {
+        lensTarget = { surface, context, width, height, pixelRatio, configured: -1 };
+        schedule();
+      },
+      resize: (width: number, height: number, pixelRatio: number): void => {
+        if (lensTarget === undefined) return;
+        lensTarget.width = width;
+        lensTarget.height = height;
+        lensTarget.pixelRatio = pixelRatio;
+        schedule();
+      },
+      detach: (surface: DrawSurface): void => {
+        if (lensTarget?.surface !== surface) return;
+        lensTarget.context.unconfigure?.();
+        lensTarget = undefined;
+        invalidate();
+      },
+      setActive: (on: boolean): void => {
+        if (lensActive === on) return;
+        lensActive = on;
+        // Closing frees the lens's cells and list on the next frame.
+        invalidate();
+      },
+      lookAt: (at: Point): void => {
+        lensAt = at;
+        schedule();
+      },
+      /** The hit at a board point in the lens's view, the crosshair's when absent; undefined until a board is loaded. */
+      pick: (at?: Point): Hit | undefined => {
+        const point = at ?? lensAt;
+        if (!loaded || point === undefined) return undefined;
+        return pickAt(lensWorld(), point);
+      },
+      ready: (): boolean => loaded,
+    },
     camera: () => camera,
     moveCamera,
     screenToBoard: (screen) => toBoard(camera, screen),
