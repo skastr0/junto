@@ -18,6 +18,7 @@ import {
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V72_IDENTITY,
   STATE_SCHEMA_V73_IDENTITY,
+  STATE_SCHEMA_V74_IDENTITY,
   migrateStateSchema,
   type StateSchemaMigrationDatabase,
   type StateSchemaMigrationPlan,
@@ -208,11 +209,59 @@ const seeder = (database: DatabaseSync) => {
   return { canvas, home, command, ruling, control, settle };
 };
 
+describe("state migration 73 -> 74 (the loom seed)", () => {
+  it("starts from the version-73 witness and ends at the version-74 one, as a fresh install has it", () => {
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V73_SQL)).toEqual(STATE_SCHEMA_V73_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V74_IDENTITY);
+  });
+
+  it.each(["command-center-v13.db", "remote-v13.db"])(
+    "adds the seed table to %s and moves no other row",
+    async (fixture) => {
+      const database = await openCopy(fixture);
+      try {
+        expect(migrateStateSchema(database, upTo(73, STATE_SCHEMA_V73_SQL))).toMatchObject({
+          schemaVersion: 73,
+          ...STATE_SCHEMA_V73_IDENTITY,
+        });
+        const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
+
+        expect(migrateStateSchema(database, upTo(74, STATE_SCHEMA_SQL))).toMatchObject({
+          schemaVersion: 74,
+          ...STATE_SCHEMA_V74_IDENTITY,
+        });
+
+        const after = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
+        const { loom_seeds: seeds, ...rest } = after;
+        expect(rest).toEqual(before);
+        expect(seeds).toEqual([]);
+
+        // One seed per canvas; the canvas's delete takes it (the FK is the backstop).
+        const existing = all(database, "SELECT canvas_name FROM canvases ORDER BY 1 LIMIT 1") as Array<{ canvas_name: string }>;
+        if (existing.length === 0) {
+          database.prepare("INSERT INTO canvases (canvas_name, canvas_id, created_at, updated_at) VALUES ('loom-test', 'canvas-loom-test', 't', 't')").run();
+        }
+        const canvas = existing[0]?.canvas_name ?? "loom-test";
+        database.prepare("INSERT INTO loom_seeds (canvas_name, router_version, seed_json, saved_at) VALUES (?, 1, '{}', 1)").run(canvas);
+        expect(all(database, "SELECT canvas_name FROM loom_seeds")).toEqual([{ canvas_name: canvas }]);
+        database.prepare("DELETE FROM loom_seeds WHERE canvas_name = ?").run(canvas);
+        expect(() =>
+          database.prepare("INSERT INTO loom_seeds (canvas_name, router_version, seed_json, saved_at) VALUES ('no-such-canvas', 1, '{}', 1)").run(),
+        ).toThrow(/FOREIGN KEY/);
+        expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+        expect(database.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
+      } finally {
+        database.close();
+      }
+    },
+    60_000,
+  );
+});
+
 describe("state migration 72 -> 73 (what is open in the work log)", () => {
   it("starts from the version-72 witness and ends at the version-73 one, as a fresh install has it", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V72_SQL)).toEqual(STATE_SCHEMA_V72_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V73_SQL)).toEqual(STATE_SCHEMA_V73_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V73_IDENTITY);
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(
