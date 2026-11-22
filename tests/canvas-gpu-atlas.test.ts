@@ -451,6 +451,24 @@ describe("gpu atlas (#911)", () => {
     expect(s.visibleBlankTotal).toBe(2);
   });
 
+  it("tracks dirty cell slots for partial cells-buffer uploads", async () => {
+    const { atlas } = atlasWith();
+    atlas.attach(fakeDevice().device);
+    // Initial attach marks all dirty
+    expect(atlas.binding.takeDirtyCells!()).toEqual({ all: true, slots: [] });
+    expect(atlas.binding.takeDirtyCells!()).toEqual({ all: false, slots: [] });
+
+    const a = atlas.acquire(textQuad({ ...textRun, text: "first" }), 2);
+    const b = atlas.acquire(textQuad({ ...textRun, text: "second" }), 2);
+    await settle();
+    await settle();
+    const dirty = atlas.binding.takeDirtyCells!();
+    expect(dirty.all).toBe(false);
+    expect(dirty.slots).toEqual([a, b].sort((x, y) => x - y));
+    // Cleared after take
+    expect(atlas.binding.takeDirtyCells!()).toEqual({ all: false, slots: [] });
+  });
+
   it("ignores quads with no text or sprite", () => {
     const { atlas } = atlasWith();
     expect(atlas.acquire(quad({}), 2)).toBe(NO_ATLAS_CELL);

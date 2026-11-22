@@ -16,7 +16,7 @@
 import type { ColorRef, Quad, TextRun } from "../contract";
 import { gpuColorCss, themeGpu, type GpuColor, type GpuTheme, type ThemeMode } from "@shared/theme";
 import { NO_ATLAS_CELL } from "./quad";
-import { ATLAS_CELL_FLOATS, type AtlasBinding, type AtlasStats } from "./types";
+import { ATLAS_CELL_FLOATS, type AtlasBinding, type AtlasDirtyCells, type AtlasStats } from "./types";
 import { resolveColour } from "./styles";
 import { drawGlyph, glyphKnown } from "./glyphs";
 import {
@@ -234,6 +234,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   /** Standalone full-resolution textures for cells larger than a packing page. */
   const standaloneTextures = new Map<number, GPUTexture>();
   let standaloneBytes = 0;
+  /** Dirty cell slots since last renderer upload (for partial cells-buffer writes). */
+  const dirtyCellSlots = new Set<number>();
+  let allCellsDirty = true;
   /** Compat tracking so repeated `sourceFor` calls for the same key don't leak refs. */
   const compatHeld = new Set<string>();
 
@@ -263,6 +266,18 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   let visibleBlank = 0;
   let visibleBlankTotal = 0;
 
+  const takeDirtyCells = (): AtlasDirtyCells => {
+    if (allCellsDirty) {
+      allCellsDirty = false;
+      dirtyCellSlots.clear();
+      return { all: true, slots: [] };
+    }
+    if (dirtyCellSlots.size === 0) return { all: false, slots: [] };
+    const sorted = [...dirtyCellSlots].sort((a, b) => a - b);
+    dirtyCellSlots.clear();
+    return { all: false, slots: sorted };
+  };
+
   const mutable = {
     texture: undefined as unknown as GPUTexture,
     sampler: undefined as unknown as GPUSampler,
@@ -270,6 +285,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     cellCount: 0,
     textureGeneration: 0,
     standalone: standaloneTextures as ReadonlyMap<number, GPUTexture>,
+    takeDirtyCells,
   };
   const binding = mutable as AtlasBinding;
 
@@ -309,6 +325,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     cells = next;
     cellCapacity = nextCap;
     mutable.cells = cells;
+    allCellsDirty = true;
     return true;
   };
 
@@ -322,6 +339,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     cells[base + 5] = 0;
     cells[base + 6] = 0;
     cells[base + 7] = 0;
+    if (!allCellsDirty) dirtyCellSlots.add(index);
   };
 
   const copyCellUV = (dstIndex: number, srcIndex: number): void => {
@@ -330,6 +348,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     for (let i = 0; i < ATLAS_CELL_FLOATS; i += 1) {
       cells[d + i] = cells[s + i]!;
     }
+    if (!allCellsDirty) dirtyCellSlots.add(dstIndex);
   };
 
   const clearCellUV = (index: number): void => {
@@ -337,6 +356,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     for (let i = 0; i < ATLAS_CELL_FLOATS; i += 1) {
       cells[base + i] = 0;
     }
+    if (!allCellsDirty) dirtyCellSlots.add(index);
   };
 
   const hasImage = (cell: number): boolean => {
@@ -693,6 +713,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     cells[base + 5] = layers > 1 ? tilesX : 0;
     cells[base + 6] = layers > 1 ? tilesY : 0;
     cells[base + 7] = 0;
+    if (!allCellsDirty) dirtyCellSlots.add(rec.index);
 
     rec.inPlace = false;
     const wasLanded = rec.state === "landed";
@@ -1208,6 +1229,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       mutable.sampler = sampler;
       textureGeneration += 1;
       mutable.textureGeneration = textureGeneration;
+      allCellsDirty = true;
 
       // Device loss / re-attach (Ruling 6 #3): drop unreferenced cells and
       // re-rasterize all referenced cells immediately (sync where possible,

@@ -7,18 +7,28 @@
 /** Stride of one cell entry in `AtlasBinding.cells`: u0, v0, u1, v1, layer, 0, 0, 0. */
 export const ATLAS_CELL_FLOATS = 8;
 
-/** Track B's atlas, once it exists: a 2d-array texture, a sampler, and a UV + layer table. */
+/** Which cell slots changed since the last renderer upload. */
+export type AtlasDirtyCells = {
+  readonly all: boolean;
+  readonly slots: ReadonlyArray<number>;
+};
+
+/** Track B's atlas, once it exists: 2d-array textures, a sampler, and a UV + layer table. */
 export type AtlasBinding = {
   readonly texture: GPUTexture;
+  /** One-channel r8unorm 2d-array texture for text coverage (q.kind == 3u), when split from RGBA. */
+  readonly coverageTexture?: GPUTexture;
   readonly sampler: GPUSampler;
-  /** Eight f32 words per cell: u0, v0, u1, v1, layer, 0, 0, 0. */
+  /** Eight f32 words per cell: u0, v0, u1, v1, layer, tilesX, tilesY, 0. */
   readonly cells: Float32Array;
   /** Number of allocated cell slots, for upload and buffer growth. */
   readonly cellCount?: number;
-  /** Bumped whenever `texture` is recreated (device attach or page growth) so the renderer rebinds. */
+  /** Bumped whenever `texture` or `coverageTexture` is recreated so the renderer rebinds. */
   readonly textureGeneration?: number;
   /** Dedicated full-resolution textures for cells larger than a packing page, keyed by cell index. */
   readonly standalone?: ReadonlyMap<number, GPUTexture>;
+  /** Take and clear cell indices whose UV/layer entry changed since the last upload. */
+  readonly takeDirtyCells?: () => AtlasDirtyCells;
 };
 
 /** Observable atlas counters for diagnostics and the test hook. */
