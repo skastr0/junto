@@ -2,13 +2,16 @@
 
 ## Unreleased
 
+- Settled wire routes are saved, so a launch routes only what changed while
+  the app was closed. 0.11.13 added the tables but refused every save, so it
+  routed every wire at each launch.
+
 ## 0.11.13 — 2026-11-22
 
 Opening the database with 0.11.13 moves it to version 75, and 0.11.12 then
 refuses it as newer than supported. To go back to 0.11.12, open the backup
-taken at the upgrade. The two steps add tables that keep each canvas's settled
-wire routes and its routing seed beside it, so a launch routes only what
-changed. Both only add; no existing row changes.
+taken at the upgrade. The two steps add empty tables for each canvas's settled
+wire routes and routing seed. Both only add; no existing row changes.
 
 - Panning carries on when a card or a wire slides under the pointer, on both
   canvases, where before the pan stopped dead.
@@ -16,8 +19,7 @@ changed. Both only add; no existing row changes.
   twice its size: pan, zoom and every zoom level change, with every seat
   clickable at every zoom.
 - Boards open faster: wires route in background workers against only the
-  cards near them, and settled routes are saved, so a launch routes only what
-  changed while the app was closed.
+  cards near them.
 - At overview, notes, labels, spine cards and plain cards keep their far-zoom
   mark instead of vanishing, as on the DOM canvas.
 - The minimap draws as one canvas instead of an element per card.
