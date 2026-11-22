@@ -290,7 +290,7 @@ const badgePortrait = async (page: Page, key: string): Promise<ContentPart | nul
 
 interface SeatClick {
   readonly id: string;
-  readonly result: "direct" | "cluster" | "miss" | "offscreen";
+  readonly result: "direct" | "cluster" | "covered" | "miss" | "offscreen";
   readonly detail?: string;
 }
 
@@ -358,6 +358,7 @@ interface Hypothesis {
   readonly hitId?: string | null;
   readonly hitPart?: string | null;
   readonly members?: number | null;
+  readonly body?: boolean;
 }
 
 /** One in-page pass: which of these page points the canvas receives, and what the engine picks there. */
@@ -396,7 +397,11 @@ const hypothesize = (
         };
         if (hit.nodeId === input.id) return { point, hit: "own", ...detail };
         if ((hit.part?.memberIds ?? []).includes(input.id)) return { point, hit: "cluster", ...detail };
-        return { point, hit: "other", ...detail };
+        const otherParts = hit.nodeId === undefined || hit.nodeId === null ? [] : ((hook["partsOf"]?.(hit.nodeId) ?? []) as Array<Record<string, unknown>>);
+        const body = otherParts.some(
+          (part) => part["drawn"] === true && (part["key"] === "shell" || part["key"] === "body" || part["key"] === "card"),
+        );
+        return { point, hit: "other", body, ...detail };
       });
     },
     { points, pane, id },
@@ -478,10 +483,14 @@ const addressSeat = async (page: Page, id: string, pane: ScreenRect): Promise<Se
   }
   if (target === undefined) {
     const canvasPoints = hypotheses.filter((hypothesis) => hypothesis.hit !== "chrome").length;
+    const others = hypotheses.filter((hypothesis) => hypothesis.hit === "other");
+    const coveredByDrawnCard = others.length > 0 && others.every((hypothesis) => hypothesis.body === true);
     return {
       id,
-      result: canvasPoints === 0 ? "offscreen" : "miss",
-      detail: `not pickable at ${String(canvasPoints)} canvas points (${JSON.stringify(hypotheses.slice(0, 6))})`,
+      result: canvasPoints === 0 ? "offscreen" : coveredByDrawnCard ? "covered" : "miss",
+      detail: coveredByDrawnCard
+        ? `covered by a drawn card at every one of ${String(canvasPoints)} canvas points`
+        : `not pickable at ${String(canvasPoints)} canvas points (${JSON.stringify(hypotheses.slice(0, 6))})`,
     };
   }
 
@@ -1194,6 +1203,7 @@ test.describe("#913 GPU canvas proof", () => {
             direct: results.filter((result) => result.result === "direct").length,
             cluster: results.filter((result) => result.result === "cluster").length,
             offscreen: results.filter((result) => result.result === "offscreen").length,
+            covered: results.filter((result) => result.result === "covered").length,
             miss: results.filter((result) => result.result === "miss").length,
             tiles: perTile.size,
             seatsTotal: board.seats.length,
