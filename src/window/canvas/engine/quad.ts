@@ -204,10 +204,3 @@ export const writeQuad = (buffer: QuadBuffer, slot: number, quad: PackedQuad, ow
   u[at + 30] = quad.dash;
   f[at + 31] = quad.hole;
 };
-
-/** Pack a dash/gap pair into one word; both are board units, rounded. */
-export const packDash = (dash: number, gap: number): number => {
-  const d = Math.max(0, Math.min(0xffff, Math.round(dash)));
-  const g = Math.max(0, Math.min(0xffff, Math.round(gap)));
-  return (d | (g << 16)) >>> 0;
-};

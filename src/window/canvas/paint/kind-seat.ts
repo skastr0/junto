@@ -13,7 +13,7 @@ import { ringState, type ActivityTone, type RingState } from "@shared/wire/rings
 import type { KindIconKind } from "@shared/kind-icon";
 import type { KindLedger, KindState } from "../../lib/kind-band";
 import type { CardFact, CardPaint, CardView, KindLive, PaintEnv, Quad, QuadStyle, ScaleRule, TextRun } from "../contract";
-import { ALL_TIERS, TIER_BIT } from "../contract";
+import { ALL_TIERS, MEASURE_WIDTH, TIER_BIT } from "../contract";
 import { FAR, FOCUS, KIND_SHELL_RADII, LIFT_PX, SEAT, SEAT_BOX, SEAT_CONTENT_CENTRE_DX, SEAT_RING_CENTRE, SEAT_TEXT } from "./card-spec";
 import { bandSprites, kindIconPlaceholder, kindIconSprite } from "./images";
 import { bandMotion, ringQuads } from "./motion";
@@ -209,7 +209,7 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
   const top = SEAT_RING_CENTRE.y - blockH / 2;
   const nameRun = (width: number): TextRun => run(live.name, { size: SEAT.nameSize, weight: 600, width });
   const avail = live.enqueue === true ? SEAT_TEXT.width - ENQUEUE - ENQUEUE_GAP : SEAT_TEXT.width;
-  const nameW = (): number => Math.min(avail, env.measure(nameRun(4096)));
+  const nameW = (): number => Math.min(avail, env.measure(nameRun(MEASURE_WIDTH)));
   if (!view.editing) {
     const w = live.enqueue === true ? nameW() : SEAT_TEXT.width;
     quads.push(
@@ -290,7 +290,7 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
       ),
     );
     const t = FAR.tag;
-    const tagRun = nameRun(4096);
+    const tagRun = nameRun(MEASURE_WIDTH);
     const textW = Math.min(t.maxWidth - t.padX * 2 - t.border * 2, env.measure(tagRun));
     const width = textW + t.padX * 2 + t.border * 2;
     const height = nameH + t.padTop + t.padBottom + t.border * 2;

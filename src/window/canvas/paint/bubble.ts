@@ -4,7 +4,7 @@
  */
 
 import type { Quad, Rect, SeatLive, TextRun, PaintEnv } from "../contract";
-import { TIER_BIT } from "../contract";
+import { MEASURE_WIDTH, TIER_BIT } from "../contract";
 import { BUBBLE, SEAT_RING_CENTRE } from "./card-spec";
 import { at, mixOf, shadow, shape, sprite, text, tok } from "./refs";
 
@@ -25,10 +25,10 @@ export const bubbleQuads = (p: Preamble, seat: Rect, env: PaintEnv): ReadonlyArr
   const textMax = BUBBLE.maxWidth - border * 2 - padding.left - padding.right - GLYPH - GAP - 2 - CLOSE;
   const who = p.speaker === undefined ? "" : `${p.speaker} `;
   const nowFull = who + p.now;
-  const nowW = Math.min(textMax, env.measure({ ...nowRun(nowFull, 4096), truncate: "none" }));
-  const beforeW = p.before === undefined ? 0 : Math.min(textMax, env.measure({ ...beforeRun(p.before, 4096), truncate: "none" }));
+  const nowW = Math.min(textMax, env.measure({ ...nowRun(nowFull, MEASURE_WIDTH), truncate: "none" }));
+  const beforeW = p.before === undefined ? 0 : Math.min(textMax, env.measure({ ...beforeRun(p.before, MEASURE_WIDTH), truncate: "none" }));
   const textW = Math.max(nowW, beforeW, 1);
-  const nowLines = env.measure({ ...nowRun(nowFull, 4096), truncate: "none" }) > textMax ? 2 : 1;
+  const nowLines = env.measure({ ...nowRun(nowFull, MEASURE_WIDTH), truncate: "none" }) > textMax ? 2 : 1;
   const innerW = GLYPH + GAP + textW + 2 + CLOSE;
   const width = Math.min(BUBBLE.maxWidth, innerW + padding.left + padding.right + border * 2);
   const lines = nowLines * NOW_LEADING + (p.before === undefined ? 0 : BEFORE_LEADING + 3);
@@ -76,7 +76,7 @@ export const bubbleQuads = (p: Preamble, seat: Rect, env: PaintEnv): ReadonlyArr
   );
   let cx = innerX + GLYPH + GAP;
   if (p.speaker !== undefined) {
-    const whoRun: TextRun = { ...nowRun(p.speaker, 4096), weight: 600, truncate: "none" };
+    const whoRun: TextRun = { ...nowRun(p.speaker, MEASURE_WIDTH), weight: 600, truncate: "none" };
     const w = env.measure(whoRun) + 0.6 * 6.6;
     out.push(
       text({ key: "bubble.who", z: 84, rect: at(cx, innerY, w, NOW_LEADING) }, { ink: hue }, { ...base, motion: rise, text: { ...whoRun, width: w } }),

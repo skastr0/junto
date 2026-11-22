@@ -16,13 +16,26 @@ export const CARD_CELL = 512;
 /** Wire segments are long; a coarser cell keeps the per-wire cell count small. */
 export const WIRE_CELL = 1536;
 
-const keyOf = (cx: number, cy: number): number => (cx + 32768) * 65536 + (cy + 32768);
+/**
+ * One exact key per cell, for any cell a board can name. Zigzag folds the
+ * signs (doubling them), and Szudzik's pairing is exact while the larger
+ * half squared stays inside Number's safe integers: |cell| < 2^25, which is
+ * 1.7e10 board units at 512. Past that the key is a string, exact everywhere.
+ */
+const PAIR_SAFE = 2 ** 25;
+const zigzag = (n: number): number => (n >= 0 ? 2 * n : -2 * n - 1);
+const keyOf = (cx: number, cy: number): number | string => {
+  if (Math.abs(cx) >= PAIR_SAFE || Math.abs(cy) >= PAIR_SAFE) return `${String(cx)},${String(cy)}`;
+  const a = zigzag(cx);
+  const b = zigzag(cy);
+  return a >= b ? a * a + a + b : a + b * b;
+};
 
-type Entry = { rect: Rect; cells: number[] };
+type Entry = { rect: Rect; cells: Array<number | string> };
 
 /** A grid over rectangles, keyed by integer slot. */
 export class RectGrid {
-  private readonly cells = new Map<number, number[]>();
+  private readonly cells = new Map<number | string, number[]>();
   private readonly entries = new Map<number, Entry>();
 
   constructor(private readonly cell: number) {}
@@ -33,7 +46,7 @@ export class RectGrid {
     const top = Math.floor(rect.y / this.cell);
     const right = Math.floor((rect.x + rect.width) / this.cell);
     const bottom = Math.floor((rect.y + rect.height) / this.cell);
-    const cells: number[] = [];
+    const cells: Array<number | string> = [];
     for (let cy = top; cy <= bottom; cy += 1) {
       for (let cx = left; cx <= right; cx += 1) {
         const key = keyOf(cx, cy);

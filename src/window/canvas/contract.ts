@@ -454,6 +454,13 @@ export type SpriteRef =
   /** A bitmap from the content store (note and file images). */
   | { readonly atlas: "media"; readonly ref: string; readonly fit: "contain" | "cover" };
 
+/**
+ * The width of a run that is only measured, never drawn: `measure` reads a
+ * run's natural one-line width and ignores its box, and every drawn run sets
+ * the width it lays out in. Not a cap: an earlier 4096 here read as one.
+ */
+export const MEASURE_WIDTH = Number.POSITIVE_INFINITY;
+
 export type FontRole = "mono" | "display" | "body";
 
 /** One run of text in one style; B shapes and caches it (section 8). */

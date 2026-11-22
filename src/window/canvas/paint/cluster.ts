@@ -15,7 +15,7 @@ import { SEAT_SCALE_MAX } from "@shared/canvas-tier";
 import type { RingForm, RingState } from "@shared/wire/rings";
 import { ringKeepsApart } from "@shared/wire/urgency";
 import type { Point, PaintEnv, Quad, SeatLive, ScaleRule, TextRun } from "../contract";
-import { TIER_BIT } from "../contract";
+import { MEASURE_WIDTH, TIER_BIT } from "../contract";
 import {
   buildClusterIndex,
   clusterBadgeMark,
@@ -140,7 +140,7 @@ export const paintClusterBadge = (cluster: SeatCluster, byId: ReadonlyMap<string
     tabular: true,
     align: "center",
     truncate: "none",
-    width: 4096,
+    width: MEASURE_WIDTH,
   };
   const textW = env.measure(run);
   const w = Math.max(CLUSTER.count.minWidth, textW + CLUSTER.count.padX * 2);

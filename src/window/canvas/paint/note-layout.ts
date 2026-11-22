@@ -10,7 +10,7 @@
 import { TEXT_SIZES } from "@shared/theme";
 import { parseBlocks, parseInline } from "../../lib/note-markdown";
 import type { FontRole, PaintEnv, Quad, QuadStyle, Rect, TextRun } from "../contract";
-import { TIER_BIT } from "../contract";
+import { MEASURE_WIDTH, TIER_BIT } from "../contract";
 import { at, shape, sprite, text, tok } from "./refs";
 
 type Blocks = ReturnType<typeof parseBlocks>;
@@ -83,7 +83,7 @@ type Seg = { readonly style: Style; text: string; x: number; w: number };
 const wrap = (pieces: ReadonlyArray<Piece>, face: Face, width: number, env: PaintEnv): ReadonlyArray<ReadonlyArray<Seg>> => {
   const lines: Seg[][] = [[]];
   let x = 0;
-  const measure = (style: Style, value: string): number => env.measure(runOf(face, style, value, 4096));
+  const measure = (style: Style, value: string): number => env.measure(runOf(face, style, value, MEASURE_WIDTH));
   for (const piece of pieces) {
     for (const part of piece.text.split(/(\s+)/)) {
       if (part === "") continue;

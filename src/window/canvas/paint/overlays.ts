@@ -6,7 +6,7 @@
 
 import { BORDER, DURATION } from "@shared/theme";
 import type { CardView, ColorRef, PaintEnv, Quad, Radii, ReachEffect, Rect, TextRun } from "../contract";
-import { ALL_TIERS, TIER_BIT } from "../contract";
+import { ALL_TIERS, MEASURE_WIDTH, TIER_BIT } from "../contract";
 import { DIM, REACH } from "./card-spec";
 import { at, grow, shadow, shape, text, tok } from "./refs";
 
@@ -83,7 +83,7 @@ export const reachQuads = (
   if (mark.summary !== undefined) {
     for (const near of [true, false]) {
       const k = near ? 1 : 3;
-      const run: TextRun = { text: mark.summary, font: "mono", size: 10 * k, weight: 400, leading: 1.2, truncate: "none", width: 4096 };
+      const run: TextRun = { text: mark.summary, font: "mono", size: 10 * k, weight: 400, leading: 1.2, truncate: "none", width: MEASURE_WIDTH };
       const w = env.measure(run);
       const padX = near ? 8 : 24;
       const padY = near ? 3 : 10;

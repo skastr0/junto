@@ -285,3 +285,24 @@ describe("the drawn parts hook", () => {
     expect(scene.partsOf("nobody")).toEqual([]);
   });
 });
+
+describe("the cull grid", () => {
+  it("finds cards at any distance, with no cell key collisions past 16 bits", async () => {
+    const { RectGrid, CARD_CELL } = await import("../src/window/canvas/engine/grid");
+    const grid = new RectGrid(CARD_CELL);
+    const far = 32768 * CARD_CELL;
+    grid.set(1, { x: 0, y: 0, width: 10, height: 10 });
+    grid.set(2, { x: far * 2, y: 0, width: 10, height: 10 });
+    grid.set(3, { x: 0, y: -far * 3, width: 10, height: 10 });
+    grid.set(4, { x: 2 ** 26 * CARD_CELL, y: 5, width: 10, height: 10 });
+    const at = (rect: { x: number; y: number; width: number; height: number }) => {
+      const out: number[] = [];
+      grid.query(rect, out);
+      return out;
+    };
+    expect(at({ x: -5, y: -5, width: 20, height: 20 })).toEqual([1]);
+    expect(at({ x: far * 2 - 5, y: -5, width: 20, height: 20 })).toEqual([2]);
+    expect(at({ x: -5, y: -far * 3 - 5, width: 20, height: 20 })).toEqual([3]);
+    expect(at({ x: 2 ** 26 * CARD_CELL - 5, y: 0, width: 20, height: 20 })).toEqual([4]);
+  });
+});

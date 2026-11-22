@@ -69,13 +69,13 @@ const browserScheduler = {
 let mounted: SeamEngine | undefined;
 export const mountedGpuEngine = (): SeamEngine | undefined => mounted;
 
-/** What a canvas opens on: its regions when named, else its first cards. */
+/** What a canvas opens on: its regions when named, else every card on it. */
 const openingCamera = (mirror: SurfaceMirror): Camera | undefined => {
   const viewport = mirror.viewport();
   if (viewport.width <= 0 || viewport.height <= 0) return undefined;
   const all = mirror.cardIds().map((id) => mirror.card(id)!).filter(Boolean);
   const regions = all.filter((card) => card.row.kind === "region");
-  const anchors = regions.length > 0 ? regions : all.slice(0, 24);
+  const anchors = regions.length > 0 ? regions : all;
   if (anchors.length === 0) return undefined;
   const rects: Rect[] = anchors.map((card) => ({ x: card.row.x, y: card.row.y, width: card.row.width, height: card.row.height }));
   const bounds = rects.reduce<Rect>(

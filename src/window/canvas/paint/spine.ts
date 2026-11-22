@@ -13,7 +13,7 @@
  */
 
 import type { ColorRef, CardFact, CardPaint, CardView, PaintEnv, Quad, QuadStyle, ScaleRule, SpineLive, TextRun } from "../contract";
-import { TIER_BIT } from "../contract";
+import { MEASURE_WIDTH, TIER_BIT } from "../contract";
 import { BORDER } from "@shared/theme";
 import { dimOf, focusQuads, reachQuads } from "./overlays";
 import { at, grow, shape, sprite, text, tok } from "./refs";
@@ -81,7 +81,7 @@ const run = (value: string, size: number, extra: Partial<TextRun> = {}): TextRun
   weight: 400,
   leading: COMPACT,
   truncate: "end",
-  width: 4096,
+  width: MEASURE_WIDTH,
   ...extra,
 });
 
