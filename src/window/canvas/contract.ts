@@ -1060,4 +1060,9 @@ export interface CanvasTestHook {
     readonly indices: number;
     readonly uploadBytes: number;
   } | undefined;
+  /**
+   * The loom's workers and the board view it routes outwards from (issue
+   * 912): 0 workers when it routes on the page, null before the shell drew.
+   */
+  readonly loom?: () => { readonly workers: number; readonly view: Rect | null };
 }

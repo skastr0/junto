@@ -90,6 +90,9 @@ const workerHost = (send: (update: LoomUpdate) => void): LoomHost => {
 
 /** The open canvas's view on the board, as the shell last drew it. */
 let routeView: Rect | undefined;
+
+/** The view the loom routes outwards from, for the boot measurement. */
+export const wireRouteView = (): Rect | undefined => routeView;
 const viewListeners = new Set<(view: Rect) => void>();
 
 /**
