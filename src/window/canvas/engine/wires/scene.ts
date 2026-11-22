@@ -651,6 +651,12 @@ export const createWireScene = (host: WireHost): WireScene => {
   let builds = 0;
   /** Wires a tier flip marks: only their new tier changes, other tiers stay kept. */
   const tierOnly = new Set<WireId>();
+  // Wires a tier crossing left unbuilt because they were off screen: they are
+  // rebuilt only when the view reaches them, a scan at a time.
+  const tierStale = new Set<WireId>();
+  let tierStaleList: WireId[] = [];
+  let tierStaleAt = 0;
+  let staleCamera = { x: NaN, y: NaN, zoom: NaN };
   const rebuild = (entry: Entry, now: number): void => {
     builds += 1;
     const keepOtherTiers = tierOnly.delete(entry.id);
@@ -1241,27 +1247,79 @@ export const createWireScene = (host: WireHost): WireScene => {
           stripOrderDirty = true;
           continue;
         }
-        dirty.add(entry.id);
         tierOnly.add(entry.id);
+        const b = entry.bounds;
+        const margin = 200 / zoom;
+        const onScreen =
+          b !== undefined &&
+          b.maxX >= -camera.x / zoom - margin &&
+          b.minX <= -camera.x / zoom + viewSize.width / zoom + margin &&
+          b.maxY >= -camera.y / zoom - margin &&
+          b.minY <= -camera.y / zoom + viewSize.height / zoom + margin;
+        if (onScreen) dirty.add(entry.id);
+        else tierStale.add(entry.id);
       }
+      tierStaleList = [...tierStale];
+      tierStaleAt = 0;
     }
     // A card a pointer owns this frame can be somewhere its row is not yet.
     if (f.live !== undefined) {
       for (const id of f.live) markCard(id);
     }
     // Only what a model op or a live card touched is rebuilt: no wire is read
-    // per frame just in case.
+    // per frame just in case. A cold tier crossing puts every wire in here at
+    // once (a first visit to mid at 100x is 93,000 strips); the rebuild is
+    // sliced, so no frame carries the whole board. A wire whose turn has not
+    // come keeps the strip it had, so nothing blinks.
+    const rebuildStarted = performance.now();
+    // A stale wire is built when the view reaches it: scan a slice of the
+    // stale list each frame, and rebuild the in-view ones within the budget.
+    if (staleCamera.x !== camera.x || staleCamera.y !== camera.y || staleCamera.zoom !== camera.zoom) {
+      staleCamera = { x: camera.x, y: camera.y, zoom: camera.zoom };
+      tierStaleAt = 0;
+    }
+    let staleInView = false;
+    if (tierStaleList.length > 0) {
+      const margin = 200 / zoom;
+      const x0 = -camera.x / zoom - margin;
+      const y0 = -camera.y / zoom - margin;
+      const x1 = -camera.x / zoom + viewSize.width / zoom + margin;
+      const y1 = -camera.y / zoom + viewSize.height / zoom + margin;
+      let scanned = 0;
+      while (scanned < 20000 && tierStaleAt < tierStaleList.length) {
+        const id = tierStaleList[tierStaleAt]!;
+        tierStaleAt += 1;
+        scanned += 1;
+        const entry = entries.get(id);
+        if (entry === undefined) {
+          tierStale.delete(id);
+          continue;
+        }
+        const b = entry.bounds;
+        const onScreen = b !== undefined && b.maxX >= x0 && b.minX <= x1 && b.maxY >= y0 && b.minY <= y1;
+        if (!onScreen) continue;
+        staleInView = true;
+        if (performance.now() - rebuildStarted > 6) continue;
+        tierStale.delete(id);
+        rebuild(entry, now);
+      }
+      if (tierStaleAt >= tierStaleList.length) {
+        tierStaleList = [...tierStale];
+        tierStaleAt = 0;
+      }
+    }
     for (const id of dirty) {
+      if (performance.now() - rebuildStarted > 6) break;
+      dirty.delete(id);
       const entry = entries.get(id);
       if (entry !== undefined) rebuild(entry, now);
     }
-    dirty.clear();
     if (tracksDirty) rebuildTracks();
     if (visibleDirty) {
       buildVisible();
       visibleDirty = false;
     }
-    return stepMotion(now) || tracksMove();
+    return stepMotion(now) || tracksMove() || dirty.size > 0 || staleInView;
   };
 
   const busy: WireScene["busy"] = (at) => {

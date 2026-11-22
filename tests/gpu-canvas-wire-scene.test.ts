@@ -454,6 +454,32 @@ describe("the wire scene", () => {
     expect(scene.pulses().length).toBe(1);
   });
 
+  it("builds a cold tier crossing for the wires in view, and the rest when the view reaches them", () => {
+    const cards = new Map<string, Rect>();
+    const wires: WireFact[] = [];
+    for (let i = 0; i < 20; i += 1) {
+      // Two wires on screen; eighteen far below it.
+      const y = i < 2 ? i * 200 : 4000 + i * 20;
+      cards.set(`s${i}`, rect(0, y));
+      cards.set(`t${i}`, rect(600, y));
+      wires.push(wire(`w${i}`, `s${i}`, `t${i}`));
+    }
+    const { scene } = makeScene(cards);
+    const frameAt = (at: number, tier: WireFrame["tier"], camera: WireFrame["camera"]) =>
+      scene.frame({ camera, width: 1600, height: 1000, pixelRatio: 2, tier, wall: at });
+    const still = { x: 0, y: 0, zoom: 1 };
+    scene.apply(load(wires));
+    frameAt(T0, "near", still);
+    const before = scene.builds();
+    frameAt(T0 + 16, "mid", still);
+    const builtAtCrossing = scene.builds() - before;
+    expect(builtAtCrossing).toBeGreaterThan(0);
+    expect(builtAtCrossing).toBeLessThan(wires.length);
+    // The view reaching the rest builds them then.
+    frameAt(T0 + 32, "mid", { x: 0, y: -4000, zoom: 1 });
+    expect(scene.builds()).toBeGreaterThan(before + builtAtCrossing);
+  });
+
   it("gives an off-screen pulse no slot, so in-view traffic still lights", () => {
     const cards = new Map<string, Rect>();
     const wires: WireFact[] = [];
