@@ -166,6 +166,8 @@ export type GpuCull = {
       readonly owners: GPUBuffer;
       readonly count: number;
       readonly bandEnds: readonly [number, number, number];
+      /** The pass's timestamp writes, asked only when the pass is encoded. */
+      readonly timestampWrites?: () => GPUComputePassTimestampWrites | undefined;
     },
   ) => GPUBuffer | undefined;
   /** The indirect arguments buffer: band b's draw at offset b * 16. */
@@ -258,7 +260,8 @@ export const createGpuCull = (device: GPUDevice): GpuCull => {
       paramWords[5] = inputs.bandEnds[1];
       paramWords[6] = inputs.bandEnds[2];
       device.queue.writeBuffer(params, 0, paramWords);
-      const pass = encoder.beginComputePass();
+      const timestampWrites = inputs.timestampWrites?.();
+      const pass = encoder.beginComputePass(timestampWrites === undefined ? undefined : { timestampWrites });
       pass.setBindGroup(0, bind);
       if (inputs.count > 0) {
         pass.setPipeline(flagScan);

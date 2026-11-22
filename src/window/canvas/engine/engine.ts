@@ -220,6 +220,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   let configuredGeneration = 0;
   let lastFrameAt = 0;
   let lastFrameMs = 0;
+  /** Every frame's CPU time summed, so a window's mean is a difference. */
+  let frameMsTotal = 0;
   let lastRanges: ReadonlyArray<{ buffer: string; offset: number; size: number }> = [];
 
   let settled = true;
@@ -569,7 +571,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     if (surface.width !== pixelWidth) surface.width = pixelWidth;
     if (surface.height !== pixelHeight) surface.height = pixelHeight;
     const encoder = device.createCommandEncoder();
-    renderer.cull(encoder);
+    renderer.cull(encoder, () => timer?.computeWrites());
     const timestampWrites = timer?.writes();
     const pass = encoder.beginRenderPass({
       ...(timestampWrites === undefined ? {} : { timestampWrites }),
@@ -613,6 +615,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     frames += 1;
     lastRanges = renderer.lastFrameRanges;
     lastFrameMs = clock() - start;
+    frameMsTotal += lastFrameMs;
     dirty = false;
 
     const moving = scene.hasMotion(clock()) || (host.wires?.busy(wallNow()) ?? false);
@@ -795,6 +798,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       uploadedBytes: renderer.totalBytes,
       lastUploadRanges: lastRanges,
       lastFrameMs,
+      frameMsTotal,
       rasterQueue: 0,
       blank: (({ visibleBlank, placeholders, ensuredNow, marginScreenPx, tierWindowOctaves }) => ({
         visibleBlank,

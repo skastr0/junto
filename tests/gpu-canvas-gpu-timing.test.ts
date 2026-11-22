@@ -7,7 +7,7 @@ import { createDeviceKeeper } from "../src/window/canvas/engine/device";
 import { settle } from "./gpu-canvas-fakes";
 
 const timedDevice = () => {
-  const pair = new BigUint64Array([1_000_000n, 3_500_000n]);
+  const pair = new BigUint64Array([1_000_000n, 3_500_000n, 200_000n, 450_000n]);
   const calls: string[] = [];
   const device = {
     features: new Set(["timestamp-query"]),
@@ -35,13 +35,25 @@ describe("GPU pass times", () => {
     timer.collect();
     await settle();
     expect(calls).toEqual(["resolve", "copy"]);
-    expect(timer.times()).toEqual({ available: true, samples: 1, lastMs: 2.5, peakMs: 2.5 });
+    expect(timer.times()).toEqual({ available: true, samples: 1, lastMs: 2.5, peakMs: 2.5, totalMs: 2.5, cullSamples: 0, cullTotalMs: 0 });
+  });
+
+  it("times the cull's compute pass beside the render pass when the cull ran", async () => {
+    const { device, encoder } = timedDevice();
+    const timer = createGpuTimer(device);
+    expect(timer.computeWrites()).toMatchObject({ beginningOfPassWriteIndex: 2, endOfPassWriteIndex: 3 });
+    timer.writes();
+    timer.resolve(encoder);
+    timer.collect();
+    await settle();
+    expect(timer.times()).toMatchObject({ samples: 1, lastMs: 2.5, cullSamples: 1, cullLastMs: 0.25, cullTotalMs: 0.25 });
   });
 
   it("says so when the device cannot time passes, and writes nothing", () => {
     const timer = createGpuTimer({ features: new Set() } as unknown as GPUDevice);
     expect(timer.writes()).toBeUndefined();
-    expect(timer.times()).toEqual({ available: false, samples: 0 });
+    expect(timer.computeWrites()).toBeUndefined();
+    expect(timer.times()).toEqual({ available: false, samples: 0, totalMs: 0, cullSamples: 0, cullTotalMs: 0 });
   });
 
   it("asks the adapter for timestamp-query only when it offers it", async () => {

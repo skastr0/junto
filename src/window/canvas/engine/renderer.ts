@@ -936,7 +936,7 @@ export const createRenderer = () => {
   let cullMode: "cpu" | "gpu" = "cpu";
 
   /** Encode the GPU cull ahead of the render pass, when the cull runs there. */
-  const cull = (encoder: GPUCommandEncoder): void => {
+  const cull = (encoder: GPUCommandEncoder, timestampWrites?: () => GPUComputePassTimestampWrites | undefined): void => {
     const state = gpu;
     if (state === undefined) return;
     state.culledThisFrame = false;
@@ -952,6 +952,7 @@ export const createRenderer = () => {
       owners: state.owners,
       count: lastBands[2],
       bandEnds: lastBands,
+      ...(timestampWrites === undefined ? {} : { timestampWrites }),
     });
     if (culled === undefined) return;
     if (state.culledBind === undefined || state.culledOrder !== culled || state.culledFor !== state.bind) {

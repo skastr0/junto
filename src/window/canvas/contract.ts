@@ -755,7 +755,18 @@ export type EngineStats = {
   /** GPU buffers the device could not give (limit, validation or out of memory). */
   readonly bufferFailures?: ReadonlyArray<{ readonly buffer: string; readonly bytes: number; readonly limit?: number; readonly reason: string }>;
   /** The frame's render pass in GPU time (timestamp-query), when the device can time it. */
-  readonly gpuPass?: { readonly available: boolean; readonly samples: number; readonly lastMs?: number; readonly peakMs?: number };
+  readonly gpuPass?: {
+    readonly available: boolean;
+    readonly samples: number;
+    readonly lastMs?: number;
+    readonly peakMs?: number;
+    readonly totalMs?: number;
+    readonly cullSamples?: number;
+    readonly cullLastMs?: number;
+    readonly cullTotalMs?: number;
+  };
+  /** Every frame's CPU time summed. */
+  readonly frameMsTotal?: number;
   /** Where the draw list is culled. */
   readonly cull?: "cpu" | "gpu";
 };
