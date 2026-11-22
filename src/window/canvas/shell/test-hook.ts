@@ -8,12 +8,11 @@
 import type { CanvasTestHook, DrawnCluster, DrawnPart, Hit, NodeId, Part, Point, Rect, SeatStats } from "../contract";
 import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
 import type { SeamEngine } from "../engine/engine";
-import type { AtlasStats } from "../engine/types";
-import { pageGpuAtlasStats } from "./gpu-atlas-page";
+import type { AtlasPendingEntry, AtlasStats } from "../engine/types";
+import { pageGpuAtlasPendingKeys, pageGpuAtlasStats } from "./gpu-atlas-page";
 import { engineStats } from "./gpu-canvas-api";
 import type { SurfaceMirror } from "./surface-mirror";
 import { lastReachMarks } from "./reach-live";
-import { loomStats, loomWorkers, wireRouteView } from "../feed/loom";
 
 type HookPart = Part["kind"] | "toolbar" | "region-handle" | `handle:${"source" | "target"}:${"top" | "right" | "bottom" | "left"}` | `verb:${string}`;
 
@@ -30,6 +29,8 @@ type FullHook = CanvasTestHook & {
   readonly wireMode: () => string;
   /** Observable atlas counters (pages, evictions, failures, bytesInUse, visibleBlank, etc.). */
   readonly atlasStats: () => AtlasStats;
+  /** Bounded snapshot of pending (queued/rasterizing) atlas cell keys for diagnostics. */
+  readonly pendingKeys: (limit?: number) => ReadonlyArray<AtlasPendingEntry>;
   /** Engine hit test at canvas-local screen coordinates. */
   readonly pick: (screen: Point) => Hit | null;
   /** Painted quads for a card, with rect in page screen pixels. */
@@ -173,8 +174,9 @@ const build = (
     atlasRequests,
     atlasPending,
     atlasStats,
+    pendingKeys: pageGpuAtlasPendingKeys,
     wireStats,
-    loom: () => ({ workers: loomWorkers(), view: wireRouteView() ?? null, ...loomStats() }),
+    ...(pulse === undefined ? {} : { pulse }),
     pick: (screen) => engine()?.pick(screen) ?? null,
     partsOf: (id) => mapParts(engine()?.partsOf?.(id) ?? []),
     setCull: (mode) => engine()?.setCull?.(mode),

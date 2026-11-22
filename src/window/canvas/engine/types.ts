@@ -86,3 +86,15 @@ export type AtlasStats = {
   /** Cumulative on-screen text/sprite quads drawn with no image across all frames. */
   readonly visibleBlankTotal: number;
 };
+
+/** Bounded diagnostic snapshot of one queued or in-flight atlas cell. */
+export type AtlasPendingEntry = {
+  readonly key: string;
+  readonly kind: "text" | "sprite";
+  readonly state: "queued" | "rasterizing";
+  readonly scale: number;
+  readonly width: number;
+  readonly height: number;
+  readonly sourceRef: string | null;
+  readonly attempts: number;
+};

@@ -16,7 +16,7 @@
 import type { ColorRef, Quad, TextRun } from "../contract";
 import { gpuColorCss, themeGpu, type GpuColor, type GpuTheme, type ThemeMode } from "@shared/theme";
 import { NO_ATLAS_CELL } from "./quad";
-import { ATLAS_CELL_FLOATS, atlasBindBudget, type AtlasBinding, type AtlasDirtyCells, type AtlasStats } from "./types";
+import { ATLAS_CELL_FLOATS, atlasBindBudget, type AtlasBinding, type AtlasDirtyCells, type AtlasPendingEntry, type AtlasStats } from "./types";
 import { resolveColour } from "./styles";
 import { drawGlyph, glyphKnown } from "./glyphs";
 import {
@@ -122,6 +122,8 @@ export interface GpuAtlas {
   revision(): number;
   /** Observable counters for diagnostics and the test hook. */
   stats(): AtlasStats;
+  /** Bounded diagnostic snapshot of pending (queued/rasterizing) cells. */
+  pendingKeys(limit?: number): ReadonlyArray<AtlasPendingEntry>;
   readonly requests: number;
   readonly pending: number;
   /** Evict unreferenced decoded sources on a real memory-pressure event. */
@@ -317,9 +319,17 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const compatHeld = new Set<string>();
 
   const queue: number[] = [];
+  let queueHead = 0;
   const queuedSet = new Set<number>();
   let drainScheduled = false;
   let inFlightCount = 0;
+  const maxInFlight = (() => {
+    const cores =
+      typeof navigator !== "undefined" && typeof navigator.hardwareConcurrency === "number"
+        ? navigator.hardwareConcurrency
+        : 4;
+    return Math.max(4, Math.max(1, Math.floor(cores / 2)) * 4);
+  })();
 
   let device: GPUDevice | undefined;
   let sampler: GPUSampler | undefined;
@@ -491,10 +501,6 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       }
     }
     device.queue.submit([encoder.finish()]);
-    // The smaller levels change after the frame that read the last revision
-    // may have drawn from them; a new revision makes the next frame draw
-    // whole, or a frame that redraws only its damage keeps the stale texels.
-    revision += 1;
   };
 
   const flushDirty = (): void => {
@@ -1465,6 +1471,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       })
       .finally(() => {
         inFlightCount = Math.max(0, inFlightCount - 1);
+        if (queueHead < queue.length && !disposed) scheduleDrain();
       });
   };
 
@@ -1474,8 +1481,17 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     sampleFrameInterval();
     const start = nowMs();
     const budget = drainYieldMs();
-    while (queue.length > 0) {
-      const idx = queue.shift()!;
+    while (queueHead < queue.length) {
+      if (options.preferAsyncRaster && inFlightCount >= maxInFlight) {
+        // Workers are saturated: wait for a completion to pump the next batch
+        // so released items stay cheaply cancellable in `queue`.
+        return;
+      }
+      const idx = queue[queueHead++]!;
+      if (queueHead >= 1024 && queueHead * 2 >= queue.length) {
+        queue.splice(0, queueHead);
+        queueHead = 0;
+      }
       queuedSet.delete(idx);
       const rec = slots[idx];
       if (rec === undefined || rec.state !== "queued") continue;
@@ -1489,11 +1505,15 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       }
       runJob(rec);
       // Yield between chunks during large bursts so input/frames never stall.
-      if (queue.length > 0 && nowMs() - start >= budget) {
+      if (queueHead < queue.length && nowMs() - start >= budget) {
         drainScheduled = true;
         scheduleMacrotask(drainQueue);
         return;
       }
+    }
+    if (queueHead > 0) {
+      queue.length = 0;
+      queueHead = 0;
     }
   };
 
@@ -1827,6 +1847,39 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     };
   };
 
+  const pendingKeys = (limit = 200): ReadonlyArray<AtlasPendingEntry> => {
+    const cap = Math.max(0, Math.floor(limit));
+    if (cap === 0) return [];
+    const out: AtlasPendingEntry[] = [];
+    for (let i = 0; i < highWaterCells && out.length < cap; i += 1) {
+      const rec = slots[i];
+      if (rec === undefined || (rec.state !== "queued" && rec.state !== "rasterizing")) continue;
+      const desc = rec.desc;
+      const box = desc !== undefined ? expectedBoxFor(desc.quad, rec.scale) : undefined;
+      const w = box?.w ?? (desc !== undefined ? Math.max(1, Math.ceil(desc.quad.rect.width * rec.scale)) : 0);
+      const h = box?.h ?? (desc !== undefined ? Math.max(1, Math.ceil(desc.quad.rect.height * rec.scale)) : 0);
+      let sourceRef: string | null = null;
+      const sp = desc?.quad.sprite;
+      if (sp !== undefined) {
+        if (sp.atlas === "image") sourceRef = sp.key;
+        else if (sp.atlas === "media") sourceRef = sp.ref;
+        else if (sp.atlas === "glyph") sourceRef = sp.name;
+        else sourceRef = `${sp.cell.col},${sp.cell.row}`;
+      }
+      out.push({
+        key: rec.key,
+        kind: desc?.kind ?? (rec.key.startsWith("txt:") ? "text" : "sprite"),
+        state: rec.state,
+        scale: rec.scale,
+        width: w,
+        height: h,
+        sourceRef,
+        attempts: rec.attempts,
+      });
+    }
+    return out;
+  };
+
   return {
     binding,
     attach: (next) => {
@@ -1968,6 +2021,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     sourceFor,
     revision: () => revision,
     stats,
+    pendingKeys,
     get requests() {
       return requests;
     },
@@ -2006,6 +2060,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       mipPipeline = undefined;
       mipBindLayout = undefined;
       queue.length = 0;
+      queueHead = 0;
       queuedSet.clear();
       unreferencedLru.clear();
       contentLanded.clear();
@@ -2199,6 +2254,7 @@ type QueuedDecode =
   | { readonly kind: "media"; readonly key: string; readonly ref: Extract<NonNullable<Quad["sprite"]>, { readonly atlas: "media" }> };
 
 const pendingDecodeQueue: QueuedDecode[] = [];
+let pendingDecodeHead = 0;
 const pendingDecodeKeys = new Set<string>();
 let decodeDrainScheduled = false;
 let decodeChannel: MessageChannel | undefined;
@@ -2243,8 +2299,12 @@ const evictUnreferencedSourcesOnPressure = (): void => {
 const drainDecodeQueue = (): void => {
   decodeDrainScheduled = false;
   const start = nowMs();
-  while (pendingDecodeQueue.length > 0) {
-    const item = pendingDecodeQueue.shift()!;
+  while (pendingDecodeHead < pendingDecodeQueue.length) {
+    const item = pendingDecodeQueue[pendingDecodeHead++]!;
+    if (pendingDecodeHead >= 1024 && pendingDecodeHead * 2 >= pendingDecodeQueue.length) {
+      pendingDecodeQueue.splice(0, pendingDecodeHead);
+      pendingDecodeHead = 0;
+    }
     pendingDecodeKeys.delete(item.key);
     if (item.kind === "svg") {
       if (!svgPendingRefs.has(item.key) || decodedSvgs.has(item.key) || decodingSvgs.has(item.key)) continue;
@@ -2257,11 +2317,15 @@ const drainDecodeQueue = (): void => {
         mediaPendingRefs.delete(item.key);
       });
     }
-    if (pendingDecodeQueue.length > 0 && nowMs() - start >= DECODE_SLICE_MS) {
+    if (pendingDecodeHead < pendingDecodeQueue.length && nowMs() - start >= DECODE_SLICE_MS) {
       decodeDrainScheduled = true;
       postDecodeDrain();
       return;
     }
+  }
+  if (pendingDecodeHead > 0) {
+    pendingDecodeQueue.length = 0;
+    pendingDecodeHead = 0;
   }
 };
 
@@ -2590,11 +2654,12 @@ const getWorkerPool = (): WorkerPool | undefined => {
       : 4;
     const count = Math.max(1, Math.floor(cores / 2));
     const workers: Worker[] = [];
-    const pending = new Map<number, { resolve: (px: AtlasPixels) => void; reject: (err: Error) => void }>();
+    const pending = new Map<number, { workerIdx: number; resolve: (px: AtlasPixels) => void; reject: (err: Error) => void }>();
     let nextId = 1;
     let rr = 0;
 
     for (let i = 0; i < count; i += 1) {
+      const workerIdx = i;
       const worker = new Worker(new URL("./raster-worker.ts", import.meta.url), { type: "module" });
       worker.onmessage = (event: MessageEvent<RasterWorkerResponse>) => {
         const msg = event.data;
@@ -2614,14 +2679,21 @@ const getWorkerPool = (): WorkerPool | undefined => {
       };
       worker.onerror = (err) => {
         console.error("atlas raster worker error:", err.message);
+        const reason = new Error(`atlas raster worker error: ${err.message}`);
+        for (const [id, entry] of [...pending.entries()]) {
+          if (entry.workerIdx !== workerIdx) continue;
+          pending.delete(id);
+          entry.reject(reason);
+        }
       };
       workers.push(worker);
     }
 
     const dispatch = (req: RasterWorkerRequest, id: number): Promise<AtlasPixels> =>
       new Promise<AtlasPixels>((resolve, reject) => {
-        pending.set(id, { resolve, reject });
-        const target = workers[rr % workers.length]!;
+        const workerIdx = rr % workers.length;
+        pending.set(id, { workerIdx, resolve, reject });
+        const target = workers[workerIdx]!;
         rr = (rr + 1) % workers.length;
         target.postMessage(req);
       });

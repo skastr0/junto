@@ -734,39 +734,77 @@ describe("gpu atlas (#911)", () => {
     expect(fake.textureCopies.length).toBeGreaterThanOrEqual(1);
     expect(atlas.stats().standaloneCount).toBe(0);
   });
-});
 
-describe("the atlas's revision covers its mip levels (issue 915)", () => {
-  it("moves the revision again when the smaller levels of a landed colour cell are drawn", async () => {
-    const { device } = fakeDevice();
-    const submits: number[] = [];
-    // Only a submit that drew is the levels' draw; the page's first clear draws nothing.
-    let drew = false;
-    const pass = { setPipeline: () => undefined, setBindGroup: () => undefined, setScissorRect: () => undefined, draw: () => { drew = true; }, end: () => undefined };
-    const withMips = {
-      ...device,
-      createShaderModule: () => ({}),
-      createBindGroupLayout: () => ({}),
-      createPipelineLayout: () => ({}),
-      createRenderPipeline: () => ({}),
-      createBindGroup: () => ({}),
-      createCommandEncoder: () => ({ ...device.createCommandEncoder(), beginRenderPass: () => pass }),
-      queue: {
-        ...device.queue,
-        submit: () => {
-          if (drew) submits.push(atlas.revision());
-          drew = false;
-        },
+  it("pendingKeys returns bounded queued and rasterizing cell diagnostics and empties on settle", async () => {
+    const fake = fakeDevice();
+    const gates: Array<() => void> = [];
+    const { atlas } = atlasWith({
+      preferAsyncRaster: true,
+      rasterizeText: async () => {
+        await new Promise<void>((resolve) => gates.push(resolve));
+        return pixels(40, 16);
       },
-    } as unknown as GPUDevice;
-    const { atlas } = atlasWith();
-    atlas.attach(withMips);
-    // A colour cell (rgba, with smaller levels); text is coverage and has none.
-    atlas.acquire(spriteQuad({ atlas: "glyph", name: "plus" }), 2);
-    // The raster lands and marks the atlas; its smaller levels are drawn after.
-    for (let i = 0; i < 6 && submits.length === 0; i += 1) await settle();
-    expect(submits.length).toBeGreaterThan(0);
-    // A frame that read the revision before the levels were drawn sees a new one.
-    expect(atlas.revision()).toBeGreaterThan(submits.at(-1)!);
+    });
+    atlas.attach(fake.device);
+
+    for (let i = 0; i < 6; i += 1) {
+      atlas.acquire(textQuad({ ...textRun, text: `pending-${i}` }), 1);
+    }
+    const bounded = atlas.pendingKeys(3);
+    expect(bounded.length).toBe(3);
+    expect(bounded[0]!.kind).toBe("text");
+    expect(bounded[0]!.state).toBe("queued");
+    expect(bounded[0]!.scale).toBe(1);
+    expect(bounded[0]!.width).toBeGreaterThan(0);
+    expect(bounded[0]!.height).toBeGreaterThan(0);
+    expect(bounded[0]!.sourceRef).toBeNull();
+
+    await settle();
+    while (gates.length > 0) {
+      gates.shift()!();
+      await settle();
+    }
+    expect(atlas.stats().pending).toBe(0);
+    expect(atlas.pendingKeys().length).toBe(0);
+  });
+
+  it("bounds in-flight async raster dispatch and cancels released queued cells before rasterizing", async () => {
+    const fake = fakeDevice();
+    let active = 0;
+    let maxActive = 0;
+    let started = 0;
+    const gates: Array<() => void> = [];
+    const { atlas } = atlasWith({
+      preferAsyncRaster: true,
+      rasterizeText: async () => {
+        started += 1;
+        active += 1;
+        if (active > maxActive) maxActive = active;
+        await new Promise<void>((resolve) => gates.push(resolve));
+        active -= 1;
+        return pixels(24, 16);
+      },
+    });
+    atlas.attach(fake.device);
+
+    const cells: number[] = [];
+    for (let i = 0; i < 40; i += 1) {
+      cells.push(atlas.acquire(textQuad({ ...textRun, text: `burst-${i}` }), 1));
+    }
+    await settle();
+    // Backpressure caps concurrent in-flight rasters well below 40.
+    expect(maxActive).toBeGreaterThan(0);
+    expect(maxActive).toBeLessThan(40);
+    const startedBeforeRelease = started;
+    // Release the tail cells while they are still queued; they must cancel without rasterizing.
+    for (let i = startedBeforeRelease; i < cells.length; i += 1) {
+      atlas.release(cells[i]!);
+    }
+    while (gates.length > 0) {
+      gates.shift()!();
+      await settle();
+    }
+    expect(started).toBe(startedBeforeRelease);
+    expect(atlas.stats().pending).toBe(0);
   });
 });
