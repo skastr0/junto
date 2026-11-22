@@ -10,6 +10,8 @@ const seed: LoomSeed = {
   obstacles: [],
   routes: [],
   strands: [],
+  fingerprint: 0,
+  corridors: [],
 };
 
 const stored = (value: string) => ({ load: async () => ({ routerVersion: LOOM_ROUTER_VERSION, seedJson: value }), save: async () => true });
