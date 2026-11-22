@@ -469,6 +469,34 @@ describe("gpu atlas (#911)", () => {
     expect(atlas.binding.takeDirtyCells!()).toEqual({ all: false, slots: [] });
   });
 
+  it("uses async worker path for background queue and sync path for ensureNow when preferAsyncRaster is set", async () => {
+    let asyncCalls = 0;
+    let syncCalls = 0;
+    const { atlas } = atlasWith({
+      preferAsyncRaster: true,
+      rasterizeText: async () => {
+        asyncCalls += 1;
+        return pixels(20, 10);
+      },
+      rasterizeTextSync: () => {
+        syncCalls += 1;
+        return pixels(20, 10);
+      },
+    });
+    atlas.attach(fakeDevice().device);
+
+    const bg = atlas.acquire(textQuad({ ...textRun, text: "background" }), 2);
+    await settle();
+    await settle();
+    expect(atlas.hasImage(bg)).toBe(true);
+    expect(asyncCalls).toBe(1);
+    expect(syncCalls).toBe(0);
+
+    const urgent = atlas.acquire(textQuad({ ...textRun, text: "urgent" }), 2);
+    expect(atlas.ensureNow(urgent)).toBe(true);
+    expect(syncCalls).toBe(1);
+  });
+
   it("ignores quads with no text or sprite", () => {
     const { atlas } = atlasWith();
     expect(atlas.acquire(quad({}), 2)).toBe(NO_ATLAS_CELL);

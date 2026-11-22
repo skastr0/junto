@@ -28,6 +28,7 @@ import {
   type MeasureContext,
 } from "./text";
 import { MARK_CELL, paintMarkAtlasCanvas } from "../../lib/activity-atlas";
+import type { RasterWorkerRequest, RasterWorkerResponse } from "./raster-worker";
 
 /** Anything the GPU can copy into the atlas: an ImageBitmap or canvas. */
 export type AtlasPixels = ImageBitmap | HTMLCanvasElement | OffscreenCanvas;
@@ -59,6 +60,11 @@ export interface GpuAtlasOptions {
   readonly onFailure?: (reason: string) => void;
   /** Optional measured display frame interval (ms) for deriving queue drain yield slice. */
   readonly frameIntervalMs?: () => number;
+  /**
+   * When true, queued background rasters prefer async (worker-thread) rasterizers
+   * so the main thread stays free; `ensureNow()` still uses sync rasterizers.
+   */
+  readonly preferAsyncRaster?: boolean;
 }
 
 export interface GpuAtlas {
@@ -832,9 +838,13 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     rec.jobToken = token;
     rec.state = "rasterizing";
 
-    // Prefer sync raster for text/mark/glyph when available — zero ImageBitmap allocation.
-    if ((desc.kind === "text" && options.rasterizeTextSync !== undefined) ||
-        (desc.kind === "sprite" && options.rasterizeSpriteSync !== undefined)) {
+    // Use sync raster in background queue only when async workers are not preferred.
+    // `ensureNow()` always uses sync raster on the main thread as the last resort.
+    if (
+      !options.preferAsyncRaster &&
+      ((desc.kind === "text" && options.rasterizeTextSync !== undefined) ||
+        (desc.kind === "sprite" && options.rasterizeSpriteSync !== undefined))
+    ) {
       try {
         const syncPx = rasterizeSync(desc);
         if (syncPx !== undefined) {
@@ -1545,12 +1555,105 @@ export const rasterizeSprite: SpriteRasterize = async (quad, mode, scale) => {
   return createImageBitmap(canvas);
 };
 
+// --- OffscreenCanvas worker pool for off-main-thread rasterization -----------
+
+interface WorkerPool {
+  readonly rasterText: TextRasterize;
+  readonly rasterGlyph: (name: string, width: number, height: number, ink: GpuColor) => Promise<ImageBitmap>;
+}
+
+let workerPool: WorkerPool | null | undefined;
+
+const getWorkerPool = (): WorkerPool | undefined => {
+  if (workerPool !== undefined) return workerPool ?? undefined;
+  if (typeof Worker !== "function" || typeof OffscreenCanvas !== "function") {
+    workerPool = null;
+    return undefined;
+  }
+  try {
+    const cores = typeof navigator !== "undefined" && typeof navigator.hardwareConcurrency === "number"
+      ? navigator.hardwareConcurrency
+      : 4;
+    const count = Math.max(1, Math.floor(cores / 2));
+    const workers: Worker[] = [];
+    const pending = new Map<number, { resolve: (bm: ImageBitmap) => void; reject: (err: Error) => void }>();
+    let nextId = 1;
+    let rr = 0;
+
+    for (let i = 0; i < count; i += 1) {
+      const worker = new Worker(new URL("./raster-worker.ts", import.meta.url), { type: "module" });
+      worker.onmessage = (event: MessageEvent<RasterWorkerResponse>) => {
+        const msg = event.data;
+        const entry = pending.get(msg.id);
+        if (entry === undefined) {
+          if (msg.ok) msg.bitmap.close();
+          return;
+        }
+        pending.delete(msg.id);
+        if (msg.ok) entry.resolve(msg.bitmap);
+        else entry.reject(new Error(msg.error));
+      };
+      worker.onerror = (err) => {
+        // Reject nothing globally; individual jobs fall back if worker dies.
+        console.error("atlas raster worker error:", err.message);
+      };
+      workers.push(worker);
+    }
+
+    const dispatch = (req: RasterWorkerRequest, id: number): Promise<ImageBitmap> =>
+      new Promise<ImageBitmap>((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+        const target = workers[rr % workers.length]!;
+        rr = (rr + 1) % workers.length;
+        target.postMessage(req);
+      });
+
+    workerPool = {
+      rasterText: (run, scale, ink) => {
+        const id = nextId++;
+        return dispatch({ kind: "text", id, run, scale, ink }, id);
+      },
+      rasterGlyph: (name, width, height, ink) => {
+        const id = nextId++;
+        return dispatch({ kind: "glyph", id, name, width, height, ink }, id);
+      },
+    };
+    return workerPool;
+  } catch {
+    workerPool = null;
+    return undefined;
+  }
+};
+
 export const browserRasterizers = (): Pick<
   GpuAtlasOptions,
-  "rasterizeText" | "rasterizeTextSync" | "rasterizeSprite" | "rasterizeSpriteSync"
-> => ({
-  rasterizeText: rasterizeTextRun,
-  rasterizeTextSync: rasterizeTextRunSync,
-  rasterizeSprite,
-  rasterizeSpriteSync,
-});
+  "rasterizeText" | "rasterizeTextSync" | "rasterizeSprite" | "rasterizeSpriteSync" | "preferAsyncRaster"
+> => {
+  const pool = getWorkerPool();
+  if (pool === undefined) {
+    return {
+      rasterizeText: rasterizeTextRun,
+      rasterizeTextSync: rasterizeTextRunSync,
+      rasterizeSprite,
+      rasterizeSpriteSync,
+      preferAsyncRaster: false,
+    };
+  }
+  return {
+    rasterizeText: (run, scale, ink) =>
+      pool.rasterText(run, scale, ink).catch(() => rasterizeTextRun(run, scale, ink)),
+    rasterizeTextSync: rasterizeTextRunSync,
+    rasterizeSprite: (quad, mode, scale) => {
+      const ref = quad.sprite;
+      if (ref?.atlas === "glyph") {
+        const w = Math.max(1, Math.ceil(quad.rect.width * scale));
+        const h = Math.max(1, Math.ceil(quad.rect.height * scale));
+        const ink = resolveColour(quad.style.ink, themeFor(mode)) ?? { r: 1, g: 1, b: 1, a: 1 };
+        return pool.rasterGlyph(ref.name, w, h, ink).catch(() => rasterizeSprite(quad, mode, scale));
+      }
+      return rasterizeSprite(quad, mode, scale);
+    },
+    rasterizeSpriteSync,
+    preferAsyncRaster: true,
+  };
+};
