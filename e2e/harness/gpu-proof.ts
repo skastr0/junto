@@ -228,6 +228,7 @@ export interface ProofState {
     readonly tierWindowOctaves: number;
   } | null;
   readonly cull: string | null;
+  readonly cullFrames: { readonly gpu: number; readonly standalone: number } | null;
   readonly damage: { readonly lastPixels: number; readonly drawnPixelsTotal: number; readonly screenPixelsTotal: number } | null;
   readonly gpuPass: { readonly available: boolean; readonly samples: number; readonly lastMs?: number; readonly peakMs?: number } | null;
   readonly bufferFailures: ReadonlyArray<{ readonly buffer: string; readonly bytes: number; readonly limit?: number; readonly reason?: string }>;
@@ -248,6 +249,7 @@ export const readProofState = (page: Page): Promise<ProofState> =>
       frames: Number(stats?.["frames"] ?? 0),
       blank: (stats?.["blank"] ?? null) as ProofState["blank"],
       cull: typeof stats?.["cull"] === "string" ? String(stats["cull"]) : null,
+      cullFrames: (stats?.["cullFrames"] ?? null) as ProofState["cullFrames"],
       damage: (stats?.["damage"] ?? null) as ProofState["damage"],
       gpuPass: (stats?.["gpuPass"] ?? null) as ProofState["gpuPass"],
       bufferFailures: (stats?.["bufferFailures"] ?? []) as ProofState["bufferFailures"],

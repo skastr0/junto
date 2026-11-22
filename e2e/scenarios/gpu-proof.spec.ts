@@ -835,6 +835,38 @@ test.describe("#913 GPU canvas proof", () => {
           }
           freshPortraits.set(tier.name, okPortraits);
           tierCameras.set(tier.name, at.camera);
+          // The shipped arm is the picture above. Prove the GPU cull arm draws
+          // the same picture at this camera, and that it actually culled on
+          // the GPU (cullFrames.gpu moved), then restore the shipped arm.
+          const shippedCull = at.cull;
+          const shippedCullFrames = at.cullFrames;
+          let cullParity: number | null = null;
+          let gpuCullFrames = 0;
+          if (shippedCull !== null) {
+            const other = shippedCull === "gpu" ? "cpu" : "gpu";
+            const before = (await readProofState(page)).cullFrames;
+            await page.evaluate((mode) => {
+              const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+              hook?.["setCull"]?.(mode);
+            }, other);
+            await page.waitForTimeout(350);
+            const otherState = await settleAtlas(page);
+            const otherImage = PNG.sync.read(await page.screenshot({ path: join(dir, `${tier.name}-cull-${other}.png`) }));
+            cullParity = mismatch(image, otherImage);
+            const after = otherState.cullFrames;
+            gpuCullFrames = other === "gpu" ? Math.max(0, (after?.gpu ?? 0) - (before?.gpu ?? 0)) : 0;
+            await page.evaluate((mode) => {
+              const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+              hook?.["setCull"]?.(mode);
+            }, shippedCull);
+            await page.waitForTimeout(350);
+            await settleAtlas(page);
+          }
+          if (shippedCull === null) fail(`${String(scale)}x ${tier.name}: the canvas reports no cull mode`);
+          if (globalThis.process.env["JUNTO_GPU_PROOF_CULL_PARITY"] === "1" && cullParity !== null) {
+            if (cullParity > 0.05) fail(`${String(scale)}x ${tier.name}: cull arms differ by ${(cullParity * 100).toFixed(2)}% of pixels`);
+            if (shippedCull === "cpu" && gpuCullFrames === 0) fail(`${String(scale)}x ${tier.name}: the GPU cull arm drew no frames`);
+          }
           const blank = await readBlankProbe(page);
           const row = {
             tier: tier.name,
@@ -857,6 +889,9 @@ test.describe("#913 GPU canvas proof", () => {
             marginScreenPx: at.blank?.marginScreenPx ?? null,
             tierWindowOctaves: at.blank?.tierWindowOctaves ?? null,
             cull: at.cull,
+            shippedCullFrames: shippedCullFrames ?? null,
+            cullParity: cullParity === null ? null : round(cullParity, 4),
+            gpuCullFrames,
             gpuLastMs: at.gpuPass?.lastMs ?? null,
             gpuPeakMs: at.gpuPass?.peakMs ?? null,
             gpuSamples: at.gpuPass?.samples ?? null,
