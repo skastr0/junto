@@ -1220,7 +1220,8 @@ export const createScene = (options: {
       clusterHeld = -1;
       clusterDirty = false;
       clusterPlan = undefined;
-      badgeOfSeat = new Map();
+      // Every near and mid frame passes here: a new map only when one is held.
+      if (badgeOfSeat.size > 0) badgeOfSeat = new Map();
       badgeDirty.clear();
       return clusterVersion;
     }
@@ -1687,10 +1688,16 @@ export const createScene = (options: {
    */
   const RANGE_SLACK = 1 / 8;
   const RANGE_KEEP = 1.5;
-  let lastAhead = "";
+  // Compared field by field each frame (issue 915): a string built per
+  // frame was garbage the collector paid for during a gesture.
+  let lastAhead: ReadonlyArray<CanvasTier> = [];
+  const sameTiers = (a: ReadonlyArray<CanvasTier>, b: ReadonlyArray<CanvasTier>): boolean =>
+    a.length === b.length && a.every((tier, index) => tier === b[index]);
   let lastRangeRect: Rect = { x: 0, y: 0, width: -1, height: -1 };
   let lastTier: CanvasTier | undefined;
-  let lastExactEpoch = "";
+  let lastExactScale = Number.NaN;
+  let lastExactZoom = Number.NaN;
+  let lastExactTier: CanvasTier | undefined;
   let lastAtlasRevision = -1;
   let lastMotionLive: boolean | undefined;
   /** The badge version the last prepared frame drew. */
@@ -1891,17 +1898,21 @@ export const createScene = (options: {
   };
 
   /** The tiers a zoom within the measured window of this one would draw, other than `tier`. */
-  const tiersAhead = (zoom: number, tier: CanvasTier): CanvasTier[] => {
-    const out: CanvasTier[] = [];
+  const tiersAhead = (zoom: number, tier: CanvasTier): ReadonlyArray<CanvasTier> => {
     const window = tierWindowOctaves();
-    if (!(window > 0)) return out;
+    if (!(window > 0)) return NO_TIERS;
     const step = 2 ** window;
-    for (const probe of [zoom * step, zoom / step]) {
-      const next = tierForZoom(probe);
-      if (next !== tier && !out.includes(next)) out.push(next);
-    }
-    return out;
+    const up = tierForZoom(zoom * step);
+    const down = tierForZoom(zoom / step);
+    const first = up !== tier ? up : down !== tier ? down : undefined;
+    if (first === undefined) return NO_TIERS;
+    const second = first === up && down !== tier && down !== up ? down : undefined;
+    // The list in hand when nothing changed: a frame allocates none.
+    const held = lastAhead;
+    if (second === undefined ? held.length === 1 && held[0] === first : held.length === 2 && held[0] === first && held[1] === second) return held;
+    return second === undefined ? [first] : [first, second];
   };
+  const NO_TIERS: ReadonlyArray<CanvasTier> = [];
 
   /** Hand the scene a camera jump's destination ahead of the camera, or clear it. */
   const prefetch = (target: { readonly view: Rect; readonly zoom: number } | null): void => {
@@ -2327,12 +2338,12 @@ export const createScene = (options: {
       motionOn !== lastMotionLive ||
       clusters !== lastClusters ||
       range !== lastRange ||
-      aheadTiers.join() !== lastAhead;
+      !sameTiers(aheadTiers, lastAhead);
     // A raster scale is right for one camera bucket, one tier and one zoom
     // (the scale rules read the zoom). Inside a gesture the cell in hand is
     // kept (section 8 rule 2); at rest every live record is made exact.
-    const exactEpoch = `${String(atlasScaleNow())}|${String(zoom)}|${tier}`;
-    const settle = exact && exactEpoch !== lastExactEpoch;
+    const exactScale = atlasScaleNow();
+    const settle = exact && (exactScale !== lastExactScale || zoom !== lastExactZoom || tier !== lastExactTier);
     // The older lookup answers a landed raster only when asked again; under
     // references a landing never touches a record.
     const revision = atlasRevisionNow();
@@ -2344,7 +2355,7 @@ export const createScene = (options: {
       lastTier = tier;
       lastMotionLive = motionOn;
       lastClusters = clusters;
-      lastAhead = aheadTiers.join();
+      lastAhead = aheadTiers;
       orderReady = true;
     }
     let spliced = false;
@@ -2359,7 +2370,9 @@ export const createScene = (options: {
     }
     if ((settle && !rebuilt) || reask) settleLive(exact, reask);
     if (exact) {
-      lastExactEpoch = exactEpoch;
+      lastExactScale = exactScale;
+      lastExactZoom = zoom;
+      lastExactTier = tier;
       lastAtlasRevision = revision;
     }
     checkBlank(view, frameAt);
