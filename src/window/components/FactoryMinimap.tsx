@@ -266,6 +266,16 @@ const colourReader = (probe: HTMLElement): ((css: string) => string) => {
   };
 };
 
+/**
+ * What the map last drew, held by reference (no copy: the arrays go to the
+ * worker), so the test hook can pack it again for the SVG parity check.
+ */
+let lastDrawn: { readonly rects: ReadonlyArray<MinimapNodeRect>; readonly colour: (css: string) => string; readonly paint: MapPaint } | undefined;
+
+/** The map and placement the minimap last drew, packed afresh: the gate's parity check. */
+export const drawnMinimap = (): { readonly map: PackedMap; readonly paint: MapPaint } | undefined =>
+  lastDrawn === undefined ? undefined : { map: packMap(lastDrawn.rects, lastDrawn.colour), paint: lastDrawn.paint };
+
 /** The rectangles as the drawing takes them: flat arrays, each colour resolved once. */
 const packMap = (rects: ReadonlyArray<MinimapNodeRect>, colour: (css: string) => string): PackedMap => {
   const count = rects.length;
@@ -391,6 +401,7 @@ export function FactoryMinimap({
       strokeWidth: strokeRef.current.width,
       radius: strokeRef.current.radius,
     };
+    lastDrawn = { rects, colour, paint };
     if (worker !== undefined) {
       worker.postMessage({ kind: "paint", paint, pixelWidth, pixelHeight } satisfies MinimapWorkerMessage);
       return;
@@ -432,6 +443,7 @@ export function FactoryMinimap({
       workerRef.current = undefined;
       packedRef.current = undefined;
       canvasRef.current = null;
+      lastDrawn = undefined;
       canvas.remove();
     };
   }, []);

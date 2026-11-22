@@ -10,6 +10,8 @@ import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
 import type { SeamEngine } from "../engine/engine";
 import type { AtlasPendingEntry, AtlasStats } from "../engine/types";
 import type { GpuErrors } from "../engine/device";
+import { drawnMinimap } from "../../components/FactoryMinimap";
+import type { MapPaint, PackedMap } from "../../components/minimap-draw";
 import { pageGpuAtlasPendingKeys, pageGpuAtlasStats } from "./gpu-atlas-page";
 import { pageDeviceKeeper } from "./gpu-device";
 import { engineStats } from "./gpu-canvas-api";
@@ -47,6 +49,8 @@ type FullHook = CanvasTestHook & {
   readonly setCull: (mode: "cpu" | "gpu") => void;
   /** GPU errors no error scope caught (a failed frame presents nothing): a gate requires a count of 0. */
   readonly gpuErrors: () => GpuErrors;
+  /** The map and placement the minimap last drew, for the SVG parity check (issue 912). */
+  readonly minimapDrawn: () => { readonly map: PackedMap; readonly paint: MapPaint } | undefined;
 };
 
 const inset = (rect: Rect, dx: number, dy: number): Rect => ({
@@ -180,6 +184,7 @@ const build = (
     atlasStats,
     pendingKeys: pageGpuAtlasPendingKeys,
     gpuErrors: () => pageDeviceKeeper().errors(),
+    minimapDrawn: drawnMinimap,
     wireStats,
     ...(pulse === undefined ? {} : { pulse }),
     pick: (screen) => engine()?.pick(screen) ?? null,
