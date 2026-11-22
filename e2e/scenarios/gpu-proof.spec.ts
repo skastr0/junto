@@ -478,6 +478,31 @@ const addressSeat = async (page: Page, id: string, pane: ScreenRect): Promise<Se
   const after = (await readProofState(page)).camera;
   const moved = after.zoom > before.zoom * 1.01 || Math.abs(after.x - before.x) > 4 || Math.abs(after.y - before.y) > 4;
   if (target.hit === "own" || !moved) {
+    // The press can gather the seat and draw its badge after the probe: if a
+    // drawn badge now names it, the badge is the way in.
+    const late = (await drawnClusters(page)).find((cluster) => cluster.drawn && cluster.memberIds.includes(id));
+    if (late !== undefined) {
+      const ring = [
+        { x: late.x, y: late.y },
+        ...Array.from({ length: 12 }, (_, index) => {
+          const angle = (index / 12) * Math.PI * 2;
+          return { x: late.x + Math.cos(angle) * late.radius, y: late.y + Math.sin(angle) * late.radius };
+        }),
+      ].filter((point) => insidePane(point, pane));
+      const lateHit = (await hypothesize(page, ring, pane, id)).find((hit) => hit.hit === "cluster");
+      if (lateHit !== undefined) {
+        await clickPoint(page, lateHit.point);
+        await page.waitForTimeout(420);
+        const landed = await page.evaluate((seat) => {
+          const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+          return hook?.["rectOf"]?.(seat) as ScreenRect | undefined;
+        }, id);
+        if (landed !== undefined) {
+          await clickPoint(page, { x: landed.x + landed.width / 2, y: landed.y + landed.height / 2 });
+          if (await selectionHas(page, id)) return { id, result: "cluster" };
+        }
+      }
+    }
     const diagnosis = await page.evaluate(
       (input: { id: string; point: { x: number; y: number } }) => {
         const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
