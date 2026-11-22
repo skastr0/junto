@@ -333,6 +333,8 @@ export const createScene = (options: {
   readonly hasImage?: (cell: number) => boolean;
   /** Rasterize the cell now, before the frame is submitted: the last resort for an in-view quad with no image. */
   readonly ensureNow?: (cell: number) => void;
+  /** The frame clock in ms, for the measured margin (camera speed, raster latency). */
+  readonly now?: () => number;
   /** Device pixels per board unit, at the camera right now. */
   readonly scale?: () => number;
   /** The camera zoom, for the multiplier a quad's scale rule adds. */
@@ -527,8 +529,13 @@ export const createScene = (options: {
     // Under the older lookup no cell means pending; under references it means
     // nothing to draw. Either way the per-frame check looks at it again.
     const pending = next === NO_ATLAS_CELL ? options.acquire === undefined : !hasImage(next);
-    if (pending) blankCandidates.set(slot, ref);
-    else blankCandidates.delete(slot);
+    if (pending) {
+      blankCandidates.set(slot, ref);
+      if (next !== NO_ATLAS_CELL && (next !== previous || !waitingSince.has(slot))) waitingSince.set(slot, nowMs());
+    } else {
+      blankCandidates.delete(slot);
+      waitingSince.delete(slot);
+    }
   };
 
   /** Let go of whatever the record holds. */
@@ -540,6 +547,7 @@ export const createScene = (options: {
     quads.u32[at] = NO_ATLAS_CELL;
     dirtyQuads.add(slot);
     blankCandidates.delete(slot);
+    waitingSince.delete(slot);
   };
 
   const ensureOwnerCapacity = (needed: number): void => {
@@ -687,7 +695,7 @@ export const createScene = (options: {
 
   /** What `prepare` last drew with: the tier mask, the next tier's, a jump's, and the motion gate. */
   let liveMask = 0;
-  /** Tiers the zoom is within half an octave of, in or out: their cells are taken ahead. */
+  /** Tiers the zoom could reach before a raster lands, in or out: their cells are taken ahead. */
   let aheadTiers: ReadonlyArray<CanvasTier> = [];
   let jumpMask = 0;
   let jumpTier: CanvasTier | undefined;
@@ -1247,6 +1255,7 @@ export const createScene = (options: {
     master.length = 0;
     rankDirty = true;
     blankCandidates.clear();
+    waitingSince.clear();
     for (const slot of clusterSlots.values()) releaseCluster(slot);
     clusterSlots.clear();
     badgeByOwner.clear();
@@ -1498,6 +1507,7 @@ export const createScene = (options: {
   let liveCards: CardSlot[] = [];
   let liveBadges: ClusterSlot[] = [];
   let lastRange = "";
+  let lastAhead = "";
   let lastRangeRect: Rect = { x: 0, y: 0, width: -1, height: -1 };
   let lastTier: CanvasTier | undefined;
   let lastExactEpoch = "";
@@ -1514,12 +1524,52 @@ export const createScene = (options: {
   /** Cells rasterized in the frame because an in-view quad had no image. */
   let ensuredNow = 0;
 
-  /**
-   * The margin around the view a card is built and holds its cells in, in
-   * screen pixels: what a fast pan or fling reveals before the next rebuild,
-   * whatever the zoom.
-   */
-  const MARGIN_SCREEN_PX = 320;
+  // --- the margin and the tier window, measured -------------------------------
+  //
+  // The margin is what the fastest pan seen so far reveals before a raster
+  // lands: peak screen speed times peak raster latency, both measured here
+  // on the real path. The tier window is the same in zoom terms: peak zoom
+  // rate (octaves per ms) times peak latency. Neither is a chosen number;
+  // before anything has moved or landed both are zero, and the frame's own
+  // blank check (ensureNow) covers the first reveal.
+
+  let peakScreenSpeed = 0;
+  let peakZoomRate = 0;
+  let peakLatency = 0;
+  let lastMotion: { readonly cx: number; readonly cy: number; readonly zoom: number; readonly at: number; readonly width: number; readonly height: number } | undefined;
+  /** When each record without an image took its cell, so a landing is a latency sample. */
+  const waitingSince = new Map<number, number>();
+
+  const nowMs = (): number => options.now?.() ?? (typeof performance === "undefined" ? Date.now() : performance.now());
+
+  /** Fold this frame's camera motion into the peaks. */
+  const observeCamera = (view: Rect, zoom: number, at: number): void => {
+    const cx = view.x + view.width / 2;
+    const cy = view.y + view.height / 2;
+    const was = lastMotion;
+    lastMotion = { cx, cy, zoom, at, width: view.width, height: view.height };
+    if (was === undefined) return;
+    const dt = at - was.at;
+    if (!(dt > 0)) return;
+    const dx = Math.abs(cx - was.cx);
+    const dy = Math.abs(cy - was.cy);
+    // More than a whole view in one frame is a cut, not a pan: no margin
+    // could have held it, and the jump prefetch is what serves it.
+    if (dx > Math.max(view.width, was.width) || dy > Math.max(view.height, was.height)) return;
+    const speed = (Math.hypot(dx, dy) * zoom) / dt;
+    if (speed > peakScreenSpeed) peakScreenSpeed = speed;
+    if (zoom > 0 && was.zoom > 0) {
+      // The same cut in zoom terms: the view more than doubling (or halving)
+      // in one frame reveals more than a whole view.
+      const octaves = Math.abs(Math.log2(zoom / was.zoom));
+      if (octaves <= 1 && octaves / dt > peakZoomRate) peakZoomRate = octaves / dt;
+    }
+  };
+
+  /** Screen pixels around the view a card is built and holds cells in. */
+  const marginScreenPx = (): number => peakScreenSpeed * peakLatency;
+  /** Octaves either side of the zoom whose tiers take cells ahead. */
+  const tierWindowOctaves = (): number => peakZoomRate * peakLatency;
 
   const ensureRanks = (): void => {
     if (!rankDirty) return;
@@ -1556,10 +1606,13 @@ export const createScene = (options: {
     };
   };
 
-  /** The tiers a zoom within half an octave of this one would draw, other than `tier`. */
+  /** The tiers a zoom within the measured window of this one would draw, other than `tier`. */
   const tiersAhead = (zoom: number, tier: CanvasTier): CanvasTier[] => {
     const out: CanvasTier[] = [];
-    for (const probe of [zoom * Math.SQRT2, zoom / Math.SQRT2]) {
+    const window = tierWindowOctaves();
+    if (!(window > 0)) return out;
+    const step = 2 ** window;
+    for (const probe of [zoom * step, zoom / step]) {
       const next = tierForZoom(probe);
       if (next !== tier && !out.includes(next)) out.push(next);
     }
@@ -1604,7 +1657,7 @@ export const createScene = (options: {
   const rebuild = (view: Rect, tier: CanvasTier, zoom: number, exact: boolean): void => {
     liveEpoch += 1;
     ensureRanks();
-    const margin = MARGIN_SCREEN_PX / zoom;
+    const margin = marginScreenPx() / zoom;
     const range = cellRange(insetBy(view, margin));
     lastRange = range.key;
     lastRangeRect = range.rect;
@@ -1622,7 +1675,7 @@ export const createScene = (options: {
     const jumpCards: CardSlot[] = [];
     if (jump !== undefined) {
       const found: number[] = [];
-      grid.query(insetBy(jump.view, MARGIN_SCREEN_PX / jump.zoom), found);
+      grid.query(insetBy(jump.view, marginScreenPx() / jump.zoom), found);
       for (const slot of found) {
         const card = slots[slot];
         if (card === undefined) continue;
@@ -1726,16 +1779,25 @@ export const createScene = (options: {
    * had no image when last looked at are checked, so a steady frame costs a
    * walk over an empty set.
    */
-  const checkBlank = (view: Rect): void => {
+  /** A record's cell got its image: the wait is a raster latency sample. */
+  const landed = (slot: number, at: number): void => {
+    blankCandidates.delete(slot);
+    const since = waitingSince.get(slot);
+    waitingSince.delete(slot);
+    if (since !== undefined && at - since > peakLatency) peakLatency = at - since;
+  };
+
+  const checkBlank = (view: Rect, at: number): void => {
     let blank = 0;
     for (const [slot, ref] of blankCandidates) {
       const cell = cellOf(slot);
       if (cell === NO_ATLAS_CELL && options.acquire !== undefined) {
         blankCandidates.delete(slot);
+        waitingSince.delete(slot);
         continue;
       }
       if (cell !== NO_ATLAS_CELL && hasImage(cell)) {
-        blankCandidates.delete(slot);
+        landed(slot, at);
         continue;
       }
       if (!drawnInView(slot, ref, view)) continue;
@@ -1747,7 +1809,9 @@ export const createScene = (options: {
         options.ensureNow(cell);
         ensuredNow += 1;
         if (hasImage(cell)) {
+          // Rasterized in the frame: not a latency the margin should carry.
           blankCandidates.delete(slot);
+          waitingSince.delete(slot);
           continue;
         }
       }
@@ -1791,6 +1855,8 @@ export const createScene = (options: {
     const clusters = refreshClusters(view, tier);
     liveMask = TIER_BIT[tier];
     liveMotion = motionOn;
+    const frameAt = nowMs();
+    observeCamera(view, zoom, frameAt);
     aheadTiers = tiersAhead(zoom, tier);
     if (jump !== undefined) {
       jumpTier = tierForZoom(jump.zoom);
@@ -1800,7 +1866,7 @@ export const createScene = (options: {
       jumpTier = undefined;
       jumpMask = 0;
     }
-    const range = cellRange(insetBy(view, MARGIN_SCREEN_PX / zoom)).key;
+    const range = cellRange(insetBy(view, marginScreenPx() / zoom)).key;
     const rebuilt =
       !orderReady ||
       orderDirty ||
@@ -1808,7 +1874,8 @@ export const createScene = (options: {
       tier !== lastTier ||
       motionOn !== lastMotionLive ||
       clusters !== lastClusters ||
-      range !== lastRange;
+      range !== lastRange ||
+      aheadTiers.join() !== lastAhead;
     // A raster scale is right for one camera bucket, one tier and one zoom
     // (the scale rules read the zoom). Inside a gesture the cell in hand is
     // kept (section 8 rule 2); at rest every live record is made exact.
@@ -1825,6 +1892,7 @@ export const createScene = (options: {
       lastTier = tier;
       lastMotionLive = motionOn;
       lastClusters = clusters;
+      lastAhead = aheadTiers.join();
       orderReady = true;
     }
     if ((settle && !rebuilt) || reask) settleLive(exact, reask);
@@ -1832,7 +1900,7 @@ export const createScene = (options: {
       lastExactEpoch = exactEpoch;
       lastAtlasRevision = revision;
     }
-    checkBlank(view);
+    checkBlank(view, frameAt);
 
     let changed = false;
     if (rebuilt) {
@@ -1907,7 +1975,23 @@ export const createScene = (options: {
     prepare,
     prefetch,
     /** In-view quads with no image on the last presented frame, and cells rasterized in the frame to prevent one. */
-    blankStats: (): { readonly visibleBlank: number; readonly ensuredNow: number } => ({ visibleBlank, ensuredNow }),
+    blankStats: (): {
+      readonly visibleBlank: number;
+      readonly ensuredNow: number;
+      readonly marginScreenPx: number;
+      readonly tierWindowOctaves: number;
+      readonly peakScreenSpeed: number;
+      readonly peakZoomRate: number;
+      readonly peakLatencyMs: number;
+    } => ({
+      visibleBlank,
+      ensuredNow,
+      marginScreenPx: marginScreenPx(),
+      tierWindowOctaves: tierWindowOctaves(),
+      peakScreenSpeed,
+      peakZoomRate,
+      peakLatencyMs: peakLatency,
+    }),
     hasMotion,
     index,
     takeQuadDirty,

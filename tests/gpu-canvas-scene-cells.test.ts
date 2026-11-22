@@ -80,7 +80,7 @@ const FAR_AWAY = { ...VIEW, x: 60_000 };
 const sceneOf = (
   quads: (id: string) => ReadonlyArray<Quad>,
   cards: ReadonlyArray<CardFact>,
-  options: { zoom?: () => number; settled?: () => boolean } = {},
+  options: { zoom?: () => number; settled?: () => boolean; now?: () => number } = {},
 ) => {
   const atlas = fakeAtlas();
   const painted: string[] = [];
@@ -132,16 +132,50 @@ describe("cells a record holds", () => {
     expect(scene.orderCount).toBe(1);
   });
 
-  it("are taken ahead for the tier half an octave away, and not drawn there", () => {
-    // 0.7 is near, and 0.7 / sqrt(2) is mid: the mid run is taken ahead.
+  it("are taken ahead for a tier the measured zoom rate could reach before a raster lands", () => {
+    let zoom = 0.72;
+    let now = 0;
     const { scene, atlas } = sceneOf(
       (id) => [text(`${id}.near`, TIER_BIT.near), text(`${id}.mid`, TIER_BIT.mid)],
       [factAt("a", 0)],
-      { zoom: () => 0.7 },
+      { zoom: () => zoom, now: () => now },
     );
+    // Nothing has moved or landed yet: no window, only the drawn tier holds.
     scene.prepare(VIEW, "near");
+    expect(atlas.held()).toBe(1);
+    expect(scene.blankStats().tierWindowOctaves).toBe(0);
+    // The near run's raster lands 100 ms later: that is the latency.
+    now = 100;
+    atlas.land();
+    scene.prepare(VIEW, "near");
+    expect(scene.blankStats().peakLatencyMs).toBe(100);
+    // A pinch: log2(0.72 / 0.7) octaves in one 16 ms frame. Over 100 ms that
+    // is about a quarter octave, and 0.7 / 2^0.25 is mid: the mid run is
+    // taken ahead, and still not drawn.
+    now = 116;
+    zoom = 0.7;
+    scene.prepare(VIEW, "near");
+    const window = scene.blankStats().tierWindowOctaves;
+    expect(window).toBeCloseTo((Math.log2(0.72 / 0.7) / 16) * 100, 9);
     expect(atlas.held()).toBe(2);
     expect(scene.orderCount).toBe(1);
+  });
+
+  it("hold a margin the fastest pan reveals before a raster lands", () => {
+    let now = 0;
+    const { scene, atlas } = sceneOf((id) => [text(id, 15)], [factAt("a", 0)], { now: () => now });
+    scene.prepare(VIEW, "near");
+    now = 50;
+    atlas.land();
+    scene.prepare(VIEW, "near");
+    // A 40 px pan in a 16 ms frame at zoom 1: 2.5 px/ms, times 50 ms.
+    now = 66;
+    scene.prepare({ ...VIEW, x: VIEW.x + 40 }, "near");
+    expect(scene.blankStats().marginScreenPx).toBeCloseTo(125, 9);
+    // A cut of more than a whole view is not a pan: the margin stands.
+    now = 82;
+    scene.prepare({ ...VIEW, x: VIEW.x + 40_000 }, "near");
+    expect(scene.blankStats().marginScreenPx).toBeCloseTo(125, 9);
   });
 
   it("are taken for a camera jump's destination before the camera lands, and let go once cleared", () => {
@@ -217,7 +251,7 @@ describe("an in-view quad with no image", () => {
   });
 
   it("is caught when it pans from the margin into the view between rebuilds", () => {
-    // The card sits just right of the view, inside the margin: built and held, not in view.
+    // The card sits just right of the view, inside the grid cells around it: built and held, not in view.
     const { scene, atlas } = sceneOf((id) => [text(id, 15)], [factAt("a", 720)]);
     scene.prepare(VIEW, "near");
     expect(atlas.held()).toBe(1);

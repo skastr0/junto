@@ -250,6 +250,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     // Section 8 rule 2: nothing re-rasterizes mid-gesture; every visible run
     // is exact once the camera rests.
     settled: () => settled,
+    // The frame clock, for the margin measured from camera speed and raster latency.
+    now: () => clock(),
     // The atlas keys a raster by device pixels per board unit, and a quad's
     // scale rule multiplies it (a far ring is drawn larger than the camera).
     scale: () => size.pixelRatio * camera.zoom,
