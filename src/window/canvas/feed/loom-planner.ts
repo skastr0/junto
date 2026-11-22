@@ -28,6 +28,7 @@ import { renderedNodeSize } from "@shared/node-geometry";
 import type { WireDirection } from "@shared/wire-route";
 import { routeWire } from "@shared/wire-route";
 import type { Point, Rect, WireId, WireRouteFact } from "../contract";
+import { createObstacleIndex, type ObstacleIndex } from "@shared/wire-obstacles";
 import { routesForTick, routesOwedWithCause, type LoomLane, type LoomRoute } from "../../lib/loom-view";
 import { planLoom, stitchStrand, type LoomEdgeInput, type LoomStrand } from "../../lib/wire-loom";
 import {
@@ -69,6 +70,22 @@ export type LoomUpdate = {
   readonly remove: ReadonlyArray<WireId>;
 };
 
+/** What a planner has done since it was made, for the boot measurement (issue 912). */
+export type LoomPlannerStats = {
+  /** Plans begun: one per board that changed what is routed. */
+  readonly begins: number;
+  /** Time inside `begin`: cables, lanes, obstacles and what is owed. */
+  readonly beginMs: number;
+  /** Wires routed, counting a wire each time it is routed. */
+  readonly routed: number;
+  /** Of those, routes of a wire this planner had routed before. */
+  readonly rerouted: number;
+  /** Time inside `step`, routing. */
+  readonly routeMs: number;
+  /** Obstacle grids built: one per plan begun, none per wire. */
+  readonly indexes: number;
+};
+
 export type LoomPlanner = {
   /** Plan the settled board whole; returns the facts that changed since the last call. */
   readonly plan: (cards: ReadonlyArray<LoomCard>, wires: ReadonlyArray<LoomWireRow>) => LoomUpdate;
@@ -89,6 +106,7 @@ export type LoomPlanner = {
   readonly owed: () => number;
   /** Forget everything: the next plan is a first plan and returns every fact. */
   readonly reset: () => void;
+  readonly stats: () => LoomPlannerStats;
 };
 
 /**
@@ -190,6 +208,11 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
   let inputsNow = new Map<string, LoomEdgeInput>();
   let rectsNow = new Map<string, LoomNode>();
   let obstaclesNow: ReturnType<typeof collectObstacles> = [];
+  // The obstacles in a grid, built once per plan: each wire reads only the
+  // cards near its corridor (issue 912). Built on the first step that needs it.
+  let indexNow: ObstacleIndex<ReturnType<typeof collectObstacles>[number]> | undefined;
+  const counts = { begins: 0, beginMs: 0, routed: 0, rerouted: 0, routeMs: 0, indexes: 0 };
+  const routedOnce = new Set<string>();
   let strandIdsNow: ReadonlySet<string> = new Set();
   let queue: string[] = [];
   let view: Rect | undefined;
@@ -265,7 +288,10 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
       return NOTHING;
     }
 
+    const begun = performance.now();
+    counts.begins += 1;
     const obstacles = collectObstacles(geometry);
+    indexNow = undefined;
     const { inputs, lanes } = buildInputs(specs, geometry);
     lanesNow = lanes;
     const loom = planLoom({ edges: inputs, obstacles });
@@ -333,12 +359,23 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
       held.delete(id);
       remove.push(id);
     }
+    counts.beginMs += performance.now() - begun;
     return { set, remove };
+  };
+
+  const obstacleIndex = (): ObstacleIndex<ReturnType<typeof collectObstacles>[number]> => {
+    if (indexNow === undefined) {
+      indexNow = createObstacleIndex(obstaclesNow.filter((rect) => rect.width > 0 && rect.height > 0));
+      counts.indexes += 1;
+    }
+    return indexNow;
   };
 
   const step: LoomPlanner["step"] = (budgetMs, clock) => {
     if (queue.length === 0) return NOTHING;
     const started = clock();
+    const routing = performance.now();
+    const index = obstacleIndex();
     const done: string[] = [];
     do {
       const id = queue.pop()!;
@@ -347,9 +384,13 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
         dragging: NOT_DRAGGING,
         edges: [input],
         obstacles: obstaclesNow,
+        index,
         strandIds: strandIdsNow,
         routeWire,
       }).routes;
+      counts.routed += 1;
+      if (routedOnce.has(id)) counts.rerouted += 1;
+      else routedOnce.add(id);
       const route = planned$.get(id);
       if (route === undefined) routes.delete(id);
       else routes.set(id, route);
@@ -357,6 +398,7 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
     } while (queue.length > 0 && clock() - started < budgetMs);
     const set: WireRouteFact[] = [];
     send(done, set);
+    counts.routeMs += performance.now() - routing;
     return { set, remove: [] };
   };
 
@@ -382,11 +424,12 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
     inputsNow = new Map();
     rectsNow = new Map();
     obstaclesNow = [];
+    indexNow = undefined;
     strandIdsNow = new Set();
     queue = [];
   };
 
-  return { plan, begin, step, focus, owed: () => queue.length, reset };
+  return { plan, begin, step, focus, owed: () => queue.length, reset, stats: () => ({ ...counts }) };
 };
 
 /**

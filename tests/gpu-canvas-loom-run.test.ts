@@ -86,6 +86,19 @@ describe("the loom in shares, one per worker", () => {
     }
   });
 
+  it("builds the obstacle grid once per plan, not once per wire, and routes each wire once", () => {
+    const planner = createLoomPlanner();
+    drain(planner);
+    expect(planner.stats()).toMatchObject({ begins: 1, indexes: 1, routed: 24, rerouted: 0 });
+    // A card moves: the next plan builds one more grid and routes only what it can have altered.
+    planner.begin(many.map((c) => (c.id === "s0" ? { ...c, y: 40 } : c)), manyWires, atOrigin);
+    while (planner.owed() > 0) planner.step(0, ONE);
+    const after = planner.stats();
+    expect(after).toMatchObject({ begins: 2, indexes: 2 });
+    expect(after.rerouted).toBe(after.routed - 24);
+    expect(after.routed - 24).toBeLessThan(24);
+  });
+
   it("routes each share from the view outwards", () => {
     for (const index of [0, 1, 2]) {
       const part = drain(createLoomPlanner({ index, count: 3 }));
