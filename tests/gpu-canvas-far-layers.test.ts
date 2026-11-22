@@ -79,9 +79,10 @@ describe("region watermarks at a distance", () => {
     expect(scene.prepare(VIEW, "overview").visible).toBe(near);
 
     // At rest the watermark's two quads appear: the near name and the far one
-    // (the painter drops both at 0; the tier mask picks which draws).
+    // (the painter drops both at 0). The draw list keeps only the tier's own,
+    // so one more quad draws at overview.
     settled = true;
-    expect(scene.prepare(VIEW, "overview").visible).toBe(near + 2);
+    expect(scene.prepare(VIEW, "overview").visible).toBe(near + 1);
 
     // Zooming back in clears it again, at rest.
     zoom = 1.35;

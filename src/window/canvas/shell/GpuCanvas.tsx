@@ -150,6 +150,9 @@ export function GpuCanvas({ onUnavailable }: Props) {
       atlas: atlas.binding,
       sourceOf: (quad, scale) => atlas.sourceFor(quad, scale),
       atlasRevision: () => atlas.revision(),
+      // Records hold the cells they draw (#912): the scene takes, lets go and
+      // rasterizes an in-view cell with no image before the frame is submitted.
+      cells: atlas,
       // A paused surface shows a ring's rest pose; hidden or reduced motion
       // stops its parts (surface-motion.ts). The canvas reads the same gate
       // the DOM rings do, and repaints when it flips.

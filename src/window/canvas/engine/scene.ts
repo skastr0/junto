@@ -11,11 +11,23 @@
  * rectangles meet the camera's view, then walks only those. The same grid
  * answers picking, in paint order.
  *
+ * Work scales with the screen, not the board. Every card keeps its facts,
+ * rectangle and owner entry for the whole board (picking, clusters and every
+ * seat's address need nothing more), but its quads are built only once it
+ * comes near the screen, and released once it is well off it. An atlas cell
+ * is held by a record only while the quad is live: its card in the view plus
+ * margin, its tier drawn (or the tier the zoom is about to cross into, or a
+ * camera jump's destination), its motion gate open. Held cells are what the
+ * atlas keeps; nothing on screen is ever reclaimed. The draw list keeps only
+ * the current tier's quads and is rebuilt when the set of grid cells around
+ * the view changes, not on every pan frame.
+ *
  * Nothing here touches the DOM, a React store or the camera; the engine hands
  * it the view rectangle, the tier and the theme.
  */
 
-import { farSeatScale, hoverCardScale, nodeScale, seatFloorScale } from "@shared/canvas-tier";
+import { farSeatScale, hoverCardScale, nodeScale, seatFloorScale, tierForZoom } from "@shared/canvas-tier";
+import { ringKeepsApart } from "@shared/wire/urgency";
 import { holdsSeatRing, renderedNodeSize } from "@shared/node-geometry";
 import { SEAT_CONTENT_CENTRE_DX } from "../paint/card-spec";
 import { DURATION, themeGpu, type GpuTheme, type ThemeMode } from "@shared/theme";
@@ -67,6 +79,7 @@ import {
   clusterHeldAt,
   clusterIndexOf,
   clustersFor,
+  keepsApart,
   paintClusterBadge,
   type ClusterInput,
   type ClusterSeatFact,
@@ -115,7 +128,20 @@ type QuadRef = {
   readonly tiers: number;
   /** The quad as painted, so a scale bucket or atlas revision re-resolves its cell. */
   readonly painted: Quad;
+  /** It draws from the atlas (text or sprite), so its record may hold a cell. */
+  readonly atlas: boolean;
 };
+
+/** A card's quads split by band, in paint order: the draw list concatenates them. */
+type Banded = readonly [ReadonlyArray<QuadRef>, ReadonlyArray<QuadRef>, ReadonlyArray<QuadRef>];
+const NO_BANDS: Banded = [[], [], []];
+
+/**
+ * What a card's records are wanted for at the last draw-list rebuild: the
+ * view (draw now, and the next tier ahead), a camera jump's destination, or
+ * nothing. Only a card with a role holds atlas cells.
+ */
+type Role = { readonly view: boolean; readonly jump: boolean };
 
 type CardSlot = {
   readonly slot: number;
@@ -129,10 +155,21 @@ type CardSlot = {
   quads: Map<string, number>;
   /** The same quads in paint order, rebuilt with every repaint. */
   ordered: QuadRef[];
+  /** `ordered` split by band. */
+  bands: Banded;
   dim: CardPaint["dim"];
   lift: number;
   /** The size a live resize is drawing at, until the writer's fact lands. */
   size?: { readonly width: number; readonly height: number };
+  /** Its quads are built (it has been near the screen). */
+  painted: boolean;
+  /** A fact or view changed while it was not painted, or painted off screen. */
+  stale: boolean;
+  /** The rebuild that last gave it a role; a card with an older stamp holds no cells. */
+  stamp: number;
+  role: Role;
+  /** Its place in paint order (z, then id), from the sorted master list. */
+  rank: number;
 };
 
 /** A cluster badge's slot: an owner entry and quads of its own, with no card. */
@@ -147,6 +184,8 @@ type ClusterSlot = {
   ordered: QuadRef[];
   /** What the badge draws; a change is what repaints it. */
   signature: string;
+  /** The rebuild that last found it near the screen; only then does it hold cells. */
+  stamp: number;
 };
 
 const BAND_OF: Readonly<Record<Quad["band"], 0 | 1 | 2>> = { regions: 0, cards: 1, lifted: 2 };
@@ -179,6 +218,9 @@ const rectOfFact = (fact: CardFact): Rect => {
 
 const contains = (rect: Rect, at: Point): boolean =>
   at.x >= rect.x && at.x <= rect.x + rect.width && at.y >= rect.y && at.y <= rect.y + rect.height;
+
+const intersects = (a: Rect, b: Rect): boolean =>
+  a.x <= b.x + b.width && b.x <= a.x + a.width && a.y <= b.y + b.height && b.y <= a.y + a.height;
 
 const insetBy = (rect: Rect, by: number): Rect => ({
   x: rect.x - by,
@@ -272,8 +314,25 @@ export const createScene = (options: {
   readonly painter: CardPainter;
   readonly mode?: ThemeMode;
   readonly measure?: (run: TextRun) => number;
-  /** The shell's atlas: the cell a quad's text or sprite draws from, or NO_ATLAS_CELL. */
+  /**
+   * The atlas's lookup without references (the older interface): the cell a
+   * quad's text or sprite draws from, or NO_ATLAS_CELL. `acquire` wins.
+   */
   readonly source?: (quad: Quad, scale: number) => number;
+  /**
+   * The atlas (scene-to-atlas interface, #911/#912): a record takes one
+   * reference to the cell for this quad at this scale; `previous` is the cell
+   * it held, and the atlas settles that reference itself (same key: kept;
+   * new key: released once the new image lands). The index is stable while
+   * any reference is held, so an atlas event never rewrites a record.
+   */
+  readonly acquire?: (quad: Quad, scale: number, previous?: number) => number;
+  /** The record lets go of a cell it held. */
+  readonly release?: (cell: number) => void;
+  /** The cell's entry points at pixels: its own, a stand-in or a kept previous. */
+  readonly hasImage?: (cell: number) => boolean;
+  /** Rasterize the cell now, before the frame is submitted: the last resort for an in-view quad with no image. */
+  readonly ensureNow?: (cell: number) => void;
   /** Device pixels per board unit, at the camera right now. */
   readonly scale?: () => number;
   /** The camera zoom, for the multiplier a quad's scale rule adds. */
@@ -310,8 +369,16 @@ export const createScene = (options: {
 
   const atlasRevisionNow = (): number => options.atlasRevision?.() ?? 0;
   const atlasScaleNow = (): number => atlasScale(options.scale?.() ?? 1);
-  const resolveSource = (quad: Quad, scale: number): number =>
-    options.source === undefined ? NO_ATLAS_CELL : options.source(quad, scale);
+  const acquireCell = (quad: Quad, scale: number, previous: number): number => {
+    if (options.acquire !== undefined) return options.acquire(quad, scale, previous === NO_ATLAS_CELL ? undefined : previous);
+    return options.source === undefined ? NO_ATLAS_CELL : options.source(quad, scale);
+  };
+  const releaseCell = (cell: number): void => {
+    if (cell !== NO_ATLAS_CELL) options.release?.(cell);
+  };
+  /** Without the newer interface a held cell is taken to have its image. */
+  const hasImage = (cell: number): boolean =>
+    cell !== NO_ATLAS_CELL && (options.hasImage === undefined || options.hasImage(cell));
 
   /**
    * The multiplier a quad's scale rule adds on top of the camera's device
@@ -338,11 +405,21 @@ export const createScene = (options: {
     }
   };
 
-  const sourceScaleFor = (quad: Quad): number =>
-    atlasScale((options.scale?.() ?? 1) * scaleMultiplier(quad, currentTier, options.zoom?.() ?? 1));
+  /** Device pixels per board unit at zoom 1: the camera scale is this times the zoom. */
+  const pixelRatioNow = (): number => (options.scale?.() ?? 1) / (options.zoom?.() ?? 1);
 
+  /** The raster scale a quad draws at in `tier` at `zoom`, bucketed as the atlas keys it. */
+  const scaleAt = (quad: Quad, tier: CanvasTier, zoom: number): number =>
+    atlasScale(pixelRatioNow() * zoom * scaleMultiplier(quad, tier, zoom));
+
+  const sourceScaleFor = (quad: Quad): number => scaleAt(quad, currentTier, options.zoom?.() ?? 1);
+
+  // Initial capacities only: every buffer below doubles on demand.
   let quads: QuadBuffer = createQuadBuffer(1024);
+  let heldScale = new Float64Array(1024);
   let quadCapacity = 1024;
+  /** Records holding a cell that had no image when last looked at: the per-frame blank check reads only these. */
+  const blankCandidates = new Map<number, QuadRef>();
   let quadCount = 0;
   let owners = new Float32Array(256 * 8);
   let ownerCapacity = 256;
@@ -354,6 +431,13 @@ export const createScene = (options: {
   const slots: Array<CardSlot | undefined> = [];
   const freeSlots: number[] = [];
   const byId = new Map<NodeId, CardSlot>();
+  /** Every card, sorted into paint order (z, then id) when `rankDirty`; `rank` is the index. */
+  const master: CardSlot[] = [];
+  let rankDirty = true;
+  /** Cards whose quads are built; a rebuild releases those well off screen. */
+  const paintedCards = new Set<CardSlot>();
+  /** Badge slots by owner index, for the per-frame blank check. */
+  const badgeByOwner = new Map<number, ClusterSlot>();
   const quadSlotsOf = new Map<number, Set<number>>();
   const freeQuadSlots: number[] = [];
 
@@ -384,7 +468,7 @@ export const createScene = (options: {
   let gatheredSeats: ReadonlySet<NodeId> = NO_SEATS;
   let hoveredCluster: string | null = null;
   /** The grouping index and the seat facts it was built from; held across frames. */
-  let clusterCache: { readonly signature: string; readonly index: ClusterIndex; readonly byId: ReadonlyMap<NodeId, ClusterSeatFact> } | undefined;
+  let clusterCache: { readonly signature: string; readonly index: ClusterIndex; readonly byId: Map<NodeId, ClusterSeatFact> } | undefined;
   /** Links held at the last planned zoom; a zoom that changes it regroups. */
   let clusterHeld = -1;
   /** A seat, its ring, its selection or the theme changed since the last frame. */
@@ -413,8 +497,49 @@ export const createScene = (options: {
     const next = createQuadBuffer(capacity);
     next.f32.set(quads.f32);
     quads = next;
+    const scales = new Float64Array(capacity);
+    scales.set(heldScale);
+    heldScale = scales;
     quadCapacity = capacity;
     allQuadsDirty = true;
+  };
+
+  // --- atlas cells held by records ---------------------------------------------
+  //
+  // A record's source word is the cell it holds a reference to, or none. It
+  // takes one when its quad goes live and lets go when the quad stops being
+  // live or its slot is freed. `heldScale` is the raster scale it was taken at.
+
+  const SOURCE_WORD = 23;
+  const cellOf = (slot: number): number => quads.u32[slot * QUAD_FLOATS + SOURCE_WORD]!;
+
+  /** Take (or keep) the cell for `ref` at `scale`, handing the atlas the one held. */
+  const holdCell = (ref: QuadRef, scale: number): void => {
+    const slot = ref.slot;
+    const at = slot * QUAD_FLOATS + SOURCE_WORD;
+    const previous = quads.u32[at]!;
+    const next = acquireCell(ref.painted, scale, previous);
+    heldScale[slot] = scale;
+    if (next !== previous) {
+      quads.u32[at] = next;
+      dirtyQuads.add(slot);
+    }
+    // Under the older lookup no cell means pending; under references it means
+    // nothing to draw. Either way the per-frame check looks at it again.
+    const pending = next === NO_ATLAS_CELL ? options.acquire === undefined : !hasImage(next);
+    if (pending) blankCandidates.set(slot, ref);
+    else blankCandidates.delete(slot);
+  };
+
+  /** Let go of whatever the record holds. */
+  const dropCell = (slot: number): void => {
+    const at = slot * QUAD_FLOATS + SOURCE_WORD;
+    const held = quads.u32[at]!;
+    if (held === NO_ATLAS_CELL) return;
+    releaseCell(held);
+    quads.u32[at] = NO_ATLAS_CELL;
+    dirtyQuads.add(slot);
+    blankCandidates.delete(slot);
   };
 
   const ensureOwnerCapacity = (needed: number): void => {
@@ -445,6 +570,7 @@ export const createScene = (options: {
   };
 
   const freeQuad = (slot: number): void => {
+    dropCell(slot);
     freeQuadSlots.push(slot);
     dirtyQuads.delete(slot);
   };
@@ -516,7 +642,9 @@ export const createScene = (options: {
       tiers: quad.tiers,
       ...packScale(quad.scale),
       ...packMotion(quad.motion, clockNow, wallNow),
-      source: resolveSource(quad, sourceScaleFor(quad)),
+      // The cell the record already holds; `settleQuad` takes or drops one
+      // once the record is written, by whether the quad is live.
+      source: fresh ? NO_ATLAS_CELL : (quads.u32[at + SOURCE_WORD] ?? NO_ATLAS_CELL),
       gradientAngle: 0,
       hole: quad.hole ?? 0,
       style,
@@ -557,7 +685,90 @@ export const createScene = (options: {
     };
   };
 
+  /** What `prepare` last drew with: the tier mask, the next tier's, a jump's, and the motion gate. */
+  let liveMask = 0;
+  /** Tiers the zoom is within half an octave of, in or out: their cells are taken ahead. */
+  let aheadTiers: ReadonlyArray<CanvasTier> = [];
+  let jumpMask = 0;
+  let jumpTier: CanvasTier | undefined;
+  let jumpZoom = 1;
+  let liveMotion = true;
+  /** Bumped by every draw-list rebuild; a card or badge stamped with it is near the screen. */
+  let liveEpoch = 0;
+
+  const gateOpen = (quad: Quad): boolean => quad.gate === undefined || (quad.gate === "live") === liveMotion;
+
+  /**
+   * Take or drop a record's cell by what its quad is wanted for. Drawn now:
+   * the current tier's scale (inside a gesture the cell in hand is kept, so
+   * nothing re-rasterizes mid-gesture; at rest it is made exact). The next
+   * tier or a jump's destination: that tier's scale, ahead of time. Wanted for
+   * nothing: dropped, so the atlas may reclaim it.
+   */
+  const settleQuad = (ref: QuadRef, role: Role, gathered: boolean, exact: boolean): void => {
+    if (!ref.atlas) return;
+    const quad = ref.painted;
+    const slot = ref.slot;
+    if (gathered || !gateOpen(quad)) {
+      dropCell(slot);
+      return;
+    }
+    let scale: number | undefined;
+    if (role.view && (quad.tiers & liveMask) !== 0) scale = sourceScaleFor(quad);
+    else if (role.view) {
+      for (const ahead of aheadTiers) {
+        if ((quad.tiers & TIER_BIT[ahead]) === 0) continue;
+        scale = scaleAt(quad, ahead, options.zoom?.() ?? 1);
+        break;
+      }
+    }
+    if (scale === undefined && role.jump && jumpTier !== undefined && (quad.tiers & jumpMask) !== 0) scale = scaleAt(quad, jumpTier, jumpZoom);
+    if (scale === undefined) {
+      dropCell(slot);
+      return;
+    }
+    const held = cellOf(slot);
+    if (held === NO_ATLAS_CELL || (exact && heldScale[slot] !== scale)) holdCell(ref, scale);
+  };
+
+  /** A repainted record whose key or text may have changed: re-ask the atlas, keeping the scale in hand mid-gesture. */
+  const refreshQuad = (ref: QuadRef, role: Role, gathered: boolean): void => {
+    if (!ref.atlas) {
+      dropCell(ref.slot);
+      return;
+    }
+    const held = cellOf(ref.slot);
+    settleQuad(ref, role, gathered, options.settled?.() ?? true);
+    // Same cell and scale: the quad may still carry new words (a status line);
+    // the atlas answers by key, so ask again with the cell in hand.
+    if (held !== NO_ATLAS_CELL && cellOf(ref.slot) === held) holdCell(ref, heldScale[ref.slot]!);
+  };
+
+  const refOf = (quad: Quad, slot: number): QuadRef => ({
+    key: quad.key,
+    slot,
+    z: quad.z,
+    band: BAND_OF[quad.band],
+    motion: quad.motion,
+    tiers: quad.tiers,
+    painted: quad,
+    atlas: quad.text !== undefined || quad.sprite !== undefined,
+  });
+
+  const bandsOf = (ordered: ReadonlyArray<QuadRef>): Banded => {
+    const out: [QuadRef[], QuadRef[], QuadRef[]] = [[], [], []];
+    for (const ref of ordered) out[ref.band].push(ref);
+    return out;
+  };
+
+  const NO_ROLE: Role = { view: false, jump: false };
+  const roleOf = (card: CardSlot): Role => (card.stamp === liveEpoch ? card.role : NO_ROLE);
+
   const paint = (card: CardSlot): void => {
+    card.view = viewOf(card.fact);
+    card.painted = true;
+    card.stale = false;
+    paintedCards.add(card);
     // A live resize draws the size the pointer holds; the writer's fact still
     // carries the old row until the drop, and painters read the row.
     const drawn: CardFact =
@@ -596,20 +807,15 @@ export const createScene = (options: {
     }
     quadSlotsOf.set(card.slot, held);
     const previous = card.ordered;
-    const ordered = sorted.map((quad) => ({
-      key: quad.key,
-      slot: card.quads.get(quad.key)!,
-      z: quad.z,
-      band: BAND_OF[quad.band],
-      motion: quad.motion,
-      tiers: quad.tiers,
-      painted: quad,
-    }));
+    const ordered = sorted.map((quad) => refOf(quad, card.quads.get(quad.key)!));
     card.ordered = ordered;
+    card.bands = bandsOf(ordered);
     card.dim = result.dim;
     card.lift = result.lift;
     writeOwner(card);
-    grid.set(card.slot, insetBy(card.rect, 28));
+    const role = roleOf(card);
+    const gathered = gatheredSeats.has(card.id);
+    for (const ref of ordered) refreshQuad(ref, role, gathered);
     // A style-only repaint (a seat report, a selection) leaves the order
     // list alone; a new key, a restack or a band move rewrites it.
     let orderChanged = previous.length !== ordered.length;
@@ -655,9 +861,33 @@ export const createScene = (options: {
     };
   };
 
+  /**
+   * A fact or view changed. A card near the screen repaints now; any other
+   * card only remembers it is stale and paints when it next comes near, so a
+   * theme switch, a connect or a report on a big board costs what is on
+   * screen, not the board.
+   */
   const repaint = (card: CardSlot): void => {
-    card.view = viewOf(card.fact);
-    paint(card);
+    if (card.stamp === liveEpoch && orderReady) {
+      paint(card);
+      return;
+    }
+    // Off screen: nothing draws it, so the draw list stands.
+    card.stale = true;
+  };
+
+  /** Free a card's quads and cells; its facts, rectangle and owner entry stay. */
+  const releaseShapes = (card: CardSlot): void => {
+    if (!card.painted) return;
+    const held = quadSlotsOf.get(card.slot);
+    if (held !== undefined) for (const slot of held) freeQuad(slot);
+    quadSlotsOf.delete(card.slot);
+    card.quads.clear();
+    card.ordered = [];
+    card.bands = NO_BANDS;
+    card.painted = false;
+    card.stale = true;
+    paintedCards.delete(card);
   };
 
   const repaintIds = (ids: ReadonlyArray<NodeId>): void => {
@@ -734,15 +964,42 @@ export const createScene = (options: {
       writeQuad(quads, quadSlot, packQuad(quad, quadSlot, fresh), slot.owner);
       dirtyQuads.add(quadSlot);
     }
-    slot.ordered = sorted.map((quad) => ({
-      key: quad.key,
-      slot: slot.quads.get(quad.key)!,
-      z: quad.z,
-      band: BAND_OF[quad.band],
-      motion: quad.motion,
-      tiers: quad.tiers,
-      painted: quad,
-    }));
+    slot.ordered = sorted.map((quad) => refOf(quad, slot.quads.get(quad.key)!));
+    const role = slot.stamp === liveEpoch ? VIEW_ROLE : NO_ROLE;
+    for (const ref of slot.ordered) refreshQuad(ref, role, false);
+  };
+
+  const VIEW_ROLE: Role = { view: true, jump: false };
+
+  /** The badge each gathered seat stands in, from the last plan. */
+  let badgeOfSeat = new Map<NodeId, string>();
+  /** Badges a member's ring or portrait changed under, repainted at the next frame. */
+  const badgeDirty = new Set<string>();
+
+  const keptApart = (live: SeatLive | undefined): boolean => live !== undefined && ringKeepsApart(live.ring.ring);
+
+  /**
+   * A seat report. The plan reads a seat's centre, region and whether it
+   * stays apart (selected, or a ring that calls); a report that changes none
+   * of those regroups nothing. If the seat stands in a badge, the badge reads
+   * its ring and portrait, and only that badge repaints.
+   */
+  const seatChanged = (card: CardSlot, was: SeatLive | undefined, now: SeatLive): void => {
+    if (was === undefined || keptApart(was) !== keptApart(now)) {
+      clusterDirty = true;
+      return;
+    }
+    const cached = clusterCache?.byId.get(card.id);
+    if (cached !== undefined) {
+      clusterCache!.byId.set(card.id, {
+        ...cached,
+        ring: now.ring,
+        ringSince: now.ringSince,
+        ...(now.portrait === undefined ? {} : { portrait: now.portrait }),
+      });
+    }
+    const badge = badgeOfSeat.get(card.id);
+    if (badge !== undefined) badgeDirty.add(badge);
   };
 
   /** What a badge draws: its members and their rings, its portrait, its count, its hover. */
@@ -773,9 +1030,10 @@ export const createScene = (options: {
     }
     seats.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     // What the grouping depends on: where a seat is, its region, whether it
-    // stays apart (selected, or a ring that calls) and its identity.
+    // stays apart (selected, or a ring that calls) and its identity. Not the
+    // ring's form itself: a seat going from work to rest regroups nothing.
     const signature = seats
-      .map((seat) => `${seat.id}:${String(Math.round(seat.x))},${String(Math.round(seat.y))}:${seat.region}:${seat.selected ? 1 : 0}:${seat.ring.ring}`)
+      .map((seat) => `${seat.id}:${String(Math.round(seat.x))},${String(Math.round(seat.y))}:${seat.region}:${keepsApart(seat) ? 1 : 0}`)
       .join("|");
     return { seats, signature };
   };
@@ -796,6 +1054,9 @@ export const createScene = (options: {
       clusterCache = undefined;
       clusterHeld = -1;
       clusterDirty = false;
+      clusterPlan = undefined;
+      badgeOfSeat = new Map();
+      badgeDirty.clear();
       return clusterVersion;
     }
     const dirty = clusterDirty;
@@ -814,16 +1075,32 @@ export const createScene = (options: {
     const zoom = options.zoom?.() ?? 1;
     const screen = { width: view.width * zoom, height: view.height * zoom };
     const held = clusterHeldAt(cache.index, zoom, screen);
-    if (!dirty && held === clusterHeld) return clusterVersion;
+    if (!dirty && held === clusterHeld) {
+      // The plan holds; a member's report repaints only its own badge.
+      if (badgeDirty.size > 0) {
+        const input = clusterInput(cache, zoom, screen);
+        for (const key of badgeDirty) {
+          const slot = clusterSlots.get(key);
+          const cluster = clusterPlan?.clusters.find((c) => c.key === key);
+          if (slot === undefined || cluster === undefined || slot.ordered.length === 0) continue;
+          const signature = clusterSignature(cluster, cache.byId);
+          if (slot.signature === signature) continue;
+          slot.signature = signature;
+          paintClusterSlot(slot, cluster, cache.byId, input);
+          clusterVersion += 1;
+        }
+        badgeDirty.clear();
+      }
+      return clusterVersion;
+    }
+    badgeDirty.clear();
     clusterHeld = held;
     const plan = clustersFor(cache.index, held);
-    const input: ClusterInput = {
-      seats: [...cache.byId.values()],
-      zoom,
-      view: screen,
-      mode,
-      ...(hoveredCluster === null ? {} : { hoveredKey: hoveredCluster }),
-    };
+    clusterPlan = plan;
+    const seatsToBadge = new Map<NodeId, string>();
+    for (const cluster of plan.clusters) for (const id of cluster.members) seatsToBadge.set(id, cluster.key);
+    badgeOfSeat = seatsToBadge;
+    const input = clusterInput(cache, zoom, screen);
     const active: ClusterSlot[] = [];
     const live = new Set<string>();
     for (const cluster of plan.clusters) {
@@ -838,8 +1115,10 @@ export const createScene = (options: {
           quads: new Map(),
           ordered: [],
           signature: "",
+          stamp: -1,
         };
         clusterSlots.set(cluster.key, slot);
+        badgeByOwner.set(slot.owner, slot);
       }
       const signature = clusterSignature(cluster, cache.byId);
       if (slot.signature !== signature) {
@@ -870,6 +1149,21 @@ export const createScene = (options: {
     return clusterVersion;
   };
 
+  /** The plan the badges were laid out from. */
+  let clusterPlan: { readonly clusters: ReadonlyArray<SeatCluster> } | undefined;
+
+  const clusterInput = (
+    cache: { readonly byId: ReadonlyMap<NodeId, ClusterSeatFact> },
+    zoom: number,
+    screen: { readonly width: number; readonly height: number },
+  ): ClusterInput => ({
+    seats: [...cache.byId.values()],
+    zoom,
+    view: screen,
+    mode,
+    ...(hoveredCluster === null ? {} : { hoveredKey: hoveredCluster }),
+  });
+
   /** The badge under a board point, if any (the disc; badges paint above cards). */
   const clusterSlotAt = (at: Point): ClusterSlot | undefined => {
     for (let index = clustersActive.length - 1; index >= 0; index -= 1) {
@@ -880,56 +1174,88 @@ export const createScene = (options: {
   };
 
   const putCard = (fact: CardFact): void => {
-    clusterDirty = true;
     const existing = byId.get(fact.id);
     if (existing !== undefined) {
+      const was = existing.fact;
       existing.fact = fact;
       existing.size = undefined;
+      if (was.derived.z !== fact.derived.z) rankDirty = true;
       const rect = rectOfFact(fact);
       if (!sameRect(existing.rect, rect)) {
         existing.rect = rect;
+        writeOwner(existing);
+        grid.set(existing.slot, insetBy(rect, 28));
         markOrder();
       }
+      // The grouping reads a seat's centre and region; a card op that moves
+      // neither leaves the plan as it is.
+      if (fact.row.kind === "agent" && (!sameRect(rectOfFact(was), rect) || was.derived.regionId !== fact.derived.regionId)) clusterDirty = true;
       repaint(existing);
       return;
     }
+    if (fact.row.kind === "agent") clusterDirty = true;
     const slot = allocateCard();
+    const rect = rectOfFact(fact);
     const card: CardSlot = {
       slot,
       id: fact.id,
       fact,
       live: undefined,
       view: viewOf(fact),
-      rect: rectOfFact(fact),
+      rect,
       quads: new Map(),
       ordered: [],
+      bands: NO_BANDS,
       dim: { opacity: 1, saturate: 1 },
       lift: 0,
+      painted: false,
+      stale: true,
+      stamp: -1,
+      role: NO_ROLE,
+      rank: 0,
     };
     slots[slot] = card;
     byId.set(fact.id, card);
-    paint(card);
+    master.push(card);
+    rankDirty = true;
+    // Its place is known now (picking, clusters, the minimap); its quads are
+    // built when it first comes near the screen.
+    writeOwner(card);
+    grid.set(slot, insetBy(rect, 28));
+    markOrder();
   };
 
   const removeCard = (id: NodeId): void => {
     const card = byId.get(id);
     if (card === undefined) return;
-    clusterDirty = true;
+    if (card.fact.row.kind === "agent") clusterDirty = true;
+    releaseShapes(card);
     byId.delete(id);
     slots[card.slot] = undefined;
     freeSlots.push(card.slot);
     grid.remove(card.slot);
-    for (const slot of quadSlotsOf.get(card.slot) ?? []) freeQuad(slot);
-    quadSlotsOf.delete(card.slot);
     dirtyOwners.delete(card.slot);
+    const at = master.indexOf(card);
+    if (at >= 0) master.splice(at, 1);
+    rankDirty = true;
     markOrder();
   };
 
   const clearAll = (): void => {
+    // Every held cell goes back to the atlas before the records are forgotten.
+    for (const card of byId.values()) releaseShapes(card);
+    master.length = 0;
+    rankDirty = true;
+    blankCandidates.clear();
     for (const slot of clusterSlots.values()) releaseCluster(slot);
     clusterSlots.clear();
+    badgeByOwner.clear();
+    paintedCards.clear();
     clustersActive = [];
     gatheredSeats = NO_SEATS;
+    clusterPlan = undefined;
+    badgeOfSeat = new Map();
+    badgeDirty.clear();
     hoveredCluster = null;
     clusterCache = undefined;
     clusterHeld = -1;
@@ -968,8 +1294,9 @@ export const createScene = (options: {
       case "seat": {
         const card = byId.get(op.id);
         if (card === undefined) return;
+        const was = card.live;
         card.live = op.live;
-        if (card.fact.row.kind === "agent") clusterDirty = true;
+        if (card.fact.row.kind === "agent") seatChanged(card, was, op.live);
         repaint(card);
         return;
       }
@@ -1098,6 +1425,9 @@ export const createScene = (options: {
     writeOwner(card);
     grid.set(card.slot, insetBy(card.rect, 28));
     if (card.fact.row.kind === "agent") clusterDirty = true;
+    // A card dragged in from off screen (a group drag) must join the list
+    // the moment it reaches the cells around the view.
+    if (card.stamp !== liveEpoch && intersects(card.rect, lastRangeRect)) markOrder();
     // A move is an owner offset: the records keep their order, so a drag
     // frame must not rebuild the order list (it stuttered on the first drag).
   };
@@ -1164,142 +1494,221 @@ export const createScene = (options: {
   const visibleSlots: number[] = [];
   const visibleCards: CardSlot[] = [];
   const previousOrder: number[] = [];
-  let lastView: Rect = { x: 0, y: 0, width: -1, height: -1 };
+  /** Cards and badges the last rebuild gave a role, so the next can drop what left. */
+  let liveCards: CardSlot[] = [];
+  let liveBadges: ClusterSlot[] = [];
+  let lastRange = "";
+  let lastRangeRect: Rect = { x: 0, y: 0, width: -1, height: -1 };
   let lastTier: CanvasTier | undefined;
-  let lastSourceEpoch = "";
+  let lastExactEpoch = "";
   let lastAtlasRevision = -1;
   let lastMotionLive: boolean | undefined;
   /** The badge version the last prepared frame drew. */
   let lastClusters = -1;
   let orderReady = false;
+  /** A camera jump's destination: its cards take cells for where the camera lands. */
+  let jump: { readonly view: Rect; readonly zoom: number } | undefined;
+  let jumpDirty = false;
+  /** In-view quads drawn with no image on the last presented frame (zero is the bar). */
+  let visibleBlank = 0;
+  /** Cells rasterized in the frame because an in-view quad had no image. */
+  let ensuredNow = 0;
+
+  /**
+   * The margin around the view a card is built and holds its cells in, in
+   * screen pixels: what a fast pan or fling reveals before the next rebuild,
+   * whatever the zoom.
+   */
+  const MARGIN_SCREEN_PX = 320;
+
+  const ensureRanks = (): void => {
+    if (!rankDirty) return;
+    master.sort((a, b) => {
+      if (a.fact.derived.z !== b.fact.derived.z) return a.fact.derived.z - b.fact.derived.z;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    for (let index = 0; index < master.length; index += 1) master[index]!.rank = index;
+    rankDirty = false;
+  };
+
+  const byRank = (a: CardSlot, b: CardSlot): number => a.rank - b.rank;
 
   const orderCards = (found: ReadonlyArray<number>): CardSlot[] => {
+    ensureRanks();
     const cards: CardSlot[] = [];
     for (const slot of found) {
       const card = slots[slot];
       if (card !== undefined) cards.push(card);
     }
-    cards.sort((a, b) => {
-      if (a.fact.derived.z !== b.fact.derived.z) return a.fact.derived.z - b.fact.derived.z;
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
+    cards.sort(byRank);
     return cards;
   };
 
-  const prepare = (view: Rect, tier: CanvasTier): Prepared => {
-    currentTier = tier;
-    const motionOn = options.motionLive?.() ?? true;
-    const zoom = options.zoom?.() ?? 1;
-    // Region watermarks are a style on the region's name quads, not a raster:
-    // they step with the zoom. A step waits for the camera's rest, so the
-    // text is never re-rasterized inside a gesture (section 8 rule 2).
-    const glance = options.glance?.(zoom);
-    if (glance !== undefined && (glance.region !== glanceNow.region || glance.sub !== glanceNow.sub)) {
-      if (options.settled?.() ?? true) {
-        glanceNow = { region: glance.region, sub: glance.sub };
-        for (const card of byId.values()) {
-          if (card.fact.row.kind === "region") repaint(card);
-        }
+  /** The grid cells a rectangle covers, as the rectangle of their union. */
+  const cellRange = (rect: Rect): { readonly key: string; readonly rect: Rect } => {
+    const left = Math.floor(rect.x / CARD_CELL);
+    const top = Math.floor(rect.y / CARD_CELL);
+    const right = Math.floor((rect.x + rect.width) / CARD_CELL);
+    const bottom = Math.floor((rect.y + rect.height) / CARD_CELL);
+    return {
+      key: `${String(left)},${String(top)},${String(right)},${String(bottom)}`,
+      rect: { x: left * CARD_CELL, y: top * CARD_CELL, width: (right - left + 1) * CARD_CELL - 1, height: (bottom - top + 1) * CARD_CELL - 1 },
+    };
+  };
+
+  /** The tiers a zoom within half an octave of this one would draw, other than `tier`. */
+  const tiersAhead = (zoom: number, tier: CanvasTier): CanvasTier[] => {
+    const out: CanvasTier[] = [];
+    for (const probe of [zoom * Math.SQRT2, zoom / Math.SQRT2]) {
+      const next = tierForZoom(probe);
+      if (next !== tier && !out.includes(next)) out.push(next);
+    }
+    return out;
+  };
+
+  /** Hand the scene a camera jump's destination ahead of the camera, or clear it. */
+  const prefetch = (target: { readonly view: Rect; readonly zoom: number } | null): void => {
+    const next = target ?? undefined;
+    if (next === undefined && jump === undefined) return;
+    if (next !== undefined && jump !== undefined && sameRect(next.view, jump.view) && next.zoom === jump.zoom) return;
+    jump = next;
+    jumpDirty = true;
+  };
+
+  /** Settle every live record's cell: exact at rest, the cell in hand inside a gesture. */
+  const settleLive = (exact: boolean, reask: boolean, fresh?: ReadonlySet<CardSlot>): void => {
+    for (const card of liveCards) {
+      // A card painted in this rebuild took its cells as it painted.
+      if (fresh?.has(card)) continue;
+      const gathered = gatheredSeats.has(card.id);
+      for (const ref of card.ordered) {
+        settleQuad(ref, card.role, gathered, exact);
+        if (reask && ref.atlas && cellOf(ref.slot) !== NO_ATLAS_CELL) holdCell(ref, heldScale[ref.slot]!);
+        else if (reask && ref.atlas && card.role.view && (ref.tiers & liveMask) !== 0 && gateOpen(ref.painted) && !gathered) holdCell(ref, sourceScaleFor(ref.painted));
       }
     }
-    // A source is right for one camera bucket, one tier and one zoom (the
-    // scale rules read the zoom), plus one atlas revision.
-    const sourceEpoch = `${String(atlasScaleNow())}|${String(options.zoom?.() ?? 1)}|${tier}`;
-    const revision = atlasRevisionNow();
-    // Grouping comes before the order: a badge that appeared, parted or
-    // repainted rewrites the visible list's tail.
-    const clusters = refreshClusters(view, tier);
-    // A still camera and an unchanged scene reuse the list: a turning ring
-    // draws every tick without re-culling the board. A new atlas revision or
-    // raster scale is a source change, not an order change, and is handled
-    // below before this shortcut.
-    if (
-      orderReady &&
-      !orderDirty &&
-      tier === lastTier &&
-      sameRect(view, lastView) &&
-      motionOn === lastMotionLive &&
-      clusters === lastClusters &&
-      sourceEpoch === lastSourceEpoch &&
-      revision === lastAtlasRevision
-    ) {
-      return { orderChanged: false, visible: orderCount, atlasRevision: revision };
+    for (const badge of liveBadges) {
+      for (const ref of badge.ordered) {
+        settleQuad(ref, VIEW_ROLE, false, exact);
+        if (reask && ref.atlas && cellOf(ref.slot) !== NO_ATLAS_CELL) holdCell(ref, heldScale[ref.slot]!);
+      }
     }
+  };
+
+  /**
+   * Rebuild what is near the screen: which cards are built and hold cells,
+   * and the draw list. Runs when the grid cells around the view change, the
+   * tier or motion gate changes, a card or badge changed what it draws, or a
+   * jump's destination arrives.
+   */
+  const rebuild = (view: Rect, tier: CanvasTier, zoom: number, exact: boolean): void => {
+    liveEpoch += 1;
+    ensureRanks();
+    const margin = MARGIN_SCREEN_PX / zoom;
+    const range = cellRange(insetBy(view, margin));
+    lastRange = range.key;
+    lastRangeRect = range.rect;
     visibleSlots.length = 0;
-    grid.query(insetBy(view, 140), visibleSlots);
-    // Fill the reusable visible list, in paint order, without a per-frame array.
+    grid.query(range.rect, visibleSlots);
     visibleCards.length = 0;
     for (const slot of visibleSlots) {
       const card = slots[slot];
-      if (card !== undefined) visibleCards.push(card);
+      if (card === undefined) continue;
+      card.stamp = liveEpoch;
+      card.role = VIEW_ROLE;
+      visibleCards.push(card);
     }
-    visibleCards.sort((a, b) => {
-      if (a.fact.derived.z !== b.fact.derived.z) return a.fact.derived.z - b.fact.derived.z;
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
-    const cards = visibleCards;
-    let needed = 0;
-    for (const card of cards) {
-      if (gatheredSeats.has(card.id)) continue;
-      needed += card.ordered.length;
-    }
-    for (const slot of clustersActive) needed += slot.ordered.length;
-    ensureOrderCapacity(needed);
-
-    // Text and sprites name the atlas cell they draw from. When the raster
-    // scale bucket changes (a zoom) or a raster lands (a revision), the
-    // visible records take their new cell; the cell index changes with the
-    // key, so the record's source word is rewritten in place.
-    if (sourceEpoch !== lastSourceEpoch || revision !== lastAtlasRevision) {
-      // Section 8 rule 2: during a gesture the raster already in hand is
-      // scaled; every run becomes exact once the camera rests. Resolving the
-      // whole visible board here on every wheel tick ran canvas2d, measureText
-      // and SVG decode for hundreds of runs inside the gesture and dropped its
-      // frames. A record with no cell yet is still resolved at once, so a card
-      // that arrives mid-gesture is never blank.
-      const exact = options.settled?.() ?? true;
-      if (exact) {
-        lastSourceEpoch = sourceEpoch;
-        lastAtlasRevision = revision;
-      }
-      for (const card of cards) {
-        for (const ref of card.ordered) {
-          if (ref.painted.text === undefined && ref.painted.sprite === undefined) continue;
-          const at = ref.slot * QUAD_FLOATS + 23;
-          if (!exact && quads.u32[at] !== NO_ATLAS_CELL) continue;
-          const source = resolveSource(ref.painted, sourceScaleFor(ref.painted));
-          if (quads.u32[at] !== source) {
-            quads.u32[at] = source;
-            dirtyQuads.add(ref.slot);
-          }
+    visibleCards.sort(byRank);
+    const jumpCards: CardSlot[] = [];
+    if (jump !== undefined) {
+      const found: number[] = [];
+      grid.query(insetBy(jump.view, MARGIN_SCREEN_PX / jump.zoom), found);
+      for (const slot of found) {
+        const card = slots[slot];
+        if (card === undefined) continue;
+        if (card.stamp === liveEpoch) {
+          card.role = { view: true, jump: true };
+          continue;
         }
+        card.stamp = liveEpoch;
+        card.role = { view: false, jump: true };
+        jumpCards.push(card);
       }
     }
+    // Build what came near; a stale card repaints with its role in force, so
+    // its cells are taken in the same pass.
+    const fresh = new Set<CardSlot>();
+    for (const card of visibleCards) {
+      if (card.painted && !card.stale) continue;
+      paint(card);
+      fresh.add(card);
+    }
+    for (const card of jumpCards) {
+      if (card.painted && !card.stale) continue;
+      paint(card);
+      fresh.add(card);
+    }
+    // What left the view drops its cells; what left the keep ring (a screen
+    // beyond the view on every side) lets go of its quads too.
+    const keep = insetBy(view, Math.max(view.width, view.height));
+    for (const card of liveCards) {
+      if (card.stamp === liveEpoch) continue;
+      for (const ref of card.ordered) if (ref.atlas) dropCell(ref.slot);
+    }
+    for (const card of paintedCards) {
+      if (card.stamp === liveEpoch || intersects(card.rect, keep)) continue;
+      releaseShapes(card);
+    }
+    liveCards = jumpCards.length === 0 ? visibleCards.slice() : [...visibleCards, ...jumpCards];
 
-    const mask = TIER_BIT[tier];
+    // Badges near the screen draw and hold cells; the rest only answer the pointer.
+    const badges: ClusterSlot[] = [];
+    for (const badge of clustersActive) {
+      if (!intersects(badge.rect, range.rect)) continue;
+      badge.stamp = liveEpoch;
+      badges.push(badge);
+    }
+    for (const badge of liveBadges) {
+      if (badge.stamp === liveEpoch) continue;
+      for (const ref of badge.ordered) if (ref.atlas) dropCell(ref.slot);
+    }
+    liveBadges = badges;
+    settleLive(exact, false, fresh);
+
+    // The draw list: the current tier's quads with their gate open, bands in
+    // order, cards in rank, badges over every card.
+    let needed = 0;
+    for (const card of visibleCards) if (!gatheredSeats.has(card.id)) needed += card.ordered.length;
+    for (const badge of badges) needed += badge.ordered.length;
+    ensureOrderCapacity(needed);
+    const mask = liveMask;
     const counts = [0, 0, 0];
+    let at = 0;
     let moving = false;
     for (let band = 0; band < BAND_COUNT; band += 1) {
-      for (const card of cards) {
+      for (const card of visibleCards) {
         // A gathered seat draws nothing: its badge stands for it.
         if (gatheredSeats.has(card.id)) continue;
-        for (const quad of card.ordered) {
-          if (quad.band !== band) continue;
+        for (const ref of card.bands[band]!) {
+          if ((ref.tiers & mask) === 0) continue;
           // Motion's gate: a ring's rest pose draws only while motion is off,
           // its moving parts only while it runs (contract, `Quad.gate`).
-          if (quad.painted.gate !== undefined && (quad.painted.gate === "live") !== motionOn) continue;
-          order[counts[0]! + counts[1]! + counts[2]!] = quad.slot;
+          if (!gateOpen(ref.painted)) continue;
+          order[at] = ref.slot;
+          at += 1;
           counts[band] = counts[band]! + 1;
-          if (quad.motion !== undefined && (quad.tiers & mask) !== 0) moving = true;
+          if (ref.motion !== undefined) moving = true;
         }
       }
       // Badges paint in the lifted band, over every card (DOM z 3000).
       if (band === 2) {
-        for (const slot of clustersActive) {
-          for (const quad of slot.ordered) {
-            order[counts[0]! + counts[1]! + counts[2]!] = quad.slot;
+        for (const badge of badges) {
+          for (const ref of badge.ordered) {
+            if ((ref.tiers & mask) === 0) continue;
+            order[at] = ref.slot;
+            at += 1;
             counts[2] = counts[2]! + 1;
-            if (quad.motion !== undefined && (quad.tiers & mask) !== 0) moving = true;
+            if (ref.motion !== undefined) moving = true;
           }
         }
       }
@@ -1307,26 +1716,140 @@ export const createScene = (options: {
     bandEnds = [counts[0]!, counts[0]! + counts[1]!, counts[0]! + counts[1]! + counts[2]!];
     orderCount = bandEnds[2];
     motionVisible = moving;
+  };
 
-    let changed = orderCount !== previousOrder.length;
-    if (!changed) {
-      for (let index = 0; index < orderCount; index += 1) {
-        if (order[index] !== previousOrder[index]) {
-          changed = true;
-          break;
+  /**
+   * The last line of the guarantee: an in-view quad whose cell has no image
+   * is rasterized now, before the frame is submitted, and counted if it still
+   * has none. It reads the record's own cell word, the one the renderer draws
+   * from, against the actual view, every presented frame. Only records that
+   * had no image when last looked at are checked, so a steady frame costs a
+   * walk over an empty set.
+   */
+  const checkBlank = (view: Rect): void => {
+    let blank = 0;
+    for (const [slot, ref] of blankCandidates) {
+      const cell = cellOf(slot);
+      if (cell === NO_ATLAS_CELL && options.acquire !== undefined) {
+        blankCandidates.delete(slot);
+        continue;
+      }
+      if (cell !== NO_ATLAS_CELL && hasImage(cell)) {
+        blankCandidates.delete(slot);
+        continue;
+      }
+      if (!drawnInView(slot, ref, view)) continue;
+      if (cell === NO_ATLAS_CELL) {
+        // The older lookup answers a raster once it lands: ask again.
+        holdCell(ref, sourceScaleFor(ref.painted));
+        if (!blankCandidates.has(slot)) continue;
+      } else if (options.ensureNow !== undefined) {
+        options.ensureNow(cell);
+        ensuredNow += 1;
+        if (hasImage(cell)) {
+          blankCandidates.delete(slot);
+          continue;
+        }
+      }
+      blank += 1;
+    }
+    visibleBlank = blank;
+  };
+
+  /** The record is in the draw list and its owner meets the view. */
+  const drawnInView = (slot: number, ref: QuadRef, view: Rect): boolean => {
+    if ((ref.tiers & liveMask) === 0 || !gateOpen(ref.painted)) return false;
+    const owner = quads.u32[slot * QUAD_FLOATS + 15]!;
+    const card = slots[owner];
+    if (card !== undefined) {
+      if (card.stamp !== liveEpoch || !card.role.view || gatheredSeats.has(card.id)) return false;
+      return intersects(card.rect, view);
+    }
+    const badge = badgeByOwner.get(owner);
+    return badge !== undefined && badge.stamp === liveEpoch && intersects(badge.rect, view);
+  };
+
+  const prepare = (view: Rect, tier: CanvasTier): Prepared => {
+    currentTier = tier;
+    const motionOn = options.motionLive?.() ?? true;
+    const zoom = options.zoom?.() ?? 1;
+    const exact = options.settled?.() ?? true;
+    // Region watermarks are a style on the region's name quads, not a raster:
+    // they step with the zoom. A step waits for the camera's rest, so the
+    // text is never re-rasterized inside a gesture (section 8 rule 2).
+    const glance = options.glance?.(zoom);
+    if (glance !== undefined && (glance.region !== glanceNow.region || glance.sub !== glanceNow.sub)) {
+      if (exact) {
+        glanceNow = { region: glance.region, sub: glance.sub };
+        for (const card of byId.values()) {
+          if (card.fact.row.kind === "region") repaint(card);
         }
       }
     }
-    if (changed) {
-      previousOrder.length = orderCount;
-      for (let index = 0; index < orderCount; index += 1) previousOrder[index] = order[index]!;
+    // Grouping comes before the order: a badge that appeared, parted or
+    // repainted rewrites the visible list's tail.
+    const clusters = refreshClusters(view, tier);
+    liveMask = TIER_BIT[tier];
+    liveMotion = motionOn;
+    aheadTiers = tiersAhead(zoom, tier);
+    if (jump !== undefined) {
+      jumpTier = tierForZoom(jump.zoom);
+      jumpMask = TIER_BIT[jumpTier];
+      jumpZoom = jump.zoom;
+    } else {
+      jumpTier = undefined;
+      jumpMask = 0;
     }
-    orderDirty = false;
-    lastView = view;
-    lastTier = tier;
-    lastMotionLive = motionOn;
-    lastClusters = clusters;
-    orderReady = true;
+    const range = cellRange(insetBy(view, MARGIN_SCREEN_PX / zoom)).key;
+    const rebuilt =
+      !orderReady ||
+      orderDirty ||
+      jumpDirty ||
+      tier !== lastTier ||
+      motionOn !== lastMotionLive ||
+      clusters !== lastClusters ||
+      range !== lastRange;
+    // A raster scale is right for one camera bucket, one tier and one zoom
+    // (the scale rules read the zoom). Inside a gesture the cell in hand is
+    // kept (section 8 rule 2); at rest every live record is made exact.
+    const exactEpoch = `${String(atlasScaleNow())}|${String(zoom)}|${tier}`;
+    const settle = exact && exactEpoch !== lastExactEpoch;
+    // The older lookup answers a landed raster only when asked again; under
+    // references a landing never touches a record.
+    const revision = atlasRevisionNow();
+    const reask = options.acquire === undefined && lastAtlasRevision >= 0 && revision !== lastAtlasRevision && exact;
+    if (rebuilt) {
+      rebuild(view, tier, zoom, exact);
+      orderDirty = false;
+      jumpDirty = false;
+      lastTier = tier;
+      lastMotionLive = motionOn;
+      lastClusters = clusters;
+      orderReady = true;
+    }
+    if ((settle && !rebuilt) || reask) settleLive(exact, reask);
+    if (exact) {
+      lastExactEpoch = exactEpoch;
+      lastAtlasRevision = revision;
+    }
+    checkBlank(view);
+
+    let changed = false;
+    if (rebuilt) {
+      changed = orderCount !== previousOrder.length;
+      if (!changed) {
+        for (let index = 0; index < orderCount; index += 1) {
+          if (order[index] !== previousOrder[index]) {
+            changed = true;
+            break;
+          }
+        }
+      }
+      if (changed) {
+        previousOrder.length = orderCount;
+        for (let index = 0; index < orderCount; index += 1) previousOrder[index] = order[index]!;
+      }
+    }
     return { orderChanged: changed, visible: orderCount, atlasRevision: revision };
   };
 
@@ -1382,6 +1905,9 @@ export const createScene = (options: {
     /** The members of the badge under a board point, if any (the pointer's cluster hit). */
     clusterAt: (at: Point) => clusterSlotAt(at)?.members,
     prepare,
+    prefetch,
+    /** In-view quads with no image on the last presented frame, and cells rasterized in the frame to prevent one. */
+    blankStats: (): { readonly visibleBlank: number; readonly ensuredNow: number } => ({ visibleBlank, ensuredNow }),
     hasMotion,
     index,
     takeQuadDirty,

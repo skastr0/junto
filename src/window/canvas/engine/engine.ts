@@ -123,6 +123,18 @@ export interface EngineHost {
   /** The atlas's cell-table revision; a change re-uploads the UV table. */
   readonly atlasRevision?: () => number;
   /**
+   * The atlas's referenced cells (#911/#912): records take and let go of
+   * cells, and the scene rasterizes an in-view cell with no image before the
+   * frame is submitted. Wins over `sourceOf`.
+   */
+  readonly cells?: {
+    acquire(quad: Quad, scale: number, previous?: number): number;
+    release(cell: number): void;
+    hasImage(cell: number): boolean;
+    ensureNow(cell: number): unknown;
+    recordVisibleBlank?(count: number): void;
+  };
+  /**
    * The app's surface motion gate (hidden window, reduced motion). A ring's
    * rest pose draws only while motion is off, its moving parts only while it
    * runs. Defaults to live.
@@ -223,6 +235,16 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     ...(host.measure === undefined ? {} : { measure: host.measure }),
     ...(host.sourceOf === undefined ? {} : { source: host.sourceOf }),
     ...(host.atlasRevision === undefined ? {} : { atlasRevision: host.atlasRevision }),
+    ...(host.cells === undefined
+      ? {}
+      : {
+          acquire: (quad: Quad, scale: number, previous?: number) => host.cells!.acquire(quad, scale, previous),
+          release: (cell: number) => host.cells!.release(cell),
+          hasImage: (cell: number) => host.cells!.hasImage(cell),
+          ensureNow: (cell: number) => {
+            host.cells!.ensureNow(cell);
+          },
+        }),
     ...(host.motionLive === undefined ? {} : { motionLive: host.motionLive }),
     ...(host.glance === undefined ? {} : { glance: host.glance }),
     // Section 8 rule 2: nothing re-rasterizes mid-gesture; every visible run
@@ -418,6 +440,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   };
 
   const cancelAnimation = (): void => {
+    if (animation !== undefined) scene.prefetch(null);
     animation = undefined;
   };
 
@@ -441,7 +464,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
       camera = interpolateCamera(animation.from, animation.to, size, easeCubicInOut(t));
       markCameraMoved(start);
       dirty = true;
-      if (t >= 1) animation = undefined;
+      if (t >= 1) {
+        animation = undefined;
+        scene.prefetch(null);
+      }
     }
     const frameMs = lastFrameAt === 0 ? 1000 / 60 : Math.max(0, start - lastFrameAt);
     lastFrameAt = start;
@@ -471,6 +497,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
 
     // 3: the visible set and the order list (culling by whole cards).
     const prepared = scene.prepare(viewRect(camera, size), tier);
+    // The atlas's visibleBlank counter reads what this presented frame drew.
+    host.cells?.recordVisibleBlank?.(scene.blankStats().visibleBlank);
     const wall = wallNow();
     // The shader's clock is page-relative: `Date.now()` in a float32 uniform
     // quantizes to about two minutes, freezing every fade and every phase.
@@ -600,6 +628,9 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     const duration = options?.durationMs ?? 0;
     if (duration > 0 && size.width > 0 && size.height > 0) {
       animation = { from: camera, to: target, start: now, duration };
+      // The destination's cards take their cells while the camera travels,
+      // so the landing frame is never blank.
+      scene.prefetch({ view: viewRect(target, size), zoom: target.zoom });
       markCameraMoved(now);
       dirty = true;
       schedule();

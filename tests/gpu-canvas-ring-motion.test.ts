@@ -117,28 +117,28 @@ describe("the source a moving camera holds", () => {
       },
     });
     scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [agentFact()], wires: [] });
-    // The paint resolves its own cell.
-    expect(asks).toHaveLength(1);
-    // The first prepared frame lands that cell at its bucket.
+    // A load asks the atlas for nothing: cells are taken for what draws.
+    expect(asks).toHaveLength(0);
+    // The first prepared frame takes the cell at its bucket.
     expect(scene.prepare(VIEW_RECT, "near").visible).toBe(1);
-    expect(asks).toHaveLength(2);
+    expect(asks).toHaveLength(1);
     // A still camera and an unchanged scene ask for nothing.
     scene.prepare(VIEW_RECT, "near");
-    expect(asks).toHaveLength(2);
+    expect(asks).toHaveLength(1);
 
     // A zoom in flight: five frames at a new raster scale, no new cell asked.
     settled = false;
     scale = 2;
     for (let frame = 0; frame < 5; frame += 1) scene.prepare(VIEW_RECT, "near");
-    expect(asks).toHaveLength(2);
-    expect(scene.quadBuffer.u32[0 * QUAD_FLOATS + 23]).toBe(2);
+    expect(asks).toHaveLength(1);
+    expect(scene.quadBuffer.u32[0 * QUAD_FLOATS + 23]).toBe(1);
 
     // At rest the record takes the exact cell for the new scale, once.
     settled = true;
     scene.prepare(VIEW_RECT, "near");
-    expect(asks).toHaveLength(3);
-    expect(asks[2]).toBe(2);
-    expect(scene.quadBuffer.u32[0 * QUAD_FLOATS + 23]).toBe(3);
+    expect(asks).toHaveLength(2);
+    expect(asks[1]).toBe(2);
+    expect(scene.quadBuffer.u32[0 * QUAD_FLOATS + 23]).toBe(2);
   });
 
   it("still resolves a record that has no cell yet, so a card arriving mid-gesture is not blank", () => {
@@ -154,11 +154,16 @@ describe("the source a moving camera holds", () => {
       },
     });
     scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [agentFact()], wires: [] });
-    expect(scene.quadBuffer.u32[0 * QUAD_FLOATS + 23]).toBe(NO_ATLAS_CELL);
+    // Nothing is built before the card comes near the screen.
+    expect(scene.quadCount).toBe(0);
+    // The first frame takes the cell, and the frame's blank check asks again
+    // for an in-view record with none.
     scene.prepare(VIEW_RECT, "near");
     expect(asks).toHaveLength(2);
+    expect(scene.blankStats().visibleBlank).toBe(1);
     scene.prepare(VIEW_RECT, "near");
     expect(asks).toHaveLength(3);
+    expect(scene.blankStats().visibleBlank).toBe(0);
     expect(scene.quadBuffer.u32[0 * QUAD_FLOATS + 23]).toBe(7);
     settled = true;
   });

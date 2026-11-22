@@ -51,6 +51,8 @@ const sceneAsks = (quad: Quad, scale = 2) => {
     scale: () => scale,
   });
   scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+  // Cells are taken for what draws: a view around the card.
+  scene.prepare({ x: -100, y: -100, width: 800, height: 600 }, "near");
   return asks;
 };
 

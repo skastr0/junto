@@ -16,11 +16,15 @@ const styleWhen = (selected: boolean): QuadStyle => ({
   fill: { kind: "flat", color: { token: selected ? "cyan" : "amber" } },
 });
 
+/** A view around card "a": a card's quads are built once it comes near the screen. */
+const VIEW = { x: -100, y: -100, width: 800, height: 600 };
+
 const sceneWith = (quads: (view: CardView) => ReadonlyArray<Quad>) => {
   const scene = createScene({
     painter: (_fact, _live, view, _env) => ({ quads: quads(view), dim: { opacity: 1, saturate: 1 }, lift: 0 }),
   });
   scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+  scene.prepare(VIEW, "near");
   return scene;
 };
 
@@ -87,6 +91,7 @@ describe("the owner slot", () => {
       }),
     });
     scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact(), second], wires: [] });
+    scene.prepare(VIEW, "near");
     expect(word(scene, 0, 15)).toBe(0);
     expect(word(scene, 1, 15)).toBe(1);
     // A drag is the owner entry, never the record's card-local rect.
@@ -160,6 +165,7 @@ describe("the atlas cell a record draws from", () => {
       atlasRevision: () => revision,
     });
     scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    scene.prepare(VIEW, "near");
     return {
       scene,
       seen,
@@ -169,7 +175,7 @@ describe("the atlas cell a record draws from", () => {
       bumpRevision: (): void => {
         revision += 1;
       },
-      view: { x: -100, y: -100, width: 800, height: 600 },
+      view: VIEW,
     };
   };
 
@@ -211,7 +217,7 @@ describe("the atlas cell a record draws from", () => {
 });
 
 describe("a connect in progress", () => {
-  it("tells the painter every card is connecting on the way in and out", () => {
+  it("tells the painter every card is connecting on the way in and out, an off-screen one when it comes near", () => {
     const seen = new Map<string, boolean>();
     const scene = createScene({
       painter: (card, _live, view) => {
@@ -220,12 +226,21 @@ describe("a connect in progress", () => {
       },
     });
     const b: CardFact = { id: "b", row: seat("b", { x: 400, y: 200 }), derived: { regionDepth: 0, blocked: false, z: 0 } };
-    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact(), b], wires: [] });
+    const far: CardFact = { id: "c", row: seat("c", { x: 40_000, y: 0 }), derived: { regionDepth: 0, blocked: false, z: 0 } };
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact(), b, far], wires: [] });
+    scene.prepare(VIEW, "near");
     expect(seen.get("a")).toBe(false);
+    // A card nowhere near the screen is not built at all.
+    expect(seen.has("c")).toBe(false);
     scene.apply({ kind: "wireMode", mode: "connecting" });
     expect(seen.get("a")).toBe(true);
     expect(seen.get("b")).toBe(true);
+    expect(seen.has("c")).toBe(false);
+    scene.prepare({ ...VIEW, x: 39_900 }, "near");
+    expect(seen.get("c")).toBe(true);
     scene.apply({ kind: "wireMode", mode: "rest" });
+    expect(seen.get("c")).toBe(false);
+    scene.prepare(VIEW, "near");
     expect(seen.get("a")).toBe(false);
     expect(seen.get("b")).toBe(false);
   });
@@ -253,6 +268,7 @@ describe("the ring angle hook", () => {
       }),
     });
     scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    scene.prepare(VIEW, "near");
     // 360 ms into the spin's 1440 ms lap is a quarter turn, clockwise; the
     // band's slower lap would read 54 degrees.
     expect(scene.ringAngle("a", 360)).toBeCloseTo(90, 9);
@@ -305,7 +321,7 @@ describe("the shader clock", () => {
 });
 
 describe("a theme switch", () => {
-  it("repaints every card, so generated art is handed the new mode", () => {
+  it("repaints every card, so generated art is handed the new mode, an off-screen one when it comes near", () => {
     const painted: Array<{ id: string; mode: string }> = [];
     const scene = createScene({
       painter: (card, _live, view) => {
@@ -314,10 +330,14 @@ describe("a theme switch", () => {
       },
     });
     const b: CardFact = { id: "b", row: seat("b", { x: 400, y: 200 }), derived: { regionDepth: 0, blocked: false, z: 0 } };
-    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact(), b], wires: [] });
+    const far: CardFact = { id: "c", row: seat("c", { x: 40_000, y: 0 }), derived: { regionDepth: 0, blocked: false, z: 0 } };
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact(), b, far], wires: [] });
+    scene.prepare(VIEW, "near");
     painted.length = 0;
     scene.apply({ kind: "theme", mode: "bright" });
     expect(painted.map((entry) => entry.id).sort()).toEqual(["a", "b"]);
+    scene.prepare({ ...VIEW, x: 39_900 }, "near");
+    expect(painted.map((entry) => entry.id).sort()).toEqual(["a", "b", "c"]);
     expect(painted.every((entry) => entry.mode === "bright")).toBe(true);
   });
 });
@@ -349,6 +369,7 @@ describe("a sprite's raster scale", () => {
       zoom: () => 0.3,
     });
     scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    scene.prepare(VIEW, "near");
     const near = scales.at(-1)!;
     scene.prepare({ x: -100, y: -100, width: 800, height: 600 }, "far");
     const far = scales.at(-1)!;
@@ -412,6 +433,7 @@ describe("a live resize", () => {
       }),
     });
     scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    scene.prepare(VIEW, "near");
     expect(float(scene, 0, 2)).toBe(200);
     scene.resizeCard("a", { x: 0, y: 0, width: 300, height: 80 });
     expect(float(scene, 0, 2)).toBe(300);
@@ -431,6 +453,7 @@ describe("a hovered part", () => {
       },
     });
     scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards: [fact()], wires: [] });
+    scene.prepare(VIEW, "near");
     scene.setHover("a", "regionFrame");
     expect(seen.at(-1)).toBe("regionFrame");
     scene.setHover("a", "regionTitle");
