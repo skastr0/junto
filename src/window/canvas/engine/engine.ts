@@ -664,7 +664,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     // The shader's clock is page-relative: `Date.now()` in a float32 uniform
     // quantizes to about two minutes, freezing every fade and every phase.
     const shaderNow = clock();
-    scene.setClocks({ now: shaderNow, wall });
+    scene.setClocks({ now: shaderNow, wall, frame: true });
     if (prepared.orderChanged) dirty = true;
 
     // 5: uploads.

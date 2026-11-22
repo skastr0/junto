@@ -542,6 +542,15 @@ export const createScene = (options: {
   let clusterVersion = 0;
   /** The wall time the last style transition ends; the loop draws until then. */
   let transitionUntil = 0;
+  /**
+   * A style transition has not yet been drawn whole at its end. The last
+   * frame inside a transition draws it a little short of its end style; the
+   * frame after that only redraws its movers, so without one whole frame at
+   * the end the faded pixels keep that last step (issue 915).
+   */
+  let fadeOwed = false;
+  /** This frame is the first past a transition's end: it draws whole. */
+  let fadeEnding = false;
   /** Page-relative milliseconds, the shader's clock (small enough for f32). */
   let clockNow = 0;
   /** Epoch milliseconds, the wall clock the DOM ring's phase reads. */
@@ -788,7 +797,10 @@ export const createScene = (options: {
       : oldStyle === style
         ? { previousStyle: quads.u32[at + 28] ?? style, changeAt: quads.f32[at + 29] ?? clockNow }
         : { previousStyle: oldStyle ?? style, changeAt: clockNow };
-    if (!fresh && oldStyle !== style) transitionUntil = Math.max(transitionUntil, clockNow + STYLE_TRANSITION_MS);
+    if (!fresh && oldStyle !== style) {
+      transitionUntil = Math.max(transitionUntil, clockNow + STYLE_TRANSITION_MS);
+      fadeOwed = true;
+    }
     const radius = typeof quad.radii === "number"
       ? ([quad.radii, quad.radii, quad.radii, quad.radii] as const)
       : quad.radii ?? ([0, 0, 0, 0] as const);
@@ -1559,6 +1571,8 @@ export const createScene = (options: {
     orderCount = 0;
     bandEnds = [0, 0, 0];
     transitionUntil = 0;
+    fadeOwed = false;
+    fadeEnding = false;
     grid.clear();
     wires = new Map();
     markOrder();
@@ -2880,14 +2894,23 @@ export const createScene = (options: {
      * the in-view movers can reach, or undefined while a style transition
      * runs (it can change any quad).
      */
-    motionDamage: (at: number = clockNow): ReadonlyArray<Rect> | undefined => (at < transitionUntil ? undefined : moverRects),
+    motionDamage: (at: number = clockNow): ReadonlyArray<Rect> | undefined => {
+      if (at < transitionUntil || fadeEnding) return undefined;
+      return moverRects;
+    },
     index,
     lensIndex,
     takeQuadDirty,
     takeOwnerDirty,
-    setClocks: (next: { readonly now: number; readonly wall: number }): void => {
+    setClocks: (next: { readonly now: number; readonly wall: number; readonly frame?: boolean }): void => {
       clockNow = next.now;
       wallNow = next.wall;
+      // A frame's own clock: the first frame past a transition's end draws
+      // it whole, at its end style.
+      if (next.frame === true) {
+        fadeEnding = fadeOwed && next.now >= transitionUntil;
+        if (fadeEnding) fadeOwed = false;
+      }
     },
     /** One clock for both, for a caller (a test) that does not split them. */
     setWallClock: (now: number): void => {

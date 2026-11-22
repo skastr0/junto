@@ -137,4 +137,84 @@ describe("a frame only motion drives", () => {
     engine.dispose();
     keeper.dispose();
   });
+
+  it("draws the whole frame once a style fade ends, so no faded pixel keeps its last step (issue 915)", async () => {
+    const { asCanvasName } = await import("@shared/model");
+    const { createDeviceKeeper } = await import("../src/window/canvas/engine/device");
+    const { createEngine } = await import("../src/window/canvas/engine/engine");
+    const { STYLE_TRANSITION_MS } = await import("../src/window/canvas/engine/scene");
+    const { fakeContext, fakeGpu, fakeScheduler, settle } = await import("./gpu-canvas-fakes");
+    const { seat } = await import("./support/model-nodes");
+    const gpu = fakeGpu();
+    const keeper = createDeviceKeeper(gpu.gpu);
+    const context = fakeContext();
+    const frames = fakeScheduler();
+    let now = 0;
+    let opacity = 0.4;
+    const quad = (key: string, x: number, style: Record<string, unknown>, motion?: Record<string, unknown>) => ({
+      key,
+      kind: "shape",
+      band: "cards",
+      z: 1,
+      rect: { x, y: 0, width: 40, height: 40 },
+      tiers: 15,
+      scale: { kind: "board" },
+      style,
+      ...(motion === undefined ? {} : { motion }),
+    });
+    const turning = quad("turning", 0, {}, { kind: "turn", periodMs: 1200 });
+    let fading = quad("fading", 120, { opacity });
+    const painted = () => ({ quads: [turning, fading], dim: { opacity: 1, saturate: 1 }, lift: 0 });
+    const engine = createEngine({
+      surface: { width: 0, height: 0 },
+      context: context.context,
+      device: keeper,
+      scheduler: frames.scheduler,
+      clock: () => now,
+      // A turning card keeps the loop running; the still one fades its fill.
+      painter: () => painted() as never,
+    });
+    engine.input({ kind: "resize", width: 400, height: 300, pixelRatio: 2 });
+    const load = () =>
+      engine.apply([
+        { kind: "load", canvas: asCanvasName("factory"), cards: [{ id: "a", row: seat("a", { x: 20, y: 20 }), derived: { regionDepth: 0, blocked: false, z: 0 } }], wires: [] },
+      ]);
+    load();
+    await settle();
+    // An encoder that can copy the kept frame, so a frame may draw only its damage.
+    const device = gpu.devices[0]!.device as unknown as { createCommandEncoder: () => Record<string, unknown> };
+    const make = device.createCommandEncoder.bind(device);
+    device.createCommandEncoder = () => {
+      const encoder = make();
+      const begin = encoder["beginRenderPass"] as (descriptor: GPURenderPassDescriptor) => Record<string, unknown>;
+      return {
+        ...encoder,
+        beginRenderPass: (descriptor: GPURenderPassDescriptor) => ({ ...begin(descriptor), setScissorRect: () => undefined }),
+        copyTextureToTexture: () => undefined,
+      };
+    };
+    for (let index = 0; index < 12; index += 1) {
+      now += 100;
+      frames.tick();
+    }
+    const whole = 800 * 600;
+    expect(engine.stats().damage!.lastPixels).toBeLessThan(whole);
+    opacity = 1;
+    fading = quad("fading", 120, { opacity });
+    engine.apply([{ kind: "selection", fact: { nodeIds: ["a"] } }]);
+    const drawn: number[] = [];
+    for (let at = 0; at < STYLE_TRANSITION_MS + 200; at += 16) {
+      now += 16;
+      frames.tick();
+      drawn.push(engine.stats().damage!.lastPixels);
+    }
+    // Frame i draws at 16 (i + 1) ms after the change: this is the first at or past the fade's end.
+    const ending = Math.ceil(STYLE_TRANSITION_MS / 16) - 1;
+    // Whole through the fade and on that first frame at its end style, then the turn alone.
+    expect(drawn.slice(0, ending + 1)).toEqual(drawn.slice(0, ending + 1).map(() => whole));
+    expect(drawn[ending + 1]).toBeLessThan(whole);
+    expect(drawn.at(-1)).toBeLessThan(whole);
+    engine.dispose();
+    keeper.dispose();
+  });
 });
