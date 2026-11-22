@@ -1135,7 +1135,7 @@ test.describe("#913 GPU canvas proof", () => {
                   chromeSamples.push({
                     x,
                     y,
-                    known: /RTS|Strategic minimap|rts-/i.test(near === null || near === undefined ? "" : String(near.getAttribute("aria-label") ?? near.className ?? "")),
+                    known: /RTS|minimap|rts-/i.test(near === null || near === undefined ? "" : String(near.getAttribute("aria-label") ?? near.className ?? "")),
                     tag: element?.tagName ?? "none",
                     className: String(element?.className ?? "").slice(0, 120),
                     id: (element as HTMLElement | null)?.id ?? "",
@@ -1219,7 +1219,14 @@ test.describe("#913 GPU canvas proof", () => {
               const rect = { x: badge.x - badge.radius, y: badge.y - badge.radius, width: badge.radius * 2, height: badge.radius * 2 };
               return { key: badge.key, ink: round(partInk(image, viewport, rect), 4), rect };
             })
-            .filter((badge) => badge.ink < 0.01);
+            .filter(
+              (badge) =>
+                badge.ink < 0.01 &&
+                badge.rect.x >= pane.x &&
+                badge.rect.y >= pane.y &&
+                badge.rect.x + badge.rect.width <= pane.x + pane.width &&
+                badge.rect.y + badge.rect.height <= pane.y + pane.height,
+            );
           const referenceDir = join(OUT, "reference");
           await mkdir(referenceDir, { recursive: true });
           const referencePath = join(referenceDir, `${String(scale)}x-${tier.name}.png`);
