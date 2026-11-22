@@ -179,13 +179,21 @@ export const buildProofBoard = (fixture: NestedCanvasFixture, scale: ProofScale)
 export const launchProofArm = async (
   board: ProofBoard,
   options: { readonly gpu: boolean; readonly extraEnv?: Readonly<Record<string, string>> },
-): Promise<JuntoHandle> =>
-  launchJunto({
+): Promise<JuntoHandle> => {
+  // The operator's display by default. On the Mac mini the pane is a
+  // 1920x1080 screen: a 1726x1083 window does not fit, so the shakedown arm
+  // asks for a smaller window without the forced scale factor.
+  const display =
+    process.env["JUNTO_GPU_PROOF_WINDOW"] === "mini"
+      ? { windowContentSize: { width: 1440, height: 900 } }
+      : OPERATOR_DISPLAY;
+  return launchJunto({
     seedModels: { [PROOF_CANVAS]: board.model },
     ...(options.gpu ? { seedExperimentalFeatures: ["gpuCanvas" as const] } : {}),
-    ...OPERATOR_DISPLAY,
+    ...display,
     ...(options.extraEnv === undefined ? {} : { extraEnv: options.extraEnv }),
   });
+};
 
 // --- the hook's facts ----------------------------------------------------------
 
