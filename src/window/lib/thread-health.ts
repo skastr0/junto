@@ -20,7 +20,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { observable } from "@legendapp/state";
+import { batch, observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import type { AgentSignalKind } from "@shared/agent-signals";
 import { levelOfSignal, waitsOnOperator } from "@shared/wire/urgency";
@@ -273,6 +273,58 @@ export const threadHealthMarkOf = (
   signal: AgentSignalKind | undefined,
   now: number = healthClockNow(),
 ): ThreadHealthMark => healthMarkAt(bindingId, signal, now);
+
+/**
+ * The bindings `followHealthMark` readers hold, with the signal each was last
+ * read with and the key of the mark it drew: the tick re-keys these only.
+ */
+const followed = new Map<string, { readonly bindingId: string; signal: AgentSignalKind | undefined; key: string }>();
+/** Bumped for a binding when a tick changes its mark; its readers track it. */
+const followedRev$ = observable<Record<string, number>>({});
+let followingClock = false;
+
+const followClock = (): void => {
+  if (followingClock) return;
+  followingClock = true;
+  healthClock$.onChange(({ value: now }) => {
+    batch(() => {
+      for (const entry of followed.values()) {
+        const key = threadHealthMarkKey(healthMarkAt(entry.bindingId, entry.signal, now));
+        if (key === entry.key) continue;
+        entry.key = key;
+        followedRev$[entry.bindingId].set((followedRev$[entry.bindingId].peek() ?? 0) + 1);
+      }
+    });
+  });
+};
+
+/**
+ * The same mark as threadHealthMarkOf, for an `observe` caller that must not
+ * re-run on every tick: it tracks the seat's own reading and window digest,
+ * and the clock only through a per-seat revision a tick bumps when the mark it
+ * draws changes. Every seat re-deriving on every tick was a 24 ms main-thread
+ * task every 15 s at 2x the operator's board (issue 912).
+ */
+export const followHealthMark = (bindingId: string | undefined, signal: AgentSignalKind | undefined): ThreadHealthMark => {
+  if (!bindingId) return NO_MARK;
+  followClock();
+  seatAwareness$.byBindingId[bindingId].get();
+  seatAwareness$.windowDigestByBindingId[bindingId].get();
+  followedRev$[bindingId].get();
+  const mark = healthMarkAt(bindingId, signal, healthClock$.peek());
+  const key = threadHealthMarkKey(mark);
+  const at = `${bindingId}\u0000${signal ?? ""}`;
+  const entry = followed.get(at);
+  if (entry === undefined) followed.set(at, { bindingId, signal, key });
+  else entry.key = key;
+  return mark;
+};
+
+/** Forget every followed binding (tests, and a closed canvas's seats). */
+export const resetFollowedHealthMarks = (): void => {
+  followed.clear();
+  followedRev$.set({});
+};
 
 /**
  * Props for the card's activity mark rim, with the non-contradiction rule

@@ -14,7 +14,7 @@ import { cardMark, seatFactsForNode } from "../../lib/seat-projections";
 import { seatAwareness$ } from "../../lib/seat-awareness";
 import { state$ } from "../../lib/state";
 import { terminal$ } from "../../lib/terminal-state";
-import { healthClockNow, threadHealthMarkOf } from "../../lib/thread-health";
+import { followHealthMark } from "../../lib/thread-health";
 import { blockedNodeIds } from "./shared";
 
 export const retainSeatUrgency = (canvasName: string): (() => void) => {
@@ -27,7 +27,6 @@ export const retainSeatUrgency = (canvasName: string): (() => void) => {
     agentSeat$.rev.get();
     seatAwareness$.rev.get();
     const sessions = terminal$.sessionByBindingId.get();
-    healthClockNow();
     const blocked = blockedNodeIds(canvasName);
 
     const next = new Map<string, Urgency>();
@@ -36,7 +35,7 @@ export const retainSeatUrgency = (canvasName: string): (() => void) => {
       if (node$.kind.get() !== "agent") continue;
       const bindingId = (node$ as unknown as { bindingId: { get(): string | undefined } }).bindingId.get();
       const rollup = openCanvas === canvasName ? rollups[id]?.kind : undefined;
-      const health = threadHealthMarkOf(bindingId, rollup);
+      const health = followHealthMark(bindingId, rollup);
       const facts = seatFactsForNode({
         nodeId: id,
         seatEvent: bindingId === undefined ? undefined : agentSeat$.byBindingId[bindingId].peek(),

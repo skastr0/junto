@@ -41,7 +41,7 @@ import { seatTasks$ } from "../../lib/seat-tasks";
 import { state$ } from "../../lib/state";
 import { terminal$ } from "../../lib/terminal-state";
 import { themeMode$ } from "../../lib/theme-mode";
-import { threadHealthMarkOf } from "../../lib/thread-health";
+import { followHealthMark } from "../../lib/thread-health";
 import { pickPulseEdge, type PulseEdge } from "../../lib/wire-pulse";
 import { portraitOverrides$ } from "../../lib/portrait-overrides-state";
 import { seatPortraitMood } from "../../lib/portrait-mood";
@@ -209,7 +209,7 @@ const seatLiveOf = (
   const base =
     seatEvent?.state === "attention" && seatEvent.reason ? { ...mark, label: seatEvent.reason } : mark;
   const activity = freshNext ? { ...base, label: SEAT_FRESH_NEXT_LINE } : base;
-  const health = threadHealthMarkOf(bindingId, signal);
+  const health = followHealthMark(bindingId, signal);
   const ring = ringState({
     glyph: resolveActivityGlyph(activity.mode, activity.tone, activity.glyph),
     tone: activity.tone,
