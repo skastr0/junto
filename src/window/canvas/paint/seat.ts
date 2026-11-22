@@ -13,7 +13,7 @@ import { ALL_TIERS, TIER_BIT } from "../contract";
 import { BADGE, CREST, FAR, FLAG_HIT, FOCUS, LIFT_PX, SEAT, SEAT_BOX, SEAT_RING_CENTRE, SEAT_TEXT } from "./card-spec";
 import { dimOf, reachQuads } from "./overlays";
 import { bubbleQuads } from "./bubble";
-import { harnessSprite, portraitPlaceholder, portraitSprite } from "./images";
+import { harnessPlaceholder, harnessSprite, portraitPlaceholder, portraitSprite } from "./images";
 import { ringQuads } from "./motion";
 import { hoverBloom } from "./hover";
 import { midNameRun, midSeatLayout, midShellStyle } from "./mid";
@@ -160,7 +160,10 @@ export const paintSeat = (fact: CardFact, live: SeatLive | undefined, view: Card
           { fill: { kind: "flat", color: tok("raise") } },
           { tiers: NEAR, radii: BADGE.radius + BADGE.plate },
         ),
-        sprite({ key: "badge", z: 51, rect: badgeRect }, { tiers: NEAR, sprite: harnessSprite(live.harness, BADGE.size) }),
+        sprite(
+          { key: "badge", z: 51, rect: badgeRect },
+          { tiers: NEAR, radii: BADGE.radius, sprite: harnessSprite(live.harness, BADGE.size), placeholder: harnessPlaceholder(live.harness) },
+        ),
       );
     }
     if (live.overseer) {

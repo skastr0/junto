@@ -136,3 +136,9 @@ export const harnessSprite = (agent: string | undefined, size: number): SpriteRe
     return { atlas: "image", key, svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${frame}${glyph}</svg>`, size: { width: size, height: size } } as SpriteRef;
   });
 };
+
+/** A harness badge's tile tone, drawn while its SVG is cold (ruling 6). */
+export const harnessPlaceholder = (agent: string | undefined): ColorRef => {
+  const tile = markTileFor(agent, undefined);
+  return { custom: tile.hue, alpha: tile.known ? 0.14 : 0.1 };
+};

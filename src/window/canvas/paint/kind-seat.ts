@@ -193,7 +193,7 @@ export const paintKindSeat = (fact: CardFact, view: CardView, env: PaintEnv): Ca
     quads.push(
       sprite(
         { key: `band.${String(index)}`, z: 15 + index * 0.1, rect: ringRect },
-        { tiers: bloomed ? NEAR : NEAR_MID, sprite: layer.sprite, ...(layer.motion ? { motion: bandMotion(layer.motion) } : {}) },
+        { tiers: bloomed ? NEAR : NEAR_MID, shape: "disc", sprite: layer.sprite, placeholder: tok("ink", 0.08), ...(layer.motion ? { motion: bandMotion(layer.motion) } : {}) },
       ),
     );
   });
