@@ -81,6 +81,8 @@ export type WiresLayer = {
   readonly labelOf: (id: WireId) => Point | undefined;
   /** The labels of the wires the camera can see, for the shell's select buttons. */
   readonly labelsInView: () => ReadonlyArray<WireLabel>;
+  /** Start a pulse on the first `count` in-view wires, in load order (a measurement). */
+  readonly pulseFirst: (count: number, at: number) => number;
   /** The last label whose button covers the board point. */
   readonly labelAt: (at: Point, half: number) => WireId | undefined;
   readonly labelsRevision: () => number;
@@ -133,6 +135,7 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
     setHover: scene.setHover,
     labelOf: scene.labelOf,
     labelsInView: scene.labelsInView,
+    pulseFirst: scene.pulseFirst,
     labelAt: scene.labelAt,
     labelsRevision: scene.labelsRevision,
     inspect: scene.inspect,

@@ -223,6 +223,10 @@ export type WireScene = {
   readonly refreshMs: () => number;
   /** The last motion step, ms. */
   readonly stepMs: () => number;
+  /** Wire ids in load order, for a measurement that pulses them. */
+  readonly wireIds: () => ReadonlyArray<WireId>;
+  /** Start a pulse on the first `count` in-view wires (a measurement). */
+  readonly pulseFirst: (count: number, at: number) => number;
   /** Every strip pool's CPU bytes (vertices and indices). */
   readonly poolBytes: () => number;
   /** Wires the loom has not answered yet, all and those whose ends' box meets the view (a measurement). */
@@ -1022,7 +1026,10 @@ export const createWireScene = (host: WireHost): WireScene => {
       }
       case "pulse": {
         const entry = entries.get(op.wireId);
-        if (entry === undefined || activePulses >= WIRE_PULSE_MAX_ACTIVE) return;
+        // The cap counts the pulses a frame draws: a pulse no one can see
+        // takes no slot, and the slot it needs is taken when it comes back.
+        if (entry === undefined) return;
+        if (activePulses >= WIRE_PULSE_MAX_ACTIVE && inView(entry)) return;
         entry.pulse = { startedAt: op.at, kind: op.pulse ?? PULSE_KIND_DEFAULT, reverse: op.reverse ?? false };
         running.add(entry.id);
         return;
@@ -1085,10 +1092,8 @@ export const createWireScene = (host: WireHost): WireScene => {
       }
       const pulse = entry.pulse;
       if (pulse !== undefined && !visible) {
-        // Its draw is off screen; its expiry is bookkeeping, and it still
-        // holds a place under the cap until it ends.
+        // Its draw is off screen: no slot and no work, only its expiry.
         if (at >= pulse.startedAt + WIRE_PULSE_MS) clearPulse(entry);
-        else activePulses += 1;
       } else if (pulse !== undefined) {
         const length = entry.line?.length ?? 0;
         const token = tokenRgba(pulseToken(pulse.kind), mode);
@@ -1419,6 +1424,17 @@ export const createWireScene = (host: WireHost): WireScene => {
     wires: () => entries.size,
     refreshMs: () => refreshMs,
     stepMs: () => stepMs,
+    wireIds: () => [...entries.keys()],
+    pulseFirst: (count, at) => {
+      let left = count;
+      for (const [id, entry] of entries) {
+        if (left <= 0) break;
+        if (!inView(entry)) continue;
+        apply({ kind: "pulse", wireId: id, at });
+        left -= 1;
+      }
+      return count - left;
+    },
     poolBytes: () =>
       [pool, glowPool, trackPool].reduce(
         (bytes, each) => bytes + each.vertices().byteLength + each.indices().byteLength,

@@ -385,6 +385,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       () => atlas.pending,
       undefined,
       () => wires?.stats(),
+      (count) => wires?.pulseFirst(count, performance.now()) ?? 0,
     );
 
     return () => {

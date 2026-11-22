@@ -105,6 +105,7 @@ const build = (
     readonly indices: number;
     readonly uploadBytes: number;
   } | undefined,
+  pulse?: (count: number) => number,
 ): FullHook => {
   const cardIds = (): ReadonlyArray<NodeId> =>
     mirror.cardIds().filter((id) => mirror.card(id)?.row.kind !== "region");
@@ -216,9 +217,10 @@ export const installCanvasTestHook = (
     readonly indices: number;
     readonly uploadBytes: number;
   } | undefined = () => undefined,
+  pulse?: (count: number) => number,
 ): (() => void) => {
   if (!canvasTestHookWanted()) return () => undefined;
-  const hook = build(mirror, engine, atlasRequests, atlasPending, atlasStats, wireStats);
+  const hook = build(mirror, engine, atlasRequests, atlasPending, atlasStats, wireStats, pulse);
   (window as unknown as { __juntoCanvas?: FullHook }).__juntoCanvas = hook;
   return () => {
     const held = (window as unknown as { __juntoCanvas?: FullHook }).__juntoCanvas;

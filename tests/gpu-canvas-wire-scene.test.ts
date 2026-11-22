@@ -423,6 +423,33 @@ describe("the wire scene", () => {
     expect(scene.pulses().length).toBe(1);
   });
 
+  it("gives an off-screen pulse no slot, so in-view traffic still lights", () => {
+    const cards = new Map<string, Rect>();
+    const wires: WireFact[] = [];
+    for (let i = 0; i < 30; i += 1) {
+      cards.set(`off-s${i}`, rect(0, 4000 + i * 20));
+      cards.set(`off-t${i}`, rect(600, 4000 + i * 20));
+      wires.push(wire(`off-${i}`, `off-s${i}`, `off-t${i}`));
+      cards.set(`on-s${i}`, rect(0, i * 20));
+      cards.set(`on-t${i}`, rect(600, i * 20));
+      wires.push(wire(`on-${i}`, `on-s${i}`, `on-t${i}`));
+    }
+    const { scene, frame } = makeScene(cards);
+    scene.apply(load(wires));
+    frame(T0);
+    for (let i = 0; i < 30; i += 1) {
+      scene.apply({ kind: "pulse", wireId: `off-${i}`, at: T0 });
+      frame(T0 + 1);
+    }
+    // None of the off-screen pulses took a slot.
+    expect(scene.pulses()).toEqual([]);
+    for (let i = 0; i < 30; i += 1) {
+      scene.apply({ kind: "pulse", wireId: `on-${i}`, at: T0 + 2 });
+      frame(T0 + 2 + i);
+    }
+    expect(scene.pulses().length).toBe(24);
+  });
+
   it("picks only in the loupe or the cone, within 10 units, on the wire and not past its end", () => {
     const { scene, frame } = makeScene(board());
     scene.apply(load([wire("w", "a", "b")]));

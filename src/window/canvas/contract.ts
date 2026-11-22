@@ -1051,6 +1051,8 @@ export interface CanvasTestHook {
    * frame, wires rebuilt, draw calls the last encoded frame issued, and the
    * bytes the last upload wrote.
    */
+  /** Start `count` pulses on in-view wires, for the cap's cost measurement. */
+  readonly pulse?: (count: number) => number;
   readonly wireStats?: () => {
     readonly frames: number;
     readonly lastFrameMs: number;
