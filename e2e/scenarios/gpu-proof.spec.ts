@@ -45,6 +45,7 @@ import {
   cameraOnAt,
   launchProofArm,
   loadFactoryBoard,
+  lastSeed,
   loadFactoryFixture,
   paneRect,
   panSweep,
@@ -849,6 +850,7 @@ test.describe("#913 GPU canvas proof", () => {
       const dir = await boardDir(scale);
       const report: Report = {
         scale,
+        seed: lastSeed(),
         stats: board.stats,
         build: JSON.parse(await readFile(join(process.cwd(), "out/build-source.json"), "utf8")) as Record<string, unknown>,
         tiers: [],

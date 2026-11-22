@@ -197,6 +197,11 @@ const buildTag = (): string => {
  * app's command path at every launch measured about 90 s of the rig's time,
  * and an operator opens a board that is already stored, not one being written.
  */
+let seedInfo: { scale: number; builtMs: number; cached: boolean } | null = null;
+
+/** The seed this process last prepared, for the report. */
+export const lastSeed = (): { scale: number; builtMs: number; cached: boolean } | null => seedInfo;
+
 const preparedSeed = async (board: ProofBoard): Promise<{ path: string; builtMs: number; cached: boolean }> => {
   const dir = join(tmpdir(), "junto-gpu-proof-seeds");
   await mkdir(dir, { recursive: true });
@@ -205,6 +210,7 @@ const preparedSeed = async (board: ProofBoard): Promise<{ path: string; builtMs:
     `${String(board.scale)}x-${String(board.stats.seats)}s-${String(board.stats.notes)}n-${String(board.stats.regions)}r-${buildTag()}.db`,
   );
   if (existsSync(path)) return { path, builtMs: 0, cached: true };
+
   const started = Date.now();
   const sandbox = await createSandbox();
   try {
@@ -215,6 +221,10 @@ const preparedSeed = async (board: ProofBoard): Promise<{ path: string; builtMs:
     await destroySandbox(sandbox);
   }
   return { path, builtMs: Date.now() - started, cached: false };
+};
+
+const rememberSeed = (info: { scale: number; builtMs: number; cached: boolean }): void => {
+  seedInfo = info;
 };
 
 export const launchProofArm = async (
@@ -229,6 +239,7 @@ export const launchProofArm = async (
       ? { windowContentSize: { width: 1440, height: 900 } }
       : OPERATOR_DISPLAY;
   const seed = await preparedSeed(board);
+  rememberSeed({ scale: board.scale, builtMs: seed.builtMs, cached: seed.cached });
   console.log(
     `${String(board.scale)}x seed: ${seed.cached ? "reused" : `${String((seed.builtMs / 1000).toFixed(1))}s built`} (${seed.path})`,
   );
