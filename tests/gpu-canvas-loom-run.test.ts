@@ -185,6 +185,18 @@ describe("the loom's run loop", () => {
     for (const id of routed) expect(shareOf(id, 2)).toBe(shareOf("mid", 2));
   });
 
+  it("sends its share's counters with each slice", () => {
+    const sent: LoomUpdate[] = [];
+    const turns: Array<() => void> = [];
+    const run = createLoomRun((update) => sent.push(update), ONE, (next) => turns.push(next));
+    run.request({ kind: "share", index: 1, count: 2 });
+    run.request({ kind: "plan", cards, wires, view: atOrigin });
+    while (turns.length > 0) turns.shift()!();
+    const last = sent.at(-1)!.stats!;
+    expect(last).toMatchObject({ share: 1, begins: 1, indexes: 1, rerouted: 0 });
+    expect(last.routed).toBe(sent.flatMap(ids).length);
+  });
+
   it("begins the newest board when several land before its turn", () => {
     const sent: LoomUpdate[] = [];
     const turns: Array<() => void> = [];

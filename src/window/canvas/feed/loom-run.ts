@@ -37,6 +37,7 @@ export const createLoomRun = (
   later: (run: () => void) => void,
 ): LoomRun => {
   let planner = createLoomPlanner();
+  let share = 0;
   // The newest board, unpacked only when its turn comes: a board a newer
   // one replaced before then is never read.
   let board: Extract<LoomRequest, { kind: "plan" | "board" }> | undefined;
@@ -44,7 +45,7 @@ export const createLoomRun = (
   let disposed = false;
 
   const post = (update: LoomUpdate): void => {
-    if (update.set.length > 0 || update.remove.length > 0) send(update);
+    if (update.set.length > 0 || update.remove.length > 0) send({ ...update, stats: { ...planner.stats(), share } });
   };
 
   const tick = (): void => {
@@ -84,6 +85,7 @@ export const createLoomRun = (
           return;
         case "share":
           planner = createLoomPlanner({ index: request.index, count: request.count });
+          share = request.index;
           return;
       }
     },

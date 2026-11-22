@@ -68,6 +68,8 @@ export type LoomWireRow = {
 export type LoomUpdate = {
   readonly set: ReadonlyArray<WireRouteFact>;
   readonly remove: ReadonlyArray<WireId>;
+  /** The sending run's counters so far (loom-run), for the boot measurement. */
+  readonly stats?: LoomPlannerStats & { readonly share: number };
 };
 
 /** What a planner has done since it was made, for the boot measurement (issue 912). */

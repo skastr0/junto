@@ -50,6 +50,18 @@ const deviceCores = (): number => (typeof navigator === "object" && navigator.ha
 let workersNow = 0;
 export const loomWorkers = (): number => workersNow;
 
+/**
+ * What the loom has done on the open canvas, for the boot measurement: each
+ * run's last counters, by share, and the page's own time handing each slice's
+ * facts to the engine. Read through the test hook.
+ */
+const shareStats = new Map<number, NonNullable<LoomUpdate["stats"]>>();
+let applied = { slices: 0, facts: 0, ms: 0 };
+export const loomStats = (): { readonly shares: ReadonlyArray<NonNullable<LoomUpdate["stats"]>>; readonly applied: typeof applied } => ({
+  shares: [...shareStats.values()].sort((a, b) => a.share - b.share),
+  applied: { ...applied },
+});
+
 const workerHost = (send: (update: LoomUpdate) => void): LoomHost => {
   const count = loomWorkerCount(deviceCores());
   const workers: Worker[] = [];
@@ -144,7 +156,16 @@ export const retainWireRoutes = (
   emit: (ops: ReadonlyArray<SceneOp>) => void,
 ): (() => void) => {
   if (canvasName === "") return () => undefined;
-  const send = (update: LoomUpdate): void => emit([{ kind: "routes", set: update.set, remove: update.remove }]);
+  shareStats.clear();
+  applied = { slices: 0, facts: 0, ms: 0 };
+  const send = (update: LoomUpdate): void => {
+    const started = performance.now();
+    if (update.stats !== undefined) shareStats.set(update.stats.share, update.stats);
+    emit([{ kind: "routes", set: update.set, remove: update.remove }]);
+    applied.slices += 1;
+    applied.facts += update.set.length + update.remove.length;
+    applied.ms += performance.now() - started;
+  };
   const host = inWorker() ? workerHost(send) : pageHost(send);
   const onView = (view: Rect): void => host.request({ kind: "focus", view });
   viewListeners.add(onView);

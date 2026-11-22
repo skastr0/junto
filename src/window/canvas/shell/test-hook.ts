@@ -13,7 +13,7 @@ import { pageGpuAtlasStats } from "./gpu-atlas-page";
 import { engineStats } from "./gpu-canvas-api";
 import type { SurfaceMirror } from "./surface-mirror";
 import { lastReachMarks } from "./reach-live";
-import { loomWorkers, wireRouteView } from "../feed/loom";
+import { loomStats, loomWorkers, wireRouteView } from "../feed/loom";
 
 type HookPart = Part["kind"] | "toolbar" | "region-handle" | `handle:${"source" | "target"}:${"top" | "right" | "bottom" | "left"}` | `verb:${string}`;
 
@@ -174,7 +174,7 @@ const build = (
     atlasPending,
     atlasStats,
     wireStats,
-    loom: () => ({ workers: loomWorkers(), view: wireRouteView() ?? null }),
+    loom: () => ({ workers: loomWorkers(), view: wireRouteView() ?? null, ...loomStats() }),
     pick: (screen) => engine()?.pick(screen) ?? null,
     partsOf: (id) => mapParts(engine()?.partsOf?.(id) ?? []),
     setCull: (mode) => engine()?.setCull?.(mode),
