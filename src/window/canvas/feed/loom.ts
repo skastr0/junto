@@ -4,9 +4,9 @@
  * to the planner (feed/loom-planner.ts), whose facts come back as `routes`
  * ops.
  *
- * Routing never runs on the boot path (issue 912). The planner runs in a
- * worker (feed/loom-worker.ts) where the page has one, and in slices on the
- * page otherwise; either way the observer only collects rows and posts them,
+ * Routing never runs on the boot path (issue 912). The planner runs in
+ * workers (feed/loom-worker.ts) where the page has them, one per spare core,
+ * each routing its own share of the wires; in slices on the page otherwise; either way the observer only collects rows and posts them,
  * so the first frame never waits on a route. The wires nearest the view are
  * routed first (`setWireRouteView`), and the engine draws a wire only once
  * its route has landed, fading it in.
@@ -35,27 +35,54 @@ const inWorker = (): boolean => typeof Worker === "function" && typeof Offscreen
 const pageHost = (send: (update: LoomUpdate) => void): LoomHost =>
   createLoomRun(send, () => performance.now(), (next) => setTimeout(next, 0));
 
+/**
+ * How many workers route side by side: every core the device reports but
+ * two, one for the page's own thread and one for the GPU and compositor
+ * process, and at least one. A route is pure, so the shares never wait on
+ * each other. A design value over the device's count.
+ */
+export const loomWorkerCount = (cores: number): number => Math.max(1, Math.floor(cores) - 2);
+
+const deviceCores = (): number => (typeof navigator === "object" && navigator.hardwareConcurrency > 0 ? navigator.hardwareConcurrency : 1);
+
+/** The workers the open canvas routes in, for the boot measurement; 0 on the page. */
+let workersNow = 0;
+export const loomWorkers = (): number => workersNow;
+
 const workerHost = (send: (update: LoomUpdate) => void): LoomHost => {
-  const worker = new Worker(new URL("./loom-worker.ts", import.meta.url), { type: "module" });
+  const count = loomWorkerCount(deviceCores());
+  const workers: Worker[] = [];
   let fallback: LoomHost | undefined;
   let last: Extract<LoomRequest, { kind: "plan" }> | undefined;
-  worker.onmessage = (event: MessageEvent<LoomUpdate>) => send(event.data);
-  worker.onerror = (event) => {
-    // A worker that cannot start routes on the page instead, from the last board.
-    console.error("loom worker error:", event.message);
-    worker.terminate();
+  let lastView: Rect | undefined;
+  const fail = (message: string): void => {
+    // A worker that cannot start: the page routes the whole board instead,
+    // from the last board and view.
+    console.error("loom worker error:", message);
+    for (const worker of workers) worker.terminate();
+    workersNow = 0;
     if (fallback !== undefined) return;
     fallback = pageHost(send);
-    if (last !== undefined) fallback.request(last);
+    if (last !== undefined) fallback.request(lastView === undefined || last.view !== undefined ? last : { ...last, view: lastView });
   };
+  for (let index = 0; index < count; index += 1) {
+    const worker = new Worker(new URL("./loom-worker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (event: MessageEvent<LoomUpdate>) => send(event.data);
+    worker.onerror = (event) => fail(event.message);
+    worker.postMessage({ kind: "share", index, count } satisfies LoomRequest);
+    workers.push(worker);
+  }
+  workersNow = count;
   return {
     request: (request) => {
       if (request.kind === "plan") last = request;
+      if (request.kind === "focus") lastView = request.view;
       if (fallback !== undefined) fallback.request(request);
-      else worker.postMessage(request);
+      else for (const worker of workers) worker.postMessage(request);
     },
     dispose: () => {
-      worker.terminate();
+      for (const worker of workers) worker.terminate();
+      workersNow = 0;
       fallback?.dispose();
     },
   };

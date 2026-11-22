@@ -6,7 +6,8 @@
  * shape by itself.
  */
 import { describe, expect, it } from "vitest";
-import { createLoomPlanner, type LoomCard, type LoomUpdate, type LoomWireRow } from "../src/window/canvas/feed/loom-planner";
+import { createLoomPlanner, shareOf, type LoomCard, type LoomUpdate, type LoomWireRow } from "../src/window/canvas/feed/loom-planner";
+import { loomWorkerCount } from "../src/window/canvas/feed/loom";
 import { createLoomRun } from "../src/window/canvas/feed/loom-run";
 import { createWireScene, RECORD_FLOATS } from "../src/window/canvas/engine/wires/scene";
 import type { NodeId, Rect, SceneOp, WireFact, WireRouteFact } from "../src/window/canvas/contract";
@@ -64,6 +65,41 @@ describe("the loom planner, in steps", () => {
   });
 });
 
+describe("the loom in shares, one per worker", () => {
+  /** A row of 24 pairs along x, each with one wire, the view at the left end. */
+  const many = Array.from({ length: 24 }, (_, i) => [card(`s${i}`, i * 4000, 0), card(`t${i}`, i * 4000 + 600, 0)]).flat();
+  const manyWires = Array.from({ length: 24 }, (_, i) => wire(`w${i}`, `s${i}`, `t${i}`));
+  const drain = (planner: ReturnType<typeof createLoomPlanner>): string[] => {
+    const routed = ids(planner.begin(many, manyWires, atOrigin));
+    while (planner.owed() > 0) routed.push(...ids(planner.step(0, ONE)));
+    return routed;
+  };
+
+  it("gives every wire to exactly one share, and the shares together send what one planner sends", () => {
+    const whole = createLoomPlanner().plan(many, manyWires).set.map((fact) => fact.id).sort();
+    const parts = [0, 1, 2].map((index) => drain(createLoomPlanner({ index, count: 3 })));
+    expect(parts.flat().sort()).toEqual(whole);
+    for (const [index, part] of parts.entries()) {
+      expect(part.length).toBeGreaterThan(0);
+      for (const id of part) expect(shareOf(id, 3)).toBe(index);
+    }
+  });
+
+  it("routes each share from the view outwards", () => {
+    for (const index of [0, 1, 2]) {
+      const part = drain(createLoomPlanner({ index, count: 3 }));
+      const xs = part.map((id) => Number(id.slice(1)));
+      expect(xs).toEqual([...xs].sort((a, b) => a - b));
+    }
+  });
+
+  it("uses every core but the page's and the compositor's, and always one", () => {
+    expect(loomWorkerCount(8)).toBe(6);
+    expect(loomWorkerCount(2)).toBe(1);
+    expect(loomWorkerCount(1)).toBe(1);
+  });
+});
+
 describe("the loom's run loop", () => {
   it("routes nothing on the caller's turn, then the nearest wire first, slice by slice", () => {
     const sent: LoomUpdate[] = [];
@@ -88,6 +124,18 @@ describe("the loom's run loop", () => {
     run.request({ kind: "focus", view: atFar });
     turns.shift()!();
     expect(sent.map(ids)).toEqual([["far"]]);
+  });
+
+  it("routes only its own share once told it", () => {
+    const sent: LoomUpdate[] = [];
+    const turns: Array<() => void> = [];
+    const run = createLoomRun((update) => sent.push(update), ONE, (next) => turns.push(next));
+    run.request({ kind: "share", index: shareOf("mid", 2), count: 2 });
+    run.request({ kind: "plan", cards, wires, view: atOrigin });
+    while (turns.length > 0) turns.shift()!();
+    const routed = sent.flatMap(ids);
+    expect(routed).toContain("mid");
+    for (const id of routed) expect(shareOf(id, 2)).toBe(shareOf("mid", 2));
   });
 
   it("begins the newest board when several land before its turn", () => {

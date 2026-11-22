@@ -91,6 +91,23 @@ export type LoomPlanner = {
   readonly reset: () => void;
 };
 
+/**
+ * One planner's part of the board when several route it side by side (issue
+ * 912): each plans the whole board, so every route sees the same cables,
+ * lanes and obstacles, but routes and sends only the wires it owns.
+ */
+export type LoomShare = { readonly index: number; readonly count: number };
+
+/** The share a wire belongs to: a hash of its id, so it never changes hands. */
+export const shareOf = (id: string, count: number): number => {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < id.length; i += 1) {
+    hash ^= id.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0) % count;
+};
+
 const NOT_DRAGGING: ReadonlySet<string> = new Set();
 const NO_SHIFT: Point = { x: 0, y: 0 };
 const NOTHING: LoomUpdate = { set: [], remove: [] };
@@ -155,7 +172,8 @@ const distanceFrom = (view: Rect | undefined, input: LoomEdgeInput): number => {
   return Math.hypot((minX + maxX) / 2 - (view.x + view.width / 2), (minY + maxY) / 2 - (view.y + view.height / 2));
 };
 
-export const createLoomPlanner = (): LoomPlanner => {
+export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
+  const owns = (id: string): boolean => share === undefined || share.count <= 1 || shareOf(id, share.count) === share.index;
   // Geometry and topology the standing plan was built from.
   let planned: { geometry: LoomNode[]; specsKey: string } | undefined;
   // The cards the standing routes were worked out against, and each wire as it
@@ -289,7 +307,7 @@ export const createLoomPlanner = (): LoomPlanner => {
     for (const id of carried) owed.add(id);
     queue = [];
     for (const id of owed) {
-      if (!live.has(id)) continue;
+      if (!live.has(id) || !owns(id)) continue;
       if (strandIds.has(id)) {
         routes.delete(id);
         continue;
@@ -306,7 +324,7 @@ export const createLoomPlanner = (): LoomPlanner => {
     const waiting = new Set(queue);
     const set: WireRouteFact[] = [];
     send(
-      inputs.filter((input) => !waiting.has(input.id)).map((input) => input.id),
+      inputs.filter((input) => owns(input.id) && !waiting.has(input.id)).map((input) => input.id),
       set,
     );
     const remove: WireId[] = [];

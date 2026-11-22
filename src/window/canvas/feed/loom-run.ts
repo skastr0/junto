@@ -7,12 +7,14 @@
  * still owed.
  */
 import type { Rect } from "../contract";
-import { createLoomPlanner, type LoomCard, type LoomUpdate, type LoomWireRow } from "./loom-planner";
+import { createLoomPlanner, type LoomCard, type LoomShare, type LoomUpdate, type LoomWireRow } from "./loom-planner";
 
 export type LoomRequest =
   | { readonly kind: "plan"; readonly cards: ReadonlyArray<LoomCard>; readonly wires: ReadonlyArray<LoomWireRow>; readonly view?: Rect }
   | { readonly kind: "focus"; readonly view: Rect }
-  | { readonly kind: "reset" };
+  | { readonly kind: "reset" }
+  /** This run's part of the board among several (sent first, before any board). */
+  | ({ readonly kind: "share" } & LoomShare);
 
 /**
  * How long a slice routes before it sends what it has: half a 60 Hz frame,
@@ -31,7 +33,7 @@ export const createLoomRun = (
   clock: () => number,
   later: (run: () => void) => void,
 ): LoomRun => {
-  const planner = createLoomPlanner();
+  let planner = createLoomPlanner();
   let board: Extract<LoomRequest, { kind: "plan" }> | undefined;
   let scheduled = false;
   let disposed = false;
@@ -72,6 +74,9 @@ export const createLoomRun = (
         case "reset":
           board = undefined;
           planner.reset();
+          return;
+        case "share":
+          planner = createLoomPlanner({ index: request.index, count: request.count });
           return;
       }
     },
