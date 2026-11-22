@@ -67,7 +67,7 @@ import {
   type WireStrip,
   type WireView,
 } from "../../paint/wires";
-import { createStripPool, type Slice, type StripPool } from "./pool";
+import { createStripPool, RESTART, type Slice, type StripPool } from "./pool";
 import { createDirty, createRangeAllocator, type Dirty, type RangeAllocator } from "./ranges";
 
 /** Floats in one wire's record: five `vec4f`. */
@@ -1024,15 +1024,18 @@ export const createWireScene = (host: WireHost): WireScene => {
 
   const append = (target: Uint32Array, at: number, start: number, count: number): { array: Uint32Array; at: number } => {
     let array = target;
-    if (at + count > array.length) {
+    // One trailing restart breaks the strip between two wires: without it the
+    // last triangle of one would share an edge with the first of the next.
+    if (at + count + 1 > array.length) {
       let next = array.length;
-      while (next < at + count) next *= 2;
+      while (next < at + count + 1) next *= 2;
       const grown = new Uint32Array(next);
       grown.set(array.subarray(0, at));
       array = grown;
     }
     for (let k = 0; k < count; k += 1) array[at + k] = start + k;
-    return { array, at: at + count };
+    array[at + count] = RESTART;
+    return { array, at: at + count + 1 };
   };
 
   let visibleEntries: Entry[] = [];

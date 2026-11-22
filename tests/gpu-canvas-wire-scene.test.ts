@@ -234,6 +234,21 @@ describe("the wire scene", () => {
     expect(scene.trackPool.extent()).toBeGreaterThan(0);
   });
 
+  it("breaks the visible index list between wires, so no triangle spans two of them", () => {
+    const { scene, frame } = makeScene(board());
+    scene.apply(load([wire("w", "a", "b"), wire("x", "a", "c")]));
+    frame(T0);
+    const v = scene.visibleIndices();
+    const drawn = v.main.subarray(0, v.mainCount);
+    // One restart per strip, and the strips' own indices between them.
+    expect([...drawn].filter((index) => index === 0xffffffff)).toHaveLength(2);
+    // Each run between restarts is the strip's own consecutive vertices.
+    for (let i = 1; i < drawn.length; i += 1) {
+      if (drawn[i] === 0xffffffff || drawn[i - 1] === 0xffffffff) continue;
+      expect(drawn[i]).toBe(drawn[i - 1]! + 1);
+    }
+  });
+
   it("re-lays a track when a later run moves even though the first run and path length do not", () => {
     const { scene, frame } = makeScene(board());
     scene.apply(load([wire("f", "a", "b", "flows")]));
