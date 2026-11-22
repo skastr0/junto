@@ -81,6 +81,27 @@ junto_app_run_lock_ahead() {
   printf '%s' "$ahead"
 }
 
+# The Mac mini rig keeps a book for measurement runs (~/junto-perf/book). While
+# a seat holds it, a run from anywhere else waits for the book, so a
+# correctness run never spends a measurement's minutes. The holder's own runs,
+# started in its folder (~/junto-perf/seats/<seat>-<commit>), pass. Prints the
+# holder and succeeds when this run must wait; a machine with no book never
+# waits.
+junto_app_run_lock_book_holder() {
+  local rig="${JUNTO_RIG_HOME:-${HOME}/junto-perf}" seat until mine
+  [[ -r "$rig/lock.d/seat" ]] || return 1
+  seat="$(cat "$rig/lock.d/seat" 2>/dev/null || true)"
+  until="$(cat "$rig/lock.d/until" 2>/dev/null || true)"
+  [[ "$until" =~ ^[0-9]+$ ]] && (( until > $(date +%s) )) || return 1
+  mine="${PWD#"$rig/seats/"}"
+  if [[ "$mine" != "$PWD" ]]; then
+    mine="${mine%%/*}"
+    # Folder <seat>-<commit>; a seat books as <seat> or <seat>-<n>.
+    [[ "${mine%-*}" == "${seat%-[0-9]*}" ]] && return 1
+  fi
+  printf '%s until %s' "$seat" "$(date -r "$until" +%H:%M 2>/dev/null || printf '%s' "$until")"
+}
+
 junto_app_run_lock_release() {
   local lock_dir
   lock_dir="$(junto_app_run_lock_dir)"
@@ -129,7 +150,13 @@ junto_app_run_lock_acquire() {
   trap 'exit 130' INT
   trap 'exit 143' TERM
 
+  local book=""
   if (( wait_limit <= 0 )); then
+    if book="$(junto_app_run_lock_book_holder)"; then
+      printf 'junto: error: the rig is booked for a measurement by %s\n' "$book" >&2
+      printf 'junto: set JUNTO_APP_RUN_LOCK_WAIT=<seconds> to wait for the book.\n' >&2
+      return 75
+    fi
     if ! junto_app_run_lock_try; then
       printf 'junto: error: another build or app run holds the machine: %s\n' "$(junto_app_run_lock_holder)" >&2
       printf 'junto: one at a time. Wait for it, or set JUNTO_APP_RUN_LOCK_WAIT=<seconds> to queue behind it.\n' >&2
@@ -142,15 +169,34 @@ junto_app_run_lock_acquire() {
     JUNTO_APP_RUN_LOCK_TICKET="$queue_dir/$(junto_app_run_lock_stamp)-$$"
     : >"$JUNTO_APP_RUN_LOCK_TICKET"
     while true; do
-      ahead="$(junto_app_run_lock_ahead "$(basename "$JUNTO_APP_RUN_LOCK_TICKET")")"
-      if (( ahead == 0 )) && junto_app_run_lock_try; then
-        break
+      if book="$(junto_app_run_lock_book_holder)"; then
+        # Waiting on the book, this run holds no ticket, so the holder's own
+        # runs are never queued behind it. The same ticket comes back after.
+        rm -f "$JUNTO_APP_RUN_LOCK_TICKET"
+        if [[ "$shown" != "book" ]]; then
+          printf 'junto: waiting for the rig, booked for a measurement by %s\n' "$book" >&2
+          shown="book"
+        fi
+      else
+        [[ -e "$JUNTO_APP_RUN_LOCK_TICKET" ]] || : >"$JUNTO_APP_RUN_LOCK_TICKET"
+        ahead="$(junto_app_run_lock_ahead "$(basename "$JUNTO_APP_RUN_LOCK_TICKET")")"
+        if (( ahead == 0 )) && junto_app_run_lock_try; then
+          break
+        fi
       fi
       if (( SECONDS - started >= wait_limit )); then
-        printf 'junto: error: gave up after %ss waiting for the app-run lock, held by: %s\n' "$wait_limit" "$(junto_app_run_lock_holder)" >&2
+        if [[ -n "$book" ]]; then
+          printf 'junto: error: gave up after %ss waiting for the rig, booked for a measurement by %s\n' "$wait_limit" "$book" >&2
+        else
+          printf 'junto: error: gave up after %ss waiting for the app-run lock, held by: %s\n' "$wait_limit" "$(junto_app_run_lock_holder)" >&2
+        fi
         rm -f "$JUNTO_APP_RUN_LOCK_TICKET"
         JUNTO_APP_RUN_LOCK_TICKET=""
         return 75
+      fi
+      if [[ -n "$book" ]]; then
+        sleep 2
+        continue
       fi
       if [[ "$ahead" != "$shown" ]]; then
         printf 'junto: waiting for the app-run lock, %s ahead of this run, held by: %s\n' "$ahead" "$(junto_app_run_lock_holder)" >&2
