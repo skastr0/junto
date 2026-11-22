@@ -327,6 +327,8 @@ const closeSurfaces = async (page: Page): Promise<void> => {
 const resetOperator = async (page: Page): Promise<void> => {
   await closeSurfaces(page);
   await page.keyboard.press("Escape");
+  const pane = await paneRect(page);
+  await page.mouse.move(pane.x + 4, pane.y + 4);
   await page.waitForTimeout(60);
 };
 
@@ -404,6 +406,9 @@ const insidePane = (point: { readonly x: number; readonly y: number }, pane: Scr
   point.x > pane.x + 2 && point.y > pane.y + 2 && point.x < pane.x + pane.width - 2 && point.y < pane.y + pane.height - 2;
 
 const addressSeat = async (page: Page, id: string, pane: ScreenRect): Promise<SeatClick> => {
+  // Clear the last selection's floating toolbar and the pointer hover before
+  // probing: both are operator chrome that would cover this seat's points.
+  await resetOperator(page);
   if (!(await waitSeatDrawn(page, id))) return { id, result: "miss", detail: "the scene never built or drew this seat at this tier" };
   const fresh = await page.evaluate((seat) => {
     const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
