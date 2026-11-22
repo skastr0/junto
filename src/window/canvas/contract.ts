@@ -776,11 +776,11 @@ export type EngineStats = {
  * sessions so a fresh boot starts at the last measured margin and tier window.
  */
 export type MotionPeaks = {
-  /** Screen px per ms. */
-  readonly screenSpeed: number;
-  /** Octaves per ms. */
-  readonly zoomRate: number;
-  /** Acquire to image, ms. */
+  /** Screen px the camera travelled while a raster was on its way, the window's largest. */
+  readonly marginPx: number;
+  /** The same in octaves of zoom. */
+  readonly octaves: number;
+  /** Acquire to image, ms, the window's slowest. */
   readonly latencyMs: number;
 };
 

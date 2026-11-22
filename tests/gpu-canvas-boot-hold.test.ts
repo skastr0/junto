@@ -68,7 +68,7 @@ describe("the boot", () => {
       clock: () => 0,
       painter: () => ({ quads: [portrait], dim: { opacity: 1, saturate: 1 }, lift: 0 }),
       cells: { acquire: () => 5, release: () => undefined, hasImage: () => false, ensureNow: () => undefined },
-      peaks: { load: () => ({ screenSpeed: 2, zoomRate: 0.001, latencyMs: 40 }), save: (peaks) => saved.push(peaks) },
+      peaks: { load: () => ({ marginPx: 80, octaves: 0.04, latencyMs: 40 }), save: (peaks) => saved.push(peaks) },
     });
     engine.input({ kind: "resize", width: 400, height: 300, pixelRatio: 2 });
     engine.apply([{ kind: "load", canvas: asCanvasName("factory"), cards: [card], wires: [] }]);
@@ -78,7 +78,7 @@ describe("the boot", () => {
     expect(engine.stats().blank).toMatchObject({ visibleBlank: 0, placeholders: 1 });
     // The kept peaks set the margin before anything has moved this session.
     expect(engine.stats().blank?.marginScreenPx).toBe(80);
-    expect(saved[0]).toEqual({ screenSpeed: 2, zoomRate: 0.001, latencyMs: 40 });
+    expect(saved[0]).toEqual({ marginPx: 80, octaves: 0.04, latencyMs: 40 });
     engine.dispose();
     keeper.dispose();
   });

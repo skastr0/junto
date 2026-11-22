@@ -40,12 +40,31 @@ export class RectGrid {
 
   constructor(private readonly cell: number) {}
 
+  /**
+   * The cells any rectangle has ever covered, since the last clear: a query
+   * walks no cell outside them, so a huge rectangle costs the board, not the
+   * rectangle (#915). It only grows; a removal leaves it as an upper bound.
+   */
+  private span = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+
+  /** The board the grid has seen, in board units, or undefined while empty. */
+  extent(): Rect | undefined {
+    const { left, top, right, bottom } = this.span;
+    if (!(right >= left)) return undefined;
+    return { x: left * this.cell, y: top * this.cell, width: (right - left + 1) * this.cell, height: (bottom - top + 1) * this.cell };
+  }
+
   set(slot: number, rect: Rect): void {
     this.remove(slot);
     const left = Math.floor(rect.x / this.cell);
     const top = Math.floor(rect.y / this.cell);
     const right = Math.floor((rect.x + rect.width) / this.cell);
     const bottom = Math.floor((rect.y + rect.height) / this.cell);
+    const span = this.span;
+    if (left < span.left) span.left = left;
+    if (top < span.top) span.top = top;
+    if (right > span.right) span.right = right;
+    if (bottom > span.bottom) span.bottom = bottom;
     const cells: Array<number | string> = [];
     for (let cy = top; cy <= bottom; cy += 1) {
       for (let cx = left; cx <= right; cx += 1) {
@@ -78,6 +97,7 @@ export class RectGrid {
   clear(): void {
     this.cells.clear();
     this.entries.clear();
+    this.span = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
   }
 
   /**
@@ -85,10 +105,11 @@ export class RectGrid {
    * candidates are fine: the caller tests the exact rectangle.
    */
   query(rect: Rect, out: number[]): number[] {
-    const left = Math.floor(rect.x / this.cell);
-    const top = Math.floor(rect.y / this.cell);
-    const right = Math.floor((rect.x + rect.width) / this.cell);
-    const bottom = Math.floor((rect.y + rect.height) / this.cell);
+    const span = this.span;
+    const left = Math.max(span.left, Math.floor(rect.x / this.cell));
+    const top = Math.max(span.top, Math.floor(rect.y / this.cell));
+    const right = Math.min(span.right, Math.floor((rect.x + rect.width) / this.cell));
+    const bottom = Math.min(span.bottom, Math.floor((rect.y + rect.height) / this.cell));
     const stamp = ++this.queryStamp;
     for (let cy = top; cy <= bottom; cy += 1) {
       for (let cx = left; cx <= right; cx += 1) {

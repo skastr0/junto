@@ -443,7 +443,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   const keepPeaks = (): void => {
     if (host.peaks === undefined) return;
     const peaks = scene.motionPeaks();
-    const key = `${String(peaks.screenSpeed)}|${String(peaks.zoomRate)}|${String(peaks.latencyMs)}`;
+    const key = `${String(peaks.marginPx)}|${String(peaks.octaves)}|${String(peaks.latencyMs)}`;
     if (key === savedPeaks) return;
     savedPeaks = key;
     host.peaks.save(peaks);

@@ -59,7 +59,7 @@ import type {
   WireMode,
   WireFact,
 } from "../contract";
-import { ALL_TIERS, TIER_BIT } from "../contract";
+import { ALL_TIERS, CAMERA_MAX_ZOOM, CAMERA_MIN_ZOOM, TIER_BIT } from "../contract";
 import {
   createQuadBuffer,
   MOTION,
@@ -571,7 +571,7 @@ export const createScene = (options: {
     const pending = next === NO_ATLAS_CELL ? options.acquire === undefined : !hasImage(next);
     if (pending) {
       blankCandidates.set(slot, ref);
-      if (next !== NO_ATLAS_CELL && (next !== previous || !waitingSince.has(slot))) waitingSince.set(slot, nowMs());
+      if (next !== NO_ATLAS_CELL && (next !== previous || !waitingSince.has(slot))) waitingSince.set(slot, waitFrom(nowMs()));
       if (ref.painted.sprite !== undefined) holdPlaceholder(ref);
     } else {
       blankCandidates.delete(slot);
@@ -1679,51 +1679,125 @@ export const createScene = (options: {
 
   // --- the margin and the tier window, measured -------------------------------
   //
-  // The margin is what the fastest pan seen so far reveals before a raster
-  // lands: peak screen speed times peak raster latency, both measured here
-  // on the real path. The tier window is the same in zoom terms: peak zoom
-  // rate (octaves per ms) times peak latency. Neither is a chosen number;
-  // before anything has moved or landed both are zero, and the frame's own
-  // blank check (ensureNow) covers the first reveal.
+  // The margin is how far the camera actually travelled, in screen pixels,
+  // while a raster was on its way: each landing is a sample of what that
+  // resolve needed. The tier window is the same in octaves of zoom. The
+  // camera's travel is an odometer (pans and pinches, never cuts), and a
+  // record that takes a cell notes it; when the image lands, the difference
+  // is the need. Neither is a chosen number: before anything has landed in
+  // motion both are zero, and the frame's own blank check (ensureNow) covers
+  // the first reveal.
+  //
+  // They decay: the margin is the largest need among the last landings, as
+  // many as the frame draws quads, one screen's worth of evidence. A slow
+  // raster or a fast fling is forgotten once a screen's worth of landings
+  // has shown it no longer happens. And they are bounded by reality: the
+  // window by the camera's zoom range, the margin by the board.
 
-  const finite = (value: number | undefined): number => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
-  let peakScreenSpeed = finite(options.peaks?.screenSpeed);
-  let peakZoomRate = finite(options.peaks?.zoomRate);
-  let peakLatency = finite(options.peaks?.latencyMs);
-  let lastMotion: { readonly cx: number; readonly cy: number; readonly zoom: number; readonly at: number; readonly width: number; readonly height: number } | undefined;
-  /** When each record without an image took its cell, so a landing is a latency sample. */
-  const waitingSince = new Map<number, number>();
+  /** The camera's whole zoom range, in octaves: no window can reach past it. */
+  const ZOOM_RANGE_OCTAVES = Math.log2(CAMERA_MAX_ZOOM / CAMERA_MIN_ZOOM);
+  const measured = (value: unknown, max: number): number =>
+    typeof value === "number" && Number.isFinite(value) && value > 0 && value <= max ? value : 0;
+  /** Screen pixels and octaves the camera has travelled this session. */
+  let travelPx = 0;
+  let travelOctaves = 0;
+  let lastMotion: { readonly cx: number; readonly cy: number; readonly zoom: number; readonly width: number; readonly height: number } | undefined;
+  type Wait = { readonly at: number; readonly px: number; readonly octaves: number };
+  /** When, and at what travel, each record without an image took its cell. */
+  const waitingSince = new Map<number, Wait>();
+  const waitFrom = (at: number): Wait => ({ at, px: travelPx, octaves: travelOctaves });
+  /** The needs of recent landings, oldest first, from `needStart`. */
+  const needPx: number[] = [];
+  const needOctaves: number[] = [];
+  const needLatency: number[] = [];
+  let needStart = 0;
+  let needsDirty = true;
+  let marginPx = 0;
+  let windowOctaves = 0;
+  let latencyMs = 0;
+  const addNeed = (px: number, octaves: number, latency: number): void => {
+    needPx.push(px);
+    needOctaves.push(octaves);
+    needLatency.push(latency);
+    needsDirty = true;
+  };
+  // The last session's measure stands as one landing until this one's replace it.
+  {
+    const kept = options.peaks as Partial<Record<keyof MotionPeaks, unknown>> | undefined;
+    const px = measured(kept?.marginPx, Number.MAX_VALUE);
+    const octaves = measured(kept?.octaves, ZOOM_RANGE_OCTAVES);
+    const latency = measured(kept?.latencyMs, Number.MAX_VALUE);
+    if (px > 0 || octaves > 0 || latency > 0) addNeed(px, octaves, latency);
+  }
+
+  /** Landings the window holds: as many as the last frame drew quads. */
+  let needKeep = 1;
+  /** Recompute the window's maxima over the last `needKeep` landings, when they changed. */
+  const refreshNeeds = (): void => {
+    const keep = needKeep;
+    const count = needPx.length - needStart;
+    if (count > keep) {
+      needStart += count - keep;
+      needsDirty = true;
+    }
+    if (!needsDirty) return;
+    needsDirty = false;
+    if (needStart > 1024 && needStart * 2 > needPx.length) {
+      needPx.splice(0, needStart);
+      needOctaves.splice(0, needStart);
+      needLatency.splice(0, needStart);
+      needStart = 0;
+    }
+    marginPx = 0;
+    windowOctaves = 0;
+    latencyMs = 0;
+    for (let index = needStart; index < needPx.length; index += 1) {
+      if (needPx[index]! > marginPx) marginPx = needPx[index]!;
+      if (needOctaves[index]! > windowOctaves) windowOctaves = needOctaves[index]!;
+      if (needLatency[index]! > latencyMs) latencyMs = needLatency[index]!;
+    }
+    windowOctaves = Math.min(windowOctaves, ZOOM_RANGE_OCTAVES);
+  };
 
   const nowMs = (): number => options.now?.() ?? (typeof performance === "undefined" ? Date.now() : performance.now());
 
-  /** Fold this frame's camera motion into the peaks. */
-  const observeCamera = (view: Rect, zoom: number, at: number): void => {
+  /** Add this frame's camera travel to the odometers. */
+  const observeCamera = (view: Rect, zoom: number): void => {
     const cx = view.x + view.width / 2;
     const cy = view.y + view.height / 2;
     const was = lastMotion;
-    lastMotion = { cx, cy, zoom, at, width: view.width, height: view.height };
+    lastMotion = { cx, cy, zoom, width: view.width, height: view.height };
     if (was === undefined) return;
-    const dt = at - was.at;
-    if (!(dt > 0)) return;
     const dx = Math.abs(cx - was.cx);
     const dy = Math.abs(cy - was.cy);
     // More than a whole view in one frame is a cut, not a pan: no margin
     // could have held it, and the jump prefetch is what serves it.
     if (dx > Math.max(view.width, was.width) || dy > Math.max(view.height, was.height)) return;
-    const speed = (Math.hypot(dx, dy) * zoom) / dt;
-    if (speed > peakScreenSpeed) peakScreenSpeed = speed;
+    travelPx += Math.hypot(dx, dy) * zoom;
     if (zoom > 0 && was.zoom > 0) {
       // The same cut in zoom terms: the view more than doubling (or halving)
       // in one frame reveals more than a whole view.
       const octaves = Math.abs(Math.log2(zoom / was.zoom));
-      if (octaves <= 1 && octaves / dt > peakZoomRate) peakZoomRate = octaves / dt;
+      if (octaves <= 1) travelOctaves += octaves;
     }
   };
 
   /** Screen pixels around the view a card is built and holds cells in. */
-  const marginScreenPx = (): number => peakScreenSpeed * peakLatency;
+  const marginScreenPx = (): number => {
+    refreshNeeds();
+    return marginPx;
+  };
+  /** The margin in board units at `zoom`, never past the board itself. */
+  const marginAt = (zoom: number): number => {
+    const extent = grid.extent();
+    const board = extent === undefined ? 0 : Math.max(extent.width, extent.height);
+    return Math.min(marginScreenPx() / zoom, board);
+  };
   /** Octaves either side of the zoom whose tiers take cells ahead. */
-  const tierWindowOctaves = (): number => peakZoomRate * peakLatency;
+  const tierWindowOctaves = (): number => {
+    refreshNeeds();
+    return windowOctaves;
+  };
 
   const ensurePaintIndex = (): void => {
     if (!paintIndexDirty) return;
@@ -1811,8 +1885,7 @@ export const createScene = (options: {
   const rebuild = (view: Rect, tier: CanvasTier, zoom: number, exact: boolean): void => {
     liveEpoch += 1;
     ensurePaintIndex();
-    const margin = marginScreenPx() / zoom;
-    const range = cellRange(insetBy(view, margin));
+    const range = cellRange(insetBy(view, marginAt(zoom)));
     lastRange = range.key;
     lastRangeRect = range.rect;
     visibleSlots.length = 0;
@@ -1829,7 +1902,7 @@ export const createScene = (options: {
     const jumpCards: CardSlot[] = [];
     if (jump !== undefined) {
       const found: number[] = [];
-      grid.query(insetBy(jump.view, marginScreenPx() / jump.zoom), found);
+      grid.query(insetBy(jump.view, marginAt(jump.zoom)), found);
       for (const slot of found) {
         const card = slots[slot];
         if (card === undefined) continue;
@@ -1974,7 +2047,7 @@ export const createScene = (options: {
     unholdPlaceholder(slot);
     const since = waitingSince.get(slot);
     waitingSince.delete(slot);
-    if (since !== undefined && at - since > peakLatency) peakLatency = at - since;
+    if (since !== undefined) addNeed(travelPx - since.px, travelOctaves - since.octaves, at - since.at);
   };
 
   const checkBlank = (view: Rect, at: number): void => {
@@ -2054,7 +2127,8 @@ export const createScene = (options: {
     liveMask = TIER_BIT[tier];
     liveMotion = motionOn;
     const frameAt = nowMs();
-    observeCamera(view, zoom, frameAt);
+    observeCamera(view, zoom);
+    needKeep = Math.max(1, orderCount);
     aheadTiers = tiersAhead(zoom, tier);
     if (jump !== undefined) {
       jumpTier = tierForZoom(jump.zoom);
@@ -2064,7 +2138,7 @@ export const createScene = (options: {
       jumpTier = undefined;
       jumpMask = 0;
     }
-    const range = cellRange(insetBy(view, marginScreenPx() / zoom)).key;
+    const range = cellRange(insetBy(view, marginAt(zoom))).key;
     const rebuilt =
       !orderReady ||
       orderDirty ||
@@ -2278,7 +2352,10 @@ export const createScene = (options: {
       markOrder();
     },
     /** The peaks measured so far, to keep for the next session. */
-    motionPeaks: (): MotionPeaks => ({ screenSpeed: peakScreenSpeed, zoomRate: peakZoomRate, latencyMs: peakLatency }),
+    motionPeaks: (): MotionPeaks => {
+      refreshNeeds();
+      return { marginPx, octaves: windowOctaves, latencyMs };
+    },
     /** In-view quads with no image on the last presented frame, and cells rasterized in the frame to prevent one. */
     blankStats: (): {
       readonly visibleBlank: number;
@@ -2286,18 +2363,18 @@ export const createScene = (options: {
       readonly ensuredNow: number;
       readonly marginScreenPx: number;
       readonly tierWindowOctaves: number;
-      readonly peakScreenSpeed: number;
-      readonly peakZoomRate: number;
-      readonly peakLatencyMs: number;
+      /** The slowest raster among the landings the window holds. */
+      readonly latencyMs: number;
+      /** Landings the window holds: one screen's worth. */
+      readonly needSamples: number;
     } => ({
       visibleBlank,
       placeholders: visiblePlaceholders,
       ensuredNow,
       marginScreenPx: marginScreenPx(),
       tierWindowOctaves: tierWindowOctaves(),
-      peakScreenSpeed,
-      peakZoomRate,
-      peakLatencyMs: peakLatency,
+      latencyMs: (refreshNeeds(), latencyMs),
+      needSamples: needPx.length - needStart,
     }),
     hasMotion,
     index,

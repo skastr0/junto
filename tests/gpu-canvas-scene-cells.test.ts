@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { asCanvasName } from "@shared/model";
-import type { CardFact, Quad } from "../src/window/canvas/contract";
+import type { MotionPeaks, CardFact, Quad } from "../src/window/canvas/contract";
 import { TIER_BIT } from "../src/window/canvas/contract";
 import { createScene } from "../src/window/canvas/engine/scene";
 import { NO_ATLAS_CELL, QUAD_FLOATS } from "../src/window/canvas/engine/quad";
@@ -132,50 +132,102 @@ describe("cells a record holds", () => {
     expect(scene.orderCount).toBe(1);
   });
 
-  it("are taken ahead for a tier the measured zoom rate could reach before a raster lands", () => {
-    let zoom = 0.72;
+  it("are taken ahead for a tier the zoom travelled while a raster was on its way could reach", () => {
+    let zoom = 0.9;
     let now = 0;
     const { scene, atlas } = sceneOf(
       (id) => [text(`${id}.near`, TIER_BIT.near), text(`${id}.mid`, TIER_BIT.mid)],
       [factAt("a", 0)],
       { zoom: () => zoom, now: () => now },
     );
-    // Nothing has moved or landed yet: no window, only the drawn tier holds.
+    // Nothing has landed yet: no window, only the drawn tier holds.
     scene.prepare(VIEW, "near");
     expect(atlas.held()).toBe(1);
     expect(scene.blankStats().tierWindowOctaves).toBe(0);
-    // The near run's raster lands 100 ms later: that is the latency.
+    // A pinch from 0.9 to 0.7 while the near run's raster is on its way.
+    for (const [at, next] of [[16, 0.8], [32, 0.7]] as const) {
+      now = at;
+      zoom = next;
+      scene.prepare(VIEW, "near");
+    }
+    expect(scene.blankStats().tierWindowOctaves).toBe(0);
+    // It lands at 100 ms: that resolve needed log2(0.9 / 0.7) octaves, and
+    // 0.7 / 2^0.36 is mid, so the mid run is taken ahead and still not drawn.
     now = 100;
     atlas.land();
     scene.prepare(VIEW, "near");
-    expect(scene.blankStats().peakLatencyMs).toBe(100);
-    // A pinch: log2(0.72 / 0.7) octaves in one 16 ms frame. Over 100 ms that
-    // is about a quarter octave, and 0.7 / 2^0.25 is mid: the mid run is
-    // taken ahead, and still not drawn.
+    expect(scene.blankStats().tierWindowOctaves).toBeCloseTo(Math.log2(0.9 / 0.7), 9);
+    // The frame after the landing builds with the new window.
     now = 116;
-    zoom = 0.7;
     scene.prepare(VIEW, "near");
-    const window = scene.blankStats().tierWindowOctaves;
-    expect(window).toBeCloseTo((Math.log2(0.72 / 0.7) / 16) * 100, 9);
+    expect(scene.blankStats().latencyMs).toBe(100);
     expect(atlas.held()).toBe(2);
     expect(scene.orderCount).toBe(1);
+    // The mid run lands at rest: a screen's worth of landings (one quad
+    // here) needed nothing, so the window decays and the run is let go.
+    now = 150;
+    atlas.land();
+    scene.prepare(VIEW, "near");
+    scene.prepare(VIEW, "near");
+    expect(scene.blankStats().tierWindowOctaves).toBe(0);
+    expect(atlas.held()).toBe(1);
   });
 
-  it("hold a margin the fastest pan reveals before a raster lands", () => {
+  it("hold a margin as wide as the camera travelled while a raster was on its way", () => {
     let now = 0;
     const { scene, atlas } = sceneOf((id) => [text(id, 15)], [factAt("a", 0)], { now: () => now });
     scene.prepare(VIEW, "near");
+    expect(scene.blankStats().marginScreenPx).toBe(0);
+    // Two 40 px pans at zoom 1 before the raster lands: it needed 80 px.
+    now = 16;
+    scene.prepare({ ...VIEW, x: VIEW.x + 40 }, "near");
+    now = 32;
+    scene.prepare({ ...VIEW, x: VIEW.x + 80 }, "near");
     now = 50;
     atlas.land();
-    scene.prepare(VIEW, "near");
-    // A 40 px pan in a 16 ms frame at zoom 1: 2.5 px/ms, times 50 ms.
-    now = 66;
-    scene.prepare({ ...VIEW, x: VIEW.x + 40 }, "near");
-    expect(scene.blankStats().marginScreenPx).toBeCloseTo(125, 9);
-    // A cut of more than a whole view is not a pan: the margin stands.
-    now = 82;
-    scene.prepare({ ...VIEW, x: VIEW.x + 40_000 }, "near");
-    expect(scene.blankStats().marginScreenPx).toBeCloseTo(125, 9);
+    scene.prepare({ ...VIEW, x: VIEW.x + 80 }, "near");
+    expect(scene.blankStats().marginScreenPx).toBeCloseTo(80, 9);
+    expect(scene.motionPeaks()).toEqual({ marginPx: 80, octaves: 0, latencyMs: 50 });
+  });
+
+  it("drop a kept window past the camera's zoom range, and count no cut as travel", () => {
+    let now = 0;
+    const { scene: kept } = (() => {
+      const atlas = fakeAtlas();
+      const scene = createScene({
+        painter: () => ({ quads: [text("a", 15)], dim: { opacity: 1, saturate: 1 }, lift: 0 }),
+        acquire: atlas.acquire,
+        release: atlas.release,
+        hasImage: atlas.hasImage,
+        ensureNow: atlas.ensureNow,
+        peaks: { marginPx: 300, octaves: 116, latencyMs: 40 },
+      });
+      return { scene };
+    })();
+    // 116 octaves is past the whole zoom range: not a measure, dropped.
+    expect(kept.blankStats().tierWindowOctaves).toBe(0);
+    kept.prepare(VIEW, "near");
+    expect(kept.blankStats().marginScreenPx).toBe(300);
+    // An old kept shape (rates, not distances) is no measure either.
+    const old = createScene({
+      painter: () => ({ quads: [], dim: { opacity: 1, saturate: 1 }, lift: 0 }),
+      peaks: { screenSpeed: 2, zoomRate: 0.5, latencyMs: Number.NaN } as unknown as MotionPeaks,
+    });
+    old.prepare(VIEW, "near");
+    expect(old.motionPeaks()).toEqual({ marginPx: 0, octaves: 0, latencyMs: 0 });
+    // A cut of more than a whole view while a raster waits adds no travel.
+    const { scene, atlas } = sceneOf((id) => [text(id, 15), text(`${id}.b`, 15)], [factAt("a", 0), factAt("b", 1_000)], { now: () => now });
+    scene.prepare({ ...VIEW, width: 2_000 }, "near");
+    now = 16;
+    scene.prepare({ ...VIEW, width: 2_000, x: VIEW.x + 1 }, "near");
+    now = 32;
+    scene.prepare({ ...VIEW, width: 2_000, x: VIEW.x + 1 + 40_000 }, "near");
+    now = 48;
+    scene.prepare({ ...VIEW, width: 2_000, x: VIEW.x + 1 }, "near");
+    now = 60;
+    atlas.land();
+    scene.prepare({ ...VIEW, width: 2_000, x: VIEW.x + 1 }, "near");
+    expect(scene.blankStats().marginScreenPx).toBeLessThanOrEqual(1);
   });
 
   it("are taken for a camera jump's destination before the camera lands, and let go once cleared", () => {
@@ -304,5 +356,21 @@ describe("the cull grid", () => {
     expect(at({ x: far * 2 - 5, y: -5, width: 20, height: 20 })).toEqual([2]);
     expect(at({ x: -5, y: -far * 3 - 5, width: 20, height: 20 })).toEqual([3]);
     expect(at({ x: 2 ** 26 * CARD_CELL - 5, y: 0, width: 20, height: 20 })).toEqual([4]);
+  });
+});
+
+describe("the card grid", () => {
+  it("walks only the board it has seen, whatever rectangle it is asked for", async () => {
+    const { RectGrid } = await import("../src/window/canvas/engine/grid");
+    const grid = new RectGrid(512);
+    expect(grid.extent()).toBeUndefined();
+    grid.set(1, { x: 0, y: 0, width: 100, height: 100 });
+    grid.set(2, { x: 5_000, y: 2_000, width: 100, height: 100 });
+    expect(grid.extent()).toEqual({ x: 0, y: 0, width: 512 * 10, height: 512 * 5 });
+    // A margin of a trillion board units walks ten by five cells, not 10^18.
+    expect(grid.query({ x: -1e12, y: -1e12, width: 2e12, height: 2e12 }, []).sort()).toEqual([1, 2]);
+    grid.clear();
+    expect(grid.extent()).toBeUndefined();
+    expect(grid.query({ x: 0, y: 0, width: 100, height: 100 }, [])).toEqual([]);
   });
 });
