@@ -581,7 +581,7 @@ const summarizeFrames = (
 export const startMotionProbe = (page: Page): Promise<void> =>
   page.evaluate(() => {
     const w = window as unknown as { __gpuMotion?: Record<string, unknown> };
-    const probe: Record<string, unknown> = { ticks: 0, cameraMoves: 0, movedNoPresent: 0, lastFrames: -1, lastCamera: null };
+    const probe: Record<string, unknown> = { ticks: 0, cameraMoves: 0, movedNoPresent: 0, inputEvents: 0, lastFrames: -1, lastCamera: null };
     w.__gpuMotion = probe;
     (window as unknown as { __gpuInputGaps?: number[] }).__gpuInputGaps = [];
     const tick = (): void => {
@@ -675,7 +675,10 @@ export const wheelSweep = async (page: Page, targets: ReadonlyArray<number>, del
   await page.evaluate(
     (input: { events: number; gaps: number[] }) => {
       const w = window as unknown as { __gpuMotion?: Record<string, unknown>; __gpuInputGaps?: number[] };
-      if (w.__gpuMotion !== undefined) w.__gpuMotion["inputEvents"] = Number(w.__gpuMotion["inputEvents"]) + input.events;
+      if (w.__gpuMotion !== undefined) {
+        const previous = Number(w.__gpuMotion["inputEvents"]);
+        w.__gpuMotion["inputEvents"] = (Number.isFinite(previous) ? previous : 0) + input.events;
+      }
       const previous = w.__gpuInputGaps ?? [];
       w.__gpuInputGaps = previous.concat(input.gaps);
     },
@@ -683,26 +686,53 @@ export const wheelSweep = async (page: Page, targets: ReadonlyArray<number>, del
   );
 };
 
-/** A fling as a trackpad sends it: a burst of pointer moves with no reads. */
-export const flingSweep = async (page: Page, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> => {
-  const steps = 20;
+/** A two-finger pan as the canvas takes it: wheel deltas at display rate, no reads. */
+export const panSweep = async (
+  page: Page,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  frames = 40,
+  frameMs = 16,
+): Promise<void> => {
+  const pane = await page.evaluate(() => {
+    const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+    return hook?.["rectOf"]("") as { x: number; y: number; width: number; height: number } | undefined;
+  });
+  const rect = pane ?? { x: 0, y: 0, width: 800, height: 600 };
+  const cdp = await page.context().newCDPSession(page);
+  const sends: Array<Promise<unknown>> = [];
   const stamps: number[] = [];
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
-  for (let step = 1; step <= steps; step += 1) {
-    const t = step / steps;
-    await page.mouse.move(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
-    stamps.push(Date.now());
-    await page.waitForTimeout(8);
+  const startedAt = Date.now();
+  try {
+    for (let frame = 0; frame < frames; frame += 1) {
+      const due = startedAt + frame * frameMs;
+      const wait = due - Date.now();
+      if (wait > 0) await page.waitForTimeout(wait);
+      stamps.push(Date.now());
+      sends.push(
+        cdp.send("Input.dispatchMouseEvent", {
+          type: "mouseWheel",
+          x: rect.x + rect.width / 2,
+          y: rect.y + rect.height / 2,
+          deltaX: (to.x - from.x) / frames,
+          deltaY: (to.y - from.y) / frames,
+        }).catch(() => undefined),
+      );
+    }
+    await Promise.all(sends);
+  } finally {
+    await cdp.detach().catch(() => undefined);
   }
-  await page.mouse.up();
-  const gaps = stamps.slice(1).map((ts, index) => ts - stamps[index]!);
+  const gaps = stamps.slice(1).map((ts, i) => ts - stamps[i]!);
   await page.evaluate(
     (input: { events: number; gaps: number[] }) => {
       const w = window as unknown as { __gpuMotion?: Record<string, unknown>; __gpuInputGaps?: number[] };
-      if (w.__gpuMotion !== undefined) w.__gpuMotion["inputEvents"] = Number(w.__gpuMotion["inputEvents"]) + input.events;
-      const previous = w.__gpuInputGaps ?? [];
-      w.__gpuInputGaps = previous.concat(input.gaps);
+      if (w.__gpuMotion !== undefined) {
+        const previous = Number(w.__gpuMotion["inputEvents"]);
+        w.__gpuMotion["inputEvents"] = (Number.isFinite(previous) ? previous : 0) + input.events;
+      }
+      const before = w.__gpuInputGaps ?? [];
+      w.__gpuInputGaps = before.concat(input.gaps);
     },
     { events: stamps.length, gaps },
   );

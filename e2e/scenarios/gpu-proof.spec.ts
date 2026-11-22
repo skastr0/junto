@@ -43,11 +43,11 @@ import {
   buildProofBoard,
   cameraOn,
   cameraOnAt,
-  fling,
   launchProofArm,
   loadFactoryBoard,
   loadFactoryFixture,
   paneRect,
+  panSweep,
   placeCamera,
   readBlankProbe,
   readMotionProbe,
@@ -465,11 +465,30 @@ const addressSeat = async (page: Page, id: string, pane: ScreenRect): Promise<Se
   const after = (await readProofState(page)).camera;
   const moved = after.zoom > before.zoom * 1.01 || Math.abs(after.x - before.x) > 4 || Math.abs(after.y - before.y) > 4;
   if (target.hit === "own" || !moved) {
-    const selected = await page.evaluate(() => {
-      const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
-      return (hook?.["selection"]?.() ?? []) as string[];
-    });
-    return { id, result: "miss", detail: `click on its own hit box landed on ${JSON.stringify(selected)}` };
+    const diagnosis = await page.evaluate(
+      (input: { id: string; point: { x: number; y: number } }) => {
+        const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
+        if (hook === undefined) return null;
+        const pane = hook["rectOf"]("") as ScreenRect;
+        const selected = (hook["selection"]?.() ?? []) as string[];
+        const hit = hook["pick"]({ x: input.point.x - pane.x, y: input.point.y - pane.y }) as
+          | { nodeId?: string; part?: { kind?: string; key?: string } }
+          | null
+          | undefined;
+        const element = document.elementFromPoint(input.point.x, input.point.y);
+        const parts = (hook["partsOf"](input.id) as Array<Record<string, any>>)
+          .filter((part) => part["drawn"] === true)
+          .map((part) => ({ key: part["key"], kind: part["kind"], rect: part["rect"] }));
+        return {
+          selected,
+          pick: hit === null || hit === undefined ? null : { nodeId: hit.nodeId ?? null, part: hit.part?.key ?? hit.part?.kind ?? null },
+          element: element === null ? null : String(element.className).slice(0, 120),
+          parts,
+        };
+      },
+      { id, point: target.point },
+    );
+    return { id, result: "miss", detail: `click on its own hit box landed on nothing: ${JSON.stringify(diagnosis)}` };
   }
 
   // A cluster was reached: the camera fits its members; click the seat now.
@@ -1104,8 +1123,8 @@ test.describe("#913 GPU canvas proof", () => {
           page,
           async () => {
             for (let pass = 0; pass < 3; pass += 1) {
-              await fling(page, { x: pane.x + pane.width * 0.8, y: pane.y + pane.height * 0.5 }, { x: pane.x + pane.width * 0.2, y: pane.y + pane.height * 0.5 });
-              await fling(page, { x: pane.x + pane.width * 0.2, y: pane.y + pane.height * 0.6 }, { x: pane.x + pane.width * 0.8, y: pane.y + pane.height * 0.4 });
+              await panSweep(page, { x: 900, y: 0 }, { x: -900, y: 260 }, 55);
+              await panSweep(page, { x: -900, y: -260 }, { x: 900, y: 0 }, 55);
             }
           },
           join(dir, "trace-pan.json"),
@@ -1421,7 +1440,7 @@ test.describe("#913 GPU canvas proof", () => {
         page,
         async () => {
           for (let pass = 0; pass < 3; pass += 1) {
-            await fling(page, { x: pane.x + pane.width * 0.85, y: pane.y + pane.height * 0.3 }, { x: pane.x + pane.width * 0.15, y: pane.y + pane.height * 0.7 }, 10);
+            await panSweep(page, { x: 700, y: -300 }, { x: -700, y: 300 }, 40);
             await wheelSweep(page, [0.15]);
             await wheelSweep(page, [1.2]);
             await placeCamera(page, { x: -pane.width * pass, y: -pane.height * pass, zoom: 0.3 });
