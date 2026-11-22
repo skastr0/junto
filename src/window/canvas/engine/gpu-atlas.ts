@@ -491,6 +491,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       }
     }
     device.queue.submit([encoder.finish()]);
+    // The smaller levels change after the frame that read the last revision
+    // may have drawn from them; a new revision makes the next frame draw
+    // whole, or a frame that redraws only its damage keeps the stale texels.
+    revision += 1;
   };
 
   const flushDirty = (): void => {
