@@ -17,7 +17,7 @@
  */
 
 import { writeFile, mkdir } from "node:fs/promises";
-import { closeSync, mkdirSync, openSync, writeSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
@@ -150,6 +150,25 @@ export const columnsFor = (copies: number): number => (copies >= 100 ? 10 : copi
 export const loadFactoryBoard = (dbPath: string): { readonly fixture: NestedCanvasFixture; readonly board: ProofBoard } => {
   const fixture = loadFactoryShapeCanvas({ dbPath, canvasName: PROOF_CANVAS });
   return { fixture, board: tileFactory(fixture, 1, 1) };
+};
+
+/**
+ * The same shape from a saved fixture (the `nestedCanvas` JSON a probe writes):
+ * `{ model, stats, signalRows }`. Used on a machine without a copy of the
+ * operator's database, so the scale arms can run there; the proof on the
+ * operator's Mac reads the database copy itself.
+ */
+export const loadFactoryFixture = (jsonPath: string): NestedCanvasFixture => {
+  const parsed = JSON.parse(readFileSync(jsonPath, "utf8")) as {
+    readonly model: { readonly nodes: NestedCanvasFixture["model"]["nodes"]; readonly wires: NestedCanvasFixture["model"]["wires"] };
+    readonly stats: NestedCanvasFixture["stats"];
+    readonly signalRows?: ReturnType<NestedCanvasFixture["signals"]>;
+  };
+  return {
+    model: modelFixture(parsed.model.nodes, parsed.model.wires),
+    stats: parsed.stats,
+    signals: () => parsed.signalRows ?? [],
+  };
 };
 
 export const buildProofBoard = (fixture: NestedCanvasFixture, scale: ProofScale): ProofBoard =>

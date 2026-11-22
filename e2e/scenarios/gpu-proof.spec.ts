@@ -46,6 +46,7 @@ import {
   fling,
   launchProofArm,
   loadFactoryBoard,
+  loadFactoryFixture,
   paneRect,
   placeCamera,
   readBlankProbe,
@@ -72,15 +73,18 @@ const { PNG } = createRequire(import.meta.url)("pngjs") as {
   readonly PNG: { readonly sync: { read(png: Buffer): PngImage } };
 };
 
-const ENABLED = process.env["JUNTO_GPU_PROOF"] === "1" && (process.env["JUNTO_FACTORY_DB"] ?? "") !== "";
+const ENABLED =
+  process.env["JUNTO_GPU_PROOF"] === "1" &&
+  ((process.env["JUNTO_FACTORY_DB"] ?? "") !== "" || (process.env["JUNTO_FACTORY_JSON"] ?? "") !== "");
 const SCALES: ReadonlyArray<ProofScale> = (process.env["JUNTO_GPU_PROOF_SCALES"] ?? "1,10,100")
   .split(",")
   .map((value) => Number(value) as ProofScale)
   .filter((value): value is ProofScale => value === 1 || value === 10 || value === 100);
 const OUT = process.env["JUNTO_GPU_PROOF_OUT"] ?? join("/tmp", "junto-gpu-proof");
 const DB = process.env["JUNTO_FACTORY_DB"] ?? "";
+const JSON_FIXTURE = process.env["JUNTO_FACTORY_JSON"] ?? "";
 
-test.skip(!ENABLED, "set JUNTO_GPU_PROOF=1 and JUNTO_FACTORY_DB=<copy of junto.db> to run the proof");
+test.skip(!ENABLED, "set JUNTO_GPU_PROOF=1 and JUNTO_FACTORY_DB=<copy of junto.db> (or JUNTO_FACTORY_JSON=<saved fixture>) to run the proof");
 
 /** The tiers, at a zoom inside each one, with hysteresis safely past the edge. */
 const TIERS = [
@@ -113,6 +117,7 @@ const boardDir = async (scale: ProofScale): Promise<string> => {
 
 const boardFixture = ((): NestedCanvasFixture | null => {
   if (!ENABLED) return null;
+  if (DB === "" && JSON_FIXTURE !== "") return loadFactoryFixture(JSON_FIXTURE);
   try {
     return loadFactoryBoard(DB).fixture;
   } catch (error) {
@@ -780,9 +785,11 @@ test.describe("#913 GPU canvas proof", () => {
           let portraitMissing = 0;
           let portraitBlank = 0;
           let portraitWrongShape = 0;
+          let portraitCovered = 0;
           const missingSamples: string[] = [];
           const blankSamples: string[] = [];
           let seatQuads = 0;
+          const checked: Array<{ id: string; portrait: ContentPart }> = [];
           for (const seat of content) {
             seatQuads += seat.parts.length;
             let portrait: ContentPart | null | undefined;
@@ -796,20 +803,35 @@ test.describe("#913 GPU canvas proof", () => {
               if (missingSamples.length < 6) missingSamples.push(seat.id);
               continue;
             }
+            checked.push({ id: seat.id, portrait });
+          }
+          // A portrait under the bars or a panel is not on screen to the
+          // operator; the canvas never received that point. Exclude it.
+          const covered = await page.evaluate((rects) => {
+            return (rects as Array<{ x: number; y: number; width: number; height: number }>).map((rect) => {
+              const element = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+              return element instanceof HTMLCanvasElement && element.classList.contains("junto-gpu-canvas");
+            });
+          }, checked.map((row) => row.portrait.rect));
+          for (const [index, { id, portrait }] of checked.entries()) {
+            if (covered[index] !== true) {
+              portraitCovered += 1;
+              continue;
+            }
             const aspect = portrait.rect.width / Math.max(1, portrait.rect.height);
             if (aspect < 0.75 || aspect > 1.33) {
               // A portrait is a disc; a tall bar in its place is wrong content.
               portraitWrongShape += 1;
-              if (blankSamples.length < 6) blankSamples.push(`${seat.id}:${aspect.toFixed(2)}`);
+              if (blankSamples.length < 6) blankSamples.push(`${id}:aspect ${aspect.toFixed(2)}`);
               continue;
             }
             const share = partInk(image, viewport, portrait.rect);
             if (portrait.hasImage === false || share < 0.01) {
               portraitBlank += 1;
-              if (blankSamples.length < 6) blankSamples.push(`${seat.id}:${String(portrait.hasImage)}:${share.toFixed(3)}`);
+              if (blankSamples.length < 6) blankSamples.push(`${id}:hasImage=${String(portrait.hasImage)}:ink=${share.toFixed(3)}`);
               continue;
             }
-            okPortraits.add(seat.id);
+            okPortraits.add(id);
           }
           freshPortraits.set(tier.name, okPortraits);
           tierCameras.set(tier.name, at.camera);
@@ -845,6 +867,7 @@ test.describe("#913 GPU canvas proof", () => {
             portraitMissing,
             portraitBlank,
             portraitWrongShape,
+            portraitCovered,
           };
           tiers.push(row);
           if (at.tier !== tier.name) fail(`${String(scale)}x: camera at zoom ${String(tier.zoom)} reports tier ${at.tier}, wanted ${tier.name}`);
