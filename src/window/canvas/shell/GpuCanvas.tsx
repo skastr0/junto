@@ -270,6 +270,21 @@ export function GpuCanvas({ onUnavailable }: Props) {
     const sizes = new ResizeObserver(resize);
     sizes.observe(canvas);
     resize();
+    // A move to a display of another density, or a browser zoom, changes the
+    // pixel ratio and not the CSS size, so the observer is silent (issue 915).
+    // A query for the ratio in hand fires once when it stops matching; each
+    // change resizes the backing store and asks about the new ratio.
+    let ratioQuery: MediaQueryList | undefined;
+    const watchRatio = (): void => {
+      ratioQuery?.removeEventListener?.("change", onRatio);
+      ratioQuery = typeof window.matchMedia === "function" ? window.matchMedia(`(resolution: ${String(window.devicePixelRatio || 1)}dppx)`) : undefined;
+      ratioQuery?.addEventListener?.("change", onRatio);
+    };
+    function onRatio(): void {
+      resize();
+      watchRatio();
+    }
+    watchRatio();
 
     const visibility = (): void => engine.input({ kind: "visibility", visible: document.visibilityState !== "hidden" });
     document.addEventListener("visibilitychange", visibility);
@@ -371,6 +386,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       window.removeEventListener("paste", onPaste);
       document.removeEventListener("visibilitychange", visibility);
       sizes.disconnect();
+      ratioQuery?.removeEventListener?.("change", onRatio);
       offMotion();
       offTheme();
       offKeeper();
