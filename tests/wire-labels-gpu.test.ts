@@ -11,6 +11,8 @@
  * own style changes only when its wire's geometry does; a resting frame
  * writes nothing and reads no layout.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { mountWireLabels, type WireLabels } from "../src/window/canvas/shell/wire-labels";
 import type { WiresLayer } from "../src/window/canvas/engine/wires";
@@ -216,5 +218,12 @@ describe("wire select labels on the GPU canvas", () => {
     labels.dispose();
     mounted.splice(0, mounted.length);
     expect(document.querySelector('[data-canvas-overlay="wire-labels"]')).toBeNull();
+  });
+
+  it("takes no pointer past near, as the old canvas's labels do, so it never covers a badge or a seat", () => {
+    const css = readFileSync(join(import.meta.dir ?? __dirname, "../src/window/styles/canvas-lod-regions.css"), "utf8");
+    expect(css).toMatch(
+      /html:is\(\[data-canvas-tier="mid"\], \[data-canvas-tier="far"\], \[data-canvas-tier="overview"\]\) \.junto-wire-labels \.junto-edge-label \{\s*visibility: hidden;/,
+    );
   });
 });

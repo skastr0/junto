@@ -44,6 +44,12 @@ html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="o
 html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport :is(.junto-edge-label, .junto-wire-pulse, path.junto-wire-pulse-hold) {
   visibility: hidden;
 }
+/* The GPU canvas's wire select targets (shell/wire-labels.ts) sit outside
+   React Flow's viewport and follow the same rule: past near they take no
+   pointer, so an unseen 14 px target never covers a badge or a seat. */
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .junto-wire-labels .junto-edge-label {
+  visibility: hidden;
+}
 
 /* --- mid and below: a frame that still reads ------------------------- */
 
