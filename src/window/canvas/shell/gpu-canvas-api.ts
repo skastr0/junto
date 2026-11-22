@@ -25,6 +25,7 @@ import type {
 import type { SeamEngine } from "../engine/engine";
 import { cameraForTarget, interpolateCamera, sameCamera } from "./camera-targets";
 import { createGpuLensSession, type GpuLensSession } from "./gpu-lens";
+import { createSceneSnapshot } from "./scene-snapshot";
 import type { SurfaceMirror } from "./surface-mirror";
 
 type Scheduler = {
@@ -67,16 +68,16 @@ export const createGpuCanvasApi = (
   let animation: number | undefined;
   let disposed = false;
   // The magnifier's lens: one session at a time, fed by applyScene's fan-out.
-  // The lens portals in a frame after this canvas's effect starts the feed,
-  // so ops collect in `lensBuffer` until the first attach flushes them; once
-  // a session exists ops go straight to it, and a failed attach (no WebGPU
-  // context) closes the buffer for good — the magnifier keeps its own path.
+  // The lens portals in after this canvas's effect starts the feed, so each
+  // attach is seeded from the scene's current state (a snapshot the size of
+  // the board, not a capped replay of its history); then ops go straight to
+  // the session. A failed attach (no WebGPU context) leaves the magnifier on
+  // its own path.
   const lensBox: { session: GpuLensSession | undefined; active: boolean } = {
     session: undefined,
     active: false,
   };
-  let lensBuffer: SceneOp[] | null = [];
-  const LENS_BUFFER_MAX = 50_000;
+  const snapshot = createSceneSnapshot();
 
   const viewport = () => mirror.viewport();
 
@@ -127,15 +128,8 @@ export const createGpuCanvasApi = (
     applyScene: (ops) => {
       mirror.apply(ops);
       engine?.apply(ops);
-      const session = lensBox.session;
-      if (session !== undefined) {
-        session.apply(ops);
-      } else if (lensBuffer !== null) {
-        lensBuffer.push(...ops);
-        if (lensBuffer.length > LENS_BUFFER_MAX) {
-          lensBuffer.splice(0, lensBuffer.length - LENS_BUFFER_MAX);
-        }
-      }
+      snapshot.apply(ops);
+      lensBox.session?.apply(ops);
     },
     lensPick: (screen) => {
       const session = lensBox.session;
@@ -156,10 +150,9 @@ export const createGpuCanvasApi = (
         lensBox.session?.dispose();
         const session = createGpuLensSession(surface);
         lensBox.session = session;
-        const buffered = lensBuffer;
-        lensBuffer = null;
         if (session === undefined) return undefined;
-        if (buffered !== null && buffered.length > 0) session.apply(buffered);
+        const seed = snapshot.ops();
+        if (seed.length > 0) session.apply(seed);
         session.setActive(lensBox.active);
         const handle: CanvasLensHandle = {
           lookAt: (at) => session.lookAt(at),
@@ -258,7 +251,6 @@ export const createGpuCanvasApi = (
       lensBox.session?.dispose();
       lensBox.session = undefined;
       lensBox.active = false;
-      lensBuffer = null;
       engine = undefined;
     },
   };
@@ -277,6 +269,9 @@ export const engineStats = (engine: SeamEngine | undefined): EngineStats => {
     lastUploadRanges: stats.lastUploadRanges ?? [],
     lastFrameMs: stats.lastFrameMs ?? 0,
     rasterQueue: stats.rasterQueue ?? 0,
+    ...(stats.blank === undefined ? {} : { blank: stats.blank }),
+    ...(stats.bufferFailures === undefined ? {} : { bufferFailures: stats.bufferFailures }),
+    ...(stats.gpuPass === undefined ? {} : { gpuPass: stats.gpuPass }),
   };
 };
 
