@@ -254,10 +254,54 @@ const colourReader = (probe: HTMLElement): ((css: string) => string) => {
     if (held !== undefined) return held;
     probe.style.color = "";
     probe.style.color = css;
-    const resolved = probe.style.color === "" ? "transparent" : getComputedStyle(probe).color || "transparent";
+    const resolved = probe.style.color === "" ? "transparent" : canvasColour(getComputedStyle(probe).color || "transparent");
     known.set(css, resolved);
     return resolved;
   };
+};
+
+/** sRGB's transfer curve, from a linear channel to a byte. */
+const srgbByte = (linear: number): number => {
+  const c = linear <= 0.0031308 ? 12.92 * linear : 1.055 * Math.pow(linear, 1 / 2.4) - 0.055;
+  return Math.round(Math.min(1, Math.max(0, c)) * 255);
+};
+
+/** A CSS number, a percentage of `whole` when it carries one; `none` is 0. */
+const cssNumber = (token: string, whole: number): number =>
+  token === "none" ? 0 : token.endsWith("%") ? (Number.parseFloat(token) / 100) * whole : Number.parseFloat(token);
+
+/**
+ * A computed colour as #rrggbbaa, which every canvas takes. color-mix(in oklab)
+ * computes to oklab(), and a fillStyle the canvas cannot parse is dropped in
+ * silence, leaving the card the last card's colour: oklab() and oklch() are
+ * converted here (Ottosson's matrices), the rest passed through.
+ */
+export const canvasColour = (computed: string): string => {
+  const match = /^(oklab|oklch)\(\s*([^)]*)\)$/.exec(computed.trim());
+  if (match === null) return computed;
+  const [channels = "", alphaPart] = match[2]!.split("/");
+  const [first = "0", second = "0", third = "0"] = channels.trim().split(/\s+/);
+  const lightness = cssNumber(first, 1);
+  let a: number;
+  let b: number;
+  if (match[1] === "oklab") {
+    a = cssNumber(second, 0.4);
+    b = cssNumber(third, 0.4);
+  } else {
+    const chroma = cssNumber(second, 0.4);
+    const hue = (cssNumber(third, 360) * Math.PI) / 180;
+    a = chroma * Math.cos(hue);
+    b = chroma * Math.sin(hue);
+  }
+  const alpha = alphaPart === undefined ? 1 : cssNumber(alphaPart.trim(), 1);
+  const l = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (lightness - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const red = srgbByte(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s);
+  const green = srgbByte(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s);
+  const blue = srgbByte(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s);
+  const byte = (value: number): string => value.toString(16).padStart(2, "0");
+  return `#${byte(red)}${byte(green)}${byte(blue)}${byte(Math.round(Math.min(1, Math.max(0, alpha)) * 255))}`;
 };
 
 /** Draw the map's cards and dots, in the SVG's order: cards, then seats over them. */
@@ -284,18 +328,27 @@ const drawMap = (
   const scale = 1 / unitsPerPixel;
   const x = (width - box.width * scale) / 2 - box.x * scale;
   const y = (height - box.height * scale) / 2 - box.y * scale;
-  context.setTransform(scale * ratio, 0, 0, scale * ratio, x * ratio, y * ratio);
-  context.lineWidth = paint.strokeWidth;
+  // Cards in device pixels, as the SVG's crispEdges drew them: a pixel is the
+  // card's when its centre is inside it, so each edge rounds to a pixel line.
+  const k = scale * ratio;
+  context.lineWidth = paint.strokeWidth * k;
   for (const rect of rects) {
     if (rect.seat) continue;
+    const x0 = Math.round(x * ratio + rect.x * k);
+    const y0 = Math.round(y * ratio + rect.y * k);
+    const w = Math.round(x * ratio + (rect.x + rect.width) * k) - x0;
+    const h = Math.round(y * ratio + (rect.y + rect.height) * k) - y0;
+    if (w <= 0 || h <= 0) continue;
     context.beginPath();
-    const r = Math.min(paint.radius, rect.width / 2, rect.height / 2);
-    context.roundRect(rect.x, rect.y, rect.width, rect.height, r);
+    const r = Math.min(paint.radius * k, w / 2, h / 2);
+    if (r >= 0.5) context.roundRect(x0, y0, w, h, r);
+    else context.rect(x0, y0, w, h);
     context.fillStyle = paint.colour(rect.fill);
     context.fill();
     context.strokeStyle = paint.colour(rect.stroke);
     context.stroke();
   }
+  context.setTransform(k, 0, 0, k, x * ratio, y * ratio);
   context.lineWidth = 0.8 * unit;
   for (const rect of rects) {
     if (!rect.seat) continue;

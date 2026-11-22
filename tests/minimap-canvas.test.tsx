@@ -8,7 +8,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { FactoryMinimap, minimapHits, type MinimapNodeRect } from "../src/window/components/FactoryMinimap";
+import { canvasColour, FactoryMinimap, minimapHits, type MinimapNodeRect } from "../src/window/components/FactoryMinimap";
 import type { MinimapRect, MinimapSource } from "../src/window/canvas/shell/minimap-source";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -65,6 +65,18 @@ describe("the minimap's hit grid", () => {
 
   it("answers nothing on an empty map", () => {
     expect(minimapHits([]).at({ x: 0, y: 0 }, 1)).toBeUndefined();
+  });
+});
+
+describe("the minimap's colours", () => {
+  it("hands the canvas oklab() and oklch() as #rrggbbaa, the form every canvas parses", () => {
+    expect(canvasColour("oklab(1 0 0)")).toBe("#ffffffff");
+    expect(canvasColour("oklab(0 0 0 / 0.55)")).toBe("#0000008c");
+    // sRGB red, #ff0000, and the same colour as oklch and in percentages.
+    expect(canvasColour("oklab(0.627955 0.224863 0.125846)")).toBe("#ff0000ff");
+    expect(canvasColour("oklch(0.627955 0.257683 29.2339 / 0.5)")).toBe("#ff000080");
+    expect(canvasColour("oklab(62.7955% 56.2158% 31.4615%)")).toBe("#ff0000ff");
+    expect(canvasColour("rgba(1, 2, 3, 0.4)")).toBe("rgba(1, 2, 3, 0.4)");
   });
 });
 
