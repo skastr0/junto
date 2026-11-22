@@ -37,13 +37,28 @@ const wireButton = async (page: Page): Promise<{ x: number; y: number }> => {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 };
 
-const panAcross = async (page: Page): Promise<void> => {
+/** What the engine's pick says is under a page point, on the GPU canvas. */
+const gpuUnder = (page: Page, x: number, y: number): Promise<string> =>
+  page.evaluate(({ x, y }) => {
+    const pane = document.querySelector(".junto-gpu-canvas");
+    const box = pane?.getBoundingClientRect();
+    const hook = (window as any).__juntoCanvas;
+    if (box === undefined || hook === undefined) return "ground: no hook";
+    const hit = hook.pick?.({ x: x - box.left, y: y - box.top });
+    if (hit?.wireId !== undefined) return `wire: ${String(hit.wireId)}`;
+    if (hit?.nodeId !== undefined) return `card: ${String(hit.nodeId)}`;
+    return "ground: pane";
+  }, { x, y });
+
+const panAcross = async (page: Page, arm: "gpu" | "dom" = "dom"): Promise<void> => {
   await card(page, "a").visible({ timeout: 30_000 });
   const target = await wireButton(page);
   // Rest on empty ground 120 px left of the wire's button, level with it.
   await page.mouse.move(target.x - 120, target.y);
   const elementUnder = (): Promise<string> =>
-    page.evaluate(({ x, y }) => {
+    arm === "gpu"
+      ? gpuUnder(page, target.x - 120, target.y)
+      : page.evaluate(({ x, y }) => {
       const el = document.elementFromPoint(x, y);
       if (el === null) return "";
       // What the pointer is over: a wire's button, a card (any part of it), or ground.
@@ -72,7 +87,7 @@ test("a wheel pan on the GPU canvas carries on over wires and cards", async () =
     const { page } = junto;
     await expect.poll(() => page.evaluate(() => Boolean(window.__juntoCanvas)), { timeout: 30_000 }).toBe(true);
     await canvasReady(page, { timeout: 30_000 });
-    await panAcross(page);
+    await panAcross(page, "gpu");
   } finally {
     await junto.close();
   }
