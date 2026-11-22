@@ -328,8 +328,9 @@ const closeSurfaces = async (page: Page): Promise<void> => {
 const resetOperator = async (page: Page): Promise<void> => {
   await closeSurfaces(page);
   await page.keyboard.press("Escape");
-  const pane = await paneRect(page);
-  await page.mouse.move(pane.x + 4, pane.y + 4);
+  // Off the canvas entirely: a point near the pane's corner can sit inside a
+  // region's title or frame, and a hovered region takes the pick at mid/far.
+  await page.mouse.move(2, 2);
   await page.waitForTimeout(60);
 };
 
