@@ -22,6 +22,7 @@ import type { ResourceSubject } from "@shared/thread-subject";
 import type { ContentRef } from "@shared/wire/content-ref";
 import type { MailParty, MailThreadMessage } from "@shared/wire/mail-threads";
 import { getJuntoApi } from "./junto-api";
+import type { AttachmentHold } from "./operator-attachments";
 
 export type SeatAddress = { readonly canvasName: string; readonly seatId: string };
 
@@ -789,6 +790,85 @@ export const useSeatThreadMentionables = (seat: SeatAddress): ReadonlyArray<Ment
     };
   }, [canvasName, seatId]);
   return seats;
+};
+
+/**
+ * The seats an @ may name in mail that goes to each of these seats: wired to
+ * every one of them, since main checks a mention against each recipient.
+ * Empty with no seat, while unread, or when any one cannot be read.
+ */
+export const useSeatThreadMentionablesOfAll = (
+  canvasName: string,
+  seatIds: ReadonlyArray<string>,
+): ReadonlyArray<MentionableSeat> => {
+  const [seats, setSeats] = useState<ReadonlyArray<MentionableSeat>>([]);
+  // The ids as one value, so a new array of the same seats reads nothing again.
+  const key = seatIds.join("\u0000");
+  useEffect(() => {
+    const read = getJuntoApi()?.seatThreadMentionables;
+    const ids = key === "" ? [] : key.split("\u0000");
+    if (typeof read !== "function" || !canvasName || ids.length === 0) {
+      setSeats((held) => (held.length === 0 ? held : []));
+      return;
+    }
+    let alive = true;
+    void Promise.all(ids.map((nodeId) => read({ canvasName, nodeId }))).then(
+      (found) => {
+        if (!alive || !found.every(Array.isArray)) return;
+        const [first = [], ...rest] = found;
+        const inAll = rest.map((list) => new Set(list.map((seat) => seat.nodeId)));
+        setSeats(first.filter((seat) => inAll.every((ids) => ids.has(seat.nodeId))));
+      },
+      () => {
+        if (alive) setSeats([]);
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [canvasName, key]);
+  return seats;
+};
+
+/**
+ * A draft held outside the composer, so it outlives it: what was written and
+ * the files on it are there when the composer comes back (Quick thread keeps
+ * one until it is sent).
+ */
+export type HeldThreadDraft = {
+  readonly text: () => string;
+  readonly keepText: (text: string) => void;
+  readonly files: AttachmentHold;
+};
+
+/** A seat a new thread goes to, with the name the operator reads. */
+export type ThreadRecipient = { readonly seatId: string; readonly name: string };
+
+/** What came of one send to several seats: the thread each seat got, and each seat that got none, with main's words. */
+export type NewThreadsOutcome = {
+  readonly sent: ReadonlyArray<{ readonly seatId: string; readonly threadId: string }>;
+  readonly failed: ReadonlyArray<{ readonly seatId: string; readonly message: string }>;
+};
+
+/**
+ * One new thread per seat, the same text and files in each. Every seat is
+ * tried: one that refuses does not stop the rest, and the outcome names it,
+ * so the operator sends again to those alone. In the order the seats came.
+ */
+export const sendNewThreads = async (
+  canvasName: string,
+  seatIds: ReadonlyArray<string>,
+  mail: Pick<OperatorThreadSend, "text" | "attachments">,
+): Promise<NewThreadsOutcome> => {
+  const results = await Promise.all(seatIds.map((seatId) => sendSeatThread({ canvasName, seatId, ...mail })));
+  const sent: Array<{ seatId: string; threadId: string }> = [];
+  const failed: Array<{ seatId: string; message: string }> = [];
+  results.forEach((result, index) => {
+    const seatId = seatIds[index]!;
+    if (result.ok) sent.push({ seatId, threadId: result.threadId });
+    else failed.push({ seatId, message: result.message });
+  });
+  return { sent, failed };
 };
 
 /**

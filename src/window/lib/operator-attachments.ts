@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type DragEvent } from "react";
 import { CONTENT_STAGE_PIECE_BYTES } from "@shared/content-stage";
 import {
   OPERATOR_ATTACHMENT_MAX_BYTES,
@@ -133,28 +133,76 @@ const hasFiles = (event: DragEvent): boolean => [...(event.dataTransfer?.types ?
 let nextId = 0;
 
 /**
+ * A tray's files, held where they can outlive the composer that shows them.
+ * A composer has its own and lets go of it as it unmounts. A draft that is
+ * kept between opens (Quick thread) makes one and hands it in: its files,
+ * and an upload still running, are there when the composer comes back.
+ */
+export type AttachmentHold = {
+  readonly items: () => ReadonlyArray<AttachmentItem>;
+  readonly change: (next: (held: ReadonlyArray<AttachmentItem>) => ReadonlyArray<AttachmentItem>) => void;
+  readonly subscribe: (listener: () => void) => () => void;
+  /** Ids still in the tray: an upload that ends after its file was removed is dropped. */
+  readonly live: Set<string>;
+  /** Empty it and let go of the thumbnails. */
+  readonly drop: () => void;
+};
+
+const NO_ITEMS: ReadonlyArray<AttachmentItem> = [];
+
+export const makeAttachmentHold = (): AttachmentHold => {
+  let held = NO_ITEMS;
+  const listeners = new Set<() => void>();
+  const live = new Set<string>();
+  const set = (next: ReadonlyArray<AttachmentItem>): void => {
+    if (next === held) return;
+    held = next;
+    for (const listener of [...listeners]) listener();
+  };
+  return {
+    items: () => held,
+    change: (next) => set(next(held)),
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    live,
+    drop: () => {
+      for (const item of held) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      live.clear();
+      set(NO_ITEMS);
+    },
+  };
+};
+
+/**
  * The tray's files for one composer: add uploads at once, remove and clear
  * let go of the thumbnails. A file past the count or the size is refused
- * in words and never uploaded.
+ * in words and never uploaded. With `hold`, the files are the hold's and
+ * stay in it when the composer unmounts.
  */
-export const useAttachments = (canvasName: string): Attachments => {
+export const useAttachments = (canvasName: string, hold?: AttachmentHold): Attachments => {
   const content = useContentCalls();
-  const [items, setItems] = useState<ReadonlyArray<AttachmentItem>>([]);
+  const own = useRef<AttachmentHold | undefined>(undefined);
+  const store = hold ?? (own.current ??= makeAttachmentHold());
+  const items = useSyncExternalStore(store.subscribe, store.items, store.items);
   const [refused, setRefused] = useState<string>();
   const [dragging, setDragging] = useState(false);
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
-  // Ids still in the tray: an upload that ends after its file was removed is dropped.
-  const live = useRef(new Set<string>());
 
-  const patch = useCallback((id: string, change: Partial<AttachmentItem>) => {
-    setItems((current) => current.map((item) => (item.id === id ? { ...item, ...change } : item)));
-  }, []);
+  // Written to the hold, not to this composer: an upload that ends while the composer is away still lands.
+  const patch = useCallback(
+    (id: string, change: Partial<AttachmentItem>) => {
+      store.change((current) => current.map((item) => (item.id === id ? { ...item, ...change } : item)));
+    },
+    [store],
+  );
 
   const add = useCallback(
     (files: ReadonlyArray<File>) => {
       if (files.length === 0) return;
-      const room = OPERATOR_ATTACHMENTS_MAX - itemsRef.current.length;
+      const room = OPERATOR_ATTACHMENTS_MAX - store.items().length;
       const refusals: string[] = [];
       if (files.length > room) refusals.push(`A mail carries at most ${OPERATOR_ATTACHMENTS_MAX} files.`);
       const taken = files.slice(0, Math.max(0, room)).filter((file) => {
@@ -181,44 +229,44 @@ export const useAttachments = (canvasName: string): Attachments => {
           },
         };
       });
-      for (const { item } of added) live.current.add(item.id);
-      setItems((current) => [...current, ...added.map(({ item }) => item)]);
+      for (const { item } of added) store.live.add(item.id);
+      store.change((current) => [...current, ...added.map(({ item }) => item)]);
       if (!put) return;
       for (const { item, file } of added) {
         uploadOperatorFile(put, canvasName, file, item).then(
           (ref) => {
-            if (live.current.has(item.id)) patch(item.id, { state: "ready", ref });
+            if (store.live.has(item.id)) patch(item.id, { state: "ready", ref });
           },
           (error: unknown) => {
-            if (!live.current.has(item.id)) return;
+            if (!store.live.has(item.id)) return;
             patch(item.id, { state: "failed", error: error instanceof Error ? error.message : "The file could not be attached." });
           },
         );
       }
     },
-    [canvasName, patch, content],
+    [canvasName, patch, content, store],
   );
 
-  const remove = useCallback((id: string) => {
-    live.current.delete(id);
-    const gone = itemsRef.current.find((item) => item.id === id);
-    if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl);
-    setItems((current) => current.filter((item) => item.id !== id));
-    setRefused(undefined);
-  }, []);
+  const remove = useCallback(
+    (id: string) => {
+      store.live.delete(id);
+      const gone = store.items().find((item) => item.id === id);
+      if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl);
+      store.change((current) => current.filter((item) => item.id !== id));
+      setRefused(undefined);
+    },
+    [store],
+  );
 
   const clear = useCallback(() => {
-    for (const item of itemsRef.current) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-    live.current.clear();
-    setItems([]);
+    store.drop();
     setRefused(undefined);
-  }, []);
+  }, [store]);
 
-  // The thumbnails let go with the composer.
+  // The composer's own files let go with it; a hold handed in keeps its files.
   useEffect(
     () => () => {
-      for (const item of itemsRef.current) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-      live.current.clear();
+      own.current?.drop();
     },
     [],
   );

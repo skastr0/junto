@@ -32,7 +32,7 @@ import {
   type ReachNode,
 } from "@shared/region-reach";
 import type { ItemId } from "@shared/work-ids";
-import { useSeatThreadMentionables, type SeatAddress } from "./seat-threads";
+import { useSeatThreadMentionables, useSeatThreadMentionablesOfAll, type SeatAddress } from "./seat-threads";
 import { useCanvas } from "./use-model";
 
 const seatCandidate = (nodeId: NodeId, name: string): MentionCandidate => ({
@@ -63,6 +63,42 @@ export const resourceNodesInReach = (canvas: Pick<Canvas, "nodes">, from: NodeId
 export const useConnectedSeats = (seat: SeatAddress): ReadonlyArray<MentionCandidate> => {
   const seats = useSeatThreadMentionables(seat);
   return useMemo(() => seats.map((entry) => seatCandidate(entry.nodeId as NodeId, entry.name)), [seats]);
+};
+
+/**
+ * Seats wired to every one of these seats: the @ of one mail that starts a
+ * thread with each of them. One seat is `useConnectedSeats`.
+ */
+export const useSeatsConnectedToAll = (canvasName: string, seatIds: ReadonlyArray<string>): ReadonlyArray<MentionCandidate> => {
+  const seats = useSeatThreadMentionablesOfAll(canvasName, seatIds);
+  return useMemo(() => seats.map((entry) => seatCandidate(entry.nodeId as NodeId, entry.name)), [seats]);
+};
+
+/** What a # or a page @ may name from every one of these: in reach of each. Pure. */
+export const resourceNodesInReachOfAll = (canvas: Pick<Canvas, "nodes">, from: ReadonlyArray<NodeId>): ReadonlyArray<ReachNode> => {
+  const [first, ...rest] = from.map((id) => resourceNodesInReach(canvas, id));
+  if (first === undefined) return [];
+  const inAll = rest.map((nodes) => new Set(nodes.map((node) => node.id)));
+  return first.filter((node) => inAll.every((ids) => ids.has(node.id)));
+};
+
+/** Tasks, artifacts and pages in reach of every one of these seats: the # and the page @ of mail to each of them. */
+export const useResourcesInReachOfAll = (
+  canvasName: string,
+  from: ReadonlyArray<string>,
+  items: MentionItems = {},
+): ReadonlyArray<MentionCandidate> => {
+  const canvas = useCanvas(canvasName);
+  const { tasksOf, artifactsOf } = items;
+  const key = from.join("\u0000");
+  return useMemo(
+    () =>
+      candidatesOfNodes(canvas, resourceNodesInReachOfAll(canvas, key === "" ? [] : (key.split("\u0000") as NodeId[])), {
+        tasksOf,
+        artifactsOf,
+      }),
+    [canvas, key, tasksOf, artifactsOf],
+  );
 };
 
 /** Seats in reach of a resource: a resource comment's @. */
