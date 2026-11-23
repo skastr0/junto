@@ -17,7 +17,7 @@ import {
   type SeatAddress,
   type SeatThreadSummary,
 } from "../../lib/seat-threads";
-import { deepActiveElement, focusPrimaryControl, recentGestureKind } from "../../lib/focus-ownership";
+import { deepActiveElement, focusPrimaryControl, isFocusClaimInFlight, recentGestureKind } from "../../lib/focus-ownership";
 import { mentionChipOf, openMention, subjectChipOf, type MentionChip } from "../../lib/mention-open";
 import { stripAuthorPreamble } from "../../lib/thread-text";
 import { useCanvas } from "../../lib/use-model";
@@ -445,11 +445,14 @@ export function ThreadChat({
   const portraitOf = usePortraitOf(seat.canvasName);
   const { messages, loaded, error, older, loadingMore } = useSeatThreadMessages(seat, thread.threadId);
   // A thread is read when the operator picks it or acts in it: a press, a
-  // key or a scroll inside its chat. One that shows only because it is first
-  // in a list is not: an unread the operator never chose stays unread, and
-  // the other mistake costs one click. The keyboard set in the reply field as
-  // a view opens is not the operator's act; the press or key that brings
-  // their own focus here is. From then on, wherever the chat is laid, mail
+  // key or a scroll inside its chat, or focus they move into it. One that
+  // shows only because it is first in a list is not: an unread the operator
+  // never chose stays unread, and the other mistake costs one click. Focus
+  // counts because a screen reader's cursor moves the keyboard with it and
+  // sends the page no key and no press; focus the code places (a claim
+  // through focus-ownership, as a view opens) does not, and neither does the
+  // window handing the keyboard back where it was. From then on, wherever
+  // the chat is laid, mail
   // that lands in it while it is on screen reads too, so nothing counts what
   // the operator is looking at. A chat that is not on screen (behind
   // Terminal) reads nothing: its thread stays unread until it shows again.
@@ -460,6 +463,21 @@ export function ThreadChat({
   const [actedIn, setActedIn] = useState<string>();
   const chosen = picked || actedIn === threadId;
   const act = chosen ? undefined : () => setActedIn(threadId);
+  // What held the keyboard here when the window itself lost it.
+  const leftWith = useRef<EventTarget | null>(null);
+  const focusIn = chosen
+    ? undefined
+    : (event: { readonly target: EventTarget }) => {
+        if (isFocusClaimInFlight()) return;
+        const back = leftWith.current === event.target;
+        leftWith.current = null;
+        if (!back) setActedIn(threadId);
+      };
+  const focusOut = chosen
+    ? undefined
+    : (event: { readonly target: EventTarget }) => {
+        leftWith.current = document.hasFocus() ? null : event.target;
+      };
   useEffect(() => {
     if (!shown || !chosen) return;
     void markSeatThreadRead({ canvasName, seatId }, threadId);
@@ -535,6 +553,8 @@ export function ThreadChat({
       onKeyDown={act}
       onWheel={act}
       onTouchMove={act}
+      onFocus={focusIn}
+      onBlur={focusOut}
     >
       <ChatHead
         title={

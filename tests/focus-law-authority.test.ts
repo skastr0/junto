@@ -5,6 +5,7 @@ import {
   claimFocusOnMount,
   closestComposed,
   deepActiveElement,
+  isFocusClaimInFlight,
   isOperatorTyping,
   noteOperatorGesture,
   releaseFocus,
@@ -201,5 +202,27 @@ describe("isOperatorTyping", () => {
     expect(row.closest("[inert]")).toBeNull();
     expect(closestComposed(row, "[inert]")).toBe(host);
     root.remove();
+  });
+});
+
+describe("a claim in flight", () => {
+  it("is in flight only while it moves focus, so the focus it raises is known as the code's", () => {
+    resetOperatorGesture();
+    const root = mount(`<input id="field" /><button id="other">other</button>`);
+    try {
+      const field = q<HTMLInputElement>(root, "#field");
+      const heard: boolean[] = [];
+      field.addEventListener("focus", () => heard.push(isFocusClaimInFlight()));
+      expect(isFocusClaimInFlight()).toBe(false);
+      expect(claimFocus(field, "open")).toBe(true);
+      expect(heard).toEqual([true]);
+      expect(isFocusClaimInFlight()).toBe(false);
+      // Focus the operator moves, by Tab or by a screen reader's cursor, is not a claim.
+      q<HTMLButtonElement>(root, "#other").focus();
+      field.focus();
+      expect(heard).toEqual([true, false]);
+    } finally {
+      root.remove();
+    }
   });
 });

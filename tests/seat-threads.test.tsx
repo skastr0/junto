@@ -355,6 +355,37 @@ describe("the Threads half of the switch", () => {
     expect(q("seat-view-threads")?.textContent).toBe("Threads");
   });
 
+  it("reads the first thread when the operator moves focus into its chat, and not when the code or the window does", async () => {
+    const fixture = fake();
+    fixture.state.threads = [thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20), unread: 2 })];
+    setSeatThreadsSource(fixture.source);
+    await render();
+    // The view opens with the keyboard placed in the reply, by a claim: not the operator's act.
+    await click(q("seat-view-threads"));
+    const reply = q("thread-composer-input") as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(reply);
+    expect(fixture.marks).toEqual([]);
+
+    const hasFocus = vi.spyOn(document, "hasFocus");
+    try {
+      // The window loses the keyboard and hands it back where it was: not an act either.
+      hasFocus.mockReturnValue(false);
+      act(() => reply.blur());
+      hasFocus.mockReturnValue(true);
+      act(() => reply.focus());
+      await flush();
+      expect(fixture.marks).toEqual([]);
+
+      // A screen reader's cursor moves the keyboard into the chat with no key and no press: the operator is in the thread.
+      act(() => (q("seat-threads-stream") as HTMLElement).focus());
+      await flush();
+      expect(fixture.marks[0]).toEqual({ canvasName: "factory", seatId: "seat-1", threadId: "notes" });
+      expect(q("seat-view-threads")?.textContent).toBe("Threads");
+    } finally {
+      hasFocus.mockRestore();
+    }
+  });
+
   it("reads the thread the operator picks from the list, and no other", async () => {
     const fixture = fake();
     fixture.state.threads = [

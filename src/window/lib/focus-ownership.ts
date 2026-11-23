@@ -343,6 +343,18 @@ export const setFocusFence = (fence: ((target: HTMLElement) => boolean) | null):
   focusFence = fence;
 };
 
+// Claims being made right now. A focus event raised while one is in flight
+// was put there by code; any other moved by the operator's own hand, or by
+// their screen reader's cursor, which sends the page no key and no press.
+let claimsInFlight = 0;
+
+/**
+ * True while `claimFocus` is moving focus. A surface that reads focus arriving
+ * in it as the operator acting there asks this first, so a claim made for
+ * them (an open, a restore) is never taken for their act.
+ */
+export const isFocusClaimInFlight = (): boolean => claimsInFlight > 0;
+
 /**
  * The only way to move focus. Returns true when the target owns focus
  * afterwards.
@@ -372,8 +384,13 @@ export const claimFocus = (
   if (!verdict.allowed) return false;
   if (verdict.reason !== "already-owned") {
     const focusOptions = options.preventScroll ? { preventScroll: true } : undefined;
-    if (options.via) options.via.focus(focusOptions);
-    else target.focus(focusOptions);
+    claimsInFlight += 1;
+    try {
+      if (options.via) options.via.focus(focusOptions);
+      else target.focus(focusOptions);
+    } finally {
+      claimsInFlight -= 1;
+    }
   }
   if (options.select && cause !== "async" && "select" in target) {
     (target as HTMLInputElement).select();
