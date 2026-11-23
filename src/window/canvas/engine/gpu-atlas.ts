@@ -1078,7 +1078,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const evictPlot = (plot: Plot): void => {
     const at = nowMs();
     for (const rec of [...plot.cells]) {
-      noteEvicted(rec.key, at);
+      // Only the slot its key finds, as in release: a burst's unnamed landing leaves the key's own cell alive.
+      if (byKey.get(rec.key) === rec) noteEvicted(rec.key, at);
       freeSlot(rec);
       evictions += 1;
     }
@@ -2792,7 +2793,11 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     revision: () => revision,
     stats,
     pendingKeys,
-    rerasterLog: (limit = 256): ReadonlyArray<AtlasRerasterEntry> => rerasterLog.slice(-limit),
+    rerasterLog: (limit = 256): ReadonlyArray<AtlasRerasterEntry> => {
+      // A limit that is 0, negative or not a number asks for nothing; slice(-0) would be the whole log.
+      const cap = Number.isFinite(limit) ? Math.min(256, Math.max(0, Math.floor(limit))) : 0;
+      return cap === 0 ? [] : rerasterLog.slice(-cap);
+    },
     audit,
     auditTexels,
     get requests() {

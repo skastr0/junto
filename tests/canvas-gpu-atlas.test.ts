@@ -1295,6 +1295,11 @@ describe("gpu atlas rerasters: keys asked again after their landed cell was free
     expect(atlas.stats().rerasters).toBe(1);
     // The stats a poll reads carry the number, never the list.
     expect("rerasterLog" in atlas.stats()).toBe(false);
+    // A limit of 0, below 0 or not a number asks for nothing.
+    expect(atlas.rerasterLog(0)).toEqual([]);
+    expect(atlas.rerasterLog(-3)).toEqual([]);
+    expect(atlas.rerasterLog(Number.NaN)).toEqual([]);
+    expect(atlas.rerasterLog(1)).toHaveLength(1);
   });
 
   it("a line written over counts nothing", async () => {
@@ -1337,5 +1342,40 @@ describe("gpu atlas rerasters: keys asked again after their landed cell was free
     await twice();
     expect(atlas.stats().rerasters).toBe(0);
     expect(atlas.rerasterLog()).toEqual([]);
+  });
+});
+
+describe("gpu atlas ownImage: a cell shows its own landed pixels (the pop check)", () => {
+  it("is false for no cell, false while a stand-in shows, true once its own land, false for a failed cell", async () => {
+    let letLand!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      letLand = resolve;
+    });
+    const { atlas } = atlasWith({
+      rasterizeText: async (run, scale) => {
+        if (run.text === "broken") throw new Error("raster failed");
+        if (scale === 2) await gate;
+        return pixels(20, 10);
+      },
+    });
+    atlas.attach(fakeDevice().device);
+    expect(atlas.ownImage(NO_ATLAS_CELL)).toBe(false);
+    const small = atlas.acquire(textQuad(), 1);
+    await settle();
+    await settle();
+    expect(atlas.ownImage(small)).toBe(true);
+    // The same text at 2 shows the 1x pixels until its own land.
+    const big = atlas.acquire(textQuad(), 2);
+    expect(atlas.hasImage(big)).toBe(true);
+    expect(atlas.ownImage(big)).toBe(false);
+    letLand();
+    await settle();
+    await settle();
+    expect(atlas.ownImage(big)).toBe(true);
+    const broken = atlas.acquire(textQuad({ ...textRun, text: "broken" }), 1);
+    await settle();
+    await settle();
+    expect(atlas.stats().failures).toBeGreaterThan(0);
+    expect(atlas.ownImage(broken)).toBe(false);
   });
 });

@@ -62,11 +62,6 @@ export type AtlasStats = {
   readonly landed: number;
   /** Landed cells freed (one per cell, never per plot), a running total since launch. */
   readonly evictions: number;
-  /**
-   * Requests for a key whose landed cell was evicted earlier, a running total,
-   * and the last 256 of them with both times (performance.now): a key evicted
-   * and rastered again inside one window is thrash.
-   */
   /** Keys asked for again after their landed cell was freed, a running total since launch. */
   readonly rerasters: number;
   /** Landings written over the cell their slot showed, when nothing else held it: a changed status line takes no new rect. */
@@ -105,13 +100,6 @@ export type AtlasStats = {
 };
 
 /** Bounded diagnostic snapshot of one queued or in-flight atlas cell. */
-/** A key asked for again after its landed cell was freed: when it went, and when it was asked (nowMs). */
-export type AtlasRerasterEntry = {
-  readonly key: string;
-  readonly evictedAt: number;
-  readonly at: number;
-};
-
 export type AtlasPendingEntry = {
   readonly key: string;
   readonly kind: "text" | "sprite";
@@ -121,6 +109,13 @@ export type AtlasPendingEntry = {
   readonly height: number;
   readonly sourceRef: string | null;
   readonly attempts: number;
+};
+
+/** A key asked for again after its landed cell was freed: when it went, and when it was asked (nowMs). */
+export type AtlasRerasterEntry = {
+  readonly key: string;
+  readonly evictedAt: number;
+  readonly at: number;
 };
 
 /** One broken cell-table invariant, as `GpuAtlas.audit` found it. */
