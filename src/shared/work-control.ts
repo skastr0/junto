@@ -122,6 +122,9 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "msg.react",
 "seat.wait",
 "seat.read",
+/** A seat's threads: its own with no seat (no edge, no port); a connected seat's on port threads.read. */
+"thread.list",
+"thread.show",
 /** Universal seat-local: the seat's own agent signals (no edge, no port). */
 "signal.raise",
 "signal.clear",

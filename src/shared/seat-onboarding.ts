@@ -98,7 +98,7 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
     label: "messages",
     docsKind: "agent",
     note:
-      "`junto msg list` with no target reads your own inbox. Mail is typed into the recipient's input within seconds: never retry it, and do not acknowledge an acknowledgement.",
+      "`junto msg list` with no target reads your inbox, `junto thread list` your threads. Mail is typed into the recipient's input within seconds: never retry it, and do not acknowledge an acknowledgement.",
     rows: [
       { port: "msg.list", intent: "read target thread", command: (t) => `junto msg list '{"target":"${t}"}'` },
       {
@@ -125,6 +125,12 @@ export const COMMAND_FAMILIES: Readonly<Record<CommandFamily, FamilySpec>> = {
         intent: "observe",
         command: (t) => `junto seat read ${t} --lines 40`,
         detail: "settled grid, with state, reason, confidence and generation; output activity alone is not readiness",
+      },
+      {
+        port: "threads.read",
+        intent: "read their threads",
+        command: (t) => `junto thread list --seat ${t}`,
+        detail: "their threads, newest first; junto thread show <threadId> --seat <seat> reads one. Marks nothing read",
       },
     ],
   },

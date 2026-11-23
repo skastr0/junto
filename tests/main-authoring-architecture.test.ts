@@ -152,6 +152,9 @@ describe("main authoring architecture", () => {
       // only through the classified ipc.work.signal-secret-put handler in
       // ipc.ts; it reads the canvas topology and writes no work.
       "src/core/vault/secret-put.ts",
+      // A seat's thread reads hand the core's one thread read the work store
+      // it needs; they only read, and move no read point.
+      "src/core/work-control/thread.ts",
       "src/core/work/control.ts",
       // Canvas topology changes emit exactly one compact edge map-change
       // notice per seat; this is the classified authoring listener, not a

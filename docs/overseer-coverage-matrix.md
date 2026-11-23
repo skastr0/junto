@@ -210,6 +210,7 @@ entry point, and one test drives the real operation module over fake ports.
 | Author | a write records `overseer:<node id>`; the operator's own writes record `operator` |
 | Name | lower-cased; 1 to 80 characters of letters, digits, dot, underscore and dash; no bound on description or body beyond the 1 MiB overseer request |
 | `junto references list` and `read` | ordinary commands; a seat reads its own scope from work ops `references.list` and `references.read` |
+| `junto thread list` and `show` | ordinary commands; a seat reads its own threads from work ops `thread.list` and `thread.show`, and a connected seat's on port `threads.read` |
 
 Product bindings sit behind one import each:
 `src/core/overseer/secret-store-seam.ts` (the platform secret store) and

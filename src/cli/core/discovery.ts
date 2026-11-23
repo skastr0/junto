@@ -30,6 +30,7 @@ import { ContentStageArgs } from "../../shared/content-stage";
 import { envReportCapability, envReportExamples, envReportSchema } from "../commands/env";
 import { logsReadCapability, logsReadExamples, logsReadSchema } from "../commands/logs";
 import { referencesCapabilities, referencesExamples, referencesSchemas } from "../commands/references";
+import { threadCapabilities, threadExamples, threadSchemas } from "../commands/thread";
 import { overseerCapabilities, overseerExamples, overseerSchemas } from "../commands/overseer";
 import { automationCapabilities, automationExamples, automationSchemas } from "../commands/automation";
 import { taskCapabilities, taskExamples, taskSchemas } from "../commands/task";
@@ -336,6 +337,7 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   envReportSchema,
   logsReadSchema,
   ...referencesSchemas,
+  ...threadSchemas,
   contentStageSchema,
   ...overseerSchemas,
   ...automationSchemas,
@@ -750,6 +752,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
   ...envReportExamples,
   ...logsReadExamples,
   ...referencesExamples,
+  ...threadExamples,
   ...overseerExamples,
   ...automationExamples,
   ...taskExamples,
@@ -1010,6 +1013,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
   envReportCapability,
   logsReadCapability,
   ...referencesCapabilities,
+  ...threadCapabilities,
   ...overseerCapabilities,
   ...automationCapabilities,
   ...taskCapabilities,

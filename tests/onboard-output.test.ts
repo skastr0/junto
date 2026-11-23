@@ -268,6 +268,7 @@ describe("junto onboard output", () => {
       prompt: `junto msg send --prompt '{"target":"<target>","text":"..."}'`,
       wait: "junto seat wait <target> --until idle --timeout 30s",
       observe: "junto seat read <target> --lines 40",
+      "read their threads": "junto thread list --seat <target>",
     });
   });
 

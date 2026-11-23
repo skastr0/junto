@@ -24,6 +24,7 @@ pub mod seat;
 pub mod seat_discovery;
 pub mod signals;
 pub mod task;
+pub mod thread;
 pub mod work;
 
 /// A command that runs and prints its own envelope.
@@ -65,6 +66,7 @@ pub enum Root {
     Rulings(work::Rulings),
     Msg(msg::Msg),
     Seat(seat::Seat),
+    Thread(thread::Thread),
     Env(env::Env),
     Logs(logs::Logs),
     References(references::References),
@@ -98,6 +100,7 @@ impl Run for Root {
             Root::Rulings(c) => c.run(),
             Root::Msg(c) => c.run(),
             Root::Seat(c) => c.run(),
+            Root::Thread(c) => c.run(),
             Root::Env(c) => c.run(),
             Root::Logs(c) => c.run(),
             Root::References(c) => c.run(),

@@ -53,6 +53,9 @@ export const PortForWorkOp = {
   "msg.prompt": "msg.prompt",
   "seat.wait": "seat.wait",
   "seat.read": "terminal.read",
+  // A seat's threads, a read of its own: no tie to terminal.read.
+  "thread.list": "threads.read",
+  "thread.show": "threads.read",
   // Read/reply reuse list/send edge ports — no new capability surface.
   "msg.read": "msg.list",
   "msg.reply": "msg.send",
@@ -72,6 +75,8 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "msg.prompt",
   "seat.wait",
   "seat.read",
+  "thread.list",
+  "thread.show",
   "msg.read",
   "msg.reply",
   "msg.react",

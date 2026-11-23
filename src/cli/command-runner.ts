@@ -24,6 +24,7 @@ const commands: readonly Entry[] = [
   { name: "rulings", enabled: TASKS_ENABLED, load: async () => (await import("./commands/work")).rulingsCommand },
   { name: "msg", load: async () => (await import("./commands/work")).msgCommand },
   { name: "seat", load: async () => (await import("./commands/seat")).seatCommand },
+  { name: "thread", load: async () => (await import("./commands/thread")).threadCommand },
   { name: "env", load: async () => (await import("./commands/env")).envCommand },
   { name: "logs", load: async () => (await import("./commands/logs")).logsCommand },
   { name: "references", load: async () => (await import("./commands/references")).referencesCommand },

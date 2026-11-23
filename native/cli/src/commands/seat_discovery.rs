@@ -332,7 +332,7 @@ const BROWSER_INVOCATION: Invocation = Invocation {
     discover: "junto browser pages",
 };
 
-const CREW_INVOCATIONS: [Invocation; 3] = [
+const CREW_INVOCATIONS: [Invocation; 4] = [
     Invocation {
         port: "msg.prompt",
         command: "junto msg send --prompt",
@@ -347,6 +347,11 @@ const CREW_INVOCATIONS: [Invocation; 3] = [
         port: "terminal.read",
         command: "junto seat read",
         discover: "junto schema show seat.read",
+    },
+    Invocation {
+        port: "threads.read",
+        command: "junto thread list --seat",
+        discover: "junto schema show thread.list",
     },
 ];
 

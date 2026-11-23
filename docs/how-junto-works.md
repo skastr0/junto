@@ -54,6 +54,8 @@ The `junto` CLI talks to the app over a local socket, `~/.junto/work/control.soc
 | `junto msg reply` / `junto msg react` | answer or acknowledge a message |
 | `junto seat wait <seat> --until idle` | wait for a connected seat to reach a state |
 | `junto seat read <seat>` | read a connected seat's terminal |
+| `junto thread list [--seat <seat>]` | list this seat's threads, or a connected seat's; marks nothing read |
+| `junto thread show <threadId> [--seat <seat>]` | read one thread's messages, a page at a time; marks nothing read |
 | `junto doctor` | socket, token, and protocol checks |
 
 Every command prints JSON. `junto schema` and `junto examples` describe the inputs.

@@ -19,6 +19,7 @@ import { OverseerRpcs } from "./overseer";
 import { SeatRpcs } from "./seat";
 import { SkillRpcs } from "./skill";
 import { TaskRpcs } from "./task";
+import { ThreadRpcs } from "./thread";
 
 /** Every group the work socket serves, as `src/core/work-control/families.ts` merges them. */
 export const WORK_RPC_GROUPS = [
@@ -28,6 +29,7 @@ export const WORK_RPC_GROUPS = [
   SkillRpcs,
   DiscoveryRpcs,
   OverseerRpcs,
+  ThreadRpcs,
 ] as const;
 
 export const PUBLISHED_DIR = fileURLToPath(new URL("./published", import.meta.url));

@@ -432,6 +432,9 @@ export const requiresConnection = (op: WorkOpName | OldTaskStoreOp | "overseer")
     case "msg.prompt":
     case "seat.wait":
     case "seat.read":
+    // A connected seat's threads; with no seat, the handler reads the caller's own and admits nothing.
+    case "thread.list":
+    case "thread.show":
     case "msg.read":
     case "msg.reply":
     case "msg.react":
@@ -446,6 +449,8 @@ const MSG_OPS: ReadonlyArray<WorkOpName> = [
   "msg.prompt",
   "seat.wait",
   "seat.read",
+  "thread.list",
+  "thread.show",
   "msg.read",
   "msg.reply",
   "msg.react",
