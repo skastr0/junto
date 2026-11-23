@@ -5,6 +5,10 @@
  * pick and search as the needs-you feed, plus one Unread chip where the
  * feed has its kinds.
  *
+ * The core read answers the rows: it narrows by region, words and seat, and
+ * counts the total and the unread over everything the filter holds, never a
+ * page. This module says what to ask it and how to draw what comes back.
+ *
  * Pure but for the view state, which is session-lived and module-scoped like
  * the feed's (feedView$): it survives the modal's open and close without
  * pretending to be a preference.
@@ -12,22 +16,64 @@
 import { observable } from "@legendapp/state";
 import type { FeedRegion, FeedSeatChip } from "@shared/operator-feed";
 import { seatChipsOf } from "@shared/operator-feed";
+import type { MailParty } from "@shared/wire/mail-threads";
+import type { ResourceSubject } from "@shared/wire/thread-subject";
 import { compareView, SeatUrgency } from "@shared/wire/urgency";
-import { regionChipsOf, regionMatches, regionPickName, type FeedRegionChip, type FeedRegionPick } from "./operator-feed";
+import { regionChipsOf, regionPickName, type FeedRegionChip, type FeedRegionPick } from "./operator-feed";
 import type { SeatGroup } from "./seat-line";
 import type { SeatThreadSummary } from "./seat-threads";
 
-/** One row: a thread between the operator and one seat, with where that seat sits. */
+/**
+ * One row: a thread between the operator and one seat, as the core's
+ * operator threads read answers it (OperatorThreadRow,
+ * src/shared/operator-threads.ts), held here by what the list draws.
+ */
 export type ThreadRow = {
-  readonly canvasName: string;
-  readonly seatId: string;
-  readonly seatName: string;
+  readonly threadId: string;
+  /** The seat the operator talks with in it; its seat view holds the thread. */
+  readonly seat: { readonly nodeId: string; readonly name: string; readonly portraitIdentity: string };
   readonly region: FeedRegion;
-  readonly thread: SeatThreadSummary;
+  /** The thread's line: a subject's name, else its root mail's first line. */
+  readonly title: string;
+  readonly startedAt: number;
+  readonly lastAt: number;
+  readonly last: { readonly messageId: string; readonly from: MailParty; readonly text: string; readonly at: number };
+  readonly messageCount: number;
+  readonly unread: number;
+  readonly readAt?: number;
+  readonly subject?: ResourceSubject;
 };
 
-/** A row's one key across every seat: a thread id is a mail id, and a seat may share it with another. */
-export const threadRowKey = (row: Pick<ThreadRow, "seatId" | "thread">): string => `${row.seatId}\n${row.thread.threadId}`;
+/** A row's one key across every seat: a thread id is a mail id, and two seats' views may hold it. */
+export const threadRowKey = (row: Pick<ThreadRow, "seat" | "threadId">): string => `${row.seat.nodeId}\n${row.threadId}`;
+
+/** The operator wrote the row's last mail. */
+export const lastIsMine = (row: Pick<ThreadRow, "last">): boolean => row.last.from.kind === "operator";
+
+/**
+ * The row as the one thread chat takes it (ThreadChat, the seat view's
+ * SeatThreadSummary). Every row is a thread the operator is in, so it can
+ * be answered.
+ */
+export const seatSummaryOf = (row: ThreadRow): SeatThreadSummary => ({
+  threadId: row.threadId,
+  title: row.title,
+  participants: ["you", row.seat.name],
+  startedAt: row.startedAt,
+  lastAt: row.lastAt,
+  last: {
+    messageId: row.last.messageId,
+    author: row.last.from.kind === "operator" ? "you" : row.last.from.name,
+    mine: lastIsMine(row),
+    text: row.last.text,
+    at: row.last.at,
+  },
+  messageCount: row.messageCount,
+  canReply: true,
+  unread: row.unread,
+  ...(row.readAt === undefined ? {} : { readAt: row.readAt }),
+  ...(row.subject === undefined ? {} : { subject: row.subject }),
+});
 
 /** The list's two orders, in the needs-you feed's own words. */
 export type ThreadsOrder = "newest" | "urgency";
@@ -50,30 +96,44 @@ export const threadsView$ = observable<{
   seatsOpen: boolean;
 }>({ region: undefined, order: "newest", query: "", unread: false, seat: undefined, seatsOpen: false });
 
-export type ThreadsFilter = {
-  readonly query: string;
-  readonly unread: boolean;
-  readonly seat: string | undefined;
+/**
+ * What the core read is asked for (OperatorThreadsFilter): the canvas, the
+ * picked region, the words and the kept seat. The words are matched there,
+ * over every mail of every thread, never over the rows the window holds.
+ */
+export const threadsReadFilter = (
+  view: {
+    readonly region: FeedRegionPick | undefined;
+    readonly query: string;
+    readonly seat: string | undefined;
+  },
+  canvasName: string,
+): {
+  readonly canvasName: string;
+  readonly region?: ReadonlyArray<string>;
+  readonly search?: string;
+  readonly seats?: ReadonlyArray<string>;
+} => {
+  const search = view.query.trim();
+  return {
+    canvasName,
+    ...(view.region?.canvasName === canvasName ? { region: view.region.path } : {}),
+    ...(search === "" ? {} : { search }),
+    ...(view.seat === undefined ? {} : { seats: [view.seat] }),
+  };
 };
 
 /** Whether the operator narrowed anything besides a region: the surface offers to clear it. */
-export const threadsFilterOn = (filter: ThreadsFilter): boolean =>
-  filter.query.trim() !== "" || filter.unread || filter.seat !== undefined;
+export const threadsFilterOn = (view: { readonly query: string; readonly unread: boolean; readonly seat: string | undefined }): boolean =>
+  view.query.trim() !== "" || view.unread || view.seat !== undefined;
 
-/**
- * Whether a row passes the axes the window holds: Unread and the seat. The
- * words are not matched here: a search reads every message of every thread,
- * which only the core read holds, so the query goes to it and the rows that
- * come back already match.
- */
-export const threadRowMatches = (row: ThreadRow, filter: ThreadsFilter): boolean => {
-  if (filter.unread && row.thread.unread === 0) return false;
-  return filter.seat === undefined || row.seatId === filter.seat;
-};
+/** Unread keeps the threads with mail the operator has not read. */
+export const keepUnread = (rows: ReadonlyArray<ThreadRow>, unread: boolean): ReadonlyArray<ThreadRow> =>
+  unread ? rows.filter((row) => row.unread > 0) : rows;
 
 /** Newest activity first; ties by seat then thread, so the order never flickers. */
 const byRecency = (a: ThreadRow, b: ThreadRow): number =>
-  b.thread.lastAt - a.thread.lastAt || a.seatName.localeCompare(b.seatName) || a.thread.threadId.localeCompare(b.thread.threadId);
+  b.lastAt - a.lastAt || a.seat.name.localeCompare(b.seat.name) || a.threadId.localeCompare(b.threadId);
 
 /**
  * The rows in an order. Newest first is recency alone. Most urgent first is
@@ -98,31 +158,29 @@ export const orderThreadRows = (
     }
     return group;
   };
-  return [...rows].sort((a, b) => compare(groupOf(a.seatId), groupOf(b.seatId)) || byRecency(a, b));
+  return [...rows].sort((a, b) => compare(groupOf(a.seat.nodeId), groupOf(b.seat.nodeId)) || byRecency(a, b));
 };
 
-/** The rows in the picked region (its children too); a pick on another canvas is ignored. */
-export const rowsInRegion = (
-  rows: ReadonlyArray<ThreadRow>,
-  pick: FeedRegionPick | undefined,
-  canvasName: string,
-): ReadonlyArray<ThreadRow> =>
-  pick?.canvasName === canvasName ? rows.filter((row) => regionMatches(pick.path, row.region)) : rows;
-
-/** What the list shows: the picked region's rows the filter keeps, in the picked order. */
-export const viewThreadRows = (
-  rows: ReadonlyArray<ThreadRow>,
-  pick: FeedRegionPick | undefined,
-  canvasName: string,
-  order: ThreadsOrder,
-  filter: ThreadsFilter,
+/**
+ * The seats in the order Most urgent first reads them: one list per group of
+ * the rail's view, most urgent first, empty groups left out. The core keeps
+ * no urgency, so the window reads each group's threads in turn through the
+ * read's `seats` filter, newest first within each.
+ */
+export const seatsByUrgency = (
+  seatIds: ReadonlyArray<string>,
   urgencyOf: (seatId: string) => SeatGroup | undefined,
-): ReadonlyArray<ThreadRow> =>
-  orderThreadRows(
-    rowsInRegion(rows, pick, canvasName).filter((row) => threadRowMatches(row, filter)),
-    order,
-    urgencyOf,
-  );
+): ReadonlyArray<ReadonlyArray<string>> => {
+  const byGroup = new Map<SeatGroup, string[]>();
+  for (const seatId of seatIds) {
+    const group = urgencyOf(seatId) ?? SeatUrgency.group.offline;
+    const held = byGroup.get(group);
+    if (held) held.push(seatId);
+    else byGroup.set(group, [seatId]);
+  }
+  const compare = compareView(SeatUrgency);
+  return [...byGroup.entries()].sort(([a], [b]) => compare(a, b)).map(([, seats]) => seats);
+};
 
 /**
  * The region strip's chips over the rows: each region a row's seat sits in,
@@ -133,17 +191,13 @@ export const threadRegionChips = (
   pick?: ReadonlyArray<string>,
 ): ReadonlyArray<FeedRegionChip> =>
   regionChipsOf(
-    [...rows].sort(byRecency).map((row) => ({ region: row.region, count: row.thread.unread > 0 ? 1 : 0 })),
+    [...rows].sort(byRecency).map((row) => ({ region: row.region, count: row.unread > 0 ? 1 : 0 })),
     pick,
   );
 
 /** The seat chips over the rows: one per seat, the most threads first, counting threads. */
 export const threadSeatChips = (rows: ReadonlyArray<ThreadRow>): ReadonlyArray<FeedSeatChip> =>
-  seatChipsOf(rows.map((row) => ({ seatId: row.seatId, name: row.seatName, region: row.region })));
-
-/** Threads with mail the operator has not read. */
-export const unreadThreads = (rows: ReadonlyArray<ThreadRow>): number =>
-  rows.reduce((count, row) => (row.thread.unread > 0 ? count + 1 : count), 0);
+  seatChipsOf(rows.map((row) => ({ seatId: row.seat.nodeId, name: row.seat.name, region: row.region })));
 
 /**
  * The status line, in the feed's form: "24 threads, 3 unread"; with a region

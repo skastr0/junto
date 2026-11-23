@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { SeatUrgency } from "../src/shared/wire/urgency";
 import type { FeedRegion } from "../src/shared/operator-feed";
-import type { SeatThreadSummary } from "../src/window/lib/seat-threads";
 import {
+  keepUnread,
   orderThreadRows,
   reconcileThreadSelection,
+  seatSummaryOf,
+  seatsByUrgency,
   threadRegionChips,
   threadRowKey,
-  threadRowMatches,
   threadSeatChips,
   threadsFilterOn,
+  threadsReadFilter,
   threadsStatusLine,
-  unreadThreads,
-  viewThreadRows,
   type ThreadRow,
 } from "../src/window/lib/threads-view";
 
@@ -20,40 +20,35 @@ const OPEN: FeedRegion = { regionId: null, label: "open field", path: [] };
 const PRODUCT: FeedRegion = { regionId: "r-product", label: "Product", path: ["Junto", "Product"], color: "2" };
 const CANVAS: FeedRegion = { regionId: "r-canvas", label: "Canvas", path: ["Junto", "Canvas"], color: "4" };
 
-const thread = (threadId: string, lastAt: number, unread = 0): SeatThreadSummary => ({
+const row = (seatId: string, seatName: string, region: FeedRegion, threadId: string, lastAt: number, unread = 0, mine = false): ThreadRow => ({
   threadId,
+  seat: { nodeId: seatId, name: seatName, portraitIdentity: seatId },
+  region,
   title: `thread ${threadId}`,
-  participants: ["you", "seat"],
   startedAt: lastAt - 1000,
   lastAt,
-  last: { messageId: `${threadId}-last`, author: "seat", mine: false, text: "latest words", at: lastAt },
+  last: {
+    messageId: `${threadId}-last`,
+    from: mine ? { kind: "operator" } : { kind: "seat", nodeId: seatId, name: seatName },
+    text: "latest words",
+    at: lastAt,
+  },
   messageCount: 2,
-  canReply: true,
   unread,
 });
 
-const row = (seatId: string, seatName: string, region: FeedRegion, summary: SeatThreadSummary): ThreadRow => ({
-  canvasName: "factory",
-  seatId,
-  seatName,
-  region,
-  thread: summary,
-});
-
 const rows: ReadonlyArray<ThreadRow> = [
-  row("a", "alpha", PRODUCT, thread("t1", 100, 2)),
-  row("b", "bravo", CANVAS, thread("t2", 300)),
-  row("c", "charlie", OPEN, thread("t3", 200, 1)),
-  row("a", "alpha", PRODUCT, thread("t4", 50)),
+  row("a", "alpha", PRODUCT, "t1", 100, 2),
+  row("b", "bravo", CANVAS, "t2", 300),
+  row("c", "charlie", OPEN, "t3", 200, 1),
+  row("a", "alpha", PRODUCT, "t4", 50, 0, true),
 ];
 
-const NO_FILTER = { query: "", unread: false, seat: undefined };
 const urgencyNone = (): undefined => undefined;
 
 describe("threads view", () => {
   it("orders newest first by default, whatever the seats' states", () => {
-    const keys = viewThreadRows(rows, undefined, "factory", "newest", NO_FILTER, urgencyNone).map((one) => one.thread.threadId);
-    expect(keys).toEqual(["t2", "t3", "t1", "t4"]);
+    expect(orderThreadRows(rows, "newest", urgencyNone).map((one) => one.threadId)).toEqual(["t2", "t3", "t1", "t4"]);
   });
 
   it("orders by the seat's urgency in the rail's view first, then recency", () => {
@@ -62,39 +57,43 @@ describe("threads view", () => {
       b: SeatUrgency.group.working,
       c: SeatUrgency.group.waiting,
     };
-    const keys = orderThreadRows(rows, "urgency", (seatId) => groups[seatId]).map((one) => one.thread.threadId);
     // alpha blocked (its newer thread first), charlie waiting, bravo working.
-    expect(keys).toEqual(["t1", "t4", "t3", "t2"]);
+    expect(orderThreadRows(rows, "urgency", (seatId) => groups[seatId]).map((one) => one.threadId)).toEqual(["t1", "t4", "t3", "t2"]);
+    expect(seatsByUrgency(["b", "a", "c", "d"], (seatId) => groups[seatId])).toEqual([["a"], ["c"], ["b"], ["d"]]);
   });
 
   it("puts a seat whose urgency is unknown with the offline seats, after the rest", () => {
     const keys = orderThreadRows(rows, "urgency", (seatId) => (seatId === "b" ? SeatUrgency.group.resting : undefined)).map(
-      (one) => one.thread.threadId,
+      (one) => one.threadId,
     );
     expect(keys[0]).toBe("t2");
   });
 
-  it("narrows to a region and its children, and ignores a pick on another canvas", () => {
-    const junto = viewThreadRows(rows, { canvasName: "factory", path: ["Junto"] }, "factory", "newest", NO_FILTER, urgencyNone);
-    expect(junto.map((one) => one.seatId)).toEqual(["b", "a", "a"]);
-    const elsewhere = viewThreadRows(rows, { canvasName: "other", path: ["Junto"] }, "factory", "newest", NO_FILTER, urgencyNone);
-    expect(elsewhere).toHaveLength(4);
-    const open = viewThreadRows(rows, { canvasName: "factory", path: [] }, "factory", "newest", NO_FILTER, urgencyNone);
-    expect(open.map((one) => one.seatId)).toEqual(["c"]);
+  it("asks the core read for the region, the words and the seat, and only on this canvas", () => {
+    expect(threadsReadFilter({ region: undefined, query: "  ", seat: undefined }, "factory")).toEqual({ canvasName: "factory" });
+    expect(
+      threadsReadFilter({ region: { canvasName: "factory", path: ["Junto"] }, query: " fix tabs ", seat: "a" }, "factory"),
+    ).toEqual({ canvasName: "factory", region: ["Junto"], search: "fix tabs", seats: ["a"] });
+    expect(threadsReadFilter({ region: { canvasName: "other", path: ["Junto"] }, query: "", seat: undefined }, "factory")).toEqual({
+      canvasName: "factory",
+    });
   });
 
-  it("keeps only unread threads with Unread, and one seat with a seat pick", () => {
-    expect(rows.filter((one) => threadRowMatches(one, { ...NO_FILTER, unread: true })).map((one) => one.thread.threadId)).toEqual([
-      "t1",
-      "t3",
-    ]);
-    expect(rows.filter((one) => threadRowMatches(one, { ...NO_FILTER, seat: "a" }))).toHaveLength(2);
+  it("keeps only unread threads with Unread, and counts the words as a filter", () => {
+    expect(keepUnread(rows, true).map((one) => one.threadId)).toEqual(["t1", "t3"]);
+    expect(keepUnread(rows, false)).toHaveLength(4);
+    expect(threadsFilterOn({ query: " fix ", unread: false, seat: undefined })).toBe(true);
+    expect(threadsFilterOn({ query: "  ", unread: false, seat: undefined })).toBe(false);
+    expect(threadsFilterOn({ query: "", unread: true, seat: undefined })).toBe(true);
   });
 
-  it("leaves the words to the core read: a query alone filters nothing here, but counts as a filter", () => {
-    expect(rows.filter((one) => threadRowMatches(one, { ...NO_FILTER, query: "zzz" }))).toHaveLength(4);
-    expect(threadsFilterOn({ ...NO_FILTER, query: " fix " })).toBe(true);
-    expect(threadsFilterOn({ ...NO_FILTER, query: "  " })).toBe(false);
+  it("hands the chat a summary it can answer, with the operator as you", () => {
+    const mine = seatSummaryOf(rows[3]!);
+    expect(mine.last).toMatchObject({ author: "you", mine: true });
+    expect(mine.canReply).toBe(true);
+    const theirs = seatSummaryOf(rows[0]!);
+    expect(theirs.last).toMatchObject({ author: "alpha", mine: false });
+    expect(theirs.unread).toBe(2);
   });
 
   it("draws region chips with a parent before its first child, counting unread threads", () => {
@@ -124,11 +123,10 @@ describe("threads view", () => {
     );
     expect(threadsStatusLine({ total: 24, unread: 3, shown: 2, region: [], filtering: true })).toBe("2 of 24 shown in the open field");
     expect(threadsStatusLine({ total: 0, unread: 0, shown: 0, filtering: false })).toBe("no threads yet");
-    expect(unreadThreads(rows)).toBe(2);
   });
 
   it("keys a row by its seat and its thread", () => {
-    expect(threadRowKey(rows[0]!)).not.toBe(threadRowKey({ ...rows[0]!, seatId: "b" }));
+    expect(threadRowKey(rows[0]!)).not.toBe(threadRowKey({ ...rows[0]!, seat: { ...rows[0]!.seat, nodeId: "b" } }));
   });
 
   it("hands a selection that left to its next neighbour, else the one before, else the first", () => {
