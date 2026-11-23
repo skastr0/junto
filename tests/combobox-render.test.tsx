@@ -53,6 +53,11 @@ describe("Combobox markup", () => {
     expect(render({ selectedKey: "Projects" })).toContain('role="option" aria-selected="true"');
   });
 
+  it("promises inline completion only when it has one", () => {
+    expect(render()).toContain('aria-autocomplete="both"');
+    expect(render({ completion: undefined })).toContain('aria-autocomplete="list"');
+  });
+
   it("says what a host adds to the field: a line that describes it and its own keys", () => {
     const html = render({ "aria-describedby": "chosen-count", "aria-keyshortcuts": "Shift+Enter" });
     expect(html).toContain('aria-describedby="chosen-count"');

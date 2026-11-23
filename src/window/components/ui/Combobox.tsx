@@ -176,7 +176,8 @@ export function Combobox<T>({
             aria-label={ariaLabel}
             aria-describedby={ariaDescribedBy}
             aria-keyshortcuts={ariaKeyShortcuts}
-            aria-autocomplete="both"
+            // Inline completion is promised only by a field that has one; without it the list is the whole of it.
+            aria-autocomplete={completion === undefined ? "list" : "both"}
             aria-expanded={listVisible && options.length > 0}
             aria-controls={listVisible ? listId : undefined}
             aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
