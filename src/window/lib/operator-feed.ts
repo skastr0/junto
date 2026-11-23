@@ -35,6 +35,7 @@ import { Level } from "@shared/wire/urgency";
 import { isOperatorModalOpen, openOperatorModal } from "./operator-modal";
 import { agentSeat$, seatEventForBinding, seatStatusForBinding } from "./agent-seat-state";
 import { agentSignals$ } from "./agent-signals-state";
+import { groupFeedChains } from "./feed-order";
 import { executionGraphForImpact } from "./impact-mode";
 import { kernel$ } from "./kernel-view";
 import { mailWaiting$, mailWaitsOn } from "./mail-waiting";
@@ -540,14 +541,22 @@ export const feedView$ = observable<{
    * folded still shows in the bar, so a filter is never invisible.
    */
   seatsOpen: boolean;
-}>({ region: undefined, order: "act", query: "", kinds: [], seat: undefined, seatsOpen: false });
+  /** Only what can be acted on now: a card still waiting on another leaves the list. */
+  ready: boolean;
+}>({ region: undefined, order: "act", query: "", kinds: [], seat: undefined, seatsOpen: false, ready: false });
 
 /** The filter the view's three narrowing fields say. */
 export const feedFilterOf = (view: {
   readonly query: string;
   readonly kinds: ReadonlyArray<FeedItemKind>;
   readonly seat: string | undefined;
-}): FeedFilter => ({ query: view.query, kinds: view.kinds, seats: view.seat === undefined ? [] : [view.seat] });
+  readonly ready?: boolean;
+}): FeedFilter => ({
+  query: view.query,
+  kinds: view.kinds,
+  seats: view.seat === undefined ? [] : [view.seat],
+  ...(view.ready === true ? { ready: true } : {}),
+});
 
 /** A chip's press: the kind joins the filter, or leaves it. */
 export const toggleFeedKind = (kind: FeedItemKind): void => {
@@ -586,11 +595,13 @@ export const clearFeedFilters = (): void => {
   feedView$.query.set("");
   feedView$.kinds.set([]);
   feedView$.seat.set(undefined);
+  feedView$.ready.set(false);
 };
 
 /**
  * The sections an open feed shows: the picked region's, what the filter keeps
- * of them, in the picked order.
+ * of them, in the picked order. In the order to act each chain of signals is
+ * drawn together where its first card stands (lib/feed-order).
  */
 export const viewFeedSections = (
   sections: ReadonlyArray<FeedSection>,
@@ -598,14 +609,16 @@ export const viewFeedSections = (
   canvasName: string,
   order: FeedSortOrder,
   filter: FeedFilter = NO_FEED_FILTER,
-): ReadonlyArray<FeedSection> =>
-  orderFeedSections(
+): ReadonlyArray<FeedSection> => {
+  const ordered = orderFeedSections(
     filterFeedSections(
       pick?.canvasName === canvasName ? sections.filter((section) => regionMatches(pick.path, section.region)) : sections,
       filter,
     ),
     order,
   );
+  return order === "act" ? ordered.map((section) => ({ ...section, items: groupFeedChains(section.items) })) : ordered;
+};
 
 /** A section as the open feed draws it, with the items fading out of it. */
 export type ShownFeedSection = FeedSection & { readonly leavingIds: ReadonlySet<string> };

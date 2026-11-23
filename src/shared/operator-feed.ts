@@ -324,13 +324,15 @@ export type FeedFilter = {
   readonly query: string;
   readonly kinds: ReadonlyArray<FeedItemKind>;
   readonly seats: ReadonlyArray<string>;
+  /** Only the needs that can be acted on now: a signal still waiting on another leaves the list. */
+  readonly ready?: boolean;
 };
 
 export const NO_FEED_FILTER: FeedFilter = { query: "", kinds: [], seats: [] };
 
 /** Whether the operator narrowed anything: the surface offers to clear it. */
 export const feedFilterOn = (filter: FeedFilter): boolean =>
-  filter.query.trim() !== "" || filter.kinds.length > 0 || filter.seats.length > 0;
+  filter.query.trim() !== "" || filter.kinds.length > 0 || filter.seats.length > 0 || filter.ready === true;
 
 /** A need's words as a search reads them: its one sentence and its detail. */
 const feedItemWords = (item: FeedItem): string => `${item.text}\n${item.detail ?? ""}`.toLowerCase();
@@ -339,6 +341,7 @@ const feedItemWords = (item: FeedItem): string => `${item.text}\n${item.detail ?
 export const feedItemMatches = (item: FeedItem, filter: FeedFilter): boolean => {
   if (filter.kinds.length > 0 && !filter.kinds.includes(item.kind)) return false;
   if (filter.seats.length > 0 && !filter.seats.includes(item.seat.nodeId)) return false;
+  if (filter.ready === true && item.ready === false) return false;
   const words = filter.query.trim().toLowerCase();
   return words === "" || feedItemWords(item).includes(words);
 };

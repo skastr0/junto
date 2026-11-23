@@ -36,6 +36,17 @@ import {
 } from "react";
 import { use$ } from "@legendapp/state/react";
 import { ArrowUpRight, Check, MonitorSmartphone } from "lucide-react";
+import {
+  feedChainPlaces,
+  feedDependsLineOf,
+  feedItemWaits,
+  foldFeedChains,
+  foldedItemIds,
+  waitsOnTarget,
+  type FeedChainPlace,
+  type FeedRow,
+} from "../../lib/feed-order";
+import { keyCaps, keyIs } from "../../lib/key-match";
 import { titleOf, type Node, type Seat } from "@shared/model";
 import {
   FEED_KIND_LABEL,
@@ -104,6 +115,7 @@ import { FeedRegionStrip } from "./FeedRegionStrip";
 import { FeedEmpty, FeedSeatChosen, FeedSeatsRow, FeedSeatsToggle } from "./FeedFilterParts";
 import { feedTasksByNumber, type FeedTaskRef } from "./feed-text";
 import {
+  KIND_ICON,
   FeedCardView,
   FeedPills,
   FeedPortraitWell,
@@ -117,6 +129,7 @@ import "./operator-feed.css";
 
 const LEAVE_MS = 280;
 const NO_IDS: ReadonlySet<string> = new Set();
+const NO_WAITS: ReadonlyArray<{ readonly item: FeedItem; readonly place: FeedChainPlace | undefined }> = [];
 /** The seat row's id, which the toggle names as the thing it opens. */
 const SEATS_ROW_ID = "operator-feed-seats";
 
@@ -247,6 +260,9 @@ function FeedDetail({
   onAnswer,
   onReply,
   onReviewCommit,
+  waitsOn = NO_WAITS,
+  notHere = 0,
+  onGoTo,
 }: {
   readonly item: FeedItem;
   readonly node: Node | undefined;
@@ -261,6 +277,11 @@ function FeedDetail({
   readonly onAnswer: (answer: SignalAnswer) => void;
   readonly onReply: (open: boolean) => void;
   readonly onReviewCommit: (sha: string) => void;
+  /** The open signals it depends on, each with its place in the chain: the band under the head. */
+  readonly waitsOn?: ReadonlyArray<{ readonly item: FeedItem; readonly place: FeedChainPlace | undefined }>;
+  /** Signals it comes after that are not here yet: a row each, never hidden. */
+  readonly notHere?: number;
+  readonly onGoTo?: (target: FeedItem) => void;
 }) {
   const runtime = useWindowRuntime();
   const companion = useWindowService(CompanionWindow);
@@ -290,6 +311,41 @@ function FeedDetail({
             <FeedWords item={item} nowMs={nowMs} taskByNumber={taskByNumber} chipTabStop onOpenTask={onOpenTask} />
           </div>
         </div>
+        {waitsOn.length > 0 || notHere > 0 ? (
+          <div className="operator-feed__band" data-testid="feed-depends-band">
+            <p className="operator-feed__band-head" id={`${item.itemId}-depends`}>
+              Depends on
+            </p>
+            <ul className="operator-feed__band-rows" aria-labelledby={`${item.itemId}-depends`}>
+              {waitsOn.map(({ item: before, place }) => {
+                const Icon = KIND_ICON[before.kind];
+                return (
+                  <li key={before.itemId}>
+                    <button
+                      type="button"
+                      className="operator-feed__band-row"
+                      data-testid="feed-depends-row"
+                      data-kind={before.kind}
+                      onClick={() => onGoTo?.(before)}
+                    >
+                      <Icon size={12} strokeWidth={2} aria-hidden className="operator-feed__band-glyph" />
+                      <span className="operator-feed__band-kind">{FEED_KIND_LABEL[before.kind]}</span>
+                      <span className="operator-feed__band-text">{before.text}</span>
+                      {place ? (
+                        <span className="operator-feed__chain-place">{`${String(place.index)} of ${String(place.size)}`}</span>
+                      ) : null}
+                    </button>
+                  </li>
+                );
+              })}
+              {Array.from({ length: notHere }, (_, at) => (
+                <li key={`not-here-${String(at)}`} className="operator-feed__band-missing" data-testid="feed-depends-missing">
+                  {`A signal from ${item.seat.name}, not here yet`}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {/* Only a signal carries details, so the signal is always there to read from. */}
         {hasDetails && item.signalId ? (
           <PreviewedMarkdown
@@ -505,7 +561,11 @@ const feed = useOperatorFeed();
   const feedKinds = use$(feedView$.kinds);
   const feedSeatId = use$(feedView$.seat);
   const seatsOpen = use$(feedView$.seatsOpen);
-  const filter = useMemo(() => feedFilterOf({ query: feedQuery, kinds: feedKinds, seat: feedSeatId }), [feedQuery, feedKinds, feedSeatId]);
+  const feedReady = use$(feedView$.ready);
+  const filter = useMemo(
+    () => feedFilterOf({ query: feedQuery, kinds: feedKinds, seat: feedSeatId, ready: feedReady }),
+    [feedQuery, feedKinds, feedSeatId, feedReady],
+  );
   const filtering = feedFilterOn(filter);
   const activeRegion = regionPick?.canvasName === canvasName ? regionPick : undefined;
   // Coming back from a review opened on a card: the same card, the same
@@ -556,7 +616,7 @@ const feed = useOperatorFeed();
   // commit ever draws the list without a card that is still fading: one that
   // did remounted the card, a reply box open on it took focus again, and the
   // list scrolled to it.
-  const pick = `${canvasName}\n${activeRegion ? `region:${regionPickKey(activeRegion.path)}` : "all"}\n${feedOrder}\n${feedQuery}\n${feedKinds.join(",")}\n${feedSeatId ?? ""}`;
+  const pick = `${canvasName}\n${activeRegion ? `region:${regionPickKey(activeRegion.path)}` : "all"}\n${feedOrder}\n${feedQuery}\n${feedKinds.join(",")}\n${feedSeatId ?? ""}\n${String(feedReady)}`;
   const drawn = useRef<{ readonly pick: string; readonly sections: ReadonlyArray<ShownFeedSection> }>({ pick, sections: [] });
   // Cards whose fade is over: the next draw leaves them out.
   const [faded, setFaded] = useState<ReadonlySet<string>>(NO_IDS);
@@ -610,10 +670,44 @@ const feed = useOperatorFeed();
     };
   }, []);
 
-  // The cards still waiting, in the order they are drawn.
+  // The whole feed in the picked order, unfiltered: what a chain counts
+  // ("3 of 10" stays true under a filter) and where a link may go.
+  const everyItem = useMemo(
+    () => feedItemsInOrder(viewFeedSections(feed.sections, undefined, canvasName, feedOrder)),
+    [feed.sections, canvasName, feedOrder],
+  );
+  const chainPlaces = useMemo(() => feedChainPlaces(everyItem), [everyItem]);
+  // In the order to act a chain folds after its next waiting card; a press on the fold unfolds it.
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(NO_IDS);
+  const unfoldChainOf = (itemId: string): void => {
+    const chainId = chainPlaces.get(itemId)?.chainId;
+    if (chainId === undefined) return;
+    const members = everyItem.filter((item) => chainPlaces.get(item.itemId)?.chainId === chainId).map((item) => item.itemId);
+    setUnfolded((current) => new Set([...current, ...members]));
+  };
+  const rowsOf = useMemo(() => {
+    const rows = new Map<ShownFeedSection, ReadonlyArray<FeedRow>>();
+    for (const section of sections) {
+      rows.set(
+        section,
+        feedOrder === "act"
+          ? foldFeedChains(section.items, chainPlaces, unfolded)
+          : section.items.map((item): FeedRow => ({ kind: "card", item })),
+      );
+    }
+    return rows;
+  }, [sections, feedOrder, chainPlaces, unfolded]);
+  const folded = useMemo(
+    () => new Set(sections.flatMap((section) => [...foldedItemIds(section.items, rowsOf.get(section) ?? [])])),
+    [sections, rowsOf],
+  );
+  // The cards still waiting, in the order they are drawn, a fold's left out.
   const items = useMemo(
-    () => sections.flatMap((section) => section.items.filter((item) => !section.leavingIds.has(item.itemId))),
-    [sections],
+    () =>
+      sections.flatMap((section) =>
+        section.items.filter((item) => !section.leavingIds.has(item.itemId) && !folded.has(item.itemId)),
+      ),
+    [sections, folded],
   );
   const itemsRef = useRef(items);
   // When the selected item leaves, for whatever reason, its neighbour takes over.
@@ -633,6 +727,9 @@ const feed = useOperatorFeed();
   // A card asked for by openNeedsYouOn: selected and brought into view once
   // the list holds it. A filter hiding it is cleared first; an ask for a card
   // the feed does not hold (closed already) is let go.
+  // Said once by the live line when a link cleared the filters, until the operator narrows again.
+  const [announceNote, setAnnounceNote] = useState("");
+  const clearedForAsk = useRef(false);
   const asked = use$(feedAsked$.itemId);
   useEffect(() => {
     if (asked === null) return;
@@ -643,12 +740,39 @@ const feed = useOperatorFeed();
       return;
     }
     const held = feed.sections.some((section) => section.items.some((item) => item.itemId === asked));
-    if (held && (filtering || activeRegion !== undefined)) {
-      clearFeedFilters();
+    if (held && folded.has(asked)) {
+      unfoldChainOf(asked);
       return;
     }
-    if (!held) feedAsked$.itemId.set(null);
-  }, [asked, items, feed.sections, filtering, activeRegion]);
+    if (held && (filtering || activeRegion !== undefined)) {
+      clearFeedFilters();
+      clearedForAsk.current = true;
+      setAnnounceNote("Filters cleared to show it");
+      return;
+    }
+    feedAsked$.itemId.set(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asked, items, feed.sections, filtering, activeRegion, folded]);
+  useEffect(() => {
+    if (clearedForAsk.current) {
+      clearedForAsk.current = false;
+      return;
+    }
+    setAnnounceNote("");
+  }, [filter, activeRegion]);
+  /** A Depends on link, a band row, the W key: select the card and bring it into view. */
+  const goTo = (target: FeedItem): void => feedAsked$.itemId.set(target.itemId);
+  const waitsOnKeys = keyCaps("inFeed.waitsOn");
+  /** A card's place in its chain and its Depends on line. */
+  const cardOrderOf = (item: FeedItem): Pick<FeedCardViewProps, "chain" | "depends" | "dependsKeys"> => {
+    const chain = chainPlaces.get(item.itemId);
+    const depends = feedDependsLineOf(item, everyItem);
+    return {
+      ...(chain === undefined ? {} : { chain }),
+      ...(depends === undefined ? {} : { depends }),
+      ...(depends?.kind === "waiting" && waitsOnKeys !== undefined ? { dependsKeys: waitsOnKeys } : {}),
+    };
+  };
 
   const answer = async (item: FeedItem, chosen: SignalAnswer): Promise<void> => {
     if (!item.signalId || sendingRef.current.has(item.itemId)) return;
@@ -688,6 +812,12 @@ const feed = useOperatorFeed();
     if (event.target instanceof Element && event.target.closest('[data-testid="feed-region-strip"]')) return;
     // The filter bar's chips and search field are their own: their keys are theirs.
     if (event.target instanceof Element && event.target.closest('[data-testid="feed-filter-bar"]')) return;
+    // A Depends on link, a band row and the fold are buttons: Enter presses them, and no answer key acts from them.
+    if (
+      event.target instanceof Element &&
+      event.target.closest(".operator-feed__depends-link, .operator-feed__band-row, .operator-feed__fold")
+    )
+      return;
     // The moves every list shares (lib/list-nav). Enter is the feed's own: it replies.
     const intent = listIntentOf(event.nativeEvent);
     if (intent !== null && intent !== "open") {
@@ -703,6 +833,15 @@ const feed = useOperatorFeed();
     }
     const item = items.find((candidate) => candidate.itemId === selected);
     if (!item) return;
+    // W: to what the selected card waits on, the first still open; again goes further back. A ready card has none.
+    if (keyIs(event.nativeEvent, "inFeed.waitsOn")) {
+      const target = waitsOnTarget(item, everyItem);
+      if (target !== undefined) {
+        event.preventDefault();
+        goTo(target);
+      }
+      return;
+    }
     // A held key answers once: its repeats would land on the neighbour that
     // takes the selection, closing a signal the operator never saw.
     if (event.repeat) return;
@@ -764,6 +903,9 @@ const feed = useOperatorFeed();
         : feed.sections.filter((section) => regionMatches(activeRegion.path, section.region));
     return feedSeatChips(orderFeedSections(scoped, feedOrder));
   }, [feed.sections, feedOrder, activeRegion]);
+  // Ready, counted over the whole feed: offered once anything waits, and kept while it is on.
+  const readyCount = everyItem.filter((item) => !feedItemWaits(item)).length;
+  const readyChipShown = feedReady || everyItem.some(feedItemWaits);
   // A row of one chip chooses nothing: the toggle waits for a second seat.
   const seatsToggleShown = seatChips.length >= 2;
   // A seat the region does not hold would empty the feed with no other sign:
@@ -857,6 +999,22 @@ const feed = useOperatorFeed();
             onChange={(event) => feedView$.query.set(event.target.value)}
           />
           <div className="operator-feed__chips" role="group" aria-label="Kinds">
+            {readyChipShown ? (
+              <button
+                type="button"
+                className="operator-feed__filter-chip"
+                data-testid="feed-ready-chip"
+                aria-pressed={feedReady}
+                aria-label={`Ready, ${String(readyCount)}`}
+                onClick={() => feedView$.ready.set(!feedReady)}
+              >
+                {feedReady ? <Check size={11} strokeWidth={2} aria-hidden /> : null}
+                Ready
+                <span className="operator-feed__filter-count" aria-hidden>
+                  {readyCount}
+                </span>
+              </button>
+            ) : null}
             {kindChips.map((chip) => (
               <button
                 key={chip.kind}
@@ -906,7 +1064,11 @@ const feed = useOperatorFeed();
       ) : null}
       {/* Mounted for the modal's life: a live region added with its text says nothing. */}
       <span className="operator-feed__announce" role="status" aria-live="polite">
-        {filtering ? `${String(items.length)} of ${String(feedRows)} shown with these filters` : ""}
+        {announceNote !== ""
+          ? announceNote
+          : filtering
+            ? `${String(items.length)} of ${String(feedRows)} shown with these filters`
+            : ""}
       </span>
       {sections.length === 0 ? (
         <div className="operator-feed__scroll" data-testid="operator-feed">
@@ -949,24 +1111,44 @@ const feed = useOperatorFeed();
           >
             {sections.map((section) => (
               <FeedRegionSection key={section.region.regionId ?? "open-field"} section={section}>
-                {section.items.map((item) => (
+                {(rowsOf.get(section) ?? []).map((row) =>
+                  row.kind === "fold" ? (
+                    <div key={`fold-${row.chainId}`} className="operator-feed__slot" role="listitem">
+                      <button
+                        type="button"
+                        className="operator-feed__fold"
+                        data-testid="feed-chain-fold"
+                        onClick={() => {
+                          unfoldChainOf(row.firstId);
+                          setSelected(row.firstId);
+                          // The fold leaves with the press: the keyboard stays in the feed.
+                          claimFocus(scrollRef.current?.closest<HTMLElement>(".operator-modal__frame") ?? null, "gesture");
+                        }}
+                      >
+                        {`${String(row.count)} more in this order`}
+                      </button>
+                    </div>
+                  ) : (
                   <FeedCard
-                    key={item.itemId}
-                    item={item}
-                    node={nodesById.get(item.seat.nodeId)}
+                    key={row.item.itemId}
+                    item={row.item}
+                    node={nodesById.get(row.item.seat.nodeId)}
                     nowMs={feed.generatedAt}
                     quickReplies={quickReplies}
-                    selected={selected === item.itemId}
-                    reveal={revealId === item.itemId}
-                    leaving={section.leavingIds.has(item.itemId)}
-                    sending={sending.get(item.itemId) ?? null}
+                    selected={selected === row.item.itemId}
+                    reveal={revealId === row.item.itemId}
+                    leaving={section.leavingIds.has(row.item.itemId)}
+                    sending={sending.get(row.item.itemId) ?? null}
                     pills={false}
                     taskByNumber={taskByNumber}
                     onOpenTask={openFeedTask}
-                    onSelect={() => setSelected(item.itemId)}
-                    onQuickReply={(text) => void answer(item, { kind: "reply", text })}
+                    {...cardOrderOf(row.item)}
+                    onGoTo={goTo}
+                    onSelect={() => setSelected(row.item.itemId)}
+                    onQuickReply={(text) => void answer(row.item, { kind: "reply", text })}
                   />
-                ))}
+                  ),
+                )}
               </FeedRegionSection>
             ))}
           </div>
@@ -975,6 +1157,12 @@ const feed = useOperatorFeed();
               key={selectedItem.itemId}
               item={selectedItem}
               node={nodesById.get(selectedItem.seat.nodeId)}
+              waitsOn={(selectedItem.waitingOn ?? []).flatMap((signalId) => {
+                const before = everyItem.find((one) => one.signalId === signalId);
+                return before === undefined ? [] : [{ item: before, place: chainPlaces.get(before.itemId) }];
+              })}
+              notHere={selectedItem.notReceived?.length ?? 0}
+              onGoTo={goTo}
               nowMs={feed.generatedAt}
               quickReplies={quickReplies}
               quietNotes={quietNotes}

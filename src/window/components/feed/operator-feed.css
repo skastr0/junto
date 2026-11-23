@@ -480,20 +480,27 @@
 }
 
 .operator-feed__card[data-kind="blocked"],
-.operator-threads__signal[data-kind="blocked"] { --feed-kind: var(--color-crimson); }
+.operator-threads__signal[data-kind="blocked"],
+.operator-feed__band-row[data-kind="blocked"] { --feed-kind: var(--color-crimson); }
 .operator-feed__card[data-kind="attention"],
-.operator-threads__signal[data-kind="attention"] { --feed-kind: var(--color-amber); }
+.operator-threads__signal[data-kind="attention"],
+.operator-feed__band-row[data-kind="attention"] { --feed-kind: var(--color-amber); }
 .operator-feed__card[data-kind="escalate"],
-.operator-threads__signal[data-kind="escalate"] { --feed-kind: var(--color-orange); }
+.operator-threads__signal[data-kind="escalate"],
+.operator-feed__band-row[data-kind="escalate"] { --feed-kind: var(--color-orange); }
 .operator-feed__card[data-kind="feedback"],
-.operator-threads__signal[data-kind="feedback"] { --feed-kind: var(--color-cyan); }
+.operator-threads__signal[data-kind="feedback"],
+.operator-feed__band-row[data-kind="feedback"] { --feed-kind: var(--color-cyan); }
 .operator-feed__card[data-kind="health"],
-.operator-threads__signal[data-kind="health"] { --feed-kind: var(--color-steel); }
+.operator-threads__signal[data-kind="health"],
+.operator-feed__band-row[data-kind="health"] { --feed-kind: var(--color-steel); }
 .operator-feed__card[data-kind="work"],
-.operator-threads__signal[data-kind="work"] { --feed-kind: var(--color-violet); }
+.operator-threads__signal[data-kind="work"],
+.operator-feed__band-row[data-kind="work"] { --feed-kind: var(--color-violet); }
 /* A notice is passive: something happened, to read and clear. Its sentence reads quieter. */
 .operator-feed__card[data-kind="notice"],
-.operator-threads__signal[data-kind="notice"] { --feed-kind: var(--color-steel); }
+.operator-threads__signal[data-kind="notice"],
+.operator-feed__band-row[data-kind="notice"] { --feed-kind: var(--color-steel); }
 .operator-feed__card[data-kind="notice"] .operator-feed__text { color: var(--color-dim); }
 
 .operator-feed__card:hover {
@@ -772,4 +779,124 @@
 
 .operator-feed-trigger__count--blocked {
   background: var(--color-crimson-fg);
+}
+
+/* --- the order to act (parts 7 and 8) ------------------------------------ */
+
+/* A waiting card reads as waiting three ways: its sentence and its kind word
+   dim, and the Depends on line under the sentence. It stays a full card. */
+.operator-feed__card[data-waiting="true"] .operator-feed__text { color: var(--color-dim); }
+.operator-feed__card[data-waiting="true"] .operator-feed__kind { color: var(--color-dim); }
+
+/* "3 of 10": a card's place in its chain, before its age. */
+.operator-feed__chain-place {
+  flex: none;
+  font-size: var(--text-label);
+  color: var(--color-faint);
+  font-variant-numeric: tabular-nums;
+}
+.operator-feed__card-head .operator-feed__chain-place { margin-left: auto; }
+.operator-feed__card-head .operator-feed__chain-place + .operator-feed__age { margin-left: 8px; }
+
+.operator-feed__depends {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin: 4px 0 0;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+.operator-feed__depends > svg { flex: none; }
+.operator-feed__depends-label { flex: none; }
+.operator-feed__depends-link {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-ink-2);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--color-ink-2) 40%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.operator-feed__depends-link:hover { color: var(--color-ink); }
+.operator-feed__depends-tail,
+.operator-feed__depends-key { flex: none; }
+.operator-feed__depends-key { margin-left: 4px; }
+
+/* "7 more in this order": the rest of a chain, in the card slot's width. */
+.operator-feed__fold {
+  width: 100%;
+  padding: 8px 14px;
+  border: 1px solid color-mix(in oklab, var(--color-stroke) 55%, transparent);
+  border-radius: var(--radius-md);
+  background: none;
+  font: inherit;
+  font-size: var(--text-body);
+  color: var(--color-dim);
+  text-align: left;
+  cursor: pointer;
+}
+.operator-feed__fold:hover { background: var(--color-overlay-1); color: var(--color-ink-2); }
+
+/* The pane of a waiting signal: what it depends on, framed under the head. */
+.operator-feed__band {
+  margin: 10px 14px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-overlay-2);
+}
+.operator-feed__band-head {
+  margin: 0 0 4px;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+.operator-feed__band-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.operator-feed__band-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  font-size: var(--text-body);
+  text-align: left;
+  cursor: pointer;
+}
+.operator-feed__band-row:hover { background: var(--color-overlay-1); }
+.operator-feed__band-glyph { flex: none; color: var(--feed-kind, var(--color-dim)); }
+.operator-feed__band-kind {
+  flex: none;
+  color: color-mix(in oklab, var(--feed-kind, var(--color-dim)) 80%, var(--color-ink));
+}
+.operator-feed__band-text {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.operator-feed__band-row .operator-feed__chain-place { margin-left: auto; }
+.operator-feed__band-missing {
+  padding: 3px 4px;
+  font-size: var(--text-body);
+  color: var(--color-dim);
 }

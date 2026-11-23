@@ -3,6 +3,7 @@ import {
   ArrowBigUpDash,
   Bell,
   CirclePause,
+  ListOrdered,
   MessageCircleQuestion,
   MessageSquareText,
   NotebookPen,
@@ -13,12 +14,14 @@ import {
 import { FEED_KIND_LABEL, type FeedItem, type FeedItemKind } from "@shared/operator-feed";
 import { mailAgeLabel } from "@shared/actor-ledger";
 import type { SignalAnswer } from "../../lib/quick-reply-rules";
+import { dependsTail, feedItemWaits, notHereWords, type FeedChainPlace, type FeedDependsLine } from "../../lib/feed-order";
 import { dueWords, itemWorkOf, workIsDue } from "../../lib/signal-work-words";
 import { THREAD_HEALTH_STATUS_TONE } from "../../lib/thread-health-tone";
 import { AgentPortrait } from "../AgentPortrait";
 import { ResourceChip } from "../ui/ResourceChip";
 import { QuickReplies } from "../signals/QuickReplies";
 import { StatusDot } from "../ui/StatusDot";
+import { Kbd } from "../ui";
 import { feedTextPieces, type FeedTaskRef } from "./feed-text";
 import "./operator-feed.css";
 
@@ -79,6 +82,7 @@ export function FeedWords({
   taskByNumber,
   chipTabStop,
   onOpenTask,
+  chain,
 }: {
   readonly item: FeedItem;
   readonly nowMs: number;
@@ -88,6 +92,8 @@ export function FeedWords({
   /** The chip is a Tab stop only on the selected card, so a long list does not grow one stop per card. */
   readonly chipTabStop?: boolean;
   readonly onOpenTask?: (task: FeedTaskRef) => void;
+  /** Its place in a chain of signals, said before its age. */
+  readonly chain?: FeedChainPlace;
 }) {
   const age = mailAgeLabel(nowMs, item.since);
   const health = item.kind === "health" ? undefined : item.health;
@@ -105,6 +111,11 @@ export function FeedWords({
         {due ? (
           <span className="operator-feed__due" data-urgent={urgent || undefined}>
             {due}
+          </span>
+        ) : null}
+        {chain ? (
+          <span className="operator-feed__chain-place" data-testid="feed-chain-place">
+            {`${String(chain.index)} of ${String(chain.size)}`}
           </span>
         ) : null}
         {age ? (
@@ -138,6 +149,68 @@ export function FeedWords({
         </p>
       ) : null}
     </>
+  );
+}
+
+/**
+ * A waiting card's one line under its sentence: "Depends on:" and the first
+ * open signal it waits on, as a link to its card, then what else it waits on,
+ * faint. A ready card that names only signals not here yet says so, no link.
+ */
+export function FeedDependsOn({
+  line,
+  tabStop,
+  keys,
+  onGoTo,
+}: {
+  readonly line: FeedDependsLine;
+  /** The link is a Tab stop only on the selected card. */
+  readonly tabStop: boolean;
+  /** The key that goes there too, drawn beside the line so it can be found. */
+  readonly keys?: ReadonlyArray<string>;
+  readonly onGoTo?: (target: FeedItem) => void;
+}) {
+  if (line.kind === "not-here") {
+    return (
+      <p className="operator-feed__depends" data-testid="feed-depends-on">
+        <ListOrdered size={11} strokeWidth={2} aria-hidden />
+        <span>{notHereWords(line.count)}</span>
+      </p>
+    );
+  }
+  const tail = dependsTail(line);
+  const first = line.first;
+  return (
+    <p className="operator-feed__depends" data-testid="feed-depends-on">
+      <ListOrdered size={11} strokeWidth={2} aria-hidden />
+      <span className="operator-feed__depends-label">Depends on:</span>
+      {first === undefined ? (
+        <span className="operator-feed__depends-what">a signal still open</span>
+      ) : (
+        <button
+          type="button"
+          className="operator-feed__depends-link"
+          data-testid="feed-depends-link"
+          tabIndex={tabStop ? 0 : -1}
+          aria-label={`Depends on: ${first.text}`}
+          onClick={(event) => {
+            // Its own press: the card under it is not picked by it.
+            event.stopPropagation();
+            onGoTo?.(first);
+          }}
+        >
+          {first.text}
+        </button>
+      )}
+      {tail ? <span className="operator-feed__faint operator-feed__depends-tail">{tail}</span> : null}
+      {keys && keys.length > 0 ? (
+        <span className="operator-feed__depends-key" aria-hidden>
+          {keys.map((cap) => (
+            <Kbd key={cap}>{cap}</Kbd>
+          ))}
+        </span>
+      ) : null}
+    </p>
   );
 }
 
@@ -205,6 +278,14 @@ export type FeedCardViewProps = {
   /** See FeedWords: the selected row's chip is the list's one Tab stop. */
   readonly chipTabStop?: boolean;
   readonly onOpenTask?: (task: FeedTaskRef) => void;
+  /** Its place in a chain of signals ("3 of 10"). */
+  readonly chain?: FeedChainPlace;
+  /** What it waits on, or that what it comes after is not here yet. */
+  readonly depends?: FeedDependsLine;
+  /** The key that goes to what it waits on, drawn beside that line. */
+  readonly dependsKeys?: ReadonlyArray<string>;
+  /** Go to a card: the Depends on link's press. */
+  readonly onGoTo?: (target: FeedItem) => void;
   readonly onSelect: () => void;
   readonly onQuickReply: (text: string) => void;
   readonly onQuietNote?: (text: string) => void;
@@ -230,6 +311,10 @@ export function FeedCardView({
   taskByNumber,
   chipTabStop,
   onOpenTask,
+  chain,
+  depends,
+  dependsKeys,
+  onGoTo,
   onSelect,
   onQuickReply,
   onQuietNote,
@@ -248,6 +333,8 @@ export function FeedCardView({
         data-testid="operator-feed-card"
         data-item-id={item.itemId}
         data-kind={item.kind}
+        // Waiting reads three ways: the sentence and the kind word dim, and the Depends on line.
+        data-waiting={feedItemWaits(item) ? "true" : undefined}
         aria-current={selected ? "true" : undefined}
         // Named by who, what and its own sentence, so two cards from one seat
         // are told apart on entry.
@@ -263,7 +350,16 @@ export function FeedCardView({
             {...(taskByNumber === undefined ? {} : { taskByNumber })}
             chipTabStop={chipTabStop ?? selected}
             {...(onOpenTask === undefined ? {} : { onOpenTask })}
+            {...(chain === undefined ? {} : { chain })}
           />
+          {depends ? (
+            <FeedDependsOn
+              line={depends}
+              tabStop={selected}
+              {...(dependsKeys === undefined ? {} : { keys: dependsKeys })}
+              {...(onGoTo === undefined ? {} : { onGoTo })}
+            />
+          ) : null}
           {pills && selected && item.signalId ? (
             <FeedPills
               item={item}
