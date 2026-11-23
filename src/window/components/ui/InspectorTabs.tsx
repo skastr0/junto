@@ -21,9 +21,11 @@ export interface InspectorTab {
   readonly badge?: number;
   /**
    * The tab's whole name, where the label alone does not say it (what a count
-   * counts): what a screen reader says for the tab, and the hover line. With
-   * it the unread pill is for the eye only, so the count is never said as a
-   * bare number.
+   * counts): what a screen reader says for the tab, and the hover line. It
+   * takes the label's place as the name, so it must hold the label as drawn
+   * ("Threads, 3 unread" for "Threads"): the words on the tab are the words
+   * that pick it by voice. With it the unread pill is for the eye only, so
+   * the count is never said as a bare number.
    */
   readonly title?: string;
 }
