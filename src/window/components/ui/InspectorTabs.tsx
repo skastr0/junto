@@ -19,7 +19,12 @@ export interface InspectorTab {
   readonly label: string;
   /** What waits behind the tab, as the unread pill; nothing is drawn at zero. */
   readonly badge?: number;
-  /** The hover line, when the label alone does not say it (what a count counts). */
+  /**
+   * The tab's whole name, where the label alone does not say it (what a count
+   * counts): what a screen reader says for the tab, and the hover line. With
+   * it the unread pill is for the eye only, so the count is never said as a
+   * bare number.
+   */
   readonly title?: string;
 }
 
@@ -127,6 +132,7 @@ export function InspectorTabs({
             aria-selected={isActive}
             aria-controls={controls}
             tabIndex={tab.id === stop ? 0 : -1}
+            aria-label={tab.title}
             title={tab.title}
             data-testid={testId === undefined ? undefined : `${testId}-${tab.id}`}
             onClick={() => onSelect(tab.id)}
@@ -143,6 +149,7 @@ export function InspectorTabs({
               // The unread pill: a minimum width and no height of its own, so
               // it sits on the label's line and never makes a tab taller.
               <span
+                aria-hidden={tab.title === undefined ? undefined : true}
                 className="inline-flex min-w-[15px] items-center justify-center rounded-full px-1 font-mono text-label font-semibold tabular-nums"
                 style={{ background: HUE_TEXT.amber, color: "var(--color-ground)" }}
               >

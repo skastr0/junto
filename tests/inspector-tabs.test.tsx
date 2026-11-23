@@ -176,9 +176,17 @@ describe("the tab row in a header", () => {
     expect(pill.className).not.toMatch(/(^|\s)h-/);
     expect(tab("threads").getAttribute("title")).toBe("Threads, 3 unread");
     expect(tab("terminal").querySelector("span")).toBeNull();
+    // The tab is named with what the pill counts, so the pill is for the eye
+    // only: a screen reader says "Threads, 3 unread", never "Threads 3".
+    expect(tab("threads").getAttribute("aria-label")).toBe("Threads, 3 unread");
+    expect(pill.getAttribute("aria-hidden")).toBe("true");
+    expect(tab("terminal").hasAttribute("aria-label")).toBe(false);
 
+    // A tab that gives no name keeps its label and its count as what is said.
     await render("terminal", [SEAT_VIEW[0]!, { id: "threads", label: "Threads", badge: 240 }]);
     expect(tab("threads").textContent).toBe("Threads99+");
+    expect(tab("threads").hasAttribute("aria-label")).toBe(false);
+    expect(tab("threads").querySelector("span")!.hasAttribute("aria-hidden")).toBe(false);
     await render("terminal", [SEAT_VIEW[0]!, { id: "threads", label: "Threads", badge: 0 }]);
     expect(tab("threads").textContent).toBe("Threads");
     expect(tab("threads").hasAttribute("title")).toBe(false);
