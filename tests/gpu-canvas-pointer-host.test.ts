@@ -40,4 +40,15 @@ describe("the pointer host", () => {
     ]);
     expect(canvasHands().riders("r")).toEqual(["inside"]);
   });
+
+  it("a holding region nested in a holding region carries its own contents, never the region round it", async () => {
+    open([
+      region("outer", { x: 0, y: 0, width: 1000, height: 1000 }, { hold: true }),
+      region("inner", { x: 300, y: 300, width: 400, height: 400 }, { hold: true }),
+      note("inside", "inside", { x: 320, y: 320 }),
+    ]);
+    // The inner region covers the outer one's centre, and the outer one rode along.
+    expect(canvasHands().riders("inner")).toEqual(["inside"]);
+    expect([...canvasHands().riders("outer")].sort()).toEqual(["inner", "inside"]);
+  });
 });

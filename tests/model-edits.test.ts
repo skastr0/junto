@@ -210,6 +210,37 @@ describe("moving and resizing", () => {
     ]);
   });
 
+  it("a holding region never carries a region it sits inside", () => {
+    // The operator's board: a big holding region with small holding regions in
+    // it. The small one in the middle covers the big one's centre.
+    const nested = canvasOf([
+      region("outer", { x: 0, y: 0, width: 1000, height: 1000, hold: true }),
+      region("inner", { x: 300, y: 300, width: 400, height: 400, hold: true }),
+      note("in-inner", { x: 320, y: 320, width: 100, height: 60 }),
+      note("in-outer", { x: 20, y: 20, width: 100, height: 60 }),
+    ]);
+    // Before this, "outer" rode with "inner": its centre (500, 500) lies in it.
+    expect([...heldBy(nested, "inner")].sort()).toEqual(["in-inner"]);
+    expect(sent(regionDragged(nested, "inner", { x: 340, y: 310 }))).toEqual([
+      { _tag: "Move", canvas: name, moves: [{ id: "inner", x: 340, y: 310 }, { id: "in-inner", x: 360, y: 330 }] },
+    ]);
+    // The big one still carries everything in it, the small region included.
+    expect([...heldBy(nested, "outer")].sort()).toEqual(["in-inner", "in-outer", "inner"]);
+  });
+
+  it("of two regions with their centres in each other, only the larger carries the smaller", () => {
+    // "wing" hangs over the big region's edge and still covers its centre.
+    const overlapped = canvasOf([
+      region("big", { x: 0, y: 0, width: 1000, height: 1000, hold: true }),
+      region("wing", { x: 450, y: 450, width: 600, height: 600, hold: true }),
+      region("twin", { x: 0, y: 0, width: 1000, height: 1000, hold: true }),
+    ]);
+    expect(heldBy(overlapped, "wing")).toEqual([]);
+    // Two regions on the same rectangle: neither is inside the other.
+    expect([...heldBy(overlapped, "big")].sort()).toEqual(["wing"]);
+    expect([...heldBy(overlapped, "twin")].sort()).toEqual(["wing"]);
+  });
+
   it("a region drag is one step back", () => {
     const commands = regionDragged(canvas, "room", { x: 100, y: 50 });
     const after = commands.reduce(canvasAfter, canvas);

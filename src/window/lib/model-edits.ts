@@ -193,23 +193,34 @@ export const resized = (canvas: Canvas, id: string, frame: Rect): Commands => {
   }];
 };
 
+/** The centre of `rect` lies in `frame`. */
+const centreIn = (frame: Rect, rect: Rect): boolean => {
+  const cx = rect.x + rect.width / 2;
+  const cy = rect.y + rect.height / 2;
+  return cx >= frame.x && cx <= frame.x + frame.width && cy >= frame.y && cy <= frame.y + frame.height;
+};
+
 /**
  * What rides along when a region that holds its contents is dragged: every
  * node, nested regions included, whose centre lies in it. Deliberately looser
  * than membership (whole rectangle inside), so a card straddling the edge
  * still travels. Empty for a region that does not hold.
+ *
+ * Never what the region itself sits in. A small region in the middle of a
+ * big one covers the big one's centre, and by the centre alone the big one
+ * rode along with it. When two rectangles hold each other's centre, the
+ * smaller is the content and the other is where it sits; of two the same
+ * size, neither carries the other.
  */
 export const heldBy = (canvas: Canvas, regionId: string): ReadonlyArray<string> => {
   const region = nodeOf(canvas, regionId as Node["id"], "region");
   if (region === undefined || !region.hold) return [];
+  const area = region.width * region.height;
   const riders: Array<string> = [];
   for (const node of canvas.nodes.values()) {
-    if (node.id === region.id) continue;
-    const cx = node.x + node.width / 2;
-    const cy = node.y + node.height / 2;
-    if (cx >= region.x && cx <= region.x + region.width && cy >= region.y && cy <= region.y + region.height) {
-      riders.push(node.id);
-    }
+    if (node.id === region.id || !centreIn(region, node)) continue;
+    if (centreIn(node, region) && node.width * node.height >= area) continue;
+    riders.push(node.id);
   }
   return riders;
 };
