@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { runningBuildIdentity } from "../node/build-identity";
+import { installServiceCrashLog, readServiceFileTail, recordServiceBoot, serviceInstallRoot } from "../node/hosts/service-runtime";
 import { startCore } from "./core";
 import { closeCoreProcess } from "./core-stop";
 import { HostClientsNoWindow } from "./host-clients";
@@ -28,11 +29,15 @@ const main = async (): Promise<void> => {
   // the app core's do. Its service stdio is an unbounded file, so nothing is
   // echoed there but the fixed lines below.
   const log = openCoreLog({ home, echo: false });
+  installServiceCrashLog(log);
   // The 4ms assertion is a development instrument. Bun's bundler inlines
   // NODE_ENV as "development", so without this every installed core reports
   // each kernel pass to stderr. JUNTO_BUDGET still arms it by hand.
   armMainThreadBudget({ enabled: false });
   const entry = resolve(process.argv[1] ?? process.execPath);
+  const installRoot = serviceInstallRoot(entry);
+  const stderrLog = installRoot === undefined ? undefined : join(installRoot, "logs", "stderr.log");
+  const previousStderr = stderrLog === undefined ? undefined : readServiceFileTail(stderrLog, 8192);
   const packageRoot = dirname(dirname(entry));
   const nativeTarget = `${process.platform}-${process.arch}`;
   const bundles = existsSync(join(packageRoot, "manifest.json")) && (nativeTarget === "darwin-arm64" || nativeTarget === "linux-x64")
@@ -44,6 +49,10 @@ const main = async (): Promise<void> => {
     log,
     host: HostClientsNoWindow,
   });
+  // The lease is held: this core owns the home, so the service files are its
+  // to bound. The previous boot's stderr was read before the lease and goes
+  // to the rotated log now, while its credentials are registered for the scrub.
+  if (installRoot !== undefined) recordServiceBoot(log, installRoot, previousStderr);
   let closing = false;
   const stop = (signal: NodeJS.Signals): void => {
     if (closing) return;
