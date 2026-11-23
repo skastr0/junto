@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createGpuAtlas,
   type AtlasPixels,
@@ -529,6 +529,27 @@ describe("gpu atlas (#911)", () => {
     const urgent = atlas.acquire(textQuad({ ...textRun, text: "urgent" }), 2);
     expect(atlas.ensureNow(urgent)).toBe(true);
     expect(syncCalls).toBe(1);
+  });
+
+  it("drains its whole queue where there are no frames to yield to, however slow the machine", async () => {
+    // Every read of the clock is 10 ms later, so each drain is past its slice after one raster.
+    let clock = 0;
+    const slow = vi.spyOn(performance, "now").mockImplementation(() => (clock += 10));
+    try {
+      const { atlas } = atlasWith();
+      atlas.attach(fakeDevice().device);
+      const cells = [0, 1, 2, 3, 4].map((i) => atlas.acquire(textQuad({ ...textRun, text: `slow-${i}` }), 1));
+      await settle();
+      await settle();
+      // 0.11.14: the drain gave the thread back after its first raster and
+      // went on in a macrotask. A test that turns only microtasks never
+      // reaches it, so on a loaded machine the queue stood still for the rest
+      // of the run and only in-frame rasters landed.
+      for (const cell of cells) expect(atlas.hasImage(cell)).toBe(true);
+      expect(atlas.stats().pending).toBe(0);
+    } finally {
+      slow.mockRestore();
+    }
   });
 
   it("ignores quads with no text or sprite", () => {

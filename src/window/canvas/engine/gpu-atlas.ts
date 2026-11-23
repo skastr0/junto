@@ -1460,12 +1460,15 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
   };
 
+  /** There are frames to stay out of the way of: a browser or Electron, not a bare test. */
+  const hasFrames = (): boolean => typeof requestAnimationFrame === "function";
+
   const scheduleDrain = (): void => {
     if (drainScheduled || disposed || device === undefined) return;
     drainScheduled = true;
     // In a browser/Electron, run background rasterization in an unclamped macrotask
     // AFTER the current rAF frame presents (queueMicrotask runs inside FireAnimationFrame).
-    if (typeof requestAnimationFrame === "function") {
+    if (hasFrames()) {
       scheduleMacrotask(drainQueue);
     } else {
       queueMicrotask(drainQueue);
@@ -1569,7 +1572,11 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       if (rec === undefined || rec.state !== "queued") continue;
       runJob(rec);
       // Yield between chunks during large bursts so input/frames never stall.
-      if (queueHead < queue.length && nowMs() - start >= budget) {
+      // Where there are no frames there is nothing to yield to, and the
+      // queue drains whole: the macrotask it would go on in is one a test
+      // that turns microtasks never reaches, so a single slow drain on a
+      // loaded machine stopped the queue for the rest of the run.
+      if (hasFrames() && queueHead < queue.length && nowMs() - start >= budget) {
         drainScheduled = true;
         scheduleMacrotask(drainQueue);
         return;
