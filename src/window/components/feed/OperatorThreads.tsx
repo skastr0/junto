@@ -7,11 +7,15 @@
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import { nodesOf } from "@shared/model";
+import { closeOperatorModal } from "../../lib/operator-modal";
 import { loadMoreOperatorThreads, useOperatorThreads } from "../../lib/operator-threads";
+import { openSeatOn } from "../../lib/seat-view";
 import { state$ } from "../../lib/state";
-import { threadsStoreView, threadsView$, urgentSeatsFirst } from "../../lib/threads-view";
+import { seatSummaryOf, threadsStoreView, threadsView$, urgentSeatsFirst } from "../../lib/threads-view";
 import { useCanvas } from "../../lib/use-model";
+import { QuickThread } from "../quick-thread/QuickThread";
 import { seatUrgencyOf } from "../SeatRing";
+import { ThreadChat } from "../threads/SeatThreads";
 import { ThreadsBody } from "./ThreadsModal";
 
 export function OperatorThreads() {
@@ -40,8 +44,22 @@ export function OperatorThreads() {
       all={{ total: all.total, unread: all.unread }}
       nodesById={canvas.nodes}
       onLoadMore={() => void loadMoreOperatorThreads(view)}
-      // The one thread chat takes this pane when SeatThreads exports it (product-modals).
-      chat={() => null}
+      chat={(row, yields) => (
+        <ThreadChat
+          seat={{ canvasName, seatId: row.seat.nodeId }}
+          name={row.seat.name}
+          thread={seatSummaryOf(row)}
+          yields={yields}
+        />
+      )}
+      quickThread={(done, backOut) => (
+        <QuickThread canvasName={canvasName} onSent={(sent) => done(sent[0])} backOut={backOut} />
+      )}
+      // The seat modal on its Threads view, whatever Seat opens on says.
+      onOpenSeat={(seatId) => {
+        closeOperatorModal("threads");
+        void openSeatOn(canvasName, seatId, "threads");
+      }}
     />
   );
 }

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
  * Threads, the operator modal (Global threads): the body over the store's
- * state. A thread on screen is read and one not shown is not; the list asks
+ * state. The chat (which marks what it shows read) is mounted only for the
+ * thread on screen, never behind Quick thread; the list asks
  * for its next page; a row says its seat, region, line, last mail and
  * unread; the status and the filters speak in the feed's form.
  */
@@ -12,14 +13,7 @@ import type { FeedRegion } from "../src/shared/operator-feed";
 import type { OperatorThreadsState } from "../src/window/lib/operator-threads";
 import { clearThreadsFilters, threadsView$, type ThreadRow } from "../src/window/lib/threads-view";
 
-const marks = vi.hoisted(() => ({ calls: [] as Array<{ seatId: string; threadId: string }> }));
-
-vi.mock("../src/window/lib/seat-threads", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/window/lib/seat-threads")>()),
-  markSeatThreadRead: async (seat: { seatId: string }, threadId: string): Promise<void> => {
-    marks.calls.push({ seatId: seat.seatId, threadId });
-  },
-}));
+import { runThreadKey } from "../src/window/lib/thread-keys";
 
 const { ThreadsBody } = await import("../src/window/components/feed/ThreadsModal");
 
@@ -65,6 +59,8 @@ const state = (rows: ReadonlyArray<ThreadRow>, extra: Partial<OperatorThreadsSta
 let root: Root;
 let host: HTMLDivElement;
 const loadMore = vi.fn();
+/** Each chat mount, with what its reply field would be told. */
+let chats: Array<{ threadId: string; yields: boolean }> = [];
 
 const draw = (read: OperatorThreadsState, props: { quick?: boolean } = {}): void => {
   act(() =>
@@ -75,8 +71,19 @@ const draw = (read: OperatorThreadsState, props: { quick?: boolean } = {}): void
         all={{ total: 24, unread: 3 }}
         nodesById={new Map()}
         onLoadMore={loadMore}
-        chat={(shown) => <div data-testid="chat">{shown.threadId}</div>}
-        {...(props.quick ? { quickThread: () => <div data-testid="quick">quick</div> } : {})}
+        chat={(shown, yields) => {
+          chats.push({ threadId: shown.threadId, yields: yields() });
+          return <div data-testid="chat">{shown.threadId}</div>;
+        }}
+        {...(props.quick
+          ? {
+              quickThread: (done: (first?: { seatId: string; threadId: string }) => void) => (
+                <button type="button" data-testid="quick" onClick={() => done({ seatId: "b", threadId: "t2" })}>
+                  quick
+                </button>
+              ),
+            }
+          : {})}
       />,
     ),
   );
@@ -86,7 +93,7 @@ const q = <E extends Element = HTMLElement>(selector: string): E | null => docum
 const all = (selector: string): HTMLElement[] => [...document.body.querySelectorAll<HTMLElement>(selector)];
 
 beforeEach(() => {
-  marks.calls = [];
+  chats = [];
   loadMore.mockReset();
   clearThreadsFilters();
   threadsView$.order.set("newest");
@@ -103,34 +110,42 @@ afterEach(() => {
 
 const rows = [row("t1", "a", PRODUCT, 300, 2), row("t2", "b", OPEN, 200, 0, true)];
 
-it("shows the first thread on the right and marks it read, and only it", () => {
+it("shows the first thread's chat on the right, and only it", () => {
   draw(state(rows));
-  expect(q('[data-testid="chat"]')?.textContent).toBe("t1");
-  expect(marks.calls).toEqual([{ seatId: "a", threadId: "t1" }]);
+  expect(all('[data-testid="chat"]').map((chat) => chat.textContent)).toEqual(["t1"]);
   expect(q('[data-testid="operator-threads-row"][data-thread="t1"]')?.dataset.selected).toBe("true");
 });
 
-it("marks a thread read when it is picked, and never one it does not show", () => {
+it("swaps the chat for the one picked, and leaves the keyboard in the list unless Enter opened it", () => {
   draw(state(rows));
   act(() => q<HTMLButtonElement>('[data-thread="t2"]')!.click());
   expect(q('[data-testid="chat"]')?.textContent).toBe("t2");
-  expect(marks.calls.map((call) => call.threadId)).toEqual(["t1", "t2"]);
+  expect(chats.every((chat) => chat.yields)).toBe(true);
 });
 
-it("leaves the thread unread while Quick thread takes the pane", () => {
+it("mounts no chat while Quick thread takes the pane, and shows the new thread once the list has it", () => {
   draw(state([]), { quick: true });
-  expect(marks.calls).toEqual([]);
-  act(() => q<HTMLButtonElement>('[data-testid="operator-threads-new"]')?.click());
-  draw(state(rows), { quick: true });
-  expect(q('[data-testid="quick"]')).not.toBeNull();
+  act(() => q<HTMLButtonElement>('[data-testid="operator-threads-new"]')!.click());
+  draw(state(rows.slice(0, 1)), { quick: true });
   expect(q('[data-testid="chat"]')).toBeNull();
-  expect(marks.calls).toEqual([]);
+  // Sent: the new thread t2 is not in the list yet, so nothing else is shown in its place.
+  act(() => q<HTMLButtonElement>('[data-testid="quick"]')!.click());
+  expect(q('[data-testid="quick"]')).toBeNull();
+  expect(q('[data-testid="chat"]')).toBeNull();
+  draw(state(rows), { quick: true });
+  expect(q('[data-testid="chat"]')?.textContent).toBe("t2");
+  expect(q('[data-thread="t2"]')?.dataset.selected).toBe("true");
 });
 
-it("marks again when mail lands in the thread on screen", () => {
-  draw(state(rows));
-  draw(state([{ ...rows[0]!, unread: 1, lastAt: 400 }, rows[1]!]));
-  expect(marks.calls.filter((call) => call.threadId === "t1")).toHaveLength(2);
+it("answers the Quick thread key while it is open", () => {
+  draw(state(rows), { quick: true });
+  act(() => {
+    expect(runThreadKey("threads.quick")).toBe(true);
+  });
+  expect(q('[data-testid="quick"]')).not.toBeNull();
+  act(() => root.unmount());
+  root = createRoot(host);
+  expect(runThreadKey("threads.quick")).toBe(false);
 });
 
 it("draws a row's seat, region, line, last mail and unread, and You on the operator's own", () => {
