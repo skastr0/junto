@@ -260,7 +260,7 @@ describe("gpu atlas (#911)", () => {
     expect(atlas.binding.cells[b * ATLAS_CELL_FLOATS + 4]).toBe(1);
   });
 
-  it("overwrites fixed-box status lines in place when refCount is 1", async () => {
+  it("overwrites a fixed-box status line in place when only its own quad showed the old one", async () => {
     const fake = fakeDevice();
     const run1: TextRun = { text: "step 1", font: "mono", size: 11, weight: 400, truncate: "end", width: 80 };
     const run2: TextRun = { text: "step 2", font: "mono", size: 11, weight: 400, truncate: "end", width: 80 };
@@ -268,6 +268,8 @@ describe("gpu atlas (#911)", () => {
       rasterizeText: async () => pixels(160, 27),
     });
     atlas.attach(fake.device);
+    const rowOf = (cell: number): number[] =>
+      Array.from(atlas.binding.cells.subarray(cell * ATLAS_CELL_FLOATS, cell * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
 
     const first = atlas.acquire(textQuad(run1), 2);
     await settle();
@@ -275,15 +277,23 @@ describe("gpu atlas (#911)", () => {
     expect(fake.copies.length).toBe(1);
     const x1 = fake.copies[0]!.x;
     const y1 = fake.copies[0]!.y;
+    const rect = rowOf(first);
 
+    // The new text is a new cell, which shows the old pixels until its raster lands.
     const second = atlas.acquire(textQuad(run2), 2, first);
-    expect(second).toBe(first); // kept stable index in place
-    expect(atlas.hasImage(second)).toBe(true); // old pixels still visible before new raster lands
+    expect(second).not.toBe(first);
+    expect(atlas.hasImage(second)).toBe(true);
+    expect(rowOf(second)).toEqual(rect);
     await settle();
     await settle();
+    // The raster went over the old rect, and the old cell is gone.
     expect(fake.copies.length).toBe(2);
     expect(fake.copies[1]!.x).toBe(x1);
     expect(fake.copies[1]!.y).toBe(y1);
+    expect(rowOf(second)).toEqual(rect);
+    expect(atlas.hasImage(first)).toBe(false);
+    expect(atlas.stats().overwrites).toBe(1);
+    expect(atlas.stats().activeCells).toBe(1);
   });
 
   it("keeps previous image aliased when replacement has a different box (Ruling 6 #1)", async () => {
@@ -659,35 +669,39 @@ describe("gpu atlas (#911)", () => {
     }
   });
 
-  it("keeps each item's smallest-drawn-size floor copy while there is room and serves it via stand-in with zero lostPixels", async () => {
+  it("shows an item asked at a new size through its nearest landed size, with zero lostPixels and no floor copy", async () => {
     const fake = fakeDevice();
     const { atlas } = atlasWith({
       size: 512,
       rasterizeText: async (_run, scale) => pixels(Math.round(60 * scale), Math.round(30 * scale)),
     });
     atlas.attach(fake.device);
+    const rowOf = (cell: number): number[] =>
+      Array.from(atlas.binding.cells.subarray(cell * ATLAS_CELL_FLOATS, cell * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
 
-    // Land a cell at overview scale (0.5) -> becomes the item's floor copy.
-    const floorCell = atlas.acquire(textQuad({ ...textRun, text: "floor-item" }), 0.5);
+    // Land a cell at overview scale (0.5).
+    const small = atlas.acquire(textQuad({ ...textRun, text: "item" }), 0.5);
     await settle();
     await settle();
-    expect(atlas.hasImage(floorCell)).toBe(true);
-    expect(atlas.stats().floorCells).toBe(1);
-    expect(atlas.stats().floorBytes).toBe(30 * 15 * 1); // r8unorm 1 byte/px
+    expect(atlas.hasImage(small)).toBe(true);
+    const smallRect = rowOf(small);
 
-    // Release the overview cell; the floor copy stays cached while nothing needs its room.
-    atlas.release(floorCell);
-    expect(atlas.stats().floorCells).toBe(1);
+    // Off screen it stays cached while nothing needs its room. It is no floor: nothing is kept past eviction.
+    atlas.release(small);
+    expect(atlas.stats().floorCells).toBe(0);
+    expect(atlas.stats().floorBytes).toBe(0);
 
-    // Acquire the same item at near scale (2.0): immediately gets the floor stand-in (hasImage === true, lostPixels === 0).
-    const nearCell = atlas.acquire(textQuad({ ...textRun, text: "floor-item" }), 2.0);
-    expect(atlas.hasImage(nearCell)).toBe(true);
+    // The same item near (2.0) shows the small copy at once (hasImage === true, lostPixels === 0).
+    const near = atlas.acquire(textQuad({ ...textRun, text: "item" }), 2.0);
+    expect(atlas.hasImage(near)).toBe(true);
+    expect(rowOf(near)).toEqual(smallRect);
     expect(atlas.stats().lostPixels).toBe(0);
+    expect(atlas.stats().pinnedCells).toBe(2); // near, and the small copy it shows
     await settle();
     await settle();
-    // Floor stays at the smaller scale (0.5), not replaced by 2.0.
-    expect(atlas.stats().floorCells).toBe(1);
-    expect(atlas.stats().floorBytes).toBe(30 * 15 * 1);
+    // Landed, it shows its own pixels and lets the small copy go.
+    expect(rowOf(near)).not.toEqual(smallRect);
+    expect(atlas.stats().pinnedCells).toBe(1);
   });
 
   it("pendingKeys returns bounded queued and rasterizing cell diagnostics and empties on settle", async () => {

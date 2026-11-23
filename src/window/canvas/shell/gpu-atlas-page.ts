@@ -21,6 +21,7 @@ const EMPTY_ATLAS_STATS: AtlasStats = {
   pending: 0,
   landed: 0,
   evictions: 0,
+  overwrites: 0,
   failures: 0,
   pages: 0,
   pageSize: 0,

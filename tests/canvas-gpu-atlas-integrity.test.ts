@@ -106,7 +106,7 @@ const row = (atlas: ReturnType<typeof atlasWith>, cell: number): number[] =>
   Array.from(atlas.binding.cells.subarray(cell * ATLAS_CELL_FLOATS, cell * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
 
 describe("a held cell index is never handed to another key", () => {
-  it("releasing an in-place re-keyed cell while it is queued must not leave its index in the plot", async () => {
+  it("a slot let go while it waits behind its quad's last cell leaves nothing behind", async () => {
     // One 64px page = one plot = nine 16px cells (gutter 1, no mips on the fake device).
     const atlas = atlasWith({ size: 64 });
     atlas.attach(fakeDevice().device);
@@ -123,27 +123,36 @@ describe("a held cell index is never handed to another key", () => {
     // The neighbours leave the screen: cached, unreferenced.
     for (const cell of fill) atlas.release(cell);
 
-    // The quad's content changes at the same box: re-keyed in place (same index, queued).
+    // The quad's content changes at the same box: a new slot, which shows the old cell until its own raster lands.
     const a2 = atlas.acquire(mark(20), 1, a);
-    expect(a2).toBe(a);
+    expect(a2).not.toBe(a);
+    expect(row(atlas, a2)).toEqual(row(atlas, a));
     // ...and before the queue drains, the quad lets go (a zoom step, a repaint, a removal).
     atlas.release(a2);
+    // The slot that waited is gone with its row, and nothing holds the cell it showed.
+    expect(row(atlas, a2)).toEqual(new Array(ATLAS_CELL_FLOATS).fill(0));
+    expect(atlas.stats().pinnedCells).toBe(0);
+    expect(atlas.audit().counts).toEqual({});
 
     // A new quad takes a cell: the freed index is recycled (LIFO).
     const y = atlas.acquire(mark(30), 1);
-    expect(y).toBe(a);
+    expect(y).toBe(a2);
     await drain();
 
-    // 0.11.14: the plot still listed the index, so wiping the plot freed y's slot under the quad.
+    // 0.11.14: the cell took its new key at the request and kept its rect, so the
+    // plot still listed the index, and wiping the plot freed y's slot under the quad.
     // y is held by a quad the whole time. Asked again with itself as previous, it is the same cell.
     expect.soft(atlas.acquire(mark(30), 1, y)).toBe(y);
     // And no other key may ever be handed its index (the free list is LIFO: ask for a plot's worth).
     const others: number[] = [];
     for (let i = 0; i < 9; i += 1) others.push(atlas.acquire(mark(40 + i), 1));
     expect.soft(others).not.toContain(y);
+    const held = new Map<number, number>([[y, 1]]);
+    for (const cell of others) held.set(cell, 1);
+    expect(atlas.audit(held).counts).toEqual({});
   });
 
-  it("control: the same sequence without the in-place re-key keeps the indices apart", async () => {
+  it("control: the same sequence without the content change keeps the indices apart", async () => {
     const atlas = atlasWith({ size: 64 });
     atlas.attach(fakeDevice().device);
     const a = atlas.acquire(mark(0), 1);
@@ -160,7 +169,7 @@ describe("a held cell index is never handed to another key", () => {
     expect(others).not.toContain(y);
   });
 
-  it("the same with floors on: a 512px page is one plot, as in production", async () => {
+  it("the same on a 512px page, which is one plot, as in production", async () => {
     // Raster box = rect * scale, so a 250px cell fills a quarter of the plot.
     const atlas = atlasWith({
       size: 512,
@@ -169,22 +178,22 @@ describe("a held cell index is never handed to another key", () => {
     atlas.attach(fakeDevice().device);
     const at = (col: number, scale: number): Quad => spriteQuad({ atlas: "mark", cell: { col, row: 0 } } as SpriteRef, 250 / scale, 250 / scale);
 
-    // Page 0: four contents at scale 1, each its content's floor, held.
-    const floors: number[] = [];
-    for (let i = 0; i < 4; i += 1) floors.push(atlas.acquire(at(i, 1), 1));
+    // Page 0: four contents at scale 1, held.
+    const base: number[] = [];
+    for (let i = 0; i < 4; i += 1) base.push(atlas.acquire(at(i, 1), 1));
     await drain();
-    expect(atlas.stats().floorCells).toBe(4);
-    // Page 1: the same contents at scale 2 (the zoomed-in rasters): not floors.
+    // Page 1: the same contents at scale 2 (the zoomed-in rasters). Each showed
+    // its scale 1 cell meanwhile, which a quad holds: none was written over.
     const sharp: number[] = [];
     for (let i = 0; i < 4; i += 1) sharp.push(atlas.acquire(at(i, 2), 2));
     await drain();
     expect(atlas.stats().pages).toBe(2);
-    expect(atlas.stats().floorCells).toBe(4);
+    expect(atlas.stats().overwrites).toBe(0);
 
-    // Three sharp cells leave the screen; the fourth changes content at the same box, then lets go while queued.
+    // Three sharp cells leave the screen; the fourth changes content at the same box, then lets go while it waits.
     for (const cell of sharp.slice(1)) atlas.release(cell);
     const v = atlas.acquire(at(9, 2), 2, sharp[0]!);
-    expect(v).toBe(sharp[0]);
+    expect(v).not.toBe(sharp[0]);
     atlas.release(v);
 
     // A new quad recycles the index and is held from here on.
@@ -196,6 +205,160 @@ describe("a held cell index is never handed to another key", () => {
     const others: number[] = [];
     for (let i = 0; i < 4; i += 1) others.push(atlas.acquire(at(40 + i, 2), 2));
     expect.soft(others).not.toContain(y);
+    const held = new Map<number, number>([[y, 1]]);
+    for (const cell of [...base, ...others]) held.set(cell, 1);
+    expect(atlas.audit(held).counts).toEqual({});
+  });
+});
+
+describe("a rect is written a second time only for the quads that asked for it", () => {
+  /** A sprite whose raster is 16px whatever it shows, as a status line keeps its box. */
+  const line = (col: number): Quad => mark(col);
+
+  it("a changed line goes over the cell it replaces when nothing else holds that cell", async () => {
+    const atlas = atlasWith({ size: 64 });
+    atlas.attach(fakeDevice().device);
+
+    const still = atlas.acquire(mark(0), 1); // a neighbour that never changes
+    const first = atlas.acquire(line(1), 1);
+    await drain();
+    const rect = row(atlas, first);
+
+    // The line changes: a new slot that shows the old pixels until its own land.
+    const second = atlas.acquire(line(2), 1, first);
+    expect(second).not.toBe(first);
+    expect(row(atlas, second)).toEqual(rect);
+    await drain();
+
+    // Its pixels went over the old rect. The old cell is gone, key and all.
+    expect(row(atlas, second)).toEqual(rect);
+    expect(atlas.hasImage(first)).toBe(false);
+    expect(atlas.stats().overwrites).toBe(1);
+    expect(atlas.stats().activeCells).toBe(2);
+    expect(atlas.audit(new Map([[still, 1], [second, 1]])).counts).toEqual({});
+
+    // The old content, asked again, is a new raster: its cell was not kept under another's pixels.
+    const again = atlas.acquire(line(1), 1);
+    expect(again).not.toBe(second);
+    expect(atlas.hasImage(again)).toBe(false);
+  });
+
+  it("a line that changes two hundred times beside a cell that stays takes one rect", async () => {
+    const atlas = atlasWith({ size: 64 });
+    atlas.attach(fakeDevice().device);
+
+    const still = atlas.acquire(mark(0), 1);
+    let cell = atlas.acquire(line(1), 1);
+    await drain();
+    const rect = row(atlas, cell);
+    for (let i = 0; i < 200; i += 1) {
+      cell = atlas.acquire(line(2 + i), 1, cell);
+      await settle();
+      await settle();
+    }
+    // Without the overwrite each change took a new rect, and the cell that
+    // stays kept the plot from ever being wiped: a page of dead lines every
+    // eight changes.
+    expect(row(atlas, cell)).toEqual(rect);
+    expect(atlas.stats().pages).toBe(1);
+    expect(atlas.stats().overwrites).toBe(200);
+    expect(atlas.stats().activeCells).toBe(2);
+    expect(atlas.audit(new Map([[still, 1], [cell, 1]])).counts).toEqual({});
+  });
+
+  it("a cell another quad still shows is never written over", async () => {
+    const atlas = atlasWith({ size: 64 });
+    atlas.attach(fakeDevice().device);
+
+    // Two quads show one cell.
+    const shared = atlas.acquire(line(1), 1);
+    expect(atlas.acquire(line(1), 1)).toBe(shared);
+    await drain();
+    const rect = row(atlas, shared);
+
+    // One of them changes.
+    const changed = atlas.acquire(line(2), 1, shared);
+    expect(row(atlas, changed)).toEqual(rect);
+    await drain();
+
+    // The other still shows the old pixels: the new ones took a rect of their own.
+    expect(row(atlas, shared)).toEqual(rect);
+    expect(row(atlas, changed)).not.toEqual(rect);
+    expect(atlas.stats().overwrites).toBe(0);
+    expect(atlas.audit(new Map([[shared, 1], [changed, 1]])).counts).toEqual({});
+  });
+
+  it("of two slots waiting behind one cell, the first to land takes a rect of its own and the last takes the cell's", async () => {
+    const gates: Array<() => void> = [];
+    const atlas = atlasWith({
+      size: 64,
+      rasterizeSprite: (quad) =>
+        (quad.sprite as { cell: { col: number } }).cell.col === 1
+          ? Promise.resolve(pixels(16, 16))
+          : new Promise<AtlasPixels>((resolve) => gates.push(() => resolve(pixels(16, 16)))),
+    });
+    atlas.attach(fakeDevice().device);
+
+    // Two quads show one cell, and each changes to a content of its own.
+    const shared = atlas.acquire(line(1), 1);
+    atlas.acquire(line(1), 1);
+    await drain();
+    const rect = row(atlas, shared);
+    const one = atlas.acquire(line(2), 1, shared);
+    const two = atlas.acquire(line(3), 1, shared);
+    expect(one).not.toBe(two);
+    await drain();
+    expect(gates.length).toBe(2);
+    expect(row(atlas, one)).toEqual(rect);
+    expect(row(atlas, two)).toEqual(rect);
+
+    // The first lands while the second still shows the cell: a rect of its own.
+    gates[0]!();
+    await drain();
+    expect(row(atlas, one)).not.toEqual(rect);
+    expect(row(atlas, two)).toEqual(rect);
+    expect(atlas.stats().overwrites).toBe(0);
+    expect(atlas.audit(new Map([[one, 1], [two, 1]])).counts).toEqual({});
+
+    // The second is now the cell's only holder: its pixels go over it.
+    gates[1]!();
+    await drain();
+    expect(row(atlas, two)).toEqual(rect);
+    expect(atlas.stats().overwrites).toBe(1);
+    expect(atlas.audit(new Map([[one, 1], [two, 1]])).counts).toEqual({});
+  });
+
+  it("a second quad that asks a key still waiting behind another quad's last cell gets a slot of its own", async () => {
+    const gates: Array<() => void> = [];
+    const atlas = atlasWith({
+      size: 64,
+      rasterizeSprite: (quad) =>
+        (quad.sprite as { cell: { col: number } }).cell.col === 9
+          ? new Promise<AtlasPixels>((resolve) => gates.push(() => resolve(pixels(16, 16))))
+          : Promise.resolve(pixels(16, 16)),
+    });
+    atlas.attach(fakeDevice().device);
+
+    const first = atlas.acquire(line(1), 1);
+    await drain();
+    // The first quad changes to content 9 and shows its old pixels meanwhile.
+    const waiting = atlas.acquire(line(9), 1, first);
+    expect(atlas.hasImage(waiting)).toBe(true);
+
+    // 0.11.14: a second quad asking content 9 shared that cell, and drew the first quad's old content.
+    const other = atlas.acquire(line(9), 1);
+    expect(other).not.toBe(waiting);
+    expect(atlas.hasImage(other)).toBe(false);
+
+    await drain();
+    for (const open of gates.splice(0)) open();
+    await drain();
+    expect(atlas.hasImage(other)).toBe(true);
+    expect(atlas.hasImage(waiting)).toBe(true);
+    // Landed, the key has one cell that any later quad shares.
+    const third = atlas.acquire(line(9), 1);
+    expect([waiting, other]).toContain(third);
+    expect(atlas.audit().counts).toEqual({});
   });
 });
 
@@ -276,7 +439,7 @@ describe("a cell is never moved once it is placed", () => {
     await drain();
     expect(atlas.stats().pages).toBe(1);
 
-    // Three of plot 0's cells leave the screen for good (a smaller copy of each took the floor mark).
+    // Three of plot 0's cells leave the screen for good, and a smaller copy of each is cached elsewhere.
     for (let i = 1; i <= 3; i += 1) {
       atlas.release(p0[i]!);
       const smaller = atlas.acquire(textQuad(`p0-${i}`), 0.5);
@@ -302,20 +465,21 @@ describe("a cell is never moved once it is placed", () => {
 });
 
 describe("eviction is by last use, and only off-screen content leaves", () => {
-  it("a plot that holds only off-screen cells is reclaimed, its floor cell included", async () => {
-    // 512px page = one plot; a 300px cell fills it. Floors are on at this size.
+  it("a plot that holds only off-screen cells is reclaimed", async () => {
+    // 512px page = one plot; a 300px cell fills it.
     const atlas = atlasWith({ size: 512, rasterizeSprite: async () => pixels(300, 300) });
     atlas.attach(fakeDevice().device);
 
     const a = atlas.acquire(mark(0), 1);
     await drain();
     expect(atlas.hasImage(a)).toBe(true);
-    atlas.release(a); // off screen: cached, and the content's floor copy
+    atlas.release(a); // off screen: cached
 
     const b = atlas.acquire(mark(1), 1);
     await drain();
     expect(atlas.hasImage(b)).toBe(true);
-    // 0.11.14: never evicted a plot that held a floor cell, and every plot held one.
+    // 0.11.14: kept the smallest copy of every content as a floor, never evicted
+    // a plot that held one, and every plot held one. No cell is a floor now.
     expect(atlas.stats().pages).toBe(1);
     expect(atlas.stats().evictions).toBe(1);
     expect(atlas.audit(new Map([[b, 1]])).counts).toEqual({});

@@ -61,6 +61,8 @@ export type AtlasStats = {
   readonly pending: number;
   readonly landed: number;
   readonly evictions: number;
+  /** Landings written over the cell their slot showed, when nothing else held it: a changed status line takes no new rect. */
+  readonly overwrites: number;
   readonly failures: number;
   readonly pages: number;
   readonly pageSize: number;
@@ -73,11 +75,11 @@ export type AtlasStats = {
   readonly decodedSourceBytes: number;
   /** Number of decoded SVG sources currently cached. */
   readonly decodedSvgCount: number;
-  /** GPU bytes held by never-evicted floor plots (smallest drawn size per seen item). */
+  /** Always 0: no cell is kept past eviction as a floor. The field stays so proof files keep their shape. */
   readonly floorBytes: number;
-  /** Number of landed cells currently held in never-evicted floor plots. */
+  /** Always 0, as `floorBytes`. */
   readonly floorCells: number;
-  /** Number of GPU plot compactions performed via copyTextureToTexture. */
+  /** Always 0: a placed cell is never moved. The field stays so proof files keep their shape. */
   readonly compactions: number;
   /** Cumulative count of previously-seen content keys that drew without an image (rule 6). */
   readonly lostPixels: number;
