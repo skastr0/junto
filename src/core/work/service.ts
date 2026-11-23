@@ -1,4 +1,4 @@
-import { ModelNotFound, ModelRecords } from "../model/records";
+import { ModelNotFound } from "../model/records";
 import { workRowTooLargeIn } from "@shared/exchange-bounds";
 import { asNodeId, type Canvas, type Node } from "@shared/model";
 // WorkService — one repository-native orchestration seam for the SQLite work
@@ -357,10 +357,12 @@ export interface WorkServiceShape {
      * the reply is an agent-role row in the seat's own mailbox, so it is never
      * typed back into the seat, and it carries the thread it answers.
      *
-     * It stays on this machine. It is written only on the machine that edits
-     * the canvas, where the operator reads it, and the exchange gives any other
-     * machine only mail addressed to its own seats, which this row is not. A
-     * seat on another machine is refused until its row kind is reviewed.
+     * It is written on the machine the seat lives on, whichever that is, and
+     * crosses to the machine that edits the canvas like any of that seat's
+     * mail; with no link open it waits here and crosses when one opens. Both
+     * machines hold it to one rule (src/shared/operator-reply.ts): it answers
+     * the operator's mail in this seat's own mailbox, in that mail's thread,
+     * and carries text and nothing else.
      */
     readonly workOperatorReply: (
       canvas: string,
@@ -437,7 +439,6 @@ export const WorkLive = Layer.effect(
     const modelActors = yield* ModelActorRefs;
     const sql = yield* SqlClient.SqlClient;
     const repository = yield* WorkRepository;
-    const modelRecords = yield* ModelRecords;
     const machines = yield* MachineRepository;
     // S2: ContentService is a hard WorkLive dependency (both CC + Remote graphs
     // compose it — runtime.ts / core-runtime.ts). Hard yield*, never
@@ -1146,16 +1147,6 @@ export const WorkLive = Layer.effect(
           Effect.gen(function* () {
             const read = yield* readTopology(canvas);
             yield* requireActor(read, sentBy, nodeId, "msg.reply");
-            const self = yield* machines.installationId.pipe(Effect.mapError(toWorkServiceError));
-            const editor = (yield* modelRecords.canvasEditor(canvas).pipe(Effect.mapError(toWorkServiceError))) ?? self;
-            if (editor !== self) {
-              return yield* Effect.fail(
-                new WorkServiceError({
-                  code: "scope_error",
-                  message: "a seat answers the operator only on the machine that edits its canvas",
-                }),
-              );
-            }
             if (message.role !== "agent" || message.taskId != null) {
               return yield* Effect.fail(
                 new WorkServiceError({
@@ -1178,6 +1169,17 @@ export const WorkLive = Layer.effect(
                 sentBy,
                 destination: { kind: "mailbox" },
               }),
+            ).pipe(
+              // An answer carries text and nothing else, so one too long for its row is shortened or sent as a signal.
+              Effect.mapError((error) =>
+                error.details?.reason === "row_too_large"
+                  ? new WorkServiceError({
+                      code: error.code,
+                      message: error.message,
+                      details: { ...error.details, next_step: "shorten the answer, or raise a signal with the long text attached as a file" },
+                    })
+                  : error,
+              ),
             );
             if (outcome.disposition === "applied") {
               messageDelivery.notifyAppended(canvas, nodeId, outcome.value);

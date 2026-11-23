@@ -98,7 +98,11 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
    transfer of authority, no conflict handling. Applying a row twice changes
    nothing. A machine writes only for its own seats and automations: mail
    from a seat, and a receipt or signal for a seat, are valid only from the
-   machine that seat is on; mail and prompts from an automation only from the
+   machine that seat is on; a seat's answer to the operator, only from the
+   machine that seat is on, and only in reply to the operator's mail in that
+   seat's own mailbox (`src/shared/operator-reply.ts`, run by that machine
+   before it writes the row and by the machine that edits the canvas before
+   it takes it); mail and prompts from an automation only from the
    machine it runs on, named by its Automations node and its automation id,
    at the canvas count the row states (mail from before 0.11 names no
    automation and is the editing machine's alone); mail from the operator,

@@ -113,7 +113,8 @@ import {
   type SeatControlSettledResult,
 } from "@shared/seat-control-row";
 import { type AutomationFiringResult, automationFiringItemId } from "@shared/automation-firing-row";
-import type { AutomationNodeId } from "@shared/mail-author";
+import { mailAuthorOf, type AutomationNodeId } from "@shared/mail-author";
+import { OPERATOR_REPLY_REFUSAL, isOperatorReplyRow, operatorReplyFault, operatorReplyParentId, type OperatorReplyParent } from "@shared/operator-reply";
 import type { AutomationId, Firing } from "@shared/automation";
 import type {
   ArrivedSeatControl,
@@ -3497,6 +3498,39 @@ const writeRulingNotices = Effect.fn("work.writeRulingNotices")(function* (
 const refuseExchange = (message: string): WorkAuthorityError =>
   authorityError("authority-mismatch", message);
 
+/**
+ * Does this seat-authored mailbox row break the rule for a seat's answer to
+ * the operator (src/shared/operator-reply.ts)? A row that is no answer passes.
+ * The mail it answers is read from this machine's own mailbox row, its author
+ * from the stored seat column, never from what the row says.
+ */
+const operatorReplyRefused = Effect.fn("work.operatorReplyRefused")(function* (
+  reader: SqlClient.SqlClient,
+  sink: SinkRefValue,
+  message: MessageValue,
+  sentBy: Pick<ActorRef, "seatId" | "nodeId" | "automationId">,
+): Effect.fn.Return<boolean, WorkSqlFailure> {
+  if (mailAuthorOf(sentBy, sink.nodeId).kind !== "seat" || !isOperatorReplyRow(message)) return false;
+  const parentId = operatorReplyParentId(message);
+  const held = parentId === undefined
+    ? []
+    : yield* reader.unsafe<{ message_id: string; actor_seat_id: string; metadata_json: string | null }>(
+        "SELECT message_id, actor_seat_id, metadata_json FROM work_messages WHERE canvas_name = ? AND node_id = ? AND message_id = ?",
+        [sink.canvasName, sink.nodeId, parentId],
+      );
+  const row = held[0];
+  const parent: OperatorReplyParent | undefined = row === undefined
+    ? undefined
+    : {
+        actorSeatId: row.actor_seat_id,
+        message: {
+          messageId: row.message_id,
+          ...(row.metadata_json === null ? {} : { metadata: parseJson(row.metadata_json) as MessageValue["metadata"] }),
+        },
+      };
+  return operatorReplyFault({ mailbox: sink.nodeId, author: sentBy.nodeId, message }, parent) !== undefined;
+});
+
 export interface WorkRepositoryShape {
   /** Exact policy inputs across the task's visited boards and prerequisite ids. */
   readonly taskRowsByIds: (canvasName: string, ids: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly item: TaskValue }>, WorkRepositoryError>;
@@ -4182,6 +4216,10 @@ export const WorkRepositoryLive = Layer.effect(
                 localInstallationId,
               );
             }
+            // A seat's answer to the operator is held to one rule here and at the link.
+            if (destination.kind === "mailbox" && (yield* operatorReplyRefused(writer, input.sink, message, sentBy))) {
+              return yield* Effect.fail(authorityError("target-mismatch", OPERATOR_REPLY_REFUSAL));
+            }
             yield* assertMessageIdentityAvailable(
               writer,
               input.sink,
@@ -4752,6 +4790,16 @@ export const WorkRepositoryLive = Layer.effect(
                   : peer === authority || writtenByItsAuthor(fact, placement);
               if (!authored) {
                 return yield* Effect.fail(refuseExchange("a row was not written where its author lives"));
+              }
+              // A seat's answer to the operator is taken only as an answer to
+              // the operator's mail in that seat's own mailbox, which only this
+              // machine writes, so it is always held here (docs/machines.md, rule 4).
+              if (
+                authority === self &&
+                fact.body.operation === "message.append" &&
+                (yield* operatorReplyRefused(writer, fact.item.sink, fact.body.message, fact.body.sentBy))
+              ) {
+                return yield* Effect.fail(refuseExchange(OPERATOR_REPLY_REFUSAL));
               }
               if (!entitledTo(self, fact, placement, yield* exchangeMailAuthor(writer, fact))) {
                 return yield* Effect.fail(refuseExchange("this machine is not entitled to a row it was sent"));

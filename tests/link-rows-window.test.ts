@@ -95,7 +95,7 @@ it("carries more than one rows window of held mail when a link opens, with the l
     await editor.runtime.runPromise(editor.repository.appendMessage({
       sink: { canvasName: "factory", nodeId: "peer" },
       basis: { kind: "canvas", canvasName: "factory", seq: 1 },
-      message: { messageId, role: "agent", parts: [{ kind: "text", text: messageId.padEnd(4096, "x") }] },
+      message: { messageId, role: "user", parts: [{ kind: "text", text: messageId.padEnd(4096, "x") }] },
       sentBy: actor("lead"), destination: { kind: "mailbox" }, originAt: at, receivedAt: at,
     }));
   }

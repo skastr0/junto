@@ -159,7 +159,7 @@ const append = (on: Machine, from: string, to: string, messageId: string, text =
     on.repository.appendMessage({
       sink: { canvasName: "factory", nodeId: to },
       basis,
-      message: { messageId, role: "agent", parts: [{ kind: "text", text }] },
+      message: { messageId, role: "user", parts: [{ kind: "text", text }] },
       sentBy: actor(from),
       destination: { kind: "mailbox" },
       originAt: at,

@@ -193,7 +193,7 @@ const mail = async (on: Machine, from: { id: string; bindingId: string }, to: st
       repository.appendMessage({
         sink: { canvasName: "factory", nodeId: to },
         basis: { kind: "canvas", canvasName: "factory", seq: held.seq },
-        message: { messageId, role: "agent", parts: [{ kind: "text", text: `from ${from.id}` }] },
+        message: { messageId, role: "user", parts: [{ kind: "text", text: `from ${from.id}` }] },
         sentBy: { seatId: deriveActorSeatId(on.self, from.bindingId), canvasName: "factory", nodeId: from.id },
         destination: { kind: "mailbox" },
         originAt: at,
@@ -403,7 +403,7 @@ describe("a local commit", () => {
           repository.appendMessage({
             sink: { canvasName: "factory", nodeId: "lead" },
             basis: { kind: "canvas", canvasName: "factory", seq: held.seq },
-            message: { messageId: "pushed-on-commit", role: "agent", parts: [{ kind: "text", text: "from peer" }] },
+            message: { messageId: "pushed-on-commit", role: "user", parts: [{ kind: "text", text: "from peer" }] },
             sentBy: { seatId: deriveActorSeatId(MINI, "binding-peer"), canvasName: "factory", nodeId: "peer" },
             destination: { kind: "mailbox" },
             originAt: at,

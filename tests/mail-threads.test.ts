@@ -696,15 +696,16 @@ describe("remote-security's terms on threads", () => {
     expect(refused.error.type).toBe("ScopeError");
   });
 
-  it("keeps a seat's answer to the operator on the machine that edits the canvas", async () => {
+  it("writes a seat's answer to the operator on the seat's own machine, though another machine edits the canvas", async () => {
     const asked = await operatorMail("agent", "status?");
     await runtime.runPromise(
       Effect.flatMap(SqlClient.SqlClient, (sql) => sql`UPDATE canvases SET editor_installation_id = ${"another-machine"} WHERE canvas_name = ${CANVAS}`),
     );
-    const refused = await call("agent", "msg.reply", { target: "operator", text: "fine", inReplyTo: asked });
-    expect(refused.ok).toBe(false);
-    expect(refused.error.type).toBe("ScopeError");
-    expect((await mailbox("agent")).map((message) => message.messageId)).toEqual([asked]);
+    const answered = await call("agent", "msg.reply", { target: "operator", text: "fine", inReplyTo: asked });
+    expect(answered.ok).toBe(true);
+    const held = await mailbox("agent");
+    expect(held.map((message) => message.messageId)).toEqual([asked, answered.data.messageId]);
+    expect(held[1]).toMatchObject({ role: "agent", metadata: { toNodeId: "operator", inReplyTo: asked, threadId: asked } });
   });
 
   it("types and bounds the operator's send and the thread queries", () => {

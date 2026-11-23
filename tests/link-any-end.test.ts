@@ -99,7 +99,7 @@ const settle = async (): Promise<void> => {
 };
 const send = (on: Machine, from: string, to: string, messageId: string) => on.runtime.runPromise(on.repository.appendMessage({
   sink: { canvasName: "factory", nodeId: to }, basis,
-  message: { messageId, role: "agent", parts: [{ kind: "text", text: `from ${from}` }] },
+  message: { messageId, role: "user", parts: [{ kind: "text", text: `from ${from}` }] },
   sentBy: actor(from), destination: { kind: "mailbox" }, originAt: at, receivedAt: at,
 }));
 const inbox = async (on: Machine, nodeId: string) => (await on.runtime.runPromise(on.repository.mailbox("factory", nodeId))).map((message) => message.messageId);

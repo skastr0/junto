@@ -121,6 +121,18 @@ received, as it always has. The two are masked apart: taking `threads.read`
 off an edge leaves the inbox read of `msg.list`, so closing a seat's mail to
 a peer means masking both.
 
+A seat answers the operator from any machine. Its answer is a row in its own
+mailbox, written by the machine the seat lives on, and it crosses to the
+machine that edits the canvas like any of that seat's mail. That machine takes
+it only as a reply: it names, as the mail it answers, a row the operator wrote
+in that same mailbox, outside any task or resource thread, and its thread is
+that mail's thread. It carries text and nothing else. A row that names no such
+mail, that starts a thread, or that carries a file closes the link. The
+operator's window names the seat from its own canvas, never from what the row
+says of its sender. A mention opens only what the canvas holds, and a
+reference is shown as words, never opened, read or fetched on the operator's
+machine. A seat never starts a thread with the operator: it raises a signal.
+
 Ordinary agents never write the canonical canvas through their work API.
 Own-seat onboarding, references, session notes and signals are narrow local
 facilities; they grant no reach to another seat. Signals may be raised without
