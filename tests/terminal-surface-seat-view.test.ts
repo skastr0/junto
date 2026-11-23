@@ -1,8 +1,9 @@
 /**
  * A seat's two views, Terminal and Threads, on the terminal's side. Threads
- * is laid over the stage; the xterm under it stays mounted and attached, and
- * these lock what a covered terminal must never do: size itself or the child
- * from a box nobody can see, or take the keyboard.
+ * is laid over the stage; the xterm under it stays mounted and attached in
+ * its real box, and fits it as an open terminal does. These lock what a
+ * covered terminal must never do: size itself or the child from a hidden or
+ * zero box, or take the keyboard.
  */
 import { isValidElement, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -336,46 +337,58 @@ describe("the two views of a seat", () => {
 });
 
 describe("a terminal under Threads", () => {
-  it("starts a cold seat and attaches, and sizes nothing: not its grid, not the child", async () => {
+  it("starts a cold seat and fits its real box as an open terminal does: the child is told the size the operator will see", async () => {
     opensOn("threads");
     const surface = rig({ cold: true });
-    // The stage is not the size the terminal last had.
+    // The stage is not the size the terminal was made at.
     surface.box.cols = 80;
     surface.box.rows = 24;
     surface.render();
     await settle();
     expect(ensure).toHaveBeenCalledTimes(1);
     expect(surface.api.terminalAttach).toHaveBeenCalledTimes(1);
+    expect(surface.xterm().inert).toBe(true);
+    expect(surface.resize.mock.calls).toEqual([[80, 24]]);
+    expect(surface.api.terminalResize.mock.calls).toEqual([["lease-1", 80, 24]]);
+  });
+
+  it("sizes nothing from a hidden or zero box: not its grid, not the child", async () => {
+    opensOn("threads");
+    const surface = rig({ cold: true });
+    // No box at all, through the attach's own fit and every rung after it.
+    surface.box.gone = true;
+    surface.render();
+    await settle();
+    expect(surface.api.terminalAttach).toHaveBeenCalledTimes(1);
     expect(surface.resize).not.toHaveBeenCalled();
     expect(surface.api.terminalResize).not.toHaveBeenCalled();
     expect([surface.term.cols, surface.term.rows]).toEqual([100, 40]);
 
-    // A hidden box, a tiny one, a huge one: none of them is a size.
-    for (const next of [{ gone: true }, { gone: false, cols: 21, rows: 6 }, { cols: 240, rows: 90 }]) {
-      Object.assign(surface.box, next);
-      surface.render();
-      await settle();
-    }
+    // Back on Terminal with the box still gone: the fit on the way back refuses it too.
+    surface.select("terminal");
+    await settle();
     expect(surface.resize).not.toHaveBeenCalled();
     expect(surface.api.terminalResize).not.toHaveBeenCalled();
     expect([surface.term.cols, surface.term.rows]).toEqual([100, 40]);
   });
 
-  it("fits once on the way back to Terminal: the grid to its box, and the child told once", async () => {
+  it("fits once on the way back to Terminal, and catches a size it missed under Threads", async () => {
     opensOn("threads");
     const surface = rig();
-    surface.box.cols = 80;
-    surface.box.rows = 24;
     surface.render();
     await settle();
+    expect(surface.api.terminalResize.mock.calls).toEqual([["lease-1", 100, 40]]);
     const painted = surface.refresh.mock.calls.length;
 
+    // The stage changed size with nothing to tell the terminal.
+    surface.box.cols = 80;
+    surface.box.rows = 24;
     surface.select("terminal");
     // Before any timer: the fit is made in the commit that shows the terminal.
     expect(surface.resize.mock.calls).toEqual([[80, 24]]);
     expect(surface.refresh).toHaveBeenCalledTimes(painted + 1);
     await settle();
-    expect(surface.api.terminalResize.mock.calls).toEqual([["lease-1", 80, 24]]);
+    expect(surface.api.terminalResize.mock.calls).toEqual([["lease-1", 100, 40], ["lease-1", 80, 24]]);
     expect(surface.resize).toHaveBeenCalledTimes(1);
     expect(surface.refresh).toHaveBeenCalledTimes(painted + 1);
   });
@@ -390,11 +403,8 @@ describe("a terminal under Threads", () => {
 
     surface.select("threads");
     expect(surface.xterm().inert).toBe(true);
-    // Under Threads the box reads as nothing at all.
-    surface.box.gone = true;
     surface.render();
     await settle();
-    surface.box.gone = false;
 
     surface.select("terminal");
     await settle();
@@ -407,16 +417,18 @@ describe("a terminal under Threads", () => {
   it("closed under Threads, fits nothing on the way out", async () => {
     opensOn("threads");
     const surface = rig();
-    surface.box.cols = 80;
-    surface.box.rows = 24;
     surface.render();
     await settle();
     const painted = surface.refresh.mock.calls.length;
+    const told = surface.api.terminalResize.mock.calls.length;
+    // The parked box is not a size, and closing is not coming back to Terminal.
+    surface.box.cols = 80;
+    surface.box.rows = 24;
     surface.show(false);
     await settle();
     expect(surface.resize).not.toHaveBeenCalled();
     expect(surface.refresh).toHaveBeenCalledTimes(painted);
-    expect(surface.api.terminalResize).not.toHaveBeenCalled();
+    expect(surface.api.terminalResize).toHaveBeenCalledTimes(told);
   });
 });
 

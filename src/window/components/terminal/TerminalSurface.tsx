@@ -851,8 +851,12 @@ export function TerminalSurface({
   const threadsShown = viewOffered && seatView === "threads";
   /**
    * Threads is over the terminal. The xterm stays mounted, attached and
-   * streaming under it, in the box it has in the Terminal view, and sizes
-   * nothing: see pushResize.
+   * streaming under it, in the box it has in the Terminal view, and behaves
+   * as an open terminal does: it fits that box and the child follows, so a
+   * seat that lives under Threads is born and kept at the size the operator
+   * will see. A box that is hidden or has no size is refused as it always is
+   * (see measureHost). The one difference is the keyboard: no focus claim may
+   * land in a terminal the operator cannot see.
    */
   const coveredRef = useRef(threadsShown);
   coveredRef.current = threadsShown;
@@ -882,11 +886,6 @@ export function TerminalSurface({
     const term = termRef.current;
     const host = hostRef.current;
     if (!term || !host) return;
-    // A terminal the operator cannot see sizes nothing: not its own grid, and
-    // not the child. Whatever its box reads under Threads, the process keeps
-    // the size it has, and the one fit on the way back to Terminal settles any
-    // change made meanwhile (a window resized, a font size set).
-    if (coveredRef.current) return;
 
     const fallback = fallbackCell(livePrefs());
     const measured = measureHost(
@@ -1557,11 +1556,12 @@ export function TerminalSurface({
     };
   }, [visible, node.id]);
 
-  // Back from Threads to Terminal: the one fit, before the frame that shows
-  // the terminal again. It repaints the grid, and the child hears of a size
-  // only if the box changed while the terminal was covered. A pointer press on
-  // the switch then puts the keyboard in the terminal; a key on the switch
-  // keeps it there (Tab reaches the view).
+  // Back from Threads to Terminal: one fit, before the frame that shows the
+  // terminal again. The covered terminal kept fitting its box, so this
+  // repaints the grid and catches any size it missed; the child hears of it
+  // only if the size is new. A pointer press on the switch then puts the
+  // keyboard in the terminal; a key on the switch keeps it there (Tab reaches
+  // the view).
   const coveredBefore = useRef(threadsShown);
   useLayoutEffect(() => {
     const uncovered = coveredBefore.current && !threadsShown;
