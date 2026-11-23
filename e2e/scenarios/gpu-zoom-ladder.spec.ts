@@ -49,8 +49,10 @@
  *   - the pointer: parked at the same pane corner in both launches;
  *   - churned content: every seat gets the baseline event again before the
  *     shot, the one the reference launch was given: idle from a freshly bound
- *     state machine, with no unseen turn. An idle from the churn's own machine
- *     would carry the churned turn as unseen ("done, not read yet").
+ *     state machine under a new epoch. The renderer reads a new epoch as a new
+ *     generation (agent-seat-state.ts), so no finished turn carries over. An
+ *     idle in the churn's own epoch ends the churned turn instead: "done, not
+ *     read yet" and a "Junto done" bubble, which the reference never had.
  * A frame captured during a gesture cannot hold its clocks (a transition
  * started under a held clock never ends), so it skips the pixels that moved
  * across four unheld reference shots: the board's own motion.
@@ -335,14 +337,15 @@ const seatChurn = (board: ProofBoard) => {
   const machine = new SeatStateMachine({ now: () => Date.now() });
   for (const b of bindings) machine.bind(b, { harness: "codex", epoch: "ladder" });
   let turn = 0;
+  let generation = 0;
   return {
     /** The content every shot is taken with: each seat idle, freshly bound, no unseen turn. */
     baseline: async (app: ElectronApplication): Promise<void> => {
+      generation += 1;
       const fresh = new SeatStateMachine({ now: () => Date.now() });
-      for (const b of bindings) fresh.bind(b, { harness: "codex", epoch: "ladder" });
+      for (const b of bindings) fresh.bind(b, { harness: "codex", epoch: `ladder-baseline-${String(generation)}` });
       await send(app, bindings.map((b) => fresh.force(b, "idle", "ladder:baseline")));
       fresh.dispose();
-      for (const b of bindings) machine.force(b, "idle", "ladder:baseline");
     },
     /** A share of seats change their line and their expression. */
     churn: (app: ElectronApplication) => {
