@@ -8,7 +8,9 @@ import { describe, expect, it } from "vitest";
 import { MachineListData, MachineOwnStatus, MachinePeerStatus, type MachineHarness } from "../src/shared/machine-control";
 import {
   harnessSignInLine,
+  harnessesKeychainBlocked,
   harnessesSeatsLack,
+  machineActionLabel,
   machineActions,
   machineCondition,
   machineCopyStepLines,
@@ -21,12 +23,15 @@ import {
   machineNamed,
   machineStepLines,
   machineSummary,
+  machinesBarSummary,
   machinesNeedingAttention,
+  runningSeatsLine,
   withInstallStep,
   type MachineBoat,
   type MachineCopy,
   type MachineListItem,
   type MachineRead,
+  type MachinesBarEntry,
 } from "../src/window/lib/machines-view";
 
 it("shows copied bytes and the owner's stated no-progress interval", () => {
@@ -480,5 +485,182 @@ describe("how a machine's harnesses are listed", () => {
   it("lists each one apart when no state is shared by three", () => {
     const rows = [found("claude"), found("codex"), { harness: "amp", installed: false, signIn: "not-installed" } satisfies MachineHarness];
     expect(machineHarnessGroups(rows)).toEqual({ apart: rows });
+  });
+
+  it("names a remote machine's Mac keychain instead of this Mac's", () => {
+    const line = harnessSignInLine({ harness: "claude", installed: true, signIn: "keychain-login-unavailable" }, "Mac mini");
+    expect(line).toContain("Mac mini's Mac keychain");
+    expect(line).not.toMatch(/this Mac|\bhere\b/iu);
+  });
+});
+
+describe("Slice 1 conditions, TopBar summary, and copy law", () => {
+  const entry = (
+    item: MachineListItem,
+    more: Partial<Omit<MachinesBarEntry, "item">> = {},
+  ): MachinesBarEntry => ({
+    item,
+    listed: true,
+    read: peer(),
+    copy: undefined,
+    boat: undefined,
+    placed: NOTHING,
+    ...more,
+  });
+
+  it("distinguishes installed-not-linked, peer-newer, update-stopped, and keychain-blocked seats", () => {
+    const notLinked: MachineListItem = { ...listed({ setUp: false }), setupState: "installed-not-linked" };
+    expect(machineCondition(notLinked, undefined, undefined)).toBe("installed-not-linked");
+    expect(machineActionLabel("send", "installed-not-linked")).toBe("Reconnect");
+
+    const peerNewer: MachineListItem = { ...listed({ needsUpdate: true }), updateDirection: "this-older" };
+    expect(machineCondition(peerNewer, undefined, undefined)).toBe("peer-newer");
+    expect(machineActions("peer-newer")).toEqual(["check-updates", "check", "remove"]);
+
+    const stoppedCopy: MachineCopy = {
+      kind: "failed",
+      op: "update",
+      id: "window-stop",
+      message: "new build exited",
+      steps: ["verified", "quiescent", "selected"],
+      disposition: "activated",
+      installed: false,
+    };
+    expect(machineCondition(listed(), peer(), stoppedCopy)).toBe("update-stopped");
+    expect(machineActionLabel("update", "update-stopped")).toBe("Reinstall Junto");
+
+    const lockedRead = peer({
+      harnesses: [{ harness: "claude", installed: true, signIn: "keychain-login-unavailable" }],
+    });
+    expect(harnessesKeychainBlocked(lockedRead, ["claude", "codex"])).toEqual(["claude"]);
+    const summary = machineSummary(listed(), lockedRead, undefined, { harnesses: ["claude"] });
+    expect(summary.needsYou).toBe(true);
+    expect(summary.headline).toBe("Sign-in is blocked");
+    expect(summary.advice).toContain("Atlas's Mac keychain");
+  });
+
+  it("formats passive runningSeatsLine from machine.list snapshot", () => {
+    const item: MachineListItem = {
+      ...listed(),
+      runningSeats: 3,
+      runningSeatsAt: "2026-11-23T14:02:00",
+    };
+    expect(runningSeatsLine(item)).toBe("3 of your seats run on Atlas (14:02)");
+    expect(runningSeatsLine({ ...listed(), runningSeats: 0 })).toBeUndefined();
+  });
+
+  it("computes badge severity, counts, row order, aria labels, and Update all eligibility", () => {
+    const quiet = machinesBarSummary([
+      entry(thisMachine, { read: own() }),
+      entry(listed(), { read: peer() }),
+      entry(listed({}, { id: "boat-sleep", label: "Sleeper" }), {
+        read: undefined,
+        boat: { machineName: "boat-sleep", sandboxId: "bx_1", size: "small", power: "asleep", listed: true },
+      }),
+    ]);
+    expect(quiet).toMatchObject({ severity: "quiet", count: 0, workingCount: 0, ariaLabel: "Machines", rows: [], idleUpdatableNames: [] });
+
+    const workingOne = machinesBarSummary([
+      entry(listed({}, { id: "mini", label: "Mac mini" }), {
+        copy: { kind: "running", op: "update", id: "c1", steps: ["verified"] },
+      }),
+    ]);
+    expect(workingOne).toMatchObject({
+      severity: "working",
+      count: 0,
+      workingCount: 1,
+      ariaLabel: "Machines, updating Junto on Mac mini",
+    });
+    expect(workingOne.rows[0]?.status).toBe("Updating Junto, step 2 of 5");
+    expect(workingOne.rows[0]?.action).toBeUndefined();
+
+    const workingTwo = machinesBarSummary([
+      entry(listed({}, { id: "m1", label: "Mac mini" }), {
+        copy: { kind: "running", op: "send", id: "c1", steps: [] },
+      }),
+      entry(listed({}, { id: "m2", label: "Boat box" }), {
+        read: undefined,
+        boat: { machineName: "m2", sandboxId: "bx_2", size: "small", power: "waking", listed: true },
+      }),
+    ]);
+    expect(workingTwo).toMatchObject({
+      severity: "working",
+      count: 0,
+      workingCount: 2,
+      ariaLabel: "Machines, 2 are busy",
+    });
+
+    const mixed = machinesBarSummary([
+      entry(listed({ needsUpdate: true }, { id: "m-old-1", label: "Mini A" })),
+      entry(listed({ needsUpdate: true }, { id: "m-old-2", label: "Mini B" })),
+      entry({ ...listed({ needsUpdate: true }, { id: "m-new", label: "Studio New" }), updateDirection: "this-older" }),
+      entry(listed({}, { id: "m-down", label: "Ghost" }), {
+        read: peer({ reachable: false, harnesses: [] }),
+        placed: { seats: 2, harnesses: ["claude"] },
+      }),
+      entry(listed({}, { id: "m-send", label: "Busy Box" }), {
+        copy: { kind: "running", op: "send", id: "c3", steps: [] },
+      }),
+    ]);
+    expect(mixed.severity).toBe("crimson");
+    expect(mixed.brokenCount).toBe(1);
+    expect(mixed.needsYouCount).toBe(3);
+    expect(mixed.workingCount).toBe(1);
+    expect(mixed.count).toBe(4);
+    expect(mixed.ariaLabel).toBe("Machines, 1 cannot work, 3 need you");
+    expect(mixed.rows.map((r) => `${r.severity}:${r.id}`)).toEqual([
+      "broken:m-down",
+      "needs-you:m-old-1",
+      "needs-you:m-old-2",
+      "needs-you:m-new",
+      "working:m-send",
+    ]);
+    // peer-newer is never included in Update all.
+    expect(mixed.idleUpdatableNames).toEqual(["m-old-1", "m-old-2"]);
+  });
+
+  it("enforces Copy Law across all states: no middots, no mechanics jargon, no move-seat, no this-machine for remotes", () => {
+    const boat = (power: MachineBoat["power"], listedFlag = true): MachineBoat => ({
+      machineName: OTHER_MACHINE,
+      sandboxId: "bx_1",
+      size: "small",
+      power,
+      listed: listedFlag,
+    });
+    const samples: ReadonlyArray<MachinesBarEntry> = [
+      entry(listed({ setUp: false }), { read: undefined }),
+      entry({ ...listed({ setUp: false }), setupState: "installed-not-linked" }, { read: undefined }),
+      entry(listed({ needsUpdate: true }), { read: undefined }),
+      entry({ ...listed({ needsUpdate: true }), updateDirection: "this-older" }, { read: undefined }),
+      entry(listed(), { read: peer({ reachable: false, harnesses: [] }), placed: { seats: 1, harnesses: ["claude"] } }),
+      entry(listed(), { read: peer(), placed: { seats: 1, harnesses: ["codex"] } }),
+      entry(listed(), {
+        read: peer({ harnesses: [{ harness: "claude", installed: true, signIn: "keychain-login-unavailable" }] }),
+        placed: { seats: 1, harnesses: ["claude"] },
+      }),
+      entry(listed(), { read: peer({ missingSecrets: ["GH_TOKEN"] }) }),
+      entry(listed(), { copy: { kind: "running", op: "send", id: "1", steps: ["verified"] } }),
+      entry(listed(), { copy: { kind: "running", op: "update", id: "2", steps: ["verified", "quiescent"] } }),
+      entry(listed(), {
+        copy: { kind: "failed", op: "update", id: "3", message: "", steps: ["verified"], disposition: "staged", installed: false },
+      }),
+      entry(listed(), {
+        copy: { kind: "failed", op: "update", id: "4", message: "", steps: ["verified", "quiescent", "selected"], disposition: "activated", installed: false },
+      }),
+      entry(listed(), { read: undefined, boat: boat("failed") }),
+      entry(listed(), { read: undefined, boat: boat("gone") }),
+      entry(listed({ setUp: false }), { read: undefined, listed: false, boat: boat("awake", false) }),
+    ];
+
+    const summary = machinesBarSummary(samples);
+    const mechanics = /\b(ports?|grants?|masks?|compiles?|stoppage|wire famil(?:y|ies))\b/iu;
+    expect(summary.ariaLabel).not.toContain("\u00B7");
+    for (const row of summary.rows) {
+      const text = `${row.label} ${row.status} ${row.action?.label ?? ""} ${row.action?.armedLabel ?? ""}`;
+      expect(text, row.condition).not.toContain("\u00B7");
+      expect(text, row.condition).not.toMatch(mechanics);
+      expect(text, row.condition).not.toMatch(/move (this seat|those seats)/iu);
+      expect(text, row.condition).not.toMatch(/this machine/iu);
+    }
   });
 });

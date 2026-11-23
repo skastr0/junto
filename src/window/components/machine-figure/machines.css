@@ -236,6 +236,13 @@
   border-color: var(--color-faint);
 }
 
+.machine-steps--inline {
+  gap: 6px;
+  border-bottom: 0;
+  padding: 0;
+  font-size: var(--text-body);
+}
+
 .machine-facts {
   padding: 14px 28px 24px;
 }

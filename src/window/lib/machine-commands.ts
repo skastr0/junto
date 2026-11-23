@@ -40,6 +40,10 @@ export type MachineCommandRefusal = {
   readonly disposition?: MachineInstallDisposition;
   /** The install that finished, when what failed came after it. */
   readonly installed?: MachineInstallResult;
+  /** Live count of seats running on the target machine when an update paused for confirmation. */
+  readonly runningSeats?: number;
+  /** True when an older remote build could not confirm running seats and needs confirmation before update. */
+  readonly runningSeatsUnknown?: true;
 };
 
 export type MachineCommandAnswer<Op extends MachineOpName> =
@@ -58,6 +62,34 @@ const refusal = (
 /** The id a command and its progress steps share. */
 export const newMachineCommandId = (): string => `window-${ulid()}`;
 
+const extractUpdateConfirmDetails = (
+  raw: unknown,
+): {
+  readonly stripped: unknown;
+  readonly runningSeats?: number;
+  readonly runningSeatsUnknown?: true;
+} | undefined => {
+  if (typeof raw !== "object" || raw === null || (raw as { ok?: unknown }).ok !== false) return undefined;
+  const err = (raw as { error?: unknown }).error;
+  if (typeof err !== "object" || err === null) return undefined;
+  const details = (err as { details?: unknown }).details;
+  if (typeof details !== "object" || details === null) return undefined;
+  const rec = details as Record<string, unknown>;
+  const hasSeats = "runningSeats" in rec;
+  const hasUnknown = "runningSeatsUnknown" in rec;
+  if (!hasSeats && !hasUnknown) return undefined;
+  if (hasSeats && (typeof rec.runningSeats !== "number" || !Number.isInteger(rec.runningSeats) || rec.runningSeats < 0)) {
+    return undefined;
+  }
+  if (hasUnknown && rec.runningSeatsUnknown !== true) return undefined;
+  const { runningSeats, runningSeatsUnknown, ...restDetails } = rec;
+  return {
+    stripped: { ...(raw as Record<string, unknown>), error: { ...(err as Record<string, unknown>), details: restDetails } },
+    ...(typeof runningSeats === "number" ? { runningSeats } : {}),
+    ...(runningSeatsUnknown === true ? { runningSeatsUnknown: true } : {}),
+  };
+};
+
 /** Send one owner machine command and read its answer. Never throws. */
 export const machineCommand = async <Op extends MachineOpName>(
   op: Op,
@@ -72,7 +104,17 @@ export const machineCommand = async <Op extends MachineOpName>(
   } catch (cause) {
     return refusal("unavailable", cause instanceof Error ? cause.message : String(cause), READS.has(op));
   }
-  const decoded = decodeOperatorResponse(raw);
+  let decoded = decodeOperatorResponse(raw);
+  let fallbackRunningSeats: number | undefined;
+  let fallbackRunningSeatsUnknown: true | undefined;
+  if (Result.isFailure(decoded)) {
+    const extracted = extractUpdateConfirmDetails(raw);
+    if (extracted !== undefined) {
+      decoded = decodeOperatorResponse(extracted.stripped);
+      fallbackRunningSeats = extracted.runningSeats;
+      fallbackRunningSeatsUnknown = extracted.runningSeatsUnknown;
+    }
+  }
   if (Result.isFailure(decoded)) {
     return refusal("protocol_error", "Junto answered in a form this window does not know.", READS.has(op));
   }
@@ -90,6 +132,17 @@ export const machineCommand = async <Op extends MachineOpName>(
   }
   if (!answer.ok) {
     const details = answer.error.details;
+    const rawRunningSeats =
+      (details as { readonly runningSeats?: unknown } | undefined)?.runningSeats ?? fallbackRunningSeats;
+    const runningSeats =
+      typeof rawRunningSeats === "number" && Number.isInteger(rawRunningSeats) && rawRunningSeats >= 0
+        ? rawRunningSeats
+        : undefined;
+    const runningSeatsUnknown =
+      ((details as { readonly runningSeatsUnknown?: unknown } | undefined)?.runningSeatsUnknown ??
+        fallbackRunningSeatsUnknown) === true
+        ? true
+        : undefined;
     return {
       ok: false,
       type: answer.error.type,
@@ -98,6 +151,8 @@ export const machineCommand = async <Op extends MachineOpName>(
       transitions: details?.transitions ?? [],
       ...(details?.disposition === undefined ? {} : { disposition: details.disposition }),
       ...(details?.installed === undefined ? {} : { installed: details.installed }),
+      ...(runningSeats === undefined ? {} : { runningSeats }),
+      ...(runningSeatsUnknown === undefined ? {} : { runningSeatsUnknown }),
     };
   }
   return { ok: true, data: answer.data as MachineDataByOp[Op] };

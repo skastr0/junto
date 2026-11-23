@@ -21,6 +21,12 @@ export type MachineFacts = {
   readonly setUp: boolean;
   /** It runs another build, and refuses this machine until it is updated. */
   readonly needsUpdate: boolean;
+  /** Three-state setup detail when reported by the owner. */
+  readonly setupState?: "not-installed" | "installed-not-linked" | "set-up";
+  /** Which side runs the older build when builds differ. */
+  readonly updateDirection?: "peer-older" | "this-older" | "different";
+  /** True when Boat reports this machine is asleep (not unreachable). */
+  readonly asleep?: boolean;
   /** Whether it answered when last asked. Absent until it has been asked. */
   readonly reachable?: boolean;
   /** The harnesses it said it has. Absent until it has answered. */
@@ -140,7 +146,15 @@ export const requestMachineCheck = (name: string): void => {
 };
 
 /** Why a seat cannot run where it is placed, when its machine is the reason. */
-export type SeatMachineState = "not-listed" | "not-set-up" | "needs-update" | "unreachable" | "harness-missing";
+export type SeatMachineState =
+  | "not-listed"
+  | "not-set-up"
+  | "installed-not-linked"
+  | "needs-update"
+  | "peer-newer"
+  | "asleep"
+  | "unreachable"
+  | "harness-missing";
 
 export type SeatMachineLine = {
   readonly state: SeatMachineState;
@@ -164,22 +178,31 @@ export const seatMachineLine = (input: {
   if (thisName === "" || isOnMachine(host, thisName) || machines.length === 0) return undefined;
   const label = machineLabelIn(machines, host);
   if (!machines.some((machine) => machine.id === host)) {
-    return { state: "not-listed", line: `${label} is not one of your machines. Add it in Machines, or move this seat.` };
+    return { state: "not-listed", line: `${label} is not one of your machines. Add it in Machines.` };
   }
   const known = facts[host];
   if (known === undefined) return undefined;
   if (!known.setUp) {
+    if (known.setupState === "installed-not-linked") {
+      return { state: "installed-not-linked", line: `${label} is not connected to this Mac. Reconnect it from Machines.` };
+    }
     return { state: "not-set-up", line: `Junto is not on ${label} yet. Send it from Machines.` };
   }
   if (known.needsUpdate) {
+    if (known.updateDirection === "this-older") {
+      return { state: "peer-newer", line: `${label} is on a newer Junto. Update Junto on this Mac.` };
+    }
     return { state: "needs-update", line: `${label} runs a different build of Junto. Update it from Machines.` };
+  }
+  if (known.asleep) {
+    return { state: "asleep", line: `${label} is asleep. Open this seat to wake it.` };
   }
   if (known.reachable === false) {
     return { state: "unreachable", line: `Cannot reach ${label}. Check that it is on.` };
   }
   if (harness !== undefined && known.harnesses !== undefined && !known.harnesses.includes(harness)) {
     const name = isHarnessId(harness) ? templateFor(harness).displayName : harness;
-    return { state: "harness-missing", line: `${name} is not on ${label}. Install it there, or move this seat.` };
+    return { state: "harness-missing", line: `${name} is not on ${label}. Install it there.` };
   }
   return undefined;
 };

@@ -616,3 +616,74 @@ it("deletes a Boat machine only after the operator confirms", async () => {
   expect(owner.last("machine.boat-delete").args).toEqual({ name: OTHER_MACHINE });
   expect(byTest(`machine-row-${OTHER_MACHINE}`)).toBeNull();
 });
+
+it("selects a requested machine on deep-link even when the window is already open", async () => {
+  expect(byTest("machine-detail")?.getAttribute("data-machine")).toBe(THIS_MACHINE);
+  await act(async () => {
+    state$.machinesRequested.set("mini");
+    await flush();
+  });
+  expect(byTest("machine-detail")?.getAttribute("data-machine")).toBe("mini");
+  expect(state$.machinesRequested.peek()).toBe("");
+});
+
+it("clears actionError on machine selection change or Dismiss", async () => {
+  owner.useBoat(true, [{ machineName: OTHER_MACHINE, sandboxId: "bx_atlas01", size: "small", power: "awake" }]);
+  await act(async () => { await refreshMachines(); await flush(); });
+  await select(OTHER_MACHINE);
+  // Make sleep fail so actionError is populated.
+  const orig = owner.api.machineCommand;
+  owner.api.machineCommand = vi.fn(async (request: Request) =>
+    request.op === "machine.sleep" ? owner.refuse(request, "io", "Boat timed out") : orig(request),
+  );
+  (window as unknown as { junto: unknown }).junto = owner.api;
+  await click(byTest("machine-action-sleep"));
+  expect(byTest("machine-remove-error")?.textContent).toContain("Boat timed out");
+  await select("mini");
+  expect(byTest("machine-remove-error")).toBeNull();
+});
+
+it("confirms with live runningSeats before updating a busy machine, and cancels back to needs-update", async () => {
+  await select("mini");
+  await click(byTest("machine-action-update"));
+  // Owner refuses with live runningSeats count before stopping anything.
+  await act(async () => {
+    owner.failCopy("mini", "3 seats are running on mini", {
+      retryable: true,
+      disposition: "staged",
+      transitions: [],
+      runningSeats: 3,
+    });
+    await flush();
+  });
+  expect(byTest("confirm-dialog")?.textContent).toContain("Update mini now?");
+  expect(byTest("confirm-dialog")?.textContent).toContain("3 seats are running on mini");
+  // Cancel leaves it in needs-update, never update-failed.
+  await click(button("Cancel"));
+  expect(condition("mini")).toBe("needs-update");
+  expect(owner.requests.filter((request) => request.op === "machine.update")).toHaveLength(1);
+
+  // Confirm re-calls machine.update with stopRunningSeats: true.
+  await click(byTest("machine-action-update"));
+  await act(async () => {
+    owner.failCopy("mini", "2 seats are running on mini", {
+      retryable: true,
+      disposition: "staged",
+      transitions: [],
+      runningSeats: 2,
+    });
+    await flush();
+  });
+  await click(button("Update now"));
+  expect(owner.last("machine.update").args).toEqual({ name: "mini", stopRunningSeats: true });
+  await act(async () => { owner.finishCopy("mini"); await flush(); });
+  await settle();
+  expect(condition("mini")).toBe("ready");
+});
+
+it("names a remote machine's Mac keychain instead of this Mac's in detail facts", async () => {
+  await select(OTHER_MACHINE);
+  const text = byTest("machine-harnesses")?.textContent ?? "";
+  expect(text).toContain("Atlas's Mac keychain");
+  expect(text).not.toMatch(/this Mac's keychain/iu);
+});

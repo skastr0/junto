@@ -1,7 +1,7 @@
 import { CountedSurface } from "../lib/performance/surface-commits";
 import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useId, useState } from "react";
-import { CircleHelp, Pause, Play, Plus, Radar, ScrollText, Search, Settings2, Trash2 } from "lucide-react";
+import { CircleHelp, Pause, Play, Plus, ScrollText, Search, Settings2, Trash2 } from "lucide-react";
 import type { CanvasSummary } from "@shared/ipc";
 import {
   cancelFactoryFirstPlay,
@@ -21,7 +21,7 @@ import { openOperatorModal } from "../lib/operator-modal";
 import { retrySave } from "../lib/mutations";
 import { unseenRef } from "../lib/unseen";
 import { openSettings } from "../lib/settings-state";
-import { openMachines, prefetchMachinesWindow } from "../lib/machines-window";
+import { MachinesButton } from "./machines/MachinesButton";
 import { HUE, HUE_TEXT, withAlpha } from "../lib/theme";
 import { Button, ConfirmDialog, Dialog, Dropdown, FieldLabel, Input, Popover } from "./ui";
 import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
@@ -312,15 +312,7 @@ export function TopBar({
             <ScrollText size={15} />
           </button>
         ) : null}
-        {FLEET_UI_ENABLED ? (
-          <button type="button" className="station-icon-button" aria-label="Open machines" title="Machines"
-            style={{ borderColor: "var(--color-stroke)", color: HUE.steel }}
-            onPointerEnter={prefetchMachinesWindow}
-            onFocus={prefetchMachinesWindow}
-            onClick={() => openMachines()}>
-            <Radar size={15} />
-          </button>
-        ) : null}
+        {FLEET_UI_ENABLED ? <MachinesButton /> : null}
         {HELP_MAP_ENABLED ? (
           <>
             <button type="button" className="station-help-trigger" aria-label="Open interaction help" aria-expanded={helpAnchor !== null} aria-haspopup="dialog" onClick={(event) => setHelpAnchor(helpAnchor ? null : event.currentTarget)}>

@@ -64,15 +64,17 @@ export function MachineStage({ machine, state, seatIds = [], theme, children }: 
 export function MachineSteps<Phase extends string>({
   lines,
   words,
+  className,
   ...rest
 }: {
   readonly lines: ReadonlyArray<{ readonly step: string; readonly label: string; readonly phase: Phase }>;
   /** What each phase is called. */
   readonly words: Readonly<Record<Phase, string>>;
+  readonly className?: string;
   readonly "data-testid"?: string;
 }) {
   return (
-    <ol className="machine-steps" aria-label="Steps" {...rest}>
+    <ol className={className ? `machine-steps ${className}` : "machine-steps"} aria-label="Steps" {...rest}>
       {lines.map(({ step, label, phase }) => (
         <li key={step} data-step={step} data-done={phase === "done"} data-step-phase={phase}>
           <i aria-hidden="true" />

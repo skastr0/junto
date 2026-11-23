@@ -1,14 +1,17 @@
 import { observable } from "@legendapp/state";
 import type { BoatAddInput, BoatStatusData } from "@shared/boat";
-import type { MachineAddInput } from "@shared/machine-control";
+import type { MachineAddInput, MachineArgsByOp } from "@shared/machine-control";
 import type { MachineCommandProgress } from "@shared/machine-progress";
+import { askConfirm } from "./confirm";
+import { getJuntoApi } from "./junto-api";
 import {
   machineCommand,
   newMachineCommandId,
   onMachineCommandProgress,
   type MachineCommandRefusal,
 } from "./machine-commands";
-import { noteMachineStatus, readMachineList } from "./machine-list";
+import { noteBoatPower, noteMachineStatus, readMachineList } from "./machine-list";
+import { openSettings } from "./settings-state";
 import {
   withInstallStep,
   type MachineBoat,
@@ -101,15 +104,22 @@ export const checkMachine = async (item: MachineListItem): Promise<void> => {
 
 /**
  * Read the machine list, then ask each machine that can answer. A machine
- * that is not set up, or runs another build, has no link to answer over.
+ * that is not set up, or runs another build, has no link to answer over,
+ * except on an explicit refresh (`recheckNeedsUpdate`) so a machine updated
+ * outside this window can clear its stale flag. Never probes a machine while
+ * a send or update is running on it.
  */
-export const refreshMachines = async (): Promise<void> => {
+export const refreshMachines = async (options?: {
+  readonly recheckNeedsUpdate?: boolean;
+}): Promise<void> => {
   machines$.loading.set(true);
   try {
     // The pickers on the canvas read the same list, from the same read. A
     // Boat status read never wakes a machine.
     const [listed, boat] = await Promise.all([readMachineList(), machineCommand("machine.boat-status", {})]);
-    machines$.boat.set(boat.ok ? boat.data : undefined);
+    const boatData = boat.ok ? boat.data : undefined;
+    machines$.boat.set(boatData);
+    noteBoatPower(boatData);
     if (!listed.ok) {
       machines$.error.set(listed.message);
       return;
@@ -130,9 +140,17 @@ export const refreshMachines = async (): Promise<void> => {
     for (const name of Object.keys(machines$.copies.peek())) {
       if (!kept.has(name)) machines$.copies[name].delete();
     }
+    const copies = machines$.copies.peek();
+    const recheck = options?.recheckNeedsUpdate === true;
     await Promise.all(
       items
-        .filter((item) => item.machine.isThisMachine || (item.setUp && !item.needsUpdate && canAsk(item.machine.id)))
+        .filter((item) => {
+          const name = item.machine.id;
+          if (copies[name]?.kind === "running") return false;
+          if (item.machine.isThisMachine) return true;
+          if (!item.setUp || !canAsk(name)) return false;
+          return recheck || !item.needsUpdate;
+        })
         .map((item) => checkMachine(item)),
     );
   } finally {
@@ -152,15 +170,135 @@ export const addMachine = async (input: MachineAddInput): Promise<MachineCommand
  * Send Junto to a machine, or update the Junto on it. One owner command:
  * main copies the build this machine runs and, on a first send, sets the
  * machine up. The window then reads the list again and shows what it says.
+ *
+ * When `machine.update` refuses because live seats are running there and
+ * `stopRunningSeats` was not set, the in-flight copy state is cleared cleanly
+ * (not turned into an error) and the refusal is returned so the caller can
+ * ask the operator to confirm before re-calling with `stopRunningSeats: true`.
  */
-export const copyJunto = async (name: string, op: Exclude<MachineCopyOp, "add">): Promise<void> => {
-  if (machines$.copies[name].peek()?.kind === "running") return;
+export const copyJunto = async (
+  name: string,
+  op: Exclude<MachineCopyOp, "add">,
+  options?: { readonly stopRunningSeats?: boolean },
+): Promise<MachineCommandRefusal | undefined> => {
+  if (machines$.copies[name].peek()?.kind === "running") return undefined;
   const id = newMachineCommandId();
   machines$.copies[name].set({ kind: "running", op, id, steps: [] });
-  const answer = await machineCommand(op === "send" ? "machine.send" : "machine.update", { name }, id);
-  if (!answer.ok) return keepFailedCopy(name, op, id, answer);
+  const args =
+    op === "update" && options?.stopRunningSeats === true
+      ? ({ name, stopRunningSeats: true } as MachineArgsByOp["machine.update"])
+      : { name };
+  const answer = await machineCommand(op === "send" ? "machine.send" : "machine.update", args, id);
+  if (!answer.ok) {
+    const needsConfirm =
+      op === "update" &&
+      options?.stopRunningSeats !== true &&
+      ((answer.runningSeats !== undefined && answer.runningSeats > 0) || answer.runningSeatsUnknown === true);
+    if (needsConfirm) {
+      machines$.copies[name].delete();
+      return answer;
+    }
+    keepFailedCopy(name, op, id, answer);
+    return answer;
+  }
   machines$.copies[name].delete();
   await refreshMachines();
+  return undefined;
+};
+
+/**
+ * Update Junto on a machine, confirming first if live seats are running on it
+ * or if an older remote build could not confirm whether seats are running.
+ * The count always comes from the live SSH preflight refusal, never from the
+ * cached `machine.list` snapshot.
+ */
+export const requestMachineUpdate = async (item: MachineListItem): Promise<boolean> => {
+  const name = item.machine.id;
+  const label = item.machine.label.trim() || name;
+  const refused = await copyJunto(name, "update");
+  if (!refused) return true;
+  const hasCount = refused.runningSeats !== undefined && refused.runningSeats > 0;
+  if (!hasCount && refused.runningSeatsUnknown !== true) return false;
+  const body = hasCount
+    ? [
+        `${refused.runningSeats === 1 ? "1 seat is" : `${refused.runningSeats} seats are`} running on ${label} and will stop while Junto updates.`,
+      ]
+    : [`Could not check whether seats are running on ${label}. Updating will stop any running seats.`];
+  const confirmed = await askConfirm({
+    source: "machine-update-running-seats",
+    title: `Update ${label} now?`,
+    body,
+    confirmLabel: "Update now",
+    tone: "danger",
+  });
+  if (!confirmed) return false;
+  const retried = await copyJunto(name, "update", { stopRunningSeats: true });
+  return !retried;
+};
+
+/**
+ * Update every idle machine that needs an update, one by one so any running-seat
+ * confirmation modal never collides with another.
+ */
+export const updateAllIdleMachines = async (items: ReadonlyArray<MachineListItem>): Promise<void> => {
+  for (const item of items) {
+    await requestMachineUpdate(item);
+  }
+};
+
+const day = (when: string): string => {
+  const date = new Date(when);
+  return Number.isNaN(date.getTime())
+    ? when
+    : date.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+};
+
+/** Ask, then remove a machine from this Mac's list. Shared by MachinesWindow and the TopBar popover. */
+export const removeMachineAfterConfirm = async (
+  item: MachineListItem,
+  boat: MachineBoat | undefined,
+): Promise<string> => {
+  const label = item.machine.label.trim() || item.machine.id;
+  const confirmed = await askConfirm({
+    source: "machine-remove",
+    title: `Remove ${label}?`,
+    body: [
+      `This machine stops reaching ${label}. Its seats stay on the canvas and cannot run until you add it again.`,
+      boat === undefined
+        ? `Junto stays installed on ${label}.`
+        : `${label} stays on Boat, asleep${boat.diskKeptUntil ? `, and Boat keeps its disk until ${day(boat.diskKeptUntil)}` : ""}. Delete it on Boat to remove it there too.`,
+    ],
+    confirmLabel: "Remove machine",
+    tone: "danger",
+  });
+  if (!confirmed) return "";
+  const refused = await removeMachine(item.machine.id);
+  return refused ? refused.message : "";
+};
+
+/** Ask, then remove the machine and delete it on Boat. */
+export const deleteBoatAfterConfirm = async (item: MachineListItem, listed: boolean): Promise<string> => {
+  const label = item.machine.label.trim() || item.machine.id;
+  const confirmed = await askConfirm({
+    source: "machine-boat-delete",
+    title: `Delete ${label} on Boat?`,
+    body: [
+      listed
+        ? `This machine stops reaching ${label}, and Boat deletes it with its disk. Its seats stay on the canvas and cannot run.`
+        : `Boat deletes ${label} with its disk. It was never added to your machines.`,
+      "This cannot be undone.",
+    ],
+    confirmLabel: "Delete on Boat",
+    tone: "danger",
+  });
+  if (!confirmed) return "";
+  const refused = await deleteBoatMachine(item.machine.id);
+  return refused ? refused.message : "";
+};
+
+/** Open Settings when another machine runs a newer build than this Mac. */
+export const openAppUpdates = (): void => {
+  openSettings();
 };
 
 /** Keep a failed command on its row, with what the owner confirmed of it. */
@@ -243,14 +381,28 @@ export const dismissCopy = (name: string): void => {
 /**
  * Check a machine again. After a send that failed or could not be confirmed,
  * that means reading the list again too: whether Junto is on the machine is
- * the list's to say, not the failed command's.
+ * the list's to say, not the failed command's. When Boat is connected, refresh
+ * Boat status first so a sleeping Boat machine is not dialed as unreachable.
  */
 export const checkMachineAgain = async (item: MachineListItem): Promise<void> => {
   const name = item.machine.id;
-  if (machines$.copies[name].peek()?.kind !== "failed") return canAsk(name) ? checkMachine(item) : refreshMachines();
-  dismissCopy(name);
-  machines$.adding[name].delete();
-  await refreshMachines();
+  if (machines$.copies[name].peek()?.kind === "failed") {
+    dismissCopy(name);
+    machines$.adding[name].delete();
+    await refreshMachines({ recheckNeedsUpdate: true });
+    return;
+  }
+  if (machines$.boat.peek() !== undefined) {
+    const boat = await machineCommand("machine.boat-status", {});
+    const boatData = boat.ok ? boat.data : undefined;
+    machines$.boat.set(boatData);
+    noteBoatPower(boatData);
+  }
+  if (!canAsk(name)) {
+    await refreshMachines();
+    return;
+  }
+  await checkMachine(item);
 };
 
 /** Remove a machine from this one's list. The refusal, when there is one, is for the dialog. */
@@ -291,3 +443,45 @@ export const applyMachineProgress = (progress: MachineCommandProgress): void => 
 
 /** Follow the steps of sends in flight for as long as the window is open. */
 export const followMachineProgress = (): (() => void) => onMachineCommandProgress(applyMachineProgress);
+
+type MachinesChangedBridge = {
+  readonly onMachinesChanged?: (listener: () => void) => () => void;
+};
+
+let machineWatchers = 0;
+let stopMachineWatch: (() => void) | undefined;
+
+/**
+ * Keep `machines$` alive in the background: one initial read, progress steps
+ * for in-flight copies even after the Machines window closes, and live push
+ * refreshes whenever main reports a machine state change or core restart.
+ */
+export const followMachines = (): (() => void) => {
+  machineWatchers += 1;
+  if (machineWatchers === 1) {
+    const cleanups: Array<() => void> = [];
+    cleanups.push(followMachineProgress());
+    const api = getJuntoApi();
+    const onChanged = (api as (typeof api & MachinesChangedBridge) | undefined)?.onMachinesChanged;
+    if (typeof onChanged === "function") {
+      cleanups.push(onChanged(() => { void refreshMachines(); }));
+    }
+    if (typeof api?.onCoreRestarted === "function") {
+      cleanups.push(api.onCoreRestarted(() => { void refreshMachines(); }));
+    }
+    if (machines$.items.peek().length === 0 && !machines$.loading.peek()) {
+      void refreshMachines();
+    }
+    stopMachineWatch = () => {
+      for (const cleanup of cleanups) cleanup();
+      stopMachineWatch = undefined;
+    };
+  }
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
+    machineWatchers = Math.max(0, machineWatchers - 1);
+    if (machineWatchers === 0) stopMachineWatch?.();
+  };
+};

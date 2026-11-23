@@ -1,7 +1,13 @@
+import type { BoatStatusData } from "@shared/boat";
 import type { MachinePeerStatus } from "@shared/machine-control";
 import { machineCommand, type MachineCommandAnswer } from "./machine-commands";
 import type { MachineFacts } from "./machines";
 import { state$ } from "./state";
+
+type MachineListItemOptionalFields = {
+  readonly setupState?: MachineFacts["setupState"];
+  readonly updateDirection?: MachineFacts["updateDirection"];
+};
 
 /**
  * Read the machine list from the owner, and keep what the rest of the window
@@ -19,11 +25,15 @@ export const readMachineList = async (): Promise<MachineCommandAnswer<"machine.l
   const facts: Record<string, MachineFacts> = {};
   for (const item of listed.data.machines) {
     const name = item.machine.id;
+    const extra = item as typeof item & MachineListItemOptionalFields;
     // What a machine said about itself stands only while it can still say it.
     const answered = item.setUp && !item.needsUpdate ? before[name] : undefined;
     facts[name] = {
       setUp: item.setUp,
       needsUpdate: item.needsUpdate,
+      ...(extra.setupState === undefined ? {} : { setupState: extra.setupState }),
+      ...(extra.updateDirection === undefined ? {} : { updateDirection: extra.updateDirection }),
+      ...(before[name]?.asleep === undefined ? {} : { asleep: before[name].asleep }),
       ...(answered?.reachable === undefined ? {} : { reachable: answered.reachable }),
       ...(answered?.harnesses === undefined ? {} : { harnesses: answered.harnesses }),
     };
@@ -33,6 +43,26 @@ export const readMachineList = async (): Promise<MachineCommandAnswer<"machine.l
   return listed;
 };
 
+/** Keep Boat's asleep state in the canvas machine facts so sleeping seats never read unreachable. */
+export const noteBoatPower = (boat: BoatStatusData | undefined): void => {
+  const asleepByName = new Map<string, boolean>();
+  for (const view of boat?.machines ?? []) {
+    if (!view.unreadable) asleepByName.set(view.machineName, view.power === "asleep");
+  }
+  const current = state$.machineFacts.peek();
+  let changed = false;
+  const next: Record<string, MachineFacts> = {};
+  for (const [name, facts] of Object.entries(current)) {
+    const asleep = asleepByName.get(name);
+    if ((facts.asleep ?? false) !== (asleep ?? false) || (asleep === undefined && facts.asleep !== undefined)) {
+      changed = true;
+    }
+    const { asleep: _prev, ...rest } = facts;
+    next[name] = asleep ? { ...rest, asleep: true } : rest;
+  }
+  if (changed) state$.machineFacts.set(next);
+};
+
 /** Keep what another machine said when it was asked about itself. */
 export const noteMachineStatus = (name: string, status: MachinePeerStatus): void => {
   const known = state$.machineFacts[name].peek();
@@ -40,6 +70,9 @@ export const noteMachineStatus = (name: string, status: MachinePeerStatus): void
   state$.machineFacts[name].set({
     setUp: known.setUp,
     needsUpdate: known.needsUpdate,
+    ...(known.setupState === undefined ? {} : { setupState: known.setupState }),
+    ...(known.updateDirection === undefined ? {} : { updateDirection: known.updateDirection }),
+    ...(known.asleep === undefined ? {} : { asleep: known.asleep }),
     reachable: status.reachable,
     // A machine that did not answer said nothing about its harnesses.
     ...(status.reachable

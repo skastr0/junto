@@ -131,19 +131,28 @@ describe("why a seat cannot run where it is placed", () => {
 
   it("names the machine, what happened and what to do", () => {
     expect(line("gone", {})).toEqual({
-      state: "not-listed", line: "gone is not one of your machines. Add it in Machines, or move this seat.",
+      state: "not-listed", line: "gone is not one of your machines. Add it in Machines.",
     });
     expect(line("build-box", { "build-box": { setUp: false, needsUpdate: false } })).toEqual({
       state: "not-set-up", line: "Junto is not on Build box yet. Send it from Machines.",
     });
+    expect(line("build-box", { "build-box": { setUp: false, needsUpdate: false, setupState: "installed-not-linked" } })).toEqual({
+      state: "installed-not-linked", line: "Build box is not connected to this Mac. Reconnect it from Machines.",
+    });
     expect(line("mini", { mini: { setUp: true, needsUpdate: true } })).toEqual({
       state: "needs-update", line: "Mini runs a different build of Junto. Update it from Machines.",
+    });
+    expect(line("mini", { mini: { setUp: true, needsUpdate: true, updateDirection: "this-older" } })).toEqual({
+      state: "peer-newer", line: "Mini is on a newer Junto. Update Junto on this Mac.",
+    });
+    expect(line(OTHER_MACHINE, { [OTHER_MACHINE]: { ...READY, asleep: true, reachable: false } })).toEqual({
+      state: "asleep", line: "Atlas is asleep. Open this seat to wake it.",
     });
     expect(line(OTHER_MACHINE, { [OTHER_MACHINE]: { ...READY, reachable: false } })).toEqual({
       state: "unreachable", line: "Cannot reach Atlas. Check that it is on.",
     });
     expect(line(OTHER_MACHINE, { [OTHER_MACHINE]: { ...READY, reachable: true, harnesses: ["claude"] } })).toEqual({
-      state: "harness-missing", line: "Codex is not on Atlas. Install it there, or move this seat.",
+      state: "harness-missing", line: "Codex is not on Atlas. Install it there.",
     });
   });
 

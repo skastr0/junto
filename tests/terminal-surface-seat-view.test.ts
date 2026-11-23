@@ -80,7 +80,9 @@ vi.mock("../src/window/lib/terminal-paint-lease", async (load) => ({
 
 import { fallbackCell, TerminalSurface } from "../src/window/components/terminal/TerminalSurface";
 import { SeatThreadsStage, SeatViewSwitch } from "../src/window/components/threads/SeatThreads";
+import { SeatMachineRecoveryCard } from "../src/window/components/machines/SeatMachineRecoveryCard";
 import { claimFocus } from "../src/window/lib/focus-ownership";
+import { machines$ } from "../src/window/lib/machines-actions";
 import { seatViewAsked$ } from "../src/window/lib/seat-view";
 import { state$ } from "../src/window/lib/state";
 import { ensureTerminalRunning } from "../src/window/lib/terminal-actions";
@@ -556,5 +558,49 @@ describe("the keyboard and a terminal under Threads", () => {
     surface.select("terminal", "pointer");
     expect(claims).toHaveBeenCalledTimes(1);
     expect(claims.mock.calls[0]?.slice(0, 2)).toEqual([surface.host, "gesture"]);
+  });
+
+  it("with a machine recovery and Threads shown, the dead wrapper is inert", async () => {
+    const prevName = state$.settings.machine.name.peek();
+    const prevMachines = state$.machines.peek();
+    const prevFacts = state$.machineFacts.peek();
+    const prevItems = machines$.items.peek();
+    try {
+      state$.settings.machine.name.set("studio");
+      const remoteHost = { id: "mac-mini", label: "Mac mini", isThisMachine: false, capabilities: ["terminal" as const] };
+      state$.machines.set([{ id: "studio", label: "Studio", isThisMachine: true, capabilities: ["terminal" as const] }, remoteHost]);
+      state$.machineFacts.set({ "mac-mini": { setUp: true, needsUpdate: true } });
+      machines$.items.set([{ machine: remoteHost, setUp: true, needsUpdate: true }]);
+
+      opensOn("threads");
+      const remoteSeat = seat("remote-seat", {
+        label: "Builder",
+        host: "mac-mini" as never,
+        agentKey: "mac-mini:builder",
+        bindingId: "seat" as never,
+        harness: "codex",
+      });
+      const surface = rig({ node: remoteSeat });
+      surface.render();
+      await settle();
+      for (const listener of hooks.listeners) {
+        listener({ type: "exit", bindingId: "seat", epoch: "gen-1", seq: 1n, code: 1 });
+      }
+      await settle();
+      surface.render();
+
+      const deadWrapper = elementsIn(surface.tree()).find((element) =>
+        String(propsOf(element).className ?? "").includes("native-terminal-surface__dead"),
+      );
+      expect(deadWrapper).toBeDefined();
+      expect(propsOf(deadWrapper).role).toBe("status");
+      expect(propsOf(deadWrapper).inert).toBe(true);
+      expect(elementsIn(deadWrapper).some((element) => element.type === SeatMachineRecoveryCard)).toBe(true);
+    } finally {
+      state$.settings.machine.name.set(prevName);
+      state$.machines.set(prevMachines);
+      state$.machineFacts.set(prevFacts);
+      machines$.items.set(prevItems);
+    }
   });
 });

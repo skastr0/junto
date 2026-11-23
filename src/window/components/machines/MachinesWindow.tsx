@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { BoatSize } from "@shared/boat";
 import { isValidMachineName } from "@shared/machine-identity";
 import type { Canvas } from "@shared/model";
-import { askConfirm } from "../../lib/confirm";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
 import {
   addBoatMachine,
@@ -12,19 +11,21 @@ import {
   checkMachineAgain,
   connectBoat,
   copyJunto,
-  deleteBoatMachine,
-  followMachineProgress,
+  deleteBoatAfterConfirm,
+  followMachines,
   machines$,
+  openAppUpdates,
   refreshMachines,
-  removeMachine,
+  removeMachineAfterConfirm,
+  requestMachineUpdate,
   setBoatPower,
 } from "../../lib/machines-actions";
 import {
-  MACHINE_ACTION_LABEL,
   MACHINE_STEP_PHASE_WORD,
   harnessName,
   harnessSignInLine,
   harnessesSeatsLack,
+  machineActionLabel,
   machineActions,
   machineCondition,
   machineCopyStepLines,
@@ -38,6 +39,7 @@ import {
   machineStepLines,
   machineSummary,
   machinesNeedingAttention,
+  runningSeatsLine,
   type MachineAction,
   type MachineBoat,
   type MachineCopy,
@@ -172,6 +174,7 @@ function MachineDetail({
   boat,
   placed,
   onAsk,
+  onClearError,
 }: {
   readonly item: MachineListItem;
   readonly listed: boolean;
@@ -181,29 +184,39 @@ function MachineDetail({
   readonly placed: Placed;
   /** The actions that answer in the window's own line: remove, delete, wake and sleep. */
   readonly onAsk: (action: "remove" | "delete" | "wake" | "sleep") => void;
+  readonly onClearError: () => void;
 }) {
   const name = item.machine.id;
   const label = labelOf(item);
+  const remoteLabel = item.machine.isThisMachine ? undefined : label;
   const condition = machineCondition(item, read, copy, boat);
   const summary = machineSummary(item, read, copy, placed, boat);
   // "This machine" only ever means the one the window runs on.
   const where = machineNamed(item);
   const steps = [...machineDownloadStepLines(copy), ...machineCopyStepLines(copy), ...machineStepLines(copy)];
   const harnesses = machineHarnesses(read);
-  const harnessGroups = harnesses ? machineHarnessGroups(harnesses) : undefined;
+  const harnessGroups = harnesses ? machineHarnessGroups(harnesses, remoteLabel) : undefined;
   const lacking = harnessesSeatsLack(read, placed.harnesses);
   const missingSecrets = machineMissingSecrets(read);
+  const runningLine = item.machine.isThisMachine ? undefined : runningSeatsLine(item);
 
   const run = (action: MachineAction): void => {
     switch (action) {
       case "send":
+        onClearError();
         return void copyJunto(name, "send");
       case "update":
-        return void copyJunto(name, "update");
+        onClearError();
+        return void requestMachineUpdate(item);
       case "check":
+        onClearError();
         return void checkMachineAgain(item);
+      case "check-updates":
+        onClearError();
+        return openAppUpdates();
       // Boat already has the machine, so adding it again picks up where it stopped.
       case "finish":
+        onClearError();
         return void addBoatMachine({ name, ...(label === name ? {} : { label }) });
       case "remove":
       case "delete":
@@ -245,7 +258,7 @@ function MachineDetail({
               data-testid={`machine-action-${action}`}
               onClick={() => run(action)}
             >
-              {MACHINE_ACTION_LABEL[action]}
+              {machineActionLabel(action, condition)}
             </Button>
           ))}
         </div>
@@ -290,7 +303,7 @@ function MachineDetail({
                 {harnessGroups.apart.length > 0 ? (
                   <ul className="grid gap-0.5" data-testid="machine-harnesses">
                     {harnessGroups.apart.map((row) => {
-                      const signIn = harnessSignInLine(row);
+                      const signIn = harnessSignInLine(row, remoteLabel);
                       return (
                         <li key={row.harness} data-harness={row.harness} data-installed={row.installed} data-sign-in={row.signIn}>
                           {harnessName(row.harness)}: {row.installed ? "found" : "not found"}
@@ -307,7 +320,7 @@ function MachineDetail({
         {lacking.length > 0 ? (
           <Fact name="Seats need">
             <span data-testid="machine-harnesses-lacking">
-              {lacking.map(harnessName).join(", ")}. Install {lacking.length === 1 ? "it" : "them"} on {where}, or move those seats.
+              {lacking.map(harnessName).join(", ")}. Install {lacking.length === 1 ? "it" : "them"} on {where}.
             </span>
           </Fact>
         ) : null}
@@ -319,9 +332,8 @@ function MachineDetail({
           </Fact>
         ) : null}
         <Fact name="Seats">
-          {placed.seats === 0
-            ? "None on this canvas"
-            : `${placed.seats} on this canvas`}
+          {placed.seats === 0 ? "None on this canvas" : `${placed.seats} on this canvas`}
+          {runningLine ? `. ${runningLine}.` : ""}
         </Fact>
       </dl>
     </section>
@@ -514,46 +526,6 @@ function AddMachineDialog({ onClose, onAdded }: { readonly onClose: () => void; 
   );
 }
 
-/** Ask, then remove. Resolves to the owner's refusal in its own words, or nothing. */
-const removeAfterConfirm = async (item: MachineListItem, boat: MachineBoat | undefined): Promise<string> => {
-  const label = labelOf(item);
-  const confirmed = await askConfirm({
-    source: "machine-remove",
-    title: `Remove ${label}?`,
-    body: [
-      `This machine stops reaching ${label}. Its seats stay on the canvas and cannot run until you add it again.`,
-      boat === undefined
-        ? `Junto stays installed on ${label}.`
-        : `${label} stays on Boat, asleep${boat.diskKeptUntil ? `, and Boat keeps its disk until ${day(boat.diskKeptUntil)}` : ""}. Delete it on Boat to remove it there too.`,
-    ],
-    confirmLabel: "Remove machine",
-    tone: "danger",
-  });
-  if (!confirmed) return "";
-  const refused = await removeMachine(item.machine.id);
-  return refused ? refused.message : "";
-};
-
-/** Ask, then remove the machine and delete it on Boat. */
-const deleteAfterConfirm = async (item: MachineListItem, listed: boolean): Promise<string> => {
-  const label = labelOf(item);
-  const confirmed = await askConfirm({
-    source: "machine-boat-delete",
-    title: `Delete ${label} on Boat?`,
-    body: [
-      listed
-        ? `This machine stops reaching ${label}, and Boat deletes it with its disk. Its seats stay on the canvas and cannot run.`
-        : `Boat deletes ${label} with its disk. It was never added to your machines.`,
-      "This cannot be undone.",
-    ],
-    confirmLabel: "Delete on Boat",
-    tone: "danger",
-  });
-  if (!confirmed) return "";
-  const refused = await deleteBoatMachine(item.machine.id);
-  return refused ? refused.message : "";
-};
-
 const ask = async (
   entry: Shown,
   boat: MachineBoat | undefined,
@@ -562,9 +534,9 @@ const ask = async (
   const item = entry.item;
   switch (action) {
     case "remove":
-      return removeAfterConfirm(item, boat);
+      return removeMachineAfterConfirm(item, boat);
     case "delete":
-      return deleteAfterConfirm(item, entry.listed);
+      return deleteBoatAfterConfirm(item, entry.listed);
     case "wake":
     case "sleep": {
       const refused = await setBoatPower(item.machine.id, action);
@@ -582,15 +554,23 @@ function MachinesWindowOpen() {
   const power = use$(machines$.power);
   const loading = use$(machines$.loading);
   const error = use$(machines$.error);
+  const requested = use$(state$.machinesRequested);
   const canvas = useCanvas(use$(state$.canvasName));
-  const [selected, setSelected] = useState("");
+  const [selected, setSelected] = useState(() => state$.machinesRequested.peek());
   const [addOpen, setAddOpen] = useState(false);
   const [actionError, setActionError] = useState("");
 
   useEffect(() => {
     void refreshMachines();
-    return followMachineProgress();
+    return followMachines();
   }, []);
+
+  useEffect(() => {
+    if (!requested) return;
+    setSelected(requested);
+    setActionError("");
+    state$.machinesRequested.set("");
+  }, [requested]);
 
   const placed = useMemo(() => placedByMachine(canvas), [canvas]);
   // The list's machines, then the ones Boat or an add in flight knows of and the list does not yet.
@@ -638,7 +618,15 @@ function MachinesWindowOpen() {
         status={<span data-testid="machines-status">{status}</span>}
         actions={
           <>
-            <Button size="sm" variant="subtle" disabled={loading} onClick={() => void refreshMachines()}>
+            <Button
+              size="sm"
+              variant="subtle"
+              disabled={loading}
+              onClick={() => {
+                setActionError("");
+                void refreshMachines({ recheckNeedsUpdate: true });
+              }}
+            >
               Refresh
             </Button>
             <Button size="sm" variant="primary" data-testid="machines-add" onClick={() => setAddOpen(true)}>
@@ -653,9 +641,16 @@ function MachinesWindowOpen() {
         </p>
       ) : null}
       {actionError ? (
-        <p className="border-b border-stroke px-4 py-2 text-body text-crimson-fg" role="alert" data-testid="machine-remove-error">
-          {actionError}
-        </p>
+        <div
+          className="flex items-center justify-between gap-2 border-b border-stroke px-4 py-2 text-body text-crimson-fg"
+          role="alert"
+          data-testid="machine-remove-error"
+        >
+          <span>{actionError}</span>
+          <Button size="xs" variant="subtle" onClick={() => setActionError("")}>
+            Dismiss
+          </Button>
+        </div>
       ) : null}
       {unrevoked.length > 0 ? (
         <p className="border-b border-stroke px-4 py-2 text-body text-ink" role="status" data-testid="machines-boat-unrevoked">
@@ -676,7 +671,10 @@ function MachinesWindowOpen() {
                   boat={boatOf(entry)}
                   placed={placed.get(entry.item.machine.id) ?? NOTHING_PLACED}
                   selected={entry.item.machine.id === current?.item.machine.id}
-                  onSelect={() => setSelected(entry.item.machine.id)}
+                  onSelect={() => {
+                    setActionError("");
+                    setSelected(entry.item.machine.id);
+                  }}
                 />
               ))}
             </ul>
@@ -696,6 +694,7 @@ function MachinesWindowOpen() {
             copy={copies[current.item.machine.id]}
             boat={boatOf(current)}
             placed={placed.get(current.item.machine.id) ?? NOTHING_PLACED}
+            onClearError={() => setActionError("")}
             onAsk={(action) => {
               setActionError("");
               void ask(current, boatOf(current), action).then(setActionError);

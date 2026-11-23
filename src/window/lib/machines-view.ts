@@ -15,8 +15,20 @@ import { MACHINE_COPY_STALL_MS, type MachineCopyProgress, type MachineDownloadPr
 // operator can meet is a row in a test. Each line says what happened and what
 // to do, never how it works inside.
 
+/** Three-state setup fact when reported by the owner's machine list. */
+export type MachineSetupState = "not-installed" | "installed-not-linked" | "set-up";
+/** Which side runs the older build when two Junto builds differ. */
+export type MachineUpdateDirection = "peer-older" | "this-older" | "different";
+
 /** One machine as `machine.list` answers it. */
-export type MachineListItem = MachineListData["machines"][number];
+export type MachineListItem = MachineListData["machines"][number] & {
+  readonly setupState?: MachineSetupState;
+  readonly updateDirection?: MachineUpdateDirection;
+  readonly peerVersion?: string;
+  readonly peerBuiltAt?: string;
+  readonly runningSeats?: number;
+  readonly runningSeatsAt?: string;
+};
 export type MachineInstallStep = MachineInstallTransition["step"];
 /** A send, an update, or a Boat add: making the machine on Boat, then its send. */
 export type MachineCopyOp = "send" | "update" | "add";
@@ -78,15 +90,18 @@ export type MachineCondition =
   | "boat-failed"
   | "gone"
   | "not-set-up"
+  | "installed-not-linked"
   | "sending"
   | "updating"
   | "send-failed"
   | "update-failed"
+  | "update-stopped"
   | "send-unconfirmed"
   | "update-unconfirmed"
   | "sent-not-ready"
   | "updated-not-ready"
   | "needs-update"
+  | "peer-newer"
   | "checking"
   | "check-failed"
   | "unreachable"
@@ -104,8 +119,10 @@ export const machineCondition = (
     const sent = copy.op === "send";
     if (copy.installed) return sent ? "sent-not-ready" : "updated-not-ready";
     // Only the owner saying the machine was left as it was makes this a plain
-    // failure. Any other ending, a timeout among them, may have changed it.
+    // failure. An update that already stopped the old Junto (`activated`) leaves
+    // nothing running there and needs a reinstall. Any other ending may have changed it.
     if (copy.disposition === "staged") return sent ? "send-failed" : "update-failed";
+    if (!sent && copy.disposition === "activated") return "update-stopped";
     return sent ? "send-unconfirmed" : "update-unconfirmed";
   }
   if (item.machine.isThisMachine) return "this-machine";
@@ -114,9 +131,9 @@ export const machineCondition = (
   if (power === "gone") return "gone";
   if (power === "failed") return "boat-failed";
   if (boat !== undefined && !boat.listed) return "boat-unfinished";
-  if (!item.setUp) return "not-set-up";
+  if (!item.setUp) return item.setupState === "installed-not-linked" ? "installed-not-linked" : "not-set-up";
   // A machine on another build refuses the link, so nothing else can be read from it.
-  if (item.needsUpdate) return "needs-update";
+  if (item.needsUpdate) return item.updateDirection === "this-older" ? "peer-newer" : "needs-update";
   // A sleeping machine is not asked anything: asking would be refused, never a fault.
   if (power === "asleep") return "asleep";
   if (power === "waking") return "waking";
@@ -127,10 +144,27 @@ export const machineCondition = (
   return "ready";
 };
 
-export type MachineAction = "send" | "update" | "check" | "wake" | "sleep" | "finish" | "remove" | "delete";
+export type MachineAction =
+  | "send"
+  | "update"
+  | "check"
+  | "check-updates"
+  | "wake"
+  | "sleep"
+  | "finish"
+  | "remove"
+  | "delete";
 
 /** Conditions in which a Boat machine that is awake can be put to sleep. */
-const CAN_SLEEP: ReadonlySet<MachineCondition> = new Set(["ready", "check-failed", "unreachable", "needs-update", "not-set-up"]);
+const CAN_SLEEP: ReadonlySet<MachineCondition> = new Set([
+  "ready",
+  "check-failed",
+  "unreachable",
+  "needs-update",
+  "peer-newer",
+  "not-set-up",
+  "installed-not-linked",
+]);
 
 /**
  * What the operator can do to a machine in each state, most likely first. A
@@ -171,11 +205,16 @@ const conditionActions = (condition: MachineCondition): ReadonlyArray<MachineAct
     case "gone":
       return ["remove"];
     case "not-set-up":
+    case "installed-not-linked":
     case "send-failed":
       return ["send", "remove"];
     case "needs-update":
     case "update-failed":
       return ["update", "remove"];
+    case "update-stopped":
+      return ["update", "check", "remove"];
+    case "peer-newer":
+      return ["check-updates", "check", "remove"];
     // Nothing is sent again unasked: the operator checks first, then decides.
     case "send-unconfirmed":
     case "sent-not-ready":
@@ -201,11 +240,20 @@ export const MACHINE_ACTION_LABEL: Readonly<Record<MachineAction, string>> = {
   send: "Send Junto",
   update: "Update Junto",
   check: "Check again",
+  "check-updates": "Check for updates",
   wake: "Wake",
   sleep: "Put to sleep",
   finish: "Finish adding",
   remove: "Remove",
   delete: "Delete on Boat",
+};
+
+/** Context-specific label for an action when a condition calls for clearer wording. */
+export const machineActionLabel = (action: MachineAction, condition: MachineCondition): string => {
+  if (action === "send" && condition === "installed-not-linked") return "Reconnect";
+  if (action === "update" && condition === "update-stopped") return "Reinstall Junto";
+  if (action === "update" && condition === "update-failed") return "Try update again";
+  return MACHINE_ACTION_LABEL[action];
 };
 
 /** The steps of a send, in the order they happen. */
@@ -322,13 +370,16 @@ const CONDITIONS_THAT_NEED_YOU: ReadonlySet<MachineCondition> = new Set([
   "boat-failed",
   "gone",
   "not-set-up",
+  "installed-not-linked",
   "send-failed",
   "update-failed",
+  "update-stopped",
   "send-unconfirmed",
   "update-unconfirmed",
   "sent-not-ready",
   "updated-not-ready",
   "needs-update",
+  "peer-newer",
   "check-failed",
   "unreachable",
 ]);
@@ -370,6 +421,20 @@ const lackingLine = (
   };
 };
 
+const keychainBlockedLine = (
+  item: MachineListItem,
+  blocked: ReadonlyArray<string>,
+): Pick<MachineSummary, "headline" | "advice"> | undefined => {
+  if (blocked.length === 0) return undefined;
+  const names = blocked.map(harnessName).join(", ");
+  const owner = item.machine.isThisMachine ? "this Mac's" : `${machineNamed(item)}'s Mac`;
+  const verb = blocked.length === 1 ? "uses" : "use";
+  return {
+    headline: "Sign-in is blocked",
+    advice: `${names} ${verb} ${owner} keychain, which stays locked until someone signs in at its screen. Sign in there, then restart Junto.`,
+  };
+};
+
 export const machineSummary = (
   item: MachineListItem,
   read: MachineRead | undefined,
@@ -383,10 +448,15 @@ export const machineSummary = (
     condition === "ready" || condition === "this-machine"
       ? lackingLine(item, harnessesSeatsLack(read, placed.harnesses), machineMissingSecrets(read))
       : undefined;
+  const keychain =
+    lacking === undefined && (condition === "ready" || condition === "this-machine")
+      ? keychainBlockedLine(item, harnessesKeychainBlocked(read, placed.harnesses))
+      : undefined;
   return {
     ...conditionLine(item, read, copy, condition),
     ...lacking,
-    needsYou: lacking !== undefined || CONDITIONS_THAT_NEED_YOU.has(condition),
+    ...keychain,
+    needsYou: lacking !== undefined || keychain !== undefined || CONDITIONS_THAT_NEED_YOU.has(condition),
   };
 };
 
@@ -424,6 +494,11 @@ const conditionLine = (
       return { headline: "No longer on Boat", advice: "Remove it from your machines." };
     case "not-set-up":
       return { headline: "Added. Junto is not on it yet.", advice: "Send Junto to set it up." };
+    case "installed-not-linked":
+      return {
+        headline: "Not connected to this Mac",
+        advice: "Junto is already installed there. Reconnect and update it to run its seats.",
+      };
     case "sending":
       return { headline: "Sending Junto" };
     case "updating":
@@ -432,6 +507,11 @@ const conditionLine = (
       return { headline: "Junto could not be sent", advice: reason(said, "Send it again.") };
     case "update-failed":
       return { headline: "Junto could not be updated", advice: reason(said, "Update it again.") };
+    case "update-stopped":
+      return {
+        headline: "Junto stopped",
+        advice: reason(said, "The update could not start, so nothing is running there right now. Reinstall Junto."),
+      };
     // The command ended without the owner saying how it left the machine.
     // Neither line says the install did not happen: it may have.
     case "send-unconfirmed":
@@ -452,6 +532,11 @@ const conditionLine = (
       return {
         headline: "Runs a different build of Junto",
         advice: "Update it before its seats can run from this machine.",
+      };
+    case "peer-newer":
+      return {
+        headline: "Runs a newer build of Junto",
+        advice: "Update Junto on this Mac to connect to it.",
       };
     case "checking":
       return { headline: "Checking" };
@@ -484,17 +569,20 @@ export const machineHarnesses = (read: MachineRead | undefined): ReadonlyArray<M
   return undefined;
 };
 
+const keychainLine = (remoteLabel?: string): string =>
+  remoteLabel?.trim()
+    ? `A sign-in kept in ${remoteLabel.trim()}'s Mac keychain cannot be used while its desktop is locked. Sign in at its screen, then restart Junto.`
+    : "A sign-in kept in this Mac's keychain cannot be used here. Log in to its desktop, then update Junto.";
+
 /**
  * What the window says about an installed harness's sign-in, or nothing.
  * Junto reads no credential and launches no harness to find out, so no line
  * ever says signed in or signed out.
  */
-export const harnessSignInLine = (row: MachineHarness): string | undefined => {
+export const harnessSignInLine = (row: MachineHarness, remoteLabel?: string): string | undefined => {
   if (!row.installed) return undefined;
   if (row.signIn === "sign-in-unverified") return "Sign-in not checked";
-  if (row.signIn === "keychain-login-unavailable") {
-    return "A sign-in kept in this Mac's keychain cannot be used here. Log in to its desktop, then update Junto.";
-  }
+  if (row.signIn === "keychain-login-unavailable") return keychainLine(remoteLabel);
   return undefined;
 };
 
@@ -523,7 +611,7 @@ export type MachineHarnessGroups = {
   readonly apart: ReadonlyArray<MachineHarness>;
 };
 
-const sharedLine = (state: HarnessState, count: number, total: number): string => {
+const sharedLine = (state: HarnessState, count: number, total: number, remoteLabel?: string): string => {
   const many = count === total ? `All ${count}` : `${count}`;
   switch (state) {
     case "found":
@@ -531,13 +619,16 @@ const sharedLine = (state: HarnessState, count: number, total: number): string =
     case "unverified":
       return `${many} found. Sign-in not checked`;
     case "keychain":
-      return `${many} found. A sign-in kept in this Mac's keychain cannot be used here. Log in to its desktop, then update Junto.`;
+      return `${many} found. ${keychainLine(remoteLabel)}`;
     case "missing":
       return `${many} not found`;
   }
 };
 
-export const machineHarnessGroups = (rows: ReadonlyArray<MachineHarness>): MachineHarnessGroups => {
+export const machineHarnessGroups = (
+  rows: ReadonlyArray<MachineHarness>,
+  remoteLabel?: string,
+): MachineHarnessGroups => {
   const byState = new Map<HarnessState, MachineHarness[]>();
   for (const row of rows) byState.set(harnessState(row), [...(byState.get(harnessState(row)) ?? []), row]);
   // The largest group; on a tie, the one met first.
@@ -547,7 +638,7 @@ export const machineHarnessGroups = (rows: ReadonlyArray<MachineHarness>): Machi
   ) ?? ["found", []];
   if (members.length < HARNESS_GROUP_MIN) return { apart: rows };
   return {
-    shared: { state, line: sharedLine(state, members.length, rows.length), harnesses: members },
+    shared: { state, line: sharedLine(state, members.length, rows.length, remoteLabel), harnesses: members },
     apart: rows.filter((row) => harnessState(row) !== state),
   };
 };
@@ -565,6 +656,21 @@ export const harnessesSeatsLack = (
   if (reported === undefined) return [];
   const installed = new Set(reported.filter((row) => row.installed).map((row) => row.harness as string));
   return [...new Set(seatHarnesses)].filter((harness) => !installed.has(harness)).sort();
+};
+
+/** The harnesses seats placed on a machine use whose Mac keychain sign-in is locked. */
+export const harnessesKeychainBlocked = (
+  read: MachineRead | undefined,
+  seatHarnesses: ReadonlyArray<string>,
+): ReadonlyArray<string> => {
+  const reported = machineHarnesses(read);
+  if (reported === undefined) return [];
+  const blocked = new Set(
+    reported
+      .filter((row) => row.installed && row.signIn === "keychain-login-unavailable")
+      .map((row) => row.harness as string),
+  );
+  return [...new Set(seatHarnesses)].filter((harness) => blocked.has(harness)).sort();
 };
 
 /** How many machines want the operator, for the window's one status line. */
@@ -603,12 +709,376 @@ export const machineFigureState = (
         ? "sending"
         : condition === "updating"
           ? "updating"
-          : condition === "needs-update"
+          : condition === "needs-update" || condition === "peer-newer"
             ? "needs-update"
             : "idle",
     ...(copy === undefined ? {} : { step: copy.steps.length }),
     missingHarness: harnessesSeatsLack(read, placed.harnesses).length > 0,
     missingSecrets: machineMissingSecrets(read).length,
     seats: placed.seats,
+  };
+};
+
+const hhmm = (iso: string | undefined): string => {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return ` (${hours}:${minutes})`;
+};
+
+/**
+ * Passive display line for running seats on a remote machine, taken from
+ * `machine.list` (`runningSeats`, `runningSeatsAt`). Never used for the update
+ * confirm count, which comes from the live SSH preflight.
+ */
+export const runningSeatsLine = (item: MachineListItem): string | undefined => {
+  const count = item.runningSeats;
+  if (count === undefined || count <= 0) return undefined;
+  const label = item.machine.label.trim() || item.machine.id;
+  return `${count} of your seats ${count === 1 ? "runs" : "run"} on ${label}${hhmm(item.runningSeatsAt)}`;
+};
+
+export type MachinesBarSeverity = "quiet" | "working" | "amber" | "crimson";
+export type MachinesBarRowSeverity = "broken" | "needs-you" | "working";
+
+export type MachinesBarRowAction = {
+  readonly kind: "send" | "update" | "check" | "finish" | "check-updates" | "remove" | "delete";
+  readonly label: string;
+  readonly pendingLabel?: string;
+  readonly danger: boolean;
+  /** Label shown while armed for two-press destructive actions. */
+  readonly armedLabel?: string;
+};
+
+export type MachinesBarRow = {
+  readonly id: string;
+  readonly label: string;
+  readonly severity: MachinesBarRowSeverity;
+  readonly status: string;
+  readonly action?: MachinesBarRowAction;
+  readonly condition: MachineCondition;
+  readonly listed: boolean;
+};
+
+export type MachinesBarEntry = {
+  readonly item: MachineListItem;
+  readonly listed: boolean;
+  readonly read: MachineRead | undefined;
+  readonly copy: MachineCopy | undefined;
+  readonly boat: MachineBoat | undefined;
+  readonly placed: { readonly seats: number; readonly harnesses: ReadonlyArray<string> };
+};
+
+export type MachinesBarSummary = {
+  readonly severity: MachinesBarSeverity;
+  readonly brokenCount: number;
+  readonly needsYouCount: number;
+  readonly workingCount: number;
+  /** Broken + needs-you count; working and sleeping Boat machines are never counted. */
+  readonly count: number;
+  readonly ariaLabel: string;
+  readonly rows: ReadonlyArray<MachinesBarRow>;
+  /** Listed idle machines that can be updated from this Mac via Update all. */
+  readonly idleUpdatableNames: ReadonlyArray<string>;
+};
+
+const workingStatusLine = (condition: MachineCondition, label: string, copy: MachineCopy | undefined): string => {
+  if (condition === "waking") return `Waking ${label}`;
+  if (copy?.kind !== "running") return condition === "updating" ? "Updating Junto" : "Sending Junto";
+  if (condition === "adding" && copy.steps.length === 0 && copy.download === undefined && copy.transfer === undefined) {
+    return "Making on Boat";
+  }
+  const verb = copy.op === "update" ? "Updating Junto" : "Sending Junto";
+  if (copy.download && copy.download.state !== "downloaded") {
+    return `${verb}, downloading ${byteAmount(copy.download.downloadedBytes, copy.download.totalBytes)}`;
+  }
+  if (copy.transfer && copy.transfer.state !== "copied") {
+    return `${verb}, copying ${byteAmount(copy.transfer.copiedBytes, copy.transfer.totalBytes)}`;
+  }
+  const currentStep = Math.min(copy.steps.length + 1, MACHINE_INSTALL_STEPS.length);
+  return `${verb}, step ${currentStep} of ${MACHINE_INSTALL_STEPS.length}`;
+};
+
+const withRunningSeats = (sentence: string, item: MachineListItem): string => {
+  const seats = runningSeatsLine(item);
+  return seats ? `${sentence} ${seats}.` : sentence;
+};
+
+const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined => {
+  const { item, listed, read, copy, boat, placed } = entry;
+  const id = item.machine.id;
+  const label = item.machine.label.trim() || id;
+  const where = machineNamed(item);
+  const condition = machineCondition(item, read, copy, boat);
+
+  if (condition === "adding" || condition === "sending" || condition === "updating" || condition === "waking") {
+    return { id, label, severity: "working", status: workingStatusLine(condition, label, copy), condition, listed };
+  }
+
+  // Sleeping, falling asleep, and checking are quiet.
+  if (condition === "asleep" || condition === "falling-asleep" || condition === "checking") {
+    return undefined;
+  }
+
+  const hasSeats = placed.seats > 0 || (item.runningSeats ?? 0) > 0;
+  const said = copy?.kind === "failed" ? copy.message.trim() : "";
+
+  switch (condition) {
+    case "boat-failed":
+      return {
+        id,
+        label,
+        severity: "broken",
+        status: `Boat says ${label} failed.`,
+        action: { kind: "delete", label: "Delete on Boat", armedLabel: `Delete ${label} on Boat`, danger: true },
+        condition,
+        listed,
+      };
+    case "gone":
+      return {
+        id,
+        label,
+        severity: "broken",
+        status: `${label} is no longer on Boat.`,
+        action: { kind: "remove", label: "Remove", armedLabel: `Remove ${label}`, danger: true },
+        condition,
+        listed,
+      };
+    case "update-stopped":
+      return {
+        id,
+        label,
+        severity: "broken",
+        status: said || `Junto stopped on ${label}. Reinstall Junto to run its seats.`,
+        action: { kind: "update", label: "Reinstall Junto", pendingLabel: "Reinstalling…", danger: false },
+        condition,
+        listed,
+      };
+    case "update-failed":
+      return {
+        id,
+        label,
+        severity: "broken",
+        status: said || `Update failed on ${label}.`,
+        action: { kind: "update", label: "Try update again", pendingLabel: "Updating…", danger: false },
+        condition,
+        listed,
+      };
+    case "update-unconfirmed":
+      return {
+        id,
+        label,
+        severity: "broken",
+        status: said || `Could not confirm Junto was updated on ${label}.`,
+        action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
+        condition,
+        listed,
+      };
+    case "updated-not-ready":
+      return {
+        id,
+        label,
+        severity: "broken",
+        status: said || `Junto was updated on ${label}, but is not ready.`,
+        action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
+        condition,
+        listed,
+      };
+    case "send-failed":
+      return {
+        id,
+        label,
+        severity: "broken",
+        status: said || `Could not send Junto to ${label}.`,
+        action: { kind: "send", label: "Send Junto", pendingLabel: "Sending…", danger: false },
+        condition,
+        listed,
+      };
+    case "send-unconfirmed":
+    case "sent-not-ready":
+    case "add-failed":
+      return {
+        id,
+        label,
+        severity: "broken",
+        status:
+          said ||
+          (condition === "add-failed"
+            ? `Could not finish adding ${label} on Boat.`
+            : condition === "sent-not-ready"
+              ? `Junto is on ${label}, but is not ready.`
+              : `Could not confirm Junto was sent to ${label}.`),
+        action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
+        condition,
+        listed,
+      };
+    case "unreachable":
+    case "check-failed": {
+      const detail =
+        condition === "check-failed"
+          ? read?.kind === "failed"
+            ? read.message.trim()
+            : ""
+          : read?.kind === "peer"
+            ? (read.status.detail?.trim() ?? "")
+            : "";
+      const base = detail || `Cannot reach ${label}. Check that it is on and SSH reaches it.`;
+      return {
+        id,
+        label,
+        severity: hasSeats ? "broken" : "needs-you",
+        status: withRunningSeats(base, item),
+        action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
+        condition,
+        listed,
+      };
+    }
+    case "needs-update":
+      return {
+        id,
+        label,
+        severity: "needs-you",
+        status: withRunningSeats(`${label} needs an update before its seats can run.`, item),
+        action: { kind: "update", label: "Update Junto", pendingLabel: "Updating…", danger: false },
+        condition,
+        listed,
+      };
+    case "peer-newer":
+      return {
+        id,
+        label,
+        severity: "needs-you",
+        status: `${label} is on a newer Junto. Update Junto on this Mac to connect.`,
+        action: { kind: "check-updates", label: "Check for updates", danger: false },
+        condition,
+        listed,
+      };
+    case "not-set-up":
+      return {
+        id,
+        label,
+        severity: "needs-you",
+        status: `Junto is not on ${label} yet. Send Junto to set it up.`,
+        action: { kind: "send", label: "Send Junto", pendingLabel: "Sending…", danger: false },
+        condition,
+        listed,
+      };
+    case "installed-not-linked":
+      return {
+        id,
+        label,
+        severity: "needs-you",
+        status: `${label} is not connected to this Mac. Reconnect to run its seats.`,
+        action: { kind: "send", label: "Reconnect", pendingLabel: "Reconnecting…", danger: false },
+        condition,
+        listed,
+      };
+    case "boat-unfinished":
+      return {
+        id,
+        label,
+        severity: "needs-you",
+        status: `Made on Boat, not added yet. Finish adding ${label} to send Junto.`,
+        action: { kind: "finish", label: "Finish adding", pendingLabel: "Adding…", danger: false },
+        condition,
+        listed,
+      };
+    case "ready":
+    case "this-machine": {
+      const missingHarnesses = harnessesSeatsLack(read, placed.harnesses);
+      const missingSecrets = machineMissingSecrets(read);
+      if (missingHarnesses.length > 0 || missingSecrets.length > 0) {
+        const line = lackingLine(item, missingHarnesses, missingSecrets)!;
+        return {
+          id,
+          label,
+          severity: "needs-you",
+          status: line.advice ?? line.headline,
+          action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
+          condition,
+          listed,
+        };
+      }
+      const blocked = harnessesKeychainBlocked(read, placed.harnesses);
+      if (blocked.length > 0) {
+        return {
+          id,
+          label,
+          severity: "needs-you",
+          status: `Sign-in blocked on ${where}. Sign in at its screen, then restart Junto.`,
+          action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
+          condition,
+          listed,
+        };
+      }
+      return undefined;
+    }
+  }
+};
+
+const ROW_SEVERITY_RANK: Readonly<Record<MachinesBarRowSeverity, number>> = {
+  broken: 0,
+  "needs-you": 1,
+  working: 2,
+};
+
+const workingAriaLabel = (workingRows: ReadonlyArray<MachinesBarRow>): string => {
+  if (workingRows.length > 1) return `Machines, ${workingRows.length} are busy`;
+  const row = workingRows[0]!;
+  if (row.condition === "waking") return `Machines, waking ${row.label}`;
+  if (row.condition === "updating") return `Machines, updating Junto on ${row.label}`;
+  return `Machines, sending Junto to ${row.label}`;
+};
+
+/**
+ * Compute the TopBar Machines badge and popover rows from live machine state.
+ * Pure: every state is testable without mounting the window.
+ */
+export const machinesBarSummary = (entries: ReadonlyArray<MachinesBarEntry>): MachinesBarSummary => {
+  const rows = entries
+    .map(classifyBarEntry)
+    .filter((row): row is MachinesBarRow => row !== undefined)
+    .sort((left, right) => {
+      const rank = ROW_SEVERITY_RANK[left.severity] - ROW_SEVERITY_RANK[right.severity];
+      return rank !== 0 ? rank : left.label.localeCompare(right.label);
+    });
+
+  const brokenRows = rows.filter((row) => row.severity === "broken");
+  const needsYouRows = rows.filter((row) => row.severity === "needs-you");
+  const workingRows = rows.filter((row) => row.severity === "working");
+  const brokenCount = brokenRows.length;
+  const needsYouCount = needsYouRows.length;
+  const workingCount = workingRows.length;
+  const count = brokenCount + needsYouCount;
+
+  const severity: MachinesBarSeverity =
+    brokenCount > 0 ? "crimson" : needsYouCount > 0 ? "amber" : workingCount > 0 ? "working" : "quiet";
+
+  const ariaLabel =
+    brokenCount > 0
+      ? needsYouCount > 0
+        ? `Machines, ${brokenCount} cannot work, ${needsYouCount} ${needsYouCount === 1 ? "needs" : "need"} you`
+        : `Machines, ${brokenCount} cannot work`
+      : needsYouCount > 0
+        ? `Machines, ${needsYouCount} ${needsYouCount === 1 ? "needs" : "need"} you`
+        : workingCount > 0
+          ? workingAriaLabel(workingRows)
+          : "Machines";
+
+  const idleUpdatableNames = rows
+    .filter((row) => row.listed && row.condition === "needs-update")
+    .map((row) => row.id);
+
+  return {
+    severity,
+    brokenCount,
+    needsYouCount,
+    workingCount,
+    count,
+    ariaLabel,
+    rows,
+    idleUpdatableNames,
   };
 };

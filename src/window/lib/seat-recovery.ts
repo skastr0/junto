@@ -7,9 +7,13 @@
  */
 
 /** Plain copy for a classified exit reason when the host sent no message. */
-const EXIT_REASON_COPY: Readonly<Record<string, string>> = {
-  "cli-missing": "the harness is not installed on this machine",
-  spawn_failed: "the seat could not start",
+const exitReasonCopy = (code: string, machine?: string): string | undefined => {
+  if (code === "cli-missing") {
+    const where = machine?.trim();
+    return where ? `the harness is not installed on ${where}` : "the harness is not installed on this machine";
+  }
+  if (code === "spawn_failed") return "the seat could not start";
+  return undefined;
 };
 
 /**
@@ -21,10 +25,12 @@ export const seatDeadReason = (input: {
   readonly reason?: string | undefined;
   readonly message?: string | undefined;
   readonly status?: string | undefined;
+  /** The label of the machine the seat runs on, when it is not this machine. */
+  readonly machine?: string | undefined;
 }): string => {
   const message = input.message?.trim() ?? "";
   const code = input.reason?.trim() ?? "";
-  const headline = message || (code ? (EXIT_REASON_COPY[code] ?? code) : "");
+  const headline = message || (code ? (exitReasonCopy(code, input.machine) ?? code) : "");
   const status = input.status?.trim() ?? "";
   const extra =
     status &&

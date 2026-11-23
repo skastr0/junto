@@ -53,6 +53,8 @@ import {
 import { ensureTerminalRunning } from "../../lib/terminal-actions";
 import { answerSeatViewAsk, seatViewAsked$ } from "../../lib/seat-view";
 import { seatDeadReason } from "../../lib/seat-recovery";
+import { useSeatMachineRecovery } from "../../lib/seat-machine-recovery";
+import { SeatMachineRecoveryCard } from "../machines/SeatMachineRecoveryCard";
 import { decodeAgentSeatStateEvent } from "../../lib/agent-seat-state";
 import { offboardEndedLine, seatOffboardProgressOf } from "../../lib/seat-offboard-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
@@ -2365,6 +2367,14 @@ export function TerminalSurface({
     agentSeat,
   });
   const deadCopy = deadStateCopy({ agentSeat });
+  const machineRecovery = useSeatMachineRecovery(
+    agentSeat ? hostId : undefined,
+    agentSeat ? node.harness : undefined,
+  );
+  const remoteMachineLabel =
+    hostId && thisMachine !== "" && !isOnMachine(hostId, thisMachine)
+      ? machineLabelIn(machines, hostId)
+      : undefined;
   /**
    * The real reason this generation ended: the harness's exit message, the
    * classified exit reason, or whatever the last status said. The generic
@@ -2374,6 +2384,7 @@ export function TerminalSurface({
     reason: deadInfo.reason,
     message: deadInfo.message,
     status,
+    machine: remoteMachineLabel,
   });
   const releaseClaim = async (): Promise<void> => {
     if (!heldTask || releasePending) return;
@@ -2645,50 +2656,59 @@ export function TerminalSurface({
               aria-live="polite"
               inert={threadsShown}
             >
-              <div className="native-terminal-surface__dead-card">
-                <Eyebrow tone="amber">
-                  {processStopping ? "stopping" : "ended"}
-                </Eyebrow>
-                <strong className="native-terminal-surface__dead-title">
-                  {processStopping ? "Stopping process…" : deadCopy.headline}
-                </strong>
-                <p className="native-terminal-surface__dead-detail">
-                  {processStopping
-                    ? "Stopping the process…"
-                    : deadCopy.detail}
-                </p>
-                {/* Why it ended. Without this the card says "Agent stopped" and
-                    hides the harness's own error behind the overlay, so a seat
-                    that cannot start looks identical to one that was stopped on
-                    purpose — and there is nothing to act on. */}
-                {!processStopping && deadReason ? (
-                  <p className="native-terminal-surface__dead-detail font-mono text-body opacity-80">
-                    {deadReason}
+              {!processStopping && machineRecovery ? (
+                <SeatMachineRecoveryCard
+                  recovery={machineRecovery}
+                  grid={grid !== undefined}
+                  onReopen={reopenProcess}
+                  onCloseView={closeSurface}
+                />
+              ) : (
+                <div className="native-terminal-surface__dead-card">
+                  <Eyebrow tone="amber">
+                    {processStopping ? "stopping" : "ended"}
+                  </Eyebrow>
+                  <strong className="native-terminal-surface__dead-title">
+                    {processStopping ? "Stopping process…" : deadCopy.headline}
+                  </strong>
+                  <p className="native-terminal-surface__dead-detail">
+                    {processStopping
+                      ? "Stopping the process…"
+                      : deadCopy.detail}
                   </p>
-                ) : null}
-                {!processStopping ? (
-                  <div className="native-terminal-surface__dead-actions">
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      disabled={reopenPending}
-                      onClick={() => void reopenProcess()}
-                    >
-                      {reopenPending ? "Opening…" : deadCopy.reopenLabel}
-                    </Button>
-                    {!grid ? (
+                  {/* Why it ended. Without this the card says "Agent stopped" and
+                      hides the harness's own error behind the overlay, so a seat
+                      that cannot start looks identical to one that was stopped on
+                      purpose — and there is nothing to act on. */}
+                  {!processStopping && deadReason ? (
+                    <p className="native-terminal-surface__dead-detail font-mono text-body opacity-80">
+                      {deadReason}
+                    </p>
+                  ) : null}
+                  {!processStopping ? (
+                    <div className="native-terminal-surface__dead-actions">
                       <Button
                         size="sm"
-                        variant="chrome"
-                        title="Close view only"
-                        onClick={closeSurface}
+                        variant="primary"
+                        disabled={reopenPending}
+                        onClick={() => void reopenProcess()}
                       >
-                        {deadCopy.closeViewLabel}
+                        {reopenPending ? "Opening…" : deadCopy.reopenLabel}
                       </Button>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
+                      {!grid ? (
+                        <Button
+                          size="sm"
+                          variant="chrome"
+                          title="Close view only"
+                          onClick={closeSurface}
+                        >
+                          {deadCopy.closeViewLabel}
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
           ) : null}
           {/* A parked surface holds no threads: the next open starts over. */}

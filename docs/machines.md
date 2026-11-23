@@ -1111,6 +1111,16 @@ needed, so it costs nothing while idle. The trust rules are in
   sandbox asleep; `machine boat-delete` also deletes the sandbox.
 - **The window.** The Machines window connects Boat and adds a Boat machine
   through the same calls (de01d2633, shipped since 0.9.1, no feature gate).
+  The top-bar Machines button follows machine status and in-flight copy progress
+  in the background, displays a static severity badge (broken crimson, needs you
+  amber, working cyan; sleeping Boat machines stay quiet), and opens a popover
+  with one-click recovery actions, two-press armed destructive actions (`Delete
+  on Boat`, `Remove`), and `Update all` when two or more idle machines need an
+  update. Updates that pause on running seats (or unknown seat count on an older
+  build) ask the operator to confirm with the live preflight count before
+  re-running with `stopRunningSeats: true`. When a remote seat stops because of
+  its machine, its terminal overlay shows an inline recovery card with in-place
+  progress steps and reopens the seat when the fix finishes.
 - **Not in v1.** Ports opened on a sandbox, joining the tailnet, and a key
   given on stdin instead of the CLI.
 
