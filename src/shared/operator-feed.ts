@@ -11,7 +11,7 @@ import {
   THREAD_HEALTH_TTL_MS,
   type ThreadHealthReading,
 } from "./thread-health";
-import { Level } from "./wire/urgency";
+import { compareToAct, keepingOrderToAct, Level, placesToAct, type ActEntry } from "./wire/urgency";
 import {
   FEED_KIND_LABEL,
   feedItemRank,
@@ -257,14 +257,14 @@ const byUrgencyThenAge = (a: FeedItem, b: FeedItem): number =>
 // --- view -------------------------------------------------------------------
 
 /**
- * How a surface may order the feed: the declared order (urgency, then age),
- * or plain recency. A need with no known time always follows the dated ones:
- * no time is ever made up for it.
+ * How a surface may order the feed: the order to act (the default), the
+ * declared order (urgency, then age), or plain recency. A need with no known
+ * time always follows the dated ones: no time is ever made up for it.
  */
-export const FEED_SORT_ORDERS = ["urgency", "newest", "oldest"] as const;
+export const FEED_SORT_ORDERS = ["act", "urgency", "newest", "oldest"] as const;
 export type FeedSortOrder = (typeof FEED_SORT_ORDERS)[number];
 
-const FEED_ITEM_ORDER: Readonly<Record<FeedSortOrder, (a: FeedItem, b: FeedItem) => number>> = {
+const FEED_ITEM_ORDER: Readonly<Record<Exclude<FeedSortOrder, "act">, (a: FeedItem, b: FeedItem) => number>> = {
   urgency: byUrgencyThenAge,
   newest: (a, b) =>
     (b.since ?? Number.NEGATIVE_INFINITY) - (a.since ?? Number.NEGATIVE_INFINITY) ||
@@ -274,18 +274,39 @@ const FEED_ITEM_ORDER: Readonly<Record<FeedSortOrder, (a: FeedItem, b: FeedItem)
     byUrgencyThenAge(a, b),
 };
 
+/** A card as the order to act reads it: what it still waits on, by card. */
+const actEntryOf = (item: FeedItem): ActEntry => ({
+  id: item.itemId,
+  rank: item.urgency,
+  ready: item.ready !== false,
+  waitingOn: (item.waitingOn ?? []).map((signalId) => `signal:${signalId}`),
+});
+
 /**
  * Re-sort a feed's sections for the chosen order: each section's items, then
  * the sections by their lead item. `urgency` reproduces the projection's own
- * order.
+ * order. `act` is the order to act (urgency.ts): ready before waiting, the
+ * lifted rank, down a chain, then urgency and age, so with no signal naming
+ * another it is exactly `urgency`. The others never put a signal ahead of
+ * one it still waits on.
  */
 export const orderFeedSections = (
   sections: ReadonlyArray<FeedSection>,
   order: FeedSortOrder,
 ): ReadonlyArray<FeedSection> => {
-  const byItem = FEED_ITEM_ORDER[order];
+  const entryOf = (item: FeedItem): Pick<ActEntry, "id" | "waitingOn"> => actEntryOf(item);
+  let byItem: (a: FeedItem, b: FeedItem) => number;
+  let inOrder: (items: ReadonlyArray<FeedItem>) => FeedItem[];
+  if (order === "act") {
+    const places = placesToAct(sections.flatMap((section) => section.items.map(actEntryOf)));
+    byItem = (a, b) => compareToAct(places.get(a.itemId)!, places.get(b.itemId)!) || byUrgencyThenAge(a, b);
+    inOrder = (items) => [...items].sort(byItem);
+  } else {
+    byItem = FEED_ITEM_ORDER[order];
+    inOrder = (items) => keepingOrderToAct(items, entryOf, byItem);
+  }
   return [...sections]
-    .map((section) => ({ ...section, items: [...section.items].sort(byItem) }))
+    .map((section) => ({ ...section, items: inOrder(section.items) }))
     .sort(
       (a, b) =>
         (a.items[0] !== undefined && b.items[0] !== undefined ? byItem(a.items[0], b.items[0]) : 0) ||

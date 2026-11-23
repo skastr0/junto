@@ -540,7 +540,7 @@ export const feedView$ = observable<{
    * folded still shows in the bar, so a filter is never invisible.
    */
   seatsOpen: boolean;
-}>({ region: undefined, order: "urgency", query: "", kinds: [], seat: undefined, seatsOpen: false });
+}>({ region: undefined, order: "act", query: "", kinds: [], seat: undefined, seatsOpen: false });
 
 /** The filter the view's three narrowing fields say. */
 export const feedFilterOf = (view: {

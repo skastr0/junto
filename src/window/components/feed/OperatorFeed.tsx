@@ -481,6 +481,7 @@ function FeedRegionSection({
 
 
 const FEED_ORDER_OPTIONS: ReadonlyArray<{ readonly value: FeedSortOrder; readonly label: string }> = [
+  { value: "act", label: "In order to act" },
   { value: "urgency", label: "Most urgent first" },
   { value: "newest", label: "Newest first" },
   { value: "oldest", label: "Oldest first" },
