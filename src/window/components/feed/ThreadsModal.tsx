@@ -28,7 +28,7 @@ import type { FeedRegion } from "@shared/operator-feed";
 import { regionChipStyle } from "../../lib/region-chip-style";
 import { claimFocus, focusPrimaryControl } from "../../lib/focus-ownership";
 import { useListNav } from "../../lib/list-nav";
-import { regionPickKey } from "../../lib/operator-feed";
+import { regionPickKey, regionPickName } from "../../lib/operator-feed";
 import { previewText, threadTime } from "../../lib/seat-threads";
 import { provideThreadKey } from "../../lib/thread-keys";
 import { threadHeadline } from "../../lib/thread-text";
@@ -113,12 +113,15 @@ function ThreadListRow({
   row,
   node,
   selected,
+  tabStop,
   nav,
   onSelect,
 }: {
   readonly row: ThreadRow;
   readonly node: Node | undefined;
   readonly selected: boolean;
+  /** The list's one Tab stop: the selected row, or the first when none is. */
+  readonly tabStop: boolean;
   readonly nav: Record<string, string>;
   readonly onSelect: () => void;
 }) {
@@ -135,6 +138,7 @@ function ThreadListRow({
         data-seat={row.seat.nodeId}
         data-thread={row.threadId}
         aria-current={selected ? "true" : undefined}
+        tabIndex={tabStop ? 0 : -1}
         onClick={onSelect}
         {...nav}
       >
@@ -145,9 +149,12 @@ function ThreadListRow({
           <span className="operator-threads__seat">{row.seat.name}</span>
           <RegionMark region={row.region} />
           {unread ? (
-            <span className="seat-threads__row-unread" data-testid="operator-threads-row-unread" aria-label={`${String(row.unread)} unread`}>
-              {row.unread > 99 ? "99+" : row.unread}
-            </span>
+            <>
+              <span className="seat-threads__row-unread" data-testid="operator-threads-row-unread" aria-hidden>
+                {row.unread > 99 ? "99+" : row.unread}
+              </span>
+              <span className="sr-only">{row.unread > 99 ? "more than 99 unread" : `${String(row.unread)} unread`}</span>
+            </>
           ) : null}
           <span className="seat-threads__row-time operator-threads__time">{threadTime(row.lastAt)}</span>
         </span>
@@ -310,8 +317,15 @@ export function ThreadsBody({
   };
   const quickBackOut = useRef<(() => boolean) | null>(null);
   const onEscape = (): boolean => {
-    // Escape that only put Quick thread's seat picker away keeps the modal.
-    if (composing && quickBackOut.current?.() === true) return true;
+    // The innermost layer first: Quick thread's seat picker, then Quick
+    // thread itself (its draft is kept), back to the list on New thread.
+    if (composing) {
+      if (quickBackOut.current?.() !== true) {
+        setComposing(false);
+        claimFocus(scrollRef.current?.querySelector<HTMLElement>('[data-testid="operator-threads-new"]') ?? null, "gesture");
+      }
+      return true;
+    }
     if (seatsOpen) {
       threadsView$.seatsOpen.set(false);
       claimFocus(seatsToggleRef.current, "gesture");
@@ -344,6 +358,15 @@ export function ThreadsBody({
   };
   const hasQuick = quickThread !== undefined;
   useEffect(() => (hasQuick ? provideThreadKey("threads.quick", () => quickKey.current()) : undefined), [hasQuick]);
+  // Said on every narrowing, a region pick too, and once when the last is cleared.
+  const narrowed = filtering || activeRegion !== undefined;
+  const everNarrowed = useRef(false);
+  if (narrowed) everNarrowed.current = true;
+  const announce = narrowed
+    ? `${String(read.total)} of ${String(all.total)} shown${activeRegion === undefined ? "" : ` in ${regionPickName(activeRegion.path)}`}${filtering ? " with these filters" : ""}`
+    : everNarrowed.current
+      ? "Every thread shown"
+      : "";
   const nothingYet = read.loaded && all.total === 0 && !filtering && activeRegion === undefined;
 
   return (
@@ -390,12 +413,13 @@ export function ThreadsBody({
           value={query}
           onChange={(event) => threadsView$.query.set(event.target.value)}
         />
-        <div className="operator-feed__chips" role="group" aria-label="Unread">
+        <div className="operator-feed__chips">
           <button
             type="button"
             className="operator-feed__filter-chip"
             data-testid="threads-unread-chip"
             aria-pressed={unreadOnly}
+            aria-label={`Unread, ${String(read.unread)}`}
             onClick={() => threadsView$.unread.set(!unreadOnly)}
           >
             {unreadOnly ? <Check size={11} strokeWidth={2} aria-hidden /> : null}
@@ -433,7 +457,7 @@ export function ThreadsBody({
       </div>
       {/* Mounted for the modal's life: a live region added with its text says nothing. */}
       <span className="operator-feed__announce" role="status" aria-live="polite">
-        {filtering ? `${String(read.total)} of ${String(all.total)} shown with these filters` : ""}
+        {announce}
       </span>
       {nothingYet && !composing ? (
         <div className="operator-feed__scroll" data-testid="operator-threads">
@@ -466,6 +490,7 @@ export function ThreadsBody({
                 variant="chrome"
                 className="seat-threads__new operator-threads__new"
                 data-selected={composing ? "true" : undefined}
+                aria-current={composing ? "true" : undefined}
                 data-testid="operator-threads-new"
                 onClick={openQuick}
               >
@@ -498,6 +523,7 @@ export function ThreadsBody({
                   row={row}
                   node={nodesById.get(row.seat.nodeId)}
                   selected={row.threadId === selected}
+                  tabStop={row.threadId === (selected !== null && keys.includes(selected) ? selected : keys[0])}
                   nav={nav.rowProps(row.threadId)}
                   onSelect={() => select(row.threadId)}
                 />

@@ -214,3 +214,44 @@ it("says No threads yet with Quick thread, and Nothing matches with Clear", () =
   act(() => threadsView$.query.set("zzz"));
   expect(q('[data-testid="threads-no-matches"] .operator-feed__empty-title')?.textContent).toBe("Nothing matches these filters");
 });
+
+it("is one Tab stop: the selected row, or the first while none is", () => {
+  draw(state(rows), { quick: true });
+  expect(all('[data-testid="operator-threads-row"]').map((one) => one.tabIndex)).toEqual([0, -1]);
+  act(() => q<HTMLButtonElement>('[data-thread="t2"]')!.click());
+  expect(all('[data-testid="operator-threads-row"]').map((one) => one.tabIndex)).toEqual([-1, 0]);
+  act(() => q<HTMLButtonElement>('[data-testid="operator-threads-new"]')!.click());
+  expect(q('[data-testid="operator-threads-new"]')?.getAttribute("aria-current")).toBe("true");
+  expect(all('[data-testid="operator-threads-row"]').map((one) => one.tabIndex)).toEqual([0, -1]);
+});
+
+it("says a row's unread in words, and the Unread chip's count in its name", () => {
+  draw(state([{ ...rows[0]!, unread: 120 }, rows[1]!]));
+  const first = q('[data-thread="t1"]')!;
+  expect(first.querySelector('[data-testid="operator-threads-row-unread"]')?.getAttribute("aria-hidden")).toBe("true");
+  expect(first.querySelector(".sr-only")?.textContent).toBe("more than 99 unread");
+  expect(q('[data-testid="threads-unread-chip"]')?.getAttribute("aria-label")).toBe("Unread, 1");
+});
+
+it("says a region pick, and Every thread shown when the last narrowing clears", () => {
+  draw(state(rows));
+  expect(q(".operator-feed__announce")?.textContent).toBe("");
+  act(() => threadsView$.region.set({ canvasName: CANVAS, path: ["Junto", "Product"] }));
+  expect(q(".operator-feed__announce")?.textContent).toBe("2 of 24 shown in Product");
+  act(() => threadsView$.unread.set(true));
+  expect(q(".operator-feed__announce")?.textContent).toBe("2 of 24 shown in Product with these filters");
+  act(() => clearThreadsFilters());
+  expect(q(".operator-feed__announce")?.textContent).toBe("Every thread shown");
+});
+
+it("closes Quick thread on Escape, back on New thread, before the modal", () => {
+  draw(state(rows), { quick: true });
+  act(() => q<HTMLButtonElement>('[data-testid="operator-threads-new"]')!.click());
+  expect(q('[data-testid="quick"]')).not.toBeNull();
+  act(() => {
+    (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  expect(q('[data-testid="quick"]')).toBeNull();
+  expect(q('[data-testid="chat"]')?.textContent).toBe("t1");
+  expect(document.activeElement?.getAttribute("data-testid")).toBe("operator-threads-new");
+});
