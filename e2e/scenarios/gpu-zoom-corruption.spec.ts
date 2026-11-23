@@ -105,8 +105,10 @@ const TEXEL_LIMIT = 600;
  */
 const texelCoverage = (t: TexelAudit): { compared: number; notCompared: Record<string, number>; stoppedAtLimit: boolean; gaps: string[] } => {
   const notCompared = Object.fromEntries(Object.entries(t.skipped).filter(([, n]) => n > 0));
-  // The readback compares cells until `checked` reaches the limit; cells past it are never looked at.
-  const stoppedAtLimit = t.checked >= TEXEL_LIMIT || (t as { truncated?: boolean }).truncated === true;
+  // canvas-lead's ruling: `truncated` (stopped at the limit with comparable cells left) where the build has it;
+  // only a build without it falls back to `checked >= limit`. A board with exactly 600 comparable cells passes.
+  const truncated = (t as { truncated?: boolean }).truncated;
+  const stoppedAtLimit = truncated === undefined ? t.checked >= TEXEL_LIMIT : truncated;
   const gaps: string[] = [];
   if (stoppedAtLimit) gaps.push(`stopped at its limit of ${String(TEXEL_LIMIT)} cells`);
   for (const [why, n] of Object.entries(notCompared)) gaps.push(`passed over ${String(n)} cell(s): ${why}`);
