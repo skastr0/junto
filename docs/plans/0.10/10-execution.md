@@ -38,12 +38,15 @@ everyone else reports by mail and on the needs-you feed.
   region's shared VM through `scripts/vm.sh` (`pool`, then `sync` and `run`
   with `VM_SEAT` set), and count against no cap here. Measured that day on
   main: the type check in 3 s, the unit suite (607 files) in 5 min 22 s on
-  the 8-core VM and 8 min 18 s on the 4-core one, both passing. The type
-  check also runs here, at any load. Real-app and e2e runs need this
-  machine's GPU and stay here, one at a time under the app-run lock: a lead
-  may grant one at any load when it checks pixels or behaviour, and a run
-  that measures time waits for a one-minute load under 40. The load rule
-  never blocks a release.
+  the 8-core VM and 8 min 18 s on the 4-core one, both passing. The load
+  rule never blocks a release.
+- **Nothing runs on the MacBook** (operator, 2026-11-23, an hour after the
+  rule above): "PLEASE use the mac mini for ALL GPU TESTS. DO NOT USE THE
+  MACBOOK FOR ANYTHING". So the type check goes to the VM too, and every
+  real-app, Electron and e2e run goes to the Mac mini through
+  `scripts/mini.sh` (`at`, `run`, `rm`; `book` before a run that measures
+  time). The mini stood at load 2 that evening while this machine stood
+  above 250. It runs one app at a time, under its own app-run lock.
 - **Proof is types first** (operator, 2026-10-21). Contracts are typed so
   misuse fails `tsc`: closed unions, branded ids, exhaustive matches,
   type-level tests where a shape matters. Unit tests on pure modules and

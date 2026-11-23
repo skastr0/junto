@@ -457,18 +457,25 @@ phase, and attention/occupancy are separate planes.
 - `bun run typecheck && bun run test` gate every change.
 - Type check with `bun run typecheck`: tsrs over the whole tree, about
   1 cpu-s warm and 6 cold, cheaper than a scoped `tsc` ever was, so write no
-  scoped tsconfig. It runs at any machine load (operator, 2026-11-23). Check
-  before each commit and after a real batch of edits, one run at a time per
-  seat, never in a loop or a watch. `tsc` is TypeScript 7, kept for parity
-  (`typecheck:tsc`): about four times the CPU and three times the memory.
-- Heavy runs go to a cloud VM, not this machine (operator, 2026-11-23): the
-  unit suite, a build, vitest over more than 3 files. Each region shares two
-  VMs: `id=$(scripts/vm.sh pool <region>)`, then, with `VM_SEAT=<your seat>`
-  set, `scripts/vm.sh sync $id <commit> [your uncommitted paths]` and
-  `scripts/vm.sh run $id <command>`. Real-app and e2e runs need this
-  machine's GPU and stay here, one at a time under the app-run lock; a run
-  that measures time waits for a one-minute load under 40. The load never
-  blocks a release. See docs/plans/0.10/10-execution.md.
+  scoped tsconfig. Run it on your region's cloud VM (next rule), not on this
+  machine. Check before each commit and after a real batch of edits, one run
+  at a time per seat, never in a loop or a watch. `tsc` is TypeScript 7, kept
+  for parity (`typecheck:tsc`): about four times the CPU and three times the
+  memory.
+- Nothing runs on this machine, the operator's MacBook (operator,
+  2026-11-23: "PLEASE use the mac mini for ALL GPU TESTS. DO NOT USE THE
+  MACBOOK FOR ANYTHING"). No type check, lint, test, build or app run here.
+  - Checks, tests and builds go to a cloud VM. Each region shares two:
+    `id=$(scripts/vm.sh pool <region>)`, then, with `VM_SEAT=<your seat>`
+    set, `scripts/vm.sh sync $id <commit> [your uncommitted paths]` and
+    `scripts/vm.sh run $id <command>`.
+  - GPU tests go to the Mac mini: every real-app, Electron and e2e run.
+    `dir=$(scripts/mini.sh at <seat> <commit>)` makes a checkout of that one
+    commit there with its bundles built, `scripts/mini.sh run $dir
+    scripts/run-e2e.sh <spec>` runs it under the mini's own app-run lock, and
+    `scripts/mini.sh rm $dir` removes it when you are done. A run that
+    measures time takes the book first (`scripts/mini.sh book line`).
+  - The load never blocks a release. See docs/plans/0.10/10-execution.md.
 - Host-touching code follows Machine safety (above) — fail closed, capability-first.
 - Agent reach follows Canvas physics (above): region reach for resource nodes, edges for seats and pages, ports, and a live generation credential. Region is geography, not a security domain.
 

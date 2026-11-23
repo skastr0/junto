@@ -7,8 +7,9 @@
 #   scripts/vm.sh run <id> <command…>       run a command in your clone on the VM, output streamed
 #   scripts/vm.sh stop <id>                 stop a VM of your own when your work is done, not after each check
 #
-# Heavy runs go to a VM, not this machine (operator, 2026-11-23): the unit
-# suite, a build, vitest over more than 3 files. Each region shares two VMs.
+# Nothing runs on the operator's MacBook (operator, 2026-11-23): every type
+# check, lint, test and build goes to a VM, and every GPU test to the Mac
+# mini (scripts/mini.sh). Each region shares two VMs.
 # On a shared VM set VM_SEAT=<your seat name> on every sync and run: you then
 # work in a clone of your own (~/$VM_DIR-<seat>), made on your first sync, so
 # no seat's sync moves the tree another seat's run is reading. Never stop a
