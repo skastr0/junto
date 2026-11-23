@@ -133,10 +133,10 @@ Prefer what the operator already has: an existing Keychain item (\`keychain\`), 
 
 No operation returns a secret value. Do not put one in an argument, a \`value\` source, a message, or a note.
 
-\`thread\` reads the threads of any seat on the canvas, no edge needed, as the operator's window reads them. A read marks nothing: the operator's read point never moves, and a summary carries no read state. Both take flags, as the seat's own \`junto thread\` does.
+\`thread\` reads the threads of any seat on the canvas, no edge needed, as the operator's window reads them. A read marks nothing: the operator's read point never moves, and a summary carries no read state. Both take flags, as the seat's own \`junto thread\` does, and \`--canvas <name>\` reads another canvas than your own.
 
-- \`thread list\` is every thread on the canvas, between seats included, newest activity first, one row per thread with its seat; \`--region <label>\` (repeat, outer to inner) and \`--search <words>\` narrow it. \`thread list --seat <seat>\` is that seat's list, by name, node id or ref; \`--group with-you|between\` reads one of its two lists alone. A page at a time: \`--limit\`, and \`--after <next>\` from the page before.
-- \`thread show <threadId> --seat <seat>\` reads one thread, the newest messages as a page, oldest first within it; \`--before <older>\` reads the page above. The seat is the one whose list held the thread.
+- \`thread list\` is every thread on the canvas, between seats included, newest activity first, one row per thread with its seat; without \`--seat\`, \`--region <label>\` (repeat, outer to inner) and \`--search <words>\` (each word must appear) narrow it. \`thread list --seat <seat>\` is that seat's list, by name, node id or ref; with it, \`--group with-you|between\` reads one of its two lists alone: with the operator in it, or between seats only. A page at a time: \`--limit\`, and \`--after <next>\` from the page before.
+- \`thread show <threadId> --seat <seat>\` reads one thread, the newest messages as a page, oldest first within it: \`--limit\` sets the page, and \`--before <older>\` reads the page above. The seat is the one whose list held the thread.
 
 \`references\` and \`briefing\` are the operator's own texts, kept in Junto. The briefing is one text every seat gets at \`junto onboard\`. A reference is a named piece of prose that onboard only lists; a seat reads it with \`junto references read <name>\`. Without \`regionId\` a command acts on the app-wide references; with it, on that region's (\`canvas\` defaults to your own).
 
