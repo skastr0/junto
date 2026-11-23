@@ -10,8 +10,11 @@
  *   another year                12 Nov 2025          12 Nov 2025 14:05
  *
  * The first column is a list row's, the second a message's, where there is
- * room and the hour matters. The hover and what a screen reader hears is the
- * whole of it everywhere: "Tuesday 17 November 2026, 14:05". 24 hour, on
+ * room and the hour matters. The hover is the whole of it everywhere:
+ * "Tuesday 17 November 2026, 14:05". A screen reader hears the whole on a
+ * message, and in a list row, where the time is part of the row's name, the
+ * drawn form in words with its hour: "Today, 14:05", "Yesterday, 14:05",
+ * "Tuesday, 14:05", "12 November, 14:05", "12 November 2025". 24 hour, on
  * this machine's clock.
  */
 import { observable } from "@legendapp/state";
@@ -36,7 +39,9 @@ export type ThreadWhen = {
   readonly row: string;
   /** A message's: the day, and the hour with it. */
   readonly message: string;
-  /** The whole of it, for the hover and for a screen reader. */
+  /** A list row's, as a screen reader hears it: the row form in words, with the hour. */
+  readonly rowSaid: string;
+  /** The whole of it, for the hover, and for a screen reader on a message. */
   readonly whole: string;
   /** For a `time` element's `dateTime`. */
   readonly iso: string;
@@ -51,16 +56,18 @@ export const threadWhen = (at: number, now: number): ThreadWhen => {
   const whole = `${WEEKDAY_WHOLE.format(date)} ${date.getDate()} ${MONTH_WHOLE.format(date)} ${date.getFullYear()}, ${hour}`;
   const iso = date.toISOString();
   // A little ahead is another machine's clock, not tomorrow: it reads as today.
-  if (back <= 0) return { row: hour, message: hour, whole, iso };
-  const day =
-    back === 1
-      ? "Yesterday"
-      : back < 7
-        ? WEEKDAY.format(date)
-        : date.getFullYear() === new Date(now).getFullYear()
-          ? `${date.getDate()} ${MONTH.format(date)}`
-          : `${date.getDate()} ${MONTH.format(date)} ${date.getFullYear()}`;
-  return { row: day, message: `${day} ${hour}`, whole, iso };
+  if (back <= 0) return { row: hour, message: hour, rowSaid: `Today, ${hour}`, whole, iso };
+  if (back === 1) return { row: "Yesterday", message: `Yesterday ${hour}`, rowSaid: `Yesterday, ${hour}`, whole, iso };
+  if (back < 7) {
+    const day = WEEKDAY.format(date);
+    return { row: day, message: `${day} ${hour}`, rowSaid: `${WEEKDAY_WHOLE.format(date)}, ${hour}`, whole, iso };
+  }
+  const thisYear = date.getFullYear() === new Date(now).getFullYear();
+  const day = thisYear ? `${date.getDate()} ${MONTH.format(date)}` : `${date.getDate()} ${MONTH.format(date)} ${date.getFullYear()}`;
+  const dayWhole = `${date.getDate()} ${MONTH_WHOLE.format(date)}`;
+  // Another year: the year tells it, and the hour is left to the hover.
+  const rowSaid = thisYear ? `${dayWhole}, ${hour}` : `${dayWhole} ${date.getFullYear()}`;
+  return { row: day, message: `${day} ${hour}`, rowSaid, whole, iso };
 };
 
 // ---- Today ----

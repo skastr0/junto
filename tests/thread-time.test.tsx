@@ -51,6 +51,15 @@ describe("how a thread's time reads", () => {
     expect(threadWhen(on(2026, 11, 23, 9, 7), NOW).whole).toBe("Monday 23 November 2026, 09:07");
   });
 
+  it("says a row's time as the eye gets it, in words and with its hour", () => {
+    expect(threadWhen(on(2026, 11, 23, 9, 7), NOW).rowSaid).toBe("Today, 09:07");
+    expect(threadWhen(on(2026, 11, 22), NOW).rowSaid).toBe("Yesterday, 14:05");
+    expect(threadWhen(on(2026, 11, 17), NOW).rowSaid).toBe("Tuesday, 14:05");
+    expect(threadWhen(on(2026, 11, 12), NOW).rowSaid).toBe("12 November, 14:05");
+    expect(threadWhen(on(2025, 11, 12), NOW).rowSaid).toBe("12 November 2025");
+    expect(threadWhen(NOW + 5 * 60_000, NOW).rowSaid).toBe("Today, 15:35");
+  });
+
   it("reads a time a little ahead as today: another machine's clock, never tomorrow", () => {
     expect(threadWhen(NOW + 5 * 60_000, NOW).row).toBe("15:35");
     expect(threadWhen(on(2026, 11, 24, 0, 2), NOW)).toMatchObject({ row: "00:02", message: "00:02" });
@@ -84,7 +93,7 @@ describe("the time as it is drawn", () => {
 
   const time = () => host.querySelector("time") as HTMLElement;
 
-  it("draws the short form and gives the whole to the hover and to a screen reader", () => {
+  it("draws the short form in a row, says it in words, and gives the whole to the hover", () => {
     act(() => root.render(<ThreadTime at={on(2026, 11, 17)} className="seat-threads__row-time" />));
     expect(time().className).toBe("seat-threads__row-time");
     expect(time().getAttribute("title")).toBe("Tuesday 17 November 2026, 14:05");
@@ -92,13 +101,16 @@ describe("the time as it is drawn", () => {
     const [drawn, said] = [...time().children] as HTMLElement[];
     expect(drawn?.textContent).toBe("Tue");
     expect(drawn?.getAttribute("aria-hidden")).toBe("true");
-    expect(said?.textContent).toBe("Tuesday 17 November 2026, 14:05");
+    expect(said?.textContent).toBe("Tuesday, 14:05");
     expect(said?.className).toBe("sr-only");
   });
 
   it("gives a message the hour with its day", () => {
     act(() => root.render(<ThreadTime at={on(2026, 11, 22, 8, 0)} form="message" />));
     expect(time().firstElementChild?.textContent).toBe("Yesterday 08:00");
+    // Read in reading order, not as part of a name: the whole of it.
+    expect(time().lastElementChild?.textContent).toBe("Sunday 22 November 2026, 08:00");
+    expect(time().getAttribute("title")).toBe("Sunday 22 November 2026, 08:00");
   });
 
   it("turns at midnight while it is shown, not at the next read", () => {
