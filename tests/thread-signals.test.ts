@@ -97,6 +97,10 @@ describe("a seat's mail that is a signal", () => {
     // A row in the seat's mailbox it did not write (the operator's, naming a raise).
     const forged = rows({ [SEAT]: [seatRow("M01", { raisedSignalId: "S01" }, "user")] });
     expect(raisedIn(seatEntry("M01"), signalsOf(signal("S01", { messageId: "M01" })), forged)).toBeUndefined();
+    // A row an automation wrote, though in the seat's mailbox under its name.
+    const automated = rows({ [SEAT]: [seatRow("M01", { raisedSignalId: "S01", senderAutomationId: "auto-1" })] });
+    expect(raisedIn(seatEntry("M01"), signalsOf(signal("S01", { messageId: "M01" })), automated)).toBeUndefined();
+    expect(openSignalOf(THREAD, signalsOf(signal("S01", { messageId: "M01" })), automated)).toBeUndefined();
     // A row that says another seat wrote it.
     const other = rows({ [SEAT]: [seatRow("M01", { raisedSignalId: "S01", senderNodeId: OTHER })] });
     expect(raisedIn(seatEntry("M01"), signalsOf(signal("S01", { messageId: "M01" })), other)).toBeUndefined();

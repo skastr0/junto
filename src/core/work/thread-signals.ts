@@ -111,9 +111,12 @@ const field = (row: Message | undefined, key: string): string | undefined => {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 };
 
-/** The row is the seat's own: in its mailbox, written by it. */
+/** The row is the seat's own: in its mailbox, written by it, by no automation. */
 const writtenBy = (row: Message | undefined, nodeId: string): row is Message =>
-  row !== undefined && row.role === "agent" && (field(row, "senderNodeId") ?? nodeId) === nodeId;
+  row !== undefined &&
+  row.role === "agent" &&
+  (field(row, "senderNodeId") ?? nodeId) === nodeId &&
+  row.metadata?.senderAutomationId === undefined;
 
 /** A seat's own signal, raised by no automation, of a kind a seat raises. */
 const seatSignal = (signal: AgentSignal | undefined, nodeId: string): signal is AgentSignal & { readonly kind: SeatRaiseKind } =>
