@@ -93,11 +93,30 @@ const audit = (page: Page): Promise<Audit | null> =>
     return (hook?.atlasAudit?.() ?? null) as Audit | null;
   });
 
+/** The texel readback's limit: a check that reaches it stopped before the end. */
+const TEXEL_LIMIT = 600;
+
+/**
+ * What the texel check compared and what it did not. It covers landed,
+ * referenced sprite cells on full-size pages (canvas-nodes' read): the gate
+ * fails when it stopped at the limit or passed anything over by name, so a
+ * clean result is never a partial one.
+ */
+const texelCoverage = (t: TexelAudit): { compared: number; notCompared: Record<string, number>; stoppedAtLimit: boolean; gaps: string[] } => {
+  const notCompared = Object.fromEntries(Object.entries(t.skipped).filter(([, n]) => n > 0));
+  // The readback compares cells until `checked` reaches the limit; cells past it are never looked at.
+  const stoppedAtLimit = t.checked >= TEXEL_LIMIT || (t as { truncated?: boolean }).truncated === true;
+  const gaps: string[] = [];
+  if (stoppedAtLimit) gaps.push(`stopped at its limit of ${String(TEXEL_LIMIT)} cells`);
+  for (const [why, n] of Object.entries(notCompared)) gaps.push(`passed over ${String(n)} cell(s): ${why}`);
+  return { compared: t.checked, notCompared, stoppedAtLimit, gaps };
+};
+
 const auditTexels = (page: Page): Promise<TexelAudit | null> =>
-  page.evaluate(async () => {
+  page.evaluate(async (limit) => {
     const hook = (window as unknown as { __juntoCanvas?: { atlasAuditTexels?: (limit?: number) => Promise<unknown> | null } }).__juntoCanvas;
-    return ((await hook?.atlasAuditTexels?.(600)) ?? null) as TexelAudit | null;
-  });
+    return ((await hook?.atlasAuditTexels?.(limit)) ?? null) as TexelAudit | null;
+  }, TEXEL_LIMIT);
 
 /** Every invariant at once; a failure names where it was found. */
 const checkAll = async (page: Page, where: string, texels: boolean): Promise<void> => {
@@ -112,8 +131,10 @@ const checkAll = async (page: Page, where: string, texels: boolean): Promise<voi
     const t = await auditTexels(page);
     if (t === null) fail(`${where}: the build has no atlasAuditTexels hook`);
     else {
-      log(`${where}: texels`, { checked: t.checked, skipped: t.skipped, worst: Math.round(t.worst * 10) / 10, mismatches: t.mismatches.length });
+      const coverage = texelCoverage(t);
+      log(`${where}: texels`, { compared: coverage.compared, notCompared: coverage.notCompared, stoppedAtLimit: coverage.stoppedAtLimit, worst: Math.round(t.worst * 10) / 10, mismatches: t.mismatches.length });
       if (t.mismatches.length > 0) fail(`${where}: ${String(t.mismatches.length)} landed sprite cell(s) hold another drawing`, { first: t.mismatches.slice(0, 8) });
+      if (coverage.gaps.length > 0) fail(`${where}: the texel check is partial: ${coverage.gaps.join("; ")}`, { compared: coverage.compared, notCompared: coverage.notCompared });
     }
   }
   log(`${where}: stats`, {

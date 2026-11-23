@@ -23,7 +23,10 @@
  *       when a channel differs by more than 48, and the stop fails on any
  *       16 px block holding 24 or more changed pixels. The diff is saved on
  *       failure;
- *   (b) `atlasAudit()` and the texel readback (`atlasAuditTexels`) are clean;
+ *   (b) `atlasAudit()` and the texel readback (`atlasAuditTexels`) are clean,
+ *       and the readback is whole: it fails when it stopped at its limit or
+ *       passed any cell over, and each stop logs what it compared and what
+ *       it did not;
  *   (c) no GPU error since the last stop.
  *
  * Each leg between two stops (each crosses one bucket boundary) pinches to a
@@ -260,11 +263,30 @@ const audit = (page: Page): Promise<Audit | null> =>
     return (hook?.atlasAudit?.() ?? null) as Audit | null;
   });
 
+/** The texel readback's limit: a check that reaches it stopped before the end. */
+const TEXEL_LIMIT = 600;
+
+/**
+ * What the texel check compared and what it did not. It covers landed,
+ * referenced sprite cells on full-size pages (canvas-nodes' read): the gate
+ * fails when it stopped at the limit or passed anything over by name, so a
+ * clean result is never a partial one.
+ */
+const texelCoverage = (t: TexelAudit): { compared: number; notCompared: Record<string, number>; stoppedAtLimit: boolean; gaps: string[] } => {
+  const notCompared = Object.fromEntries(Object.entries(t.skipped).filter(([, n]) => n > 0));
+  // The readback compares cells until `checked` reaches the limit; cells past it are never looked at.
+  const stoppedAtLimit = t.checked >= TEXEL_LIMIT || (t as { truncated?: boolean }).truncated === true;
+  const gaps: string[] = [];
+  if (stoppedAtLimit) gaps.push(`stopped at its limit of ${String(TEXEL_LIMIT)} cells`);
+  for (const [why, n] of Object.entries(notCompared)) gaps.push(`passed over ${String(n)} cell(s): ${why}`);
+  return { compared: t.checked, notCompared, stoppedAtLimit, gaps };
+};
+
 const auditTexels = (page: Page): Promise<TexelAudit | null> =>
-  page.evaluate(async () => {
+  page.evaluate(async (limit) => {
     const hook = (window as unknown as { __juntoCanvas?: { atlasAuditTexels?: (limit?: number) => Promise<unknown> | null } }).__juntoCanvas;
-    return ((await hook?.atlasAuditTexels?.(600)) ?? null) as TexelAudit | null;
-  });
+    return ((await hook?.atlasAuditTexels?.(limit)) ?? null) as TexelAudit | null;
+  }, TEXEL_LIMIT);
 
 /** Checks (b) and (c) at one stop. `seen` carries the GPU error count across stops. */
 const checkStop = async (page: Page, where: string, seen: { errors: number; since: number; evictions: number }): Promise<Record<string, unknown>> => {
@@ -295,6 +317,8 @@ const checkStop = async (page: Page, where: string, seen: { errors: number; sinc
   const t = await auditTexels(page);
   if (t === null) fail(`${where}: the build has no atlasAuditTexels hook`);
   else if (t.mismatches.length > 0) fail(`${where}: ${String(t.mismatches.length)} landed sprite cell(s) hold another drawing`, { first: t.mismatches.slice(0, 6) });
+  const coverage = t === null ? null : texelCoverage(t);
+  if (coverage !== null && coverage.gaps.length > 0) fail(`${where}: the texel check is partial: ${coverage.gaps.join("; ")}`, { compared: coverage.compared, notCompared: coverage.notCompared });
   return {
     tier: state.tier,
     zoom: Math.round(state.camera.zoom * 1000) / 1000,
@@ -311,7 +335,7 @@ const checkStop = async (page: Page, where: string, seen: { errors: number; sinc
     landed: atlas?.landed,
     gpuErrors: errors,
     audit: a === null ? null : { checked: a.checked, counts: a.counts },
-    texels: t === null ? null : { checked: t.checked, mismatches: t.mismatches.length, worst: Math.round(t.worst * 10) / 10 },
+    texels: t === null || coverage === null ? null : { compared: coverage.compared, notCompared: coverage.notCompared, stoppedAtLimit: coverage.stoppedAtLimit, mismatches: t.mismatches.length, worst: Math.round(t.worst * 10) / 10 },
   };
 };
 
