@@ -4,10 +4,11 @@
  * transport, so a core without a window delivers mail the way one with a
  * window does.
  */
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { SqlClient } from "effect/sql";
-import { operatorFilesOf } from "@shared/mail-threads";
-import { operatorAttachmentLines } from "../content/operator-attachments";
+import type { Message } from "@shared/work-model";
+import { BodyPuller } from "../content/body-puller";
+import { deliverOperatorAttachmentLines } from "../content/mail-files-pull";
 import { ContentService } from "../content/service";
 import { ModelActorRefs } from "../model/actor-refs";
 import { ModelService } from "../model/service";
@@ -17,7 +18,10 @@ import { mailboxMessageDeliveryId, mailboxMessageReadId } from "./mailbox-receip
 import type { MessageDeliveryStore } from "./message-delivery";
 import { WorkRepository } from "./repository";
 
-export const makeMessageDeliveryStore = (log?: Log): Effect.Effect<
+export const makeMessageDeliveryStore = (
+  log?: Log,
+  options?: { readonly onFilesReady?: (canvas: string, nodeId: string, message: Message) => void },
+): Effect.Effect<
   MessageDeliveryStore,
   never,
   SqlClient.SqlClient | WorkRepository | ModelService | ModelActorRefs | ContentService
@@ -25,6 +29,7 @@ export const makeMessageDeliveryStore = (log?: Log): Effect.Effect<
   const model = yield* ModelService;
   const repository = yield* WorkRepository;
   const content = yield* ContentService;
+  const puller = yield* Effect.serviceOption(BodyPuller);
   const context = yield* Effect.context<SqlClient.SqlClient | WorkRepository | ModelService | ModelActorRefs>();
   const run = Effect.runPromiseWith(context);
   return {
@@ -32,17 +37,21 @@ export const makeMessageDeliveryStore = (log?: Log): Effect.Effect<
     readModel: (name) => run(model.canvas(name).pipe(Effect.catch(() => Effect.succeed(undefined)))),
     readMessage: (canvas, nodeId, messageId) => run(repository.mailMessage(canvas, nodeId, messageId)),
     listMail: (canvas, nodeId) => run(repository.mailbox(canvas, nodeId)),
-    attachmentLines: (canvas, nodeId, message) => {
-      const refs = operatorFilesOf(message);
-      return run(
-        operatorAttachmentLines(content, { canvasName: canvas, nodeId, messageId: message.messageId, refs }).pipe(
-          // A file this store does not hold (its bytes are still on their way
-          // from another machine) is not delivered with a path to nothing.
-          Effect.map((lines) => (lines.length === refs.length && lines.every((line) => !line.endsWith(": ")) ? lines : undefined)),
-          Effect.orElseSucceed(() => undefined),
-        ),
-      );
-    },
+    attachmentLines: (canvas, nodeId, message) =>
+      run(
+        Effect.gen(function* () {
+          const doc = yield* model.canvas(canvas).pipe(Effect.orElseSucceed(() => undefined));
+          const read = deliverOperatorAttachmentLines({
+            content,
+            canvasName: canvas,
+            canvas: doc,
+            nodeId,
+            message,
+            ...(options?.onFilesReady === undefined ? {} : { onReady: () => options.onFilesReady?.(canvas, nodeId, message) }),
+          });
+          return yield* Option.isSome(puller) ? read.pipe(Effect.provideService(BodyPuller, puller.value)) : read;
+        }).pipe(Effect.orElseSucceed(() => undefined)),
+      ),
     acceptMessageDelivery: (canvas, nodeId, messageId, read) =>
       run(
         stampMailboxDeliveryReceipt({

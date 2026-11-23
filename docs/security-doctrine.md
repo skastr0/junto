@@ -167,6 +167,8 @@ play or pause. Private content follows the seats that need it:
   an automation and no seat holds the canvas, and receives nothing that
   follows seats.
 
+An operator mail's files reach a seat's machine by one road: that machine pulls them over the link from the machine that edits the canvas. That machine serves a file only for operator mail it holds that names the file by digest and length, and only to the machine that the mail's seat lives on now. A seat's machine asks only for the files that operator mail in one of its own seats' mailboxes names, keeps them under that mail, and types the mail only once every file is whole and matches its digest. No file crosses by SSH.
+
 Copy selection must enumerate fields and tables. Adding a field does not
 silently make it public. A field crosses only because a rule above names
 it, never because it has a canvas row. A guidance, reference, briefing or placement

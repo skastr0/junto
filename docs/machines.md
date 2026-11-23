@@ -166,7 +166,12 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
 6. **Mail waits.** Mail to a seat whose machine is unreachable is accepted and
    held, the way mail to a stopped seat is held. It is delivered when a path
    exists. The sender is told which happened: delivered here, handed to a
-   link, or held. An automation's `seat.control` row waits the same way:
+   link, or held. An operator mail's files (including long text kept as
+   `message.md`) cross by one road: the seat's machine pulls each file over
+   the link's `content` channel from the machine that edits the canvas, keeps
+   it under that mail in its own store, and types the mail only once every
+   file is whole and verified; `msg list` and `msg read` report pending files
+   while they are on their way. No file crosses by SSH. An automation's `seat.control` row waits the same way:
    written on the machine the automation runs on, it is held until the seat's
    machine is reachable, and that machine's `seat.control.settled` answer
    waits in turn for the machine the automation runs on. Between two machines

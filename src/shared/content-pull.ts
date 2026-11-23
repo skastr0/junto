@@ -15,10 +15,12 @@
  * a store path.
  */
 import { Schema } from "effect";
+import type { InstallationId } from "./installation-id";
 import { RESOURCE_KINDS, reaches, type ReachCanvas } from "./region-reach";
 import type { NodeId } from "./model/base";
 import { WorkCanvasName } from "./work-reference";
 import { ContentByteLength, ContentSha256 } from "./wire/content-ref";
+import type { CanvasPlacement } from "./work-exchange";
 
 /** One piece's bytes: as base64 with its envelope, well inside one 1 MiB link frame. */
 export const CONTENT_PULL_PIECE_BYTES = 512 * 1024;
@@ -26,7 +28,7 @@ export const CONTENT_PULL_PIECE_BYTES = 512 * 1024;
 /** Pulls one machine runs at once, well inside the link's 32 requests in flight. */
 export const CONTENT_PULL_MAX_CONCURRENT = 4;
 
-/** The owners whose bodies a peer may pull: an artifact's body, a page comment's shot, a signal's files. */
+/** The owners whose bodies a peer may pull: an artifact's body, a page comment's shot or operator mail file, a signal's files. */
 export const PULLABLE_OWNER_KINDS = ["artifact", "message", "signal"] as const;
 export type PullableOwnerKind = (typeof PULLABLE_OWNER_KINDS)[number];
 
@@ -37,7 +39,8 @@ export type PullableOwnerKind = (typeof PULLABLE_OWNER_KINDS)[number];
  *   it, digests included (02), so the link is the entitlement.
  * - `row`: only a row that told the asker of these bytes, and crossed to it by
  *   the exchange's own rule, entitles it: a comment's shot is served to a
- *   machine the comment, or a notice of it, reached.
+ *   machine the comment, or a notice of it, reached; an operator mail's file
+ *   is served to the machine the mail's seat lives on now.
  * - `seat`: the bytes live on the machine the seat lives on, not the editing
  *   one. That machine serves them, only while the signal is open there, and
  *   only to the machine its raise crossed to: the one that edits the canvas.
@@ -186,3 +189,21 @@ export const seatReachesResource = (
 /** The operator asks: every resource of a canvas is in the operator's reach. */
 export const operatorReachesResource = (canvasName: string, resourceId: NodeId): ResourceReached =>
   ({ canvasName, resourceId }) as ResourceReached;
+
+/**
+ * A seat's own machine pulls the operator's files on mail in that seat's own
+ * mailbox. Closed: the node must be an agent seat on this machine now, judged
+ * from this machine's placement, never a peer row or another seat. Sets
+ * `resourceId` to that seat's own node and nothing else. Its only caller is
+ * the mail-files helper (`core/content/mail-files-pull.ts`).
+ */
+export const seatReachesOwnMail = (
+  canvasName: string,
+  canvas: ReachCanvas,
+  seatId: NodeId,
+  placement: Pick<CanvasPlacement, "seatOf">,
+  self: InstallationId,
+): ResourceReached | undefined =>
+  canvas.nodes.get(seatId)?.kind === "agent" && placement.seatOf(seatId)?.machine === self
+    ? ({ canvasName, resourceId: seatId } as ResourceReached)
+    : undefined;

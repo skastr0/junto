@@ -43,8 +43,7 @@ import { ContentLink, ContentPullFailed, makeContentChannel, makeContentPulls, p
 import type { ContentPullRefused, ResourceReached } from "@shared/content-pull";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { BodyPuller } from "./content/body-puller";
-import { makeMachineFiles, pushFileToMachine } from "./content/machine-files";
-import { SshTransport } from "./ssh";
+import { operatorMailFileEntitled } from "./content/mail-file-entitlement";
 import { makeMachineExchangeQuery } from "./work/exchange/queries";
 import { OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse } from "@shared/operator-control";
 import { makeSeatsChannel } from "./term/seats-link";
@@ -145,7 +144,9 @@ const machineCoreSeatsLayer = Layer.effect(MachineCoreSeats,
 
 const machineCoreMailLayer = Layer.effect(MachineCoreMail, Effect.gen(function* () {
   const log = yield* LogService;
-  const store = yield* makeMessageDeliveryStore(log);
+  const store = yield* makeMessageDeliveryStore(log, {
+    onFilesReady: (canvas, nodeId, message) => messageDelivery.notifyAppended(canvas, nodeId, message),
+  });
   const seats = yield* makeCoreMailTransport();
   const pause = yield* PausePlane;
   const kernel = yield* KernelService;
@@ -190,7 +191,6 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
   const machines = yield* MachineRepository;
   const links = yield* MachineLink;
   const context = yield* Effect.context<never>();
-  const fileContext = yield* Effect.context<HostsService | SshTransport | ContentService | BoatRoutesService>();
   let notifySignal: ((signal: AgentSignal) => void) | undefined;
   // The editing machine rules held commands by sweep: at boot, and on each arrival.
   const ruler = yield* Effect.serviceOption(ResourceRuler);
@@ -235,8 +235,6 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
     ),
   );
   messageDelivery.followLinks((canvas, nodeId) => Effect.runPromiseWith(context)(exchange.routed(canvas, nodeId)));
-  const files = makeMachineFiles((machine, ref) => Effect.runPromiseWith(fileContext)(pushFileToMachine(machine, ref)));
-  messageDelivery.followFiles(files.push);
   const store = yield* ContentService;
   const self = yield* machines.installationId;
   const sql = yield* SqlClient.SqlClient;
@@ -248,7 +246,7 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
     root: store.root,
     canvas: (canvasName, peer) => exchange.placement(canvasName).pipe(Effect.map((placement) => ({ edits: placement?.editor === self, peerLinked: placement?.holds(peer) ?? false }))),
     verified: (ref) => store.heldVerified(ref),
-    owners: (sha256, canvasName, peer) =>
+    owners: (sha256, canvasName, peer, byteLength) =>
       Effect.gen(function* () {
         const rows = yield* store.listRefs(sha256);
         const ruleOf = (kind: string) => (isPullableOwnerKind(kind) ? OWNER_ENTITLEMENT[kind] : undefined);
@@ -259,7 +257,12 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
         return yield* Effect.forEach(rows, ({ owner }) =>
           // An owner entitled by its row is judged on its own record, with the placement as it is now.
           placement !== undefined && byRow.some((row) => row.owner === owner)
-            ? Effect.map(shotEntitled(sql, { owner, sha256, machine: peer, placement, seats }), (rowEntitled) => ({ kind: owner.kind, canvasName: owner.canvasName, rowEntitled }))
+            ? Effect.gen(function* () {
+                const entitled =
+                  (yield* shotEntitled(sql, { owner, sha256, machine: peer, placement, seats })) ||
+                  (yield* operatorMailFileEntitled(sql, { owner, sha256, byteLength, machine: peer, self, placement }));
+                return { kind: owner.kind, canvasName: owner.canvasName, rowEntitled: entitled };
+              })
             : placement !== undefined && bySeat.some((row) => row.owner === owner)
               ? Effect.map(signalFileEntitled(signals, { owner, sha256, machine: peer, self, placement }), (rowEntitled) => ({ kind: owner.kind, canvasName: owner.canvasName, rowEntitled }))
               : Effect.succeed({ kind: owner.kind, canvasName: owner.canvasName }));
@@ -302,8 +305,6 @@ const machineCoreRowsLayer = Layer.effect(MachineCoreRows, Effect.gen(function* 
     stopFollowing();
     notifySignal = undefined;
     messageDelivery.followLinks(undefined);
-    messageDelivery.followFiles(undefined);
-    files.stop();
   }));
   return { exchange, handler: makeRowsChannel(exchange), content, pullBody, pullSignalFile, onSignalTaken: notify => { notifySignal = notify; } };
 }));
@@ -434,7 +435,17 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   const rows = Layer.provideMerge(machineCoreRowsLayer, status);
   const pulls = Layer.provideMerge(
     Layer.mergeAll(
-      Layer.effect(BodyPuller, Effect.map(MachineCoreRows, (held) => ({ pull: held.pullBody }))),
+      Layer.effect(BodyPuller, Effect.gen(function* () {
+        const held = yield* MachineCoreRows;
+        const self = yield* (yield* MachineRepository).installationId;
+        return {
+          pull: held.pullBody,
+          placement: (canvasName) =>
+            held.exchange.placement(canvasName).pipe(
+              Effect.map((placement) => (placement === undefined ? undefined : { self, placement })),
+            ),
+        };
+      })),
       Layer.effect(SignalFilePuller, Effect.map(MachineCoreRows, (held) => ({ pull: held.pullSignalFile }))),
     ),
     rows,

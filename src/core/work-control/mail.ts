@@ -5,13 +5,12 @@
 import { Effect, Result, Option } from "effect";
 import { type Message } from "@shared/work-model";
 import { MAIL_MESSAGE_ID_SHAPE, isMailMessageId, mailThreadOf, type MailSenderStamp } from "@shared/crew";
-import { operatorFilesOf } from "@shared/mail-threads";
 import { seatStateRuntime } from "../term/agent-state";
 import { type ActorRef } from "@shared/work-protocol";
 import { type WorkOpName, type WorkErrorBody } from "@shared/work-control";
 import { type WorkCaller } from "./seat";
 import { ContentService } from "../content/service";
-import { operatorAttachmentLines } from "../content/operator-attachments";
+import { seatMailFiles, type SeatMailFilesView } from "../content/mail-files-pull";
 import { liveTaskPorts, taskOnTarget, type TaskCaller } from "../work/task-control";
 import { type TaskView } from "@shared/task-model";
 import { filesNodeName } from "../work/subject-people";
@@ -32,22 +31,22 @@ export const withThread = <M extends Message>(message: M): M & { readonly thread
 
 /**
  * A seat's own mail with the operator's files on it placed where the seat
- * opens them: `files`, one `Attached:` line each, the lines its delivery
- * typed. Mail with no files, or whose files are not on this machine yet,
- * reads as it is.
+ * opens them: `files`, one `Attached:` line each for files already on this
+ * machine, and `filesPending` for files still on their way (triggering their
+ * pull over the link). Mail with no operator files reads as it is.
  */
-const withMailFiles = (canvasName: string, nodeId: string) =>
-  <M extends Message>(message: M): Effect.Effect<M | (M & { readonly files: ReadonlyArray<string> })> =>
-    Effect.gen(function* () {
-      const refs = operatorFilesOf(message);
-      if (refs.length === 0) return message;
-      const store = yield* Effect.serviceOption(ContentService);
-      if (Option.isNone(store)) return message;
-      const files = yield* operatorAttachmentLines(store.value, { canvasName, nodeId, messageId: message.messageId, refs }).pipe(
-        Effect.orElseSucceed(() => undefined),
-      );
-      return files === undefined ? message : { ...message, files };
-    });
+const withMailFiles = (board: Canvas, canvasName: string, nodeId: string) =>
+  <M extends Message>(message: M): Effect.Effect<M | (M & SeatMailFilesView)> =>
+    Effect.serviceOption(ContentService).pipe(
+      Effect.flatMap((store) =>
+        Option.isNone(store)
+          ? Effect.succeed(message)
+          : seatMailFiles({ canvasName, canvas: board, nodeId, message }).pipe(
+              Effect.provideService(ContentService, store.value),
+              Effect.map((view) => (view === undefined ? message : { ...message, ...view })),
+            ),
+      ),
+    );
 
 /**
  * A seat's own mail with the page box shot it names (page-shot-seat.ts):
@@ -70,7 +69,7 @@ const withPageShot = (board: Canvas, canvasName: string, nodeId: string) =>
 /** A seat's own mail as it reads it: its files, then its page box shot. */
 export const asSeatReadsIt = (board: Canvas, canvasName: string, nodeId: string) =>
   <M extends Message>(message: M) =>
-    Effect.flatMap(withMailFiles(canvasName, nodeId)(message), withPageShot(board, canvasName, nodeId));
+    Effect.flatMap(withMailFiles(board, canvasName, nodeId)(message), withPageShot(board, canvasName, nodeId));
 
 /**
  * A message id argument. A refusal names the path and the shape it wants and

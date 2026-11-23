@@ -84,7 +84,12 @@ export type ContentServeDeps = {
    * the request; an owner entitled by its row says whether that row entitles
    * the asking machine to these bytes, judged now from this machine's store.
    */
-  readonly owners: (sha256: string, canvasName: string, peer: InstallationId) => Effect.Effect<ContentPullFacts["owners"], unknown>;
+  readonly owners: (
+    sha256: string,
+    canvasName: string,
+    peer: InstallationId,
+    byteLength: number,
+  ) => Effect.Effect<ContentPullFacts["owners"], unknown>;
 };
 
 /** The serving half: the link's `content` channel, on the editing machine and on a seat's. */
@@ -99,7 +104,7 @@ export const makeContentChannel = (deps: ContentServeDeps): LinkContractChannel 
       const canvas = yield* deps.canvas(request.canvasName, context.peer.installationId);
       // A seat's machine serves its signals' files without editing the canvas (OWNER_ENTITLEMENT).
       const heldVerified = canvas.peerLinked ? yield* deps.verified(request) : false;
-      const owners = heldVerified ? yield* deps.owners(request.sha256, request.canvasName, context.peer.installationId) : [];
+      const owners = heldVerified ? yield* deps.owners(request.sha256, request.canvasName, context.peer.installationId, request.byteLength) : [];
       const reason = admitContentPull(request, { ...canvas, heldVerified, owners });
       if (reason !== undefined) return yield* Effect.fail(contentPullRefusal(reason));
       const length = contentPullPieceLength(request.byteLength, request.offset);
