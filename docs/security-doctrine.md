@@ -165,7 +165,10 @@ names, narrowed by what a seat is doing and what it needs from the operator.
 Its own seat is never in the set, and no seat is in it twice. It is the
 overseer's own mail, written by its own seat as its `msg.send` writes it, one
 new thread per seat, never with the operator's role or name, so it grants
-nothing a single send does not. The overseer may ask whom a set reaches
+nothing a single send does not. A broadcast is one way: it admits no reply and
+opens no path from a seat to the overseer that a wire does not already give.
+The machine marks its rows as a broadcast, never from the caller's input, and
+the mail a seat receives carries no reply command. The overseer may ask whom a set reaches
 without sending anything. A set holds at most 200 seats; a larger one is
 refused whole, by the ask as by the send. Its digest is SHA-256 over the seat
 node ids of the set, sorted and joined by newlines, shown as its first 16 hex
