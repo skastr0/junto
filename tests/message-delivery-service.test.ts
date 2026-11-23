@@ -80,6 +80,8 @@ const rig = (
     writeThrows?: () => boolean;
     /** What one message read waits on before it answers; none by default. */
     messageReadGate?: (messageId: string) => Promise<void> | undefined;
+    /** The store's answer to whether this machine edits the canvas; absent by default. */
+    editsCanvas?: () => Promise<boolean>;
   } = {},
 ) => {
   const messages: Message[] = [];
@@ -104,6 +106,7 @@ const rig = (
       return messages.find((message) => message.messageId === messageId);
     },
     listMail: async () => messages,
+    ...(options.editsCanvas === undefined ? {} : { editsCanvas: options.editsCanvas }),
     ...(options.files === undefined ? {} : { attachmentLines: async (_canvas, _node, message) => options.files!(message) }),
     acceptMessageDelivery: async (_canvas, _node, messageId, read) => {
       const index = messages.findIndex((m) => m.messageId === messageId);
@@ -570,6 +573,22 @@ describe("mail delivery", () => {
     seat.service.onSeatLive(bindingId);
     await settle();
     expect(seat.modelReads()).toBe(reads);
+    expect(seat.writes).toEqual([]);
+  });
+
+  it("types no prompt whose editsCanvas read was in flight at suspend", async () => {
+    let release: (edits: boolean) => void = () => undefined;
+    const edits = new Promise<boolean>((resolve) => {
+      release = resolve;
+    });
+    const seat = rig({ editsCanvas: () => edits });
+    seat.append(mail("01A", "a prompt", "prompt"));
+    const asked = seat.service.deliver(canvas, nodeId, "01A");
+    await settle();
+    seat.service.suspend();
+    release(true);
+    expect(await asked).toBe("waiting");
+    await settle();
     expect(seat.writes).toEqual([]);
   });
 
