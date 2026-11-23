@@ -188,6 +188,7 @@ export type SurfaceKeyId =
   | "inQuickThread.pick"
   | "inQuickThread.another"
   | "inQuickThread.unpick"
+  | "inQuickThread.back"
   | "inThread.send"
   | "inPreview.step"
   | "inPreview.compare"
@@ -946,8 +947,17 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     id: "inQuickThread.unpick",
     area: "Inside quick thread",
     name: "Take the last seat off",
-    does: "With nothing typed in the seat field, take the last seat off",
+    does: "With nothing typed in the seat field, show every seat again, then take the last seat off",
     keys: ["Backspace"],
+    where: ["field"],
+  }),
+  // The shell's Escape asks Quick thread first: one step back, then close.
+  surfaceKey({
+    id: "inQuickThread.back",
+    area: "Inside quick thread",
+    name: "Back to the message",
+    does: "Put the seat list away and go back to the message, when it was brought back to add a seat; otherwise close",
+    keys: ["Escape"],
     where: ["field"],
   }),
   surfaceKey({

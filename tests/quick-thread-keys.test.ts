@@ -52,6 +52,14 @@ describe("quick thread keys", () => {
     expect(quickThreadIntentOf(key({ key: "Backspace", metaKey: true }), empty, true)).toBeNull();
   });
 
+  it("shows every seat again before any seat comes off, when the list is narrowed to a region", () => {
+    expect(quickThreadIntentOf(key({ key: "Backspace" }), { ...empty, narrowed: true }, true)).toBe("widen");
+    expect(quickThreadIntentOf(key({ key: "Backspace" }), { ...empty, chosen: 0, narrowed: true }, true)).toBe("widen");
+    expect(quickThreadIntentOf(key({ key: "Backspace" }), { ...empty, query: "f", narrowed: true }, true)).toBeNull();
+    expect(quickThreadIntentOf(key({ key: "Backspace", shiftKey: true }), { ...empty, narrowed: true }, true)).toBeNull();
+    expect(quickThreadSpoken({ kind: "widened", region: "Design System" })).toBe("Every seat, not only Design System");
+  });
+
   it("leaves Escape to the modal stack and a composing key to the input method", () => {
     expect(quickThreadIntentOf(key({ key: "Escape" }), typing, true)).toBeNull();
     expect(quickThreadIntentOf(key({ key: "Enter", isComposing: true }), typing, true)).toBeNull();

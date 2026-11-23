@@ -27,7 +27,9 @@ export type QuickThreadIntent =
   /** Enter with nothing to pick and nowhere to go: say why nothing happened. */
   | "nothing"
   /** Take the last chosen seat off. */
-  | "unpick";
+  | "unpick"
+  /** Show every seat again: the list was narrowed to a region. Before any seat comes off. */
+  | "widen";
 
 export type QuickThreadKeyState = {
   /** What the seat field holds; empty when nothing is typed. */
@@ -36,6 +38,8 @@ export type QuickThreadKeyState = {
   readonly active: boolean;
   /** How many seats are chosen. */
   readonly chosen: number;
+  /** The list is narrowed to a region. */
+  readonly narrowed?: boolean;
 };
 
 type QuickThreadKeyEvent = KeyEventLike & {
@@ -58,7 +62,12 @@ export const quickThreadIntentOf = (
     // No seat chosen, or a query that matches nothing: say why.
     return "nothing";
   }
-  if (keyIs(event, "inQuickThread.unpick", mac)) return state.query === "" && state.chosen > 0 ? "unpick" : null;
+  if (keyIs(event, "inQuickThread.unpick", mac)) {
+    if (state.query !== "") return null;
+    // The region goes before any seat does.
+    if (state.narrowed === true) return "widen";
+    return state.chosen > 0 ? "unpick" : null;
+  }
   return null;
 };
 
@@ -72,6 +81,8 @@ export type QuickThreadChange =
   | { readonly kind: "added"; readonly seat: string; readonly chosen: number }
   | { readonly kind: "removed"; readonly seat: string; readonly chosen: number }
   | { readonly kind: "narrowed"; readonly region: string; readonly seats: number }
+  /** The region was taken off: every seat shows again. */
+  | { readonly kind: "widened"; readonly region: string }
   /** Enter with no seat chosen; `query` is what the seat field holds. */
   | { readonly kind: "nothing"; readonly query: string }
   /** Enter in the message with no seat chosen yet. */
@@ -86,6 +97,8 @@ export const quickThreadSpoken = (change: QuickThreadChange): string => {
       return `${change.seat} taken off, ${chosenSeatsSpoken(change.chosen).toLowerCase()}`;
     case "narrowed":
       return `${change.region}, ${change.seats === 1 ? "1 seat" : `${change.seats} seats`}`;
+    case "widened":
+      return `Every seat, not only ${change.region}`;
     case "nothing":
       return change.query === "" ? "Pick a seat first" : `No seat matches ${change.query}`;
     case "noSeat":
