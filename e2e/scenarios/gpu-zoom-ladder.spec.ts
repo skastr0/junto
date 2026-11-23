@@ -289,6 +289,9 @@ const checkStop = async (page: Page, where: string, seen: { errors: number; sinc
   const a = await audit(page);
   if (a === null) fail(`${where}: the build has no atlasAudit hook`);
   else if (Object.keys(a.counts).length > 0) fail(`${where}: atlas audit`, { counts: a.counts, checked: a.checked, first: a.samples.slice(0, 6) });
+  // Slots failed now (canvas-services P1): a settled stop holds none.
+  const failedCells = (atlas as { failedCells?: number } | null)?.failedCells;
+  if (failedCells !== undefined && failedCells > 0) fail(`${where}: ${String(failedCells)} atlas slot(s) failed and wait for a retry at a settled stop`);
   const t = await auditTexels(page);
   if (t === null) fail(`${where}: the build has no atlasAuditTexels hook`);
   else if (t.mismatches.length > 0) fail(`${where}: ${String(t.mismatches.length)} landed sprite cell(s) hold another drawing`, { first: t.mismatches.slice(0, 6) });
@@ -302,6 +305,7 @@ const checkStop = async (page: Page, where: string, seen: { errors: number; sinc
     // A cell re-keyed in place (status churn) counts here; pages stay flat.
     overwrites: atlas?.overwrites,
     rerasters: atlas?.rerasters,
+    failedCells,
     thrash,
     pages: atlas?.pages,
     landed: atlas?.landed,
