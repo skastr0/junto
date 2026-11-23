@@ -549,11 +549,13 @@ export const AgentSignalRepositoryLive: Layer.Layer<
     // transaction it joined, never when that one rolls back.
     const announce = (signal: AgentSignal) => afterSqlCommit(sql, () => emitAgentSignalChanged(signal));
 
+    // A seat's own signals: raised by the seat, never by an automation on its node.
     const ownSignalRows = SqlSchema.findAll({
       Request: Schema.Tuple([Schema.String, Schema.String, Schema.Array(Schema.String)]),
       Result: Schema.Struct({ signal_id: Schema.String }),
       execute: ([canvasName, nodeId, ids]) => sql.unsafe(`SELECT signal_id FROM agent_signals
-        WHERE canvas_name = ? AND node_id = ? AND signal_id IN (${ids.map(() => "?").join(", ")})`,
+        WHERE canvas_name = ? AND node_id = ? AND source_json IS NULL
+          AND signal_id IN (${ids.map(() => "?").join(", ")})`,
         [canvasName, nodeId, ...ids]),
     });
 

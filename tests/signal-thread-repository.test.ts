@@ -164,6 +164,24 @@ describe("a signal that comes after others", () => {
     expect(await run(Effect.flatMap(repo, (r) => r.listSeat(seatA)))).toEqual([]);
   });
 
+  it("never comes after a signal an automation raised on the seat, and writes nothing", async () => {
+    const { refused, held } = await run(
+      Effect.gen(function* () {
+        const r = yield* repo;
+        const automations = yield* r.raise({
+          ...seatA,
+          kind: "notice",
+          text: "the nightly run finished",
+          source: { kind: "automation", automationId: ulid(), nodeId: seatA.nodeId },
+        });
+        const refused = yield* r.raise({ ...seatA, kind: "feedback", text: "after the run", dependsOn: [automations.signalId] }).pipe(Effect.flip);
+        return { refused, held: yield* r.listSeat(seatA) };
+      }),
+    );
+    expect(refused._tag).toBe("AgentSignalNotFound");
+    expect(held.map((signal) => signal.text)).toEqual(["the nightly run finished"]);
+  });
+
   it(`comes after at most ${AGENT_SIGNAL_MAX_DEPENDS_ON}, in the store too`, async () => {
     const { eight, nine } = await run(
       Effect.gen(function* () {
