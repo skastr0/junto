@@ -19,11 +19,27 @@ import { failureHere } from "./failure-here";
 import { LogService } from "../../node/observability/logger";
 import { scrubText } from "../../node/credentials/scrub";
 import type { MachineSendEvent } from "@shared/machine-progress";
+import { MACHINE_ARCHIVE_TIMEOUT_MS, MACHINE_TRANSFER_TIMEOUT_MS } from "@shared/machine-command-bounds";
 
 const exec = promisify(execFile);
 /** The preflight script printed something other than ready; its words arrive scrubbed. */
 export class MachinePreflightRefused extends Schema.TaggedError<MachinePreflightRefused>()("MachinePreflightRefused", { message: Schema.String }) {}
 export class MachinePackageTooLarge extends Schema.TaggedError<MachinePackageTooLarge>()("MachinePackageTooLarge", { message: Schema.String, limitBytes: Schema.Number }) {}
+/** Packing the bundle failed or ran out of time; it says which, by name and limit, never the command it ran. */
+export class MachineArchiveFailed extends Schema.TaggedError<MachineArchiveFailed>()("MachineArchiveFailed", {
+  message: Schema.String, timedOut: Schema.Boolean, limitMs: Schema.Number,
+}) {}
+export const archiveFailure = (cause: unknown, machine: string, limitMs: number = MACHINE_ARCHIVE_TIMEOUT_MS): MachineArchiveFailed => {
+  const failed: { readonly killed?: unknown; readonly code?: unknown; readonly stderr?: unknown } =
+    cause !== null && typeof cause === "object" ? cause : {};
+  const minutes = `${String(Math.round(limitMs / 60_000))} minute`;
+  if (failed.killed === true) return new MachineArchiveFailed({ timedOut: true, limitMs,
+    message: `Packing Junto on ${machine} took longer than its ${minutes} limit, so nothing was sent. ${machine} may be busy; send Junto again when it is quieter` });
+  const said = typeof failed.stderr === "string" ? scrubText(failed.stderr.trim()).split("\n").at(-1)?.slice(0, 512) : undefined;
+  const exit = typeof failed.code === "number" ? `it exited ${String(failed.code)}` : "it could not run";
+  return new MachineArchiveFailed({ timedOut: false, limitMs,
+    message: `Packing Junto on ${machine} failed, so nothing was sent: ${exit}${said ? `, saying ${said}` : ""}` });
+};
 const installErrorWith = (machine: string) => (cause: unknown) => {
   const message = cause instanceof SshExitError
     ? cause.detail === "permission denied" ? "SSH refused this account's key. Check SSH access, then send Junto again"
@@ -56,7 +72,8 @@ export const sendMachine = (
   const bundle=resolve(input.bundle);
   const manifest = yield* Effect.tryPromise({ try: () => inspectMachineBundle(bundle), catch: installError });
   const checksum=yield* Effect.tryPromise({try:async()=>{
-    await exec("tar",["-czf",archive,"-C",bundle,"."],{timeout:120_000,maxBuffer:256*1024,env:{...process.env,COPYFILE_DISABLE:"1"}});
+    await exec("tar",["-czf",archive,"-C",bundle,"."],{timeout:MACHINE_ARCHIVE_TIMEOUT_MS,maxBuffer:256*1024,env:{...process.env,COPYFILE_DISABLE:"1"}})
+      .catch((cause: unknown) => { throw archiveFailure(cause, machine); });
     if ((await stat(archive)).size > 512*1024*1024) throw new MachinePackageTooLarge({ message: "machine package exceeds the copy limit", limitBytes: 512 * 1024 * 1024 });
     const hash=createHash("sha256");
     for await (const chunk of createReadStream(archive)) hash.update(chunk);
@@ -119,7 +136,7 @@ export const sendMachine = (
     }
     return new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), retryable: false, disposition: "uncertain", transitions, ...failureHere(cause, machine) });
   };
-  const result=yield* ssh.transfer(program,NodeStream.fromReadable({evaluate:()=>createReadStream(archive),onError:installError}),20*60_000,observe,
+  const result=yield* ssh.transfer(program,NodeStream.fromReadable({evaluate:()=>createReadStream(archive),onError:installError}),MACHINE_TRANSFER_TIMEOUT_MS,observe,
     bytes => copy.advance(bytes, clock.currentTimeMillisUnsafe())).pipe(Effect.mapError(transferError));
   const response=yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Success))(result.stdout.trim(), { onExcessProperty: "error" }).pipe(Effect.mapError(transferError));
   return response.data;

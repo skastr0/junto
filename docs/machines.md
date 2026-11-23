@@ -217,6 +217,14 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
     Archives are cached under the Junto home, verified on each use, and old
     builds are pruned while active users keep their inputs. Source and
     Preview builds use local bundles only and never download.
+    Every step has its own bound, in one file
+    (`src/shared/machine-command-bounds.ts`, locked by
+    `tests/machine-command-bounds.test.ts`): a Boat wake, the download, the
+    archive, the copy and install. Send, update and Boat add wait for their
+    sum plus a margin, and the window a minute longer, so the step that runs
+    out of time is the one that answers, by name and limit, never as the
+    command it ran. The archive bound is sized for a loaded machine: packing
+    took 1 min 47 s at load 394 and failed its old 120 s bound.
 11. **Seat control addresses the machine.** Start, stop and attach go to the
     seat's machine directly. An automation that names a seat on another
     machine asks it with a `seat.control` row: the seat's node, `start` or

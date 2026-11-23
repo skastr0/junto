@@ -1,6 +1,7 @@
 import { Effect, Result } from "effect";
 import { OPERATOR_PROTOCOL_VERSION, OPERATOR_MAX_TIMEOUT_MS, decodeOperatorRequest, type OperatorResponseEnvelope } from "@shared/operator-control";
 import { decodeMachineCommandProgress, type MachineCommandProgress } from "@shared/machine-progress";
+import { MACHINE_INSTALL_COMMANDS, MACHINE_INSTALL_COMMAND_TIMEOUT_MS } from "@shared/machine-command-bounds";
 import type { MachineOwnerActions } from "./machine-owner";
 
 /** A window uses the same closed owner action implementation as the local socket. */
@@ -20,10 +21,12 @@ export const dispatchMachineIpcCommand = (
     protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false,
     error: { type: "forbidden", message: "A vault token is received only over the window machine's SSH session", details: { retryable: false } },
   });
+  // An install waits for each of its steps, every one bounded (machine-command-bounds.ts); any other command takes the operator bound.
+  const installs = (MACHINE_INSTALL_COMMANDS as ReadonlyArray<string>).includes(request.op);
   const transitions: Extract<MachineCommandProgress["event"], { event: "machine-install" }>[] = [];
   let active = true;
   const observer = (event: MachineCommandProgress["event"]) => {
-    if (!active || (request.op !== "machine.send" && request.op !== "machine.update")) return;
+    if (!active || !installs) return;
     const progress = decodeMachineCommandProgress({ id: request.id, event });
     if (Result.isFailure(progress)) return;
     if (progress.success.event.event === "machine-install") {
@@ -33,11 +36,11 @@ export const dispatchMachineIpcCommand = (
     try { notify(progress.success); } catch { /* Closing a window does not cancel the owner operation. */ }
   };
   return actions.dispatch(request, observer).pipe(
-    Effect.timeoutOrElse({ duration: OPERATOR_MAX_TIMEOUT_MS, orElse: () => Effect.succeed({
+    Effect.timeoutOrElse({ duration: installs ? MACHINE_INSTALL_COMMAND_TIMEOUT_MS : OPERATOR_MAX_TIMEOUT_MS, orElse: () => Effect.succeed({
       protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false,
       error: { type: "io", message: "The machine command timed out; check its status before trying again", details: {
         retryable: false,
-        ...(request.op === "machine.send" || request.op === "machine.update" ? { disposition: "uncertain" as const, transitions } : {}),
+        ...(installs ? { disposition: "uncertain" as const, transitions } : {}),
       } },
     } as const) }),
     Effect.ensuring(Effect.sync(() => { active = false; })),

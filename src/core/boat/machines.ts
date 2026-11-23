@@ -15,11 +15,9 @@ import type { RemoteHost } from "@shared/remote-hosts";
 import { LinkUnavailable } from "../link/types";
 import type { BoatClient, BoatRun, BoatSandbox } from "./client";
 import { boatHostKeyAlias, ensureBoatSshKey, readBoatRecords, writeBoatKnownHost, type BoatMachineRecord } from "../../node/boat/files";
+import { MACHINE_BOAT_ASLEEP_WAIT_MS, MACHINE_BOAT_AWAKE_WAIT_MS, MACHINE_BOAT_CORE_WAIT_MS } from "@shared/machine-command-bounds";
 
 const DISK_KEPT_MS = 14 * 24 * 60 * 60_000;
-const AWAKE_WAIT_MS = 150_000;
-const ASLEEP_WAIT_MS = 90_000;
-const CORE_WAIT_MS = 120_000;
 const POLL_MS = 2_000;
 
 export class BoatMachineRefused extends Schema.TaggedError<BoatMachineRefused>()("BoatMachineRefused", {
@@ -151,7 +149,7 @@ export const makeBoatRoutes = (deps: BoatRoutesDeps): BoatRoutes => {
     const row = await record(host.id);
     if (row === undefined) return host;
     let current = await sandbox(row);
-    if (boatPower(current.state) === "waking") current = await until(row, (power) => power !== "waking", AWAKE_WAIT_MS) ?? current;
+    if (boatPower(current.state) === "waking") current = await until(row, (power) => power !== "waking", MACHINE_BOAT_AWAKE_WAIT_MS) ?? current;
     switch (boatPower(current.state)) {
       case "awake": return refresh(row, host);
       case "asleep": case "falling-asleep": throw asleep(host.id);
@@ -195,18 +193,18 @@ export const makeBoatMachines = (deps: BoatMachinesDeps & { readonly routes: Boa
   const wakeOnce = async (name: string, core: boolean): Promise<BoatMachineView> => {
     const row = await required(name);
     let current = await sandbox(row);
-    if (boatPower(current.state) === "falling-asleep") current = await until(row, (power) => power === "asleep", ASLEEP_WAIT_MS) ?? current;
+    if (boatPower(current.state) === "falling-asleep") current = await until(row, (power) => power === "asleep", MACHINE_BOAT_ASLEEP_WAIT_MS) ?? current;
     if (boatPower(current.state) === "asleep") {
       deps.log("Info", "waking Boat machine", { machine: name, sandboxId: row.sandboxId });
       await deps.run(deps.client.resume(row.sandboxId, BOAT_LEASE_SECONDS));
     }
     if (boatPower(current.state) === "gone") throw new BoatMachineRefused({ machine: name, check: "gone", message: `${name}'s Boat sandbox is gone` });
-    const awake = await until(row, (power) => power === "awake", AWAKE_WAIT_MS);
+    const awake = await until(row, (power) => power === "awake", MACHINE_BOAT_AWAKE_WAIT_MS);
     if (awake === undefined) throw new BoatMachineRefused({ machine: name, check: "did-not-wake", message: `${name} did not wake in time` });
     // The core starts with the machine; the link answers once it is up.
     const host = core ? await deps.getHost(name) : undefined;
     if (host !== undefined) {
-      const deadline = now() + CORE_WAIT_MS;
+      const deadline = now() + MACHINE_BOAT_CORE_WAIT_MS;
       for (;;) {
         try { await deps.connect(host); break; } catch (cause) {
           if (now() >= deadline) throw cause;
@@ -234,7 +232,7 @@ export const makeBoatMachines = (deps: BoatMachinesDeps & { readonly routes: Boa
       await deps.disconnect(name).catch(() => undefined);
       const current = await sandbox(row);
       if (boatPower(current.state) === "awake" || boatPower(current.state) === "waking") await deps.run(deps.client.stop(row.sandboxId));
-      const settled = await until(row, (power) => power === "asleep", ASLEEP_WAIT_MS);
+      const settled = await until(row, (power) => power === "asleep", MACHINE_BOAT_ASLEEP_WAIT_MS);
       if (settled === undefined) throw new BoatMachineRefused({ machine: name, check: "did-not-sleep", message: `${name} did not fall asleep in time` });
       return viewOf(row, settled);
     },

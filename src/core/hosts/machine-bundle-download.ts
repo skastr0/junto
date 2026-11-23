@@ -16,6 +16,7 @@ import {
 import { makeDownloadProgress } from "./download-progress";
 import { defaultMachineName } from "@shared/machine-name";
 import { failureHere } from "./failure-here";
+import { MACHINE_BUNDLE_DOWNLOAD_TIMEOUT_MS } from "@shared/machine-command-bounds";
 
 export type MachineBundleAcquirer = (target: string, onTransition?: (event: MachineSendEvent) => void) => Effect.Effect<string, MachineInstallError, Scope.Scope>;
 type DownloadFetch = (url: URL, init: RequestInit) => Promise<Response>;
@@ -53,7 +54,7 @@ const download = async (input: {
   readonly signal: AbortSignal;
   readonly observe: (bytes: number) => void;
 }): Promise<void> => {
-  const signal = AbortSignal.any([input.signal, AbortSignal.timeout(10 * 60_000)]);
+  const signal = AbortSignal.any([input.signal, AbortSignal.timeout(MACHINE_BUNDLE_DOWNLOAD_TIMEOUT_MS)]);
   const original = new URL(input.archive.archivePath, input.catalog.origin);
   const request: RequestInit = { redirect: "manual", signal, credentials: "omit", headers: { "Accept-Encoding": "identity" } };
   const get = async (url: URL): Promise<Response> => {
