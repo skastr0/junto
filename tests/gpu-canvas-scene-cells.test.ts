@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { asCanvasName } from "@shared/model";
-import { TIER_NEAR_MIN } from "@shared/canvas-tier";
+import { TIER_MID_MIN, TIER_NEAR_MIN } from "@shared/canvas-tier";
 import type { MotionPeaks, CardFact, Quad } from "../src/window/canvas/contract";
 import { TIER_BIT } from "../src/window/canvas/contract";
 import { createScene } from "../src/window/canvas/engine/scene";
@@ -258,8 +258,9 @@ describe("cells a record holds", () => {
     });
     scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards, wires: [] });
     const view = { x: -200, y: -200, width: 8400, height: 6400 };
+    const near = () => scene.inward().find((reach) => reach.tier === "near");
     const reached = (): number => {
-      const inward = scene.inward();
+      const inward = near();
       if (inward === undefined) return 0;
       const r = inward.rect;
       return cards.filter((card) => {
@@ -268,16 +269,17 @@ describe("cells a record holds", () => {
       }).length;
     };
     scene.prepare(view, "far");
-    expect(scene.inward()?.tier).toBe("near");
+    // Mid lies between: a zoom in crosses it first, with its own reach.
+    expect(scene.inward().map((reach) => reach.tier)).toEqual(["mid", "near"]);
     // About the view's centre with no pointer: every card's far run, and a near run only within reach.
-    expect(scene.inward()!.rect.width).toBeCloseTo((view.width * 0.3) / TIER_NEAR_MIN, 6);
+    expect(near()!.rect.width).toBeCloseTo((view.width * 0.3) / TIER_NEAR_MIN, 6);
     expect(reached()).toBeGreaterThan(0);
     expect(reached()).toBeLessThan(cards.length / 2);
     expect(atlas.held()).toBe(cards.length + reached());
     // The pointer moves to a corner: the reach follows it with no frame.
     pointer = { x: 0, y: 0 };
     scene.anchorMoved();
-    expect(scene.inward()!.rect.x).toBeLessThan(0);
+    expect(near()!.rect.x).toBeLessThan(0);
     expect(atlas.held()).toBe(cards.length + reached());
     // It leaves the canvas: back to the centre.
     pointer = undefined;
@@ -329,6 +331,44 @@ describe("cells a record holds", () => {
     expect(meets(cards[0]!, crossing)).toBe(false);
     expect(atlas.holds(`${cards[0]!.id}.near`)).toBe(false);
     expect(atlas.held()).toBe(cards.length + shown.length);
+  });
+
+  it("are taken for every tier a zoom across the window crosses, not only the two at its ends", () => {
+    const quads = (id: string): ReadonlyArray<Quad> => [
+      text(`${id}.near`, TIER_BIT.near),
+      text(`${id}.mid`, TIER_BIT.mid),
+      text(`${id}.far`, TIER_BIT.far),
+    ];
+    const at = (id: string, x: number, y: number): CardFact => ({ id, row: note(id, id, { x, y }), derived: { regionDepth: 0, blocked: false, z: 0 } });
+    const build = (zoom: number, cards: ReadonlyArray<CardFact>) => {
+      const atlas = fakeAtlas();
+      const scene = createScene({
+        painter: (fact) => ({ quads: quads(fact.id), dim: { opacity: 1, saturate: 1 }, lift: 0 }),
+        acquire: atlas.acquire,
+        release: atlas.release,
+        hasImage: atlas.hasImage,
+        ensureNow: atlas.ensureNow,
+        zoom: () => zoom,
+        peaks: { marginPx: 0, octaves: 2, latencyMs: 0 },
+      });
+      scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards, wires: [] });
+      return { atlas, scene };
+    };
+    // In: far at 0.3, 2 octaves reach near at 1.2 and cross mid at 0.46 on
+    // the way. The centre card holds both; the corner, past mid's reach
+    // (the view shrunk by 0.46 / 0.3), holds neither.
+    const view = { x: -200, y: -200, width: 8400, height: 6400 };
+    const inward = build(0.3, [at("centre", 3900, 2950), at("corner", 0, 0)]);
+    inward.scene.prepare(view, "far");
+    expect(inward.scene.inward().map((reach) => reach.tier)).toEqual(["mid", "near"]);
+    expect(inward.scene.inward()[0]!.rect.width).toBeCloseTo((view.width * 0.3) / TIER_MID_MIN, 6);
+    expect(["centre.mid", "centre.near", "centre.far"].filter((words) => !inward.atlas.holds(words))).toEqual([]);
+    expect(["corner.mid", "corner.near"].filter((words) => inward.atlas.holds(words))).toEqual([]);
+    // Out: near at 0.9, 2 octaves reach far at 0.225 and cross mid on the way.
+    const outward = build(0.9, [at("centre", 200, 200)]);
+    outward.scene.prepare(VIEW, "near");
+    expect(outward.scene.inward()).toEqual([]);
+    expect(["centre.near", "centre.mid", "centre.far"].filter((words) => !outward.atlas.holds(words))).toEqual([]);
   });
 
   it("are taken for a camera jump's destination before the camera lands, and let go once cleared", () => {

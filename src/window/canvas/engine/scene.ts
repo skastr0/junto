@@ -156,6 +156,12 @@ const NO_BANDS: Banded = [[], [], []];
  * shows needs the tier's cell on that frame.
  */
 const TIER_FLOOR: Readonly<Record<CanvasTier, number>> = { near: TIER_NEAR_MIN, mid: TIER_MID_MIN, far: TIER_FAR_MIN, overview: 0 };
+/** The tiers by detail, most first (canvas-tier.ts): a zoom in walks it toward the front. */
+const TIER_ORDER: ReadonlyArray<CanvasTier> = ["near", "mid", "far", "overview"];
+
+/** A zoom-in tier inside the measured window, and the only board a zoom in can show in it. */
+type Reach = { readonly tier: CanvasTier; readonly rect: Rect };
+const NO_REACH: ReadonlyArray<Reach> = [];
 
 /**
  * What a card's records are wanted for at the last draw-list rebuild: the
@@ -166,8 +172,8 @@ type Role = {
   readonly view: boolean;
   readonly jump: boolean;
   readonly lens: boolean;
-  /** Inside the view a zoom in to the next tier can reach: takes that tier's cells ahead. */
-  readonly inward?: boolean;
+  /** The zoom-in tiers (a tier mask) whose reach the card meets: it takes their cells ahead. */
+  readonly inward?: number;
 };
 
 type CardSlot = {
@@ -244,8 +250,13 @@ const compareQuad = (a: Quad, b: Quad): number => {
 const sameRect = (a: Rect, b: Rect): boolean =>
   a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 
-const sameMaybeRect = (a: Rect | undefined, b: Rect | undefined): boolean =>
-  a === undefined || b === undefined ? a === b : sameRect(a, b);
+const sameReaches = (a: ReadonlyArray<Reach>, b: ReadonlyArray<Reach>): boolean => {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index]!.tier !== b[index]!.tier || !sameRect(a[index]!.rect, b[index]!.rect)) return false;
+  }
+  return true;
+};
 
 /** How long each one-shot motion runs (contract.ts `QuadMotion`, the shader's ages). */
 const ONE_SHOT_MS = { land: 720, landed: 720, rise: 200 } as const;
@@ -914,17 +925,19 @@ export const createScene = (options: {
   /** Tiers the zoom could reach before a raster lands, in or out: their cells are taken ahead. */
   let aheadTiers: ReadonlyArray<CanvasTier> = [];
   /**
-   * The zoom-in tier inside the measured window, and the only board a zoom
-   * in can show in it: the view at the tier's floor zoom, where a zoom in
-   * crosses into it and its view is largest, so the view shrunk by
-   * floor / zoom about the pointer (the wheel and the pinch zoom about it),
-   * or about the view's centre with no pointer, grown by the pan margin at
-   * that zoom. Deeper in the window the view is smaller and inside it. A cell
-   * for the zoom-in tier outside it cannot be seen inside the window, so none
+   * Each zoom-in tier inside the measured window, nearest first, and the
+   * only board a zoom in can show in it: the view at the tier's floor zoom,
+   * where a zoom in crosses into it and its view is largest, so the view
+   * shrunk by floor / zoom about the pointer (the wheel and the pinch zoom
+   * about it), or about the view's centre with no pointer, grown by the pan
+   * margin at that zoom. Deeper in the window the view is smaller and inside
+   * it, and a deeper tier's reach sits inside a nearer one's. A cell for a
+   * zoom-in tier outside its reach cannot be seen inside the window, so none
    * is taken.
    */
-  let inwardTier: CanvasTier | undefined;
-  let inwardRect: Rect | undefined;
+  let inwardReach: ReadonlyArray<Reach> = NO_REACH;
+  /** The tiers of `inwardReach`, as a mask. */
+  let inwardMask = 0;
   let lastPrepared: { readonly view: Rect; readonly zoom: number; readonly tier: CanvasTier } | undefined;
   let jumpMask = 0;
   let jumpTier: CanvasTier | undefined;
@@ -978,7 +991,7 @@ export const createScene = (options: {
     else if (role.view) {
       for (const ahead of aheadTiers) {
         if ((quad.tiers & TIER_BIT[ahead]) === 0) continue;
-        if (ahead === inwardTier && role.inward !== true) continue;
+        if ((inwardMask & TIER_BIT[ahead]) !== 0 && ((role.inward ?? 0) & TIER_BIT[ahead]) === 0) continue;
         scale = scaleAt(quad, ahead, options.zoom?.() ?? 1);
         break;
       }
@@ -1248,7 +1261,9 @@ export const createScene = (options: {
   };
 
   const VIEW_ROLE: Role = { view: true, jump: false, lens: false };
-  const VIEW_INWARD_ROLE: Role = { view: true, jump: false, lens: false, inward: true };
+  /** The view role for each mask of zoom-in reaches a card meets, made once. */
+  const viewRoles: Role[] = [VIEW_ROLE];
+  const viewRoleFor = (inward: number): Role => (viewRoles[inward] ??= { view: true, jump: false, lens: false, inward });
 
   /** The badge each gathered seat stands in, from the last plan. */
   let badgeOfSeat = new Map<NodeId, string>();
@@ -2101,22 +2116,33 @@ export const createScene = (options: {
     };
   };
 
-  /** The tiers a zoom within the measured window of this one would draw, other than `tier`. */
+  /**
+   * The tiers a zoom within the measured window of this one would draw,
+   * other than `tier`: every tier inside the window, not only the two at its
+   * ends, since a zoom across it draws each tier it crosses. Zoom-in tiers
+   * come first, nearest first, the order a zoom in crosses them; then the
+   * zoom-out tiers, nearest first.
+   */
   const tiersAhead = (zoom: number, tier: CanvasTier): ReadonlyArray<CanvasTier> => {
     const window = tierWindowOctaves();
     if (!(window > 0)) return NO_TIERS;
     const step = 2 ** window;
-    const up = tierForZoom(zoom * step);
-    const down = tierForZoom(zoom / step);
-    const first = up !== tier ? up : down !== tier ? down : undefined;
-    if (first === undefined) return NO_TIERS;
-    const second = first === up && down !== tier && down !== up ? down : undefined;
+    const top = TIER_ORDER.indexOf(tierForZoom(zoom * step));
+    const bottom = TIER_ORDER.indexOf(tierForZoom(zoom / step));
+    const at = TIER_ORDER.indexOf(tier);
+    const found = aheadScratch;
+    found.length = 0;
+    for (let index = at - 1; index >= top; index -= 1) found.push(TIER_ORDER[index]!);
+    for (let index = at + 1; index <= bottom; index += 1) found.push(TIER_ORDER[index]!);
+    if (found.length === 0) return NO_TIERS;
     // The list in hand when nothing changed: a frame allocates none.
     const held = lastAhead;
-    if (second === undefined ? held.length === 1 && held[0] === first : held.length === 2 && held[0] === first && held[1] === second) return held;
-    return second === undefined ? [first] : [first, second];
+    let same = held.length === found.length;
+    for (let index = 0; same && index < found.length; index += 1) same = held[index] === found[index];
+    return same ? held : [...found];
   };
   const NO_TIERS: ReadonlyArray<CanvasTier> = [];
+  const aheadScratch: CanvasTier[] = [];
 
   /** Hand the scene a camera jump's destination ahead of the camera, or clear it. */
   const prefetch = (target: { readonly view: Rect; readonly zoom: number } | null): void => {
@@ -2352,7 +2378,7 @@ export const createScene = (options: {
       const card = slots[visibleSlots[i]!];
       if (card === undefined) continue;
       card.stamp = liveEpoch;
-      card.role = inwardRect !== undefined && overlaps(card.rect, inwardRect) ? VIEW_INWARD_ROLE : VIEW_ROLE;
+      card.role = inwardMask === 0 ? VIEW_ROLE : viewRoleFor(reachMaskOf(card.rect, inwardReach));
       visibleCards.push(card);
     }
     visibleCards.sort(byPaintIndex);
@@ -2654,34 +2680,45 @@ export const createScene = (options: {
   const overlaps = (a: Rect, b: Rect): boolean =>
     a.x <= b.x + b.width && a.x + a.width >= b.x && a.y <= b.y + b.height && a.y + a.height >= b.y;
 
-  /** The zoom-in tier and its reachable board for the last prepared view, the window and the pointer. */
-  const refreshInward = (): void => {
-    const at = lastPrepared;
-    const window = at === undefined ? 0 : tierWindowOctaves();
-    const step = 2 ** window;
-    const up = at === undefined || !(window > 0) ? undefined : tierForZoom(at.zoom * step);
-    if (at === undefined || up === undefined || up === at.tier || !aheadTiers.includes(up)) {
-      inwardTier = undefined;
-      inwardRect = undefined;
-      return;
-    }
-    const { view, zoom } = at;
-    const anchor = options.anchor?.() ?? { x: view.x + view.width / 2, y: view.y + view.height / 2 };
-    const ax = Math.min(Math.max(anchor.x, view.x), view.x + view.width);
-    const ay = Math.min(Math.max(anchor.y, view.y), view.y + view.height);
-    // Shrunk to the crossing, not by the whole window: the window's end is
-    // the tier's smallest view, and the frame that crosses draws its largest.
-    const shrink = Math.max(1, TIER_FLOOR[up] / zoom);
-    const reach = { x: ax - (ax - view.x) / shrink, y: ay - (ay - view.y) / shrink, width: view.width / shrink, height: view.height / shrink };
-    inwardTier = up;
-    inwardRect = insetBy(reach, marginAt(zoom * shrink));
+  /** The zoom-in tiers whose reach a card's rect meets, as a tier mask. */
+  const reachMaskOf = (rect: Rect, reaches: ReadonlyArray<Reach>): number => {
+    let mask = 0;
+    for (const reach of reaches) if (overlaps(rect, reach.rect)) mask |= TIER_BIT[reach.tier];
+    return mask;
   };
 
-  /** Move the zoom-in cells with the reachable board: only the cards it left or entered settle again. */
-  const settleInward = (before: Rect | undefined, after: Rect | undefined): void => {
+  /** The zoom-in tiers and their reachable boards for the last prepared view, the window and the pointer. */
+  const refreshInward = (): void => {
+    const at = lastPrepared;
+    const level = at === undefined ? 0 : TIER_ORDER.indexOf(at.tier);
+    let next: Reach[] | undefined;
+    let ax = 0;
+    let ay = 0;
+    for (const tier of at === undefined ? NO_TIERS : aheadTiers) {
+      if (TIER_ORDER.indexOf(tier) >= level) continue;
+      const { view, zoom } = at!;
+      if (next === undefined) {
+        next = [];
+        const anchor = options.anchor?.() ?? { x: view.x + view.width / 2, y: view.y + view.height / 2 };
+        ax = Math.min(Math.max(anchor.x, view.x), view.x + view.width);
+        ay = Math.min(Math.max(anchor.y, view.y), view.y + view.height);
+      }
+      // Shrunk to the crossing, not by the whole window: the window's end is
+      // the tier's smallest view, and the frame that crosses draws its largest.
+      const shrink = Math.max(1, TIER_FLOOR[tier] / zoom);
+      const reach = { x: ax - (ax - view.x) / shrink, y: ay - (ay - view.y) / shrink, width: view.width / shrink, height: view.height / shrink };
+      next.push({ tier, rect: insetBy(reach, marginAt(zoom * shrink)) });
+    }
+    inwardReach = next ?? NO_REACH;
+    inwardMask = 0;
+    for (const reach of inwardReach) inwardMask |= TIER_BIT[reach.tier];
+  };
+
+  /** Move the zoom-in cells with the reachable boards: only the cards one left or entered settle again. */
+  const settleInward = (before: ReadonlyArray<Reach>, after: ReadonlyArray<Reach>): void => {
     const found: number[] = [];
-    if (before !== undefined) grid.query(before, found);
-    if (after !== undefined) grid.query(after, found);
+    for (const reach of before) grid.query(reach.rect, found);
+    for (const reach of after) grid.query(reach.rect, found);
     const exact = options.settled?.() ?? true;
     const seen = new Set<number>();
     for (const slot of found) {
@@ -2689,8 +2726,8 @@ export const createScene = (options: {
       seen.add(slot);
       const card = slots[slot];
       if (card === undefined || card.stamp !== liveEpoch || !card.role.view) continue;
-      const inward = after !== undefined && overlaps(card.rect, after);
-      if (inward === (card.role.inward === true)) continue;
+      const inward = reachMaskOf(card.rect, after);
+      if (inward === (card.role.inward ?? 0)) continue;
       card.role = { ...card.role, inward };
       if (!card.painted) continue;
       const gathered = gatheredSeats.has(card.id);
@@ -2701,9 +2738,9 @@ export const createScene = (options: {
   /** The pointer moved or left: the reachable board follows it at once, with no frame. */
   const anchorMoved = (): void => {
     if (!orderReady || lastPrepared === undefined) return;
-    const before = inwardRect;
+    const before = inwardReach;
     refreshInward();
-    if (!sameMaybeRect(before, inwardRect)) settleInward(before, inwardRect);
+    if (!sameReaches(before, inwardReach)) settleInward(before, inwardReach);
   };
 
   const prepare = (view: Rect, tier: CanvasTier): Prepared => {
@@ -2733,7 +2770,7 @@ export const createScene = (options: {
     needKeep = Math.max(1, orderCount);
     aheadTiers = tiersAhead(zoom, tier);
     lastPrepared = { view, zoom, tier };
-    const inwardBefore = inwardRect;
+    const inwardBefore = inwardReach;
     refreshInward();
     if (jump !== undefined) {
       jumpTier = tierForZoom(jump.zoom);
@@ -2772,7 +2809,7 @@ export const createScene = (options: {
       lastAhead = aheadTiers;
       orderReady = true;
     }
-    if (!rebuilt && !sameMaybeRect(inwardBefore, inwardRect)) settleInward(inwardBefore, inwardRect);
+    if (!rebuilt && !sameReaches(inwardBefore, inwardReach)) settleInward(inwardBefore, inwardReach);
     let spliced = false;
     if (!rebuilt && spliceQueue.size > 0) {
       for (const card of spliceQueue) {
@@ -3023,9 +3060,8 @@ export const createScene = (options: {
     /** The card the pointer is over, for the hover bloom's pick and rect. */
     hoveredId: (): NodeId | null => hovered,
     anchorMoved,
-    /** The board a zoom in to the next tier can reach, while one is inside the window (tests, the proof). */
-    inward: (): { readonly tier: CanvasTier; readonly rect: Rect } | undefined =>
-      inwardTier === undefined || inwardRect === undefined ? undefined : { tier: inwardTier, rect: inwardRect },
+    /** Each zoom-in tier inside the window, nearest first, and the board a zoom in can show in it (tests, the proof). */
+    inward: (): ReadonlyArray<Reach> => inwardReach,
     /**
      * Whether the hovered card draws its bloom at this tier. Only a seat
      * blooms (paint/hover.ts); a hovered region or note draws none, so the
