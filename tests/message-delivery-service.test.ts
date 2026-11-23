@@ -10,6 +10,7 @@ import {
   MAIL_FILES_RETRY_MS,
   MAIL_HELD_RETRY_MS,
   MAIL_PASS_CHUNK,
+  MAIL_UNRESOLVED_MAX,
   MessageDeliveryService,
   type MailBatching,
   type MessageDeliveryStore,
@@ -73,6 +74,8 @@ const rig = (
     files?: (message: Message) => ReadonlyArray<string> | undefined;
     /** Whether this read of the model, or of one message, throws. */
     readThrows?: (what: "model" | "message", messageId?: string) => boolean;
+    /** Whether this read of the model finds none, without a throw. */
+    noModel?: () => boolean;
   } = {},
 ) => {
   const messages: Message[] = [];
@@ -88,6 +91,7 @@ const rig = (
       modelReads += 1;
       await new Promise((resolve) => setTimeout(resolve, 1));
       if (options.readThrows?.("model") === true) throw new Error("the model read failed");
+      if (options.noModel?.() === true) return undefined;
       return options.canvas ?? crew;
     },
     readMessage: async (_canvas, _nodeId, messageId) => {
@@ -458,6 +462,45 @@ describe("mail delivery", () => {
     await settle();
     expect(seat.writes).toHaveLength(1);
     expect(seat.writes[0]).toMatch(/^mail from Claude Code, id 01A\b/u);
+  });
+
+  it("holds mail whose first attempt found no model, and types it on the seat's next live event", async () => {
+    let none = true;
+    const seat = rig({ noModel: () => none });
+    seat.append(mail("01A", "first"));
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    none = false;
+    expect(seat.writes).toHaveLength(0);
+
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    expect(seat.writes).toHaveLength(1);
+    expect(seat.writes[0]).toMatch(/^mail from Claude Code, id 01A\b/u);
+  });
+
+  it("holds at most MAIL_UNRESOLVED_MAX unresolved mail, and says which oldest one it let go", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let failing = true;
+    const seat = rig({ live: false, readThrows: (what) => failing && what === "model" });
+    const ids = Array.from({ length: MAIL_UNRESOLVED_MAX + 1 }, (_, index) => `01U${String(index).padStart(4, "0")}`);
+    for (const id of ids) seat.append(mail(id, `mail ${id}`));
+    await Promise.all(ids.map((id) => seat.service.deliver(canvas, nodeId, id)));
+    const dropped = errors.mock.calls.map((call) => String(call[0])).filter((line) => line.includes(`past ${MAIL_UNRESOLVED_MAX}`));
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]).toContain(`${canvas}/${nodeId}/${ids[0]}`);
+    errors.mockRestore();
+
+    // The rest are still held: once the reads answer, each is indexed for its seat; the one let go is not.
+    failing = false;
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    seat.setLive(true);
+    seat.service.onSeatLive(bindingId);
+    for (let i = 0; i < 10; i += 1) await settle();
+    const delivered = new Set(seat.messages.filter((m) => typeof m.metadata?.deliveredAt === "number").map((m) => m.messageId));
+    expect(delivered.has(ids[0]!)).toBe(false);
+    expect(delivered.has(ids[1]!)).toBe(true);
+    expect(delivered.has(ids.at(-1)!)).toBe(true);
   });
 
   it("starts a down seat once for all the mail waiting on it", async () => {

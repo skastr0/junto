@@ -129,6 +129,12 @@ export const MAIL_QUIET_IDLE_MS = 250;
  */
 export const MAIL_PASS_CHUNK = 64;
 
+/**
+ * The most mail held unresolved (its seat could not be read). Past it the
+ * oldest leaves, said in the log; the boot scan is the net for it.
+ */
+export const MAIL_UNRESOLVED_MAX = 256;
+
 /** Whether a message reached its seat now, or waits for the seat to come up. */
 /**
  * What became of mail, as its sender is told. `delivered`, `queued` and
@@ -393,6 +399,16 @@ export class MessageDeliveryService {
     this.heldRetries.clear();
   }
 
+  /** Hold a mail whose seat could not be read, newest last, within `MAIL_UNRESOLVED_MAX`. */
+  private holdUnresolved(key: string, canvas: string, nodeId: string, messageId: string): void {
+    this.unresolved.delete(key);
+    this.unresolved.set(key, { canvas, nodeId, messageId });
+    if (this.unresolved.size <= MAIL_UNRESOLVED_MAX) return;
+    const [oldest, dropped] = this.unresolved.entries().next().value!;
+    this.unresolved.delete(oldest);
+    console.error(`[delivery] unresolved mail past ${MAIL_UNRESOLVED_MAX}, no longer tried until the next start: ${dropped.canvas}/${dropped.nodeId}/${dropped.messageId}`);
+  }
+
   private active(generation: number): boolean {
     return !this.suspended && generation === this.lifecycleGeneration;
   }
@@ -508,7 +524,7 @@ export class MessageDeliveryService {
       // its canvas's resume try it again, and the boot scan after a restart.
       .catch((error: unknown): MailDeliveryState => {
         console.error(`[delivery] attempt failed for ${canvas}/${nodeId}/${messageId}: ${String(error)}`);
-        if (this.active(generation)) this.unresolved.set(key, { canvas, nodeId, messageId });
+        if (this.active(generation)) this.holdUnresolved(key, canvas, nodeId, messageId);
         return "waiting";
       })
       .finally(() => {
@@ -535,7 +551,11 @@ export class MessageDeliveryService {
     if (!transport || !store) return waiting("delivery not configured: store or transport missing");
     const doc = await store.readModel(canvas, "attempt");
     if (!this.active(generation)) return waiting("delivery generation ended during model read");
-    if (!doc) return waiting("model unavailable");
+    if (!doc) {
+      // No seat to index it under yet: held as a failed read is, and tried again.
+      this.holdUnresolved(key, canvas, nodeId, messageId);
+      return waiting("model unavailable");
+    }
     const node = doc?.nodes.get(asNodeId(nodeId));
     const message = await store.readMessage(canvas, nodeId, messageId);
     // Both reads answered: what follows delivers it, indexes it or finds it not pending.
