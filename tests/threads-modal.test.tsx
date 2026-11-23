@@ -15,6 +15,9 @@ import { clearThreadsFilters, threadsView$, type ThreadRow } from "../src/window
 
 import { runThreadKey } from "../src/window/lib/thread-keys";
 
+// jsdom has no CSS.escape; the list's keys use it to find the row a move lands on.
+globalThis.CSS ??= { escape: (value: string) => value } as unknown as typeof CSS;
+
 const { ThreadsBody } = await import("../src/window/components/feed/ThreadsModal");
 
 const CANVAS = "threads-modal";
@@ -60,7 +63,7 @@ let root: Root;
 let host: HTMLDivElement;
 const loadMore = vi.fn();
 /** Each chat mount, with what its reply field would be told. */
-let chats: Array<{ threadId: string; yields: boolean }> = [];
+let chats: Array<{ threadId: string; yields: boolean; picked: boolean }> = [];
 
 const draw = (read: OperatorThreadsState, props: { quick?: boolean } = {}): void => {
   act(() =>
@@ -71,8 +74,8 @@ const draw = (read: OperatorThreadsState, props: { quick?: boolean } = {}): void
         all={{ total: 24, unread: 3 }}
         nodesById={new Map()}
         onLoadMore={loadMore}
-        chat={(shown, yields) => {
-          chats.push({ threadId: shown.threadId, yields: yields() });
+        chat={(shown, yields, picked) => {
+          chats.push({ threadId: shown.threadId, yields: yields(), picked });
           return <div data-testid="chat">{shown.threadId}</div>;
         }}
         {...(props.quick
@@ -274,4 +277,57 @@ it("marks a thread with an open signal by its kind's glyph, said as open and the
   // Before the unread pill.
   expect(mark.nextElementSibling?.getAttribute("data-testid")).toBe("operator-threads-row-unread");
   expect(q('[data-thread="t2"] [data-testid="operator-threads-row-signal"]')).toBeNull();
+});
+
+const unreadRows = [row("u1", "a", PRODUCT, 300, 1), row("u2", "a", PRODUCT, 200, 2), row("u3", "b", OPEN, 100, 1)];
+
+it("reads no thread the operator did not pick, and keeps the one picked under Unread until selection moves", () => {
+  act(() => threadsView$.unread.set(true));
+  draw(state(unreadRows));
+  // Shown first, not chosen: the chat is told it is not the operator's pick, so nothing is read.
+  expect(chats.at(-1)).toMatchObject({ threadId: "u1", picked: false });
+  expect(chats.every((chat) => !chat.picked)).toBe(true);
+  act(() => q<HTMLButtonElement>('[data-thread="u2"]')!.click());
+  expect(chats.at(-1)).toMatchObject({ threadId: "u2", picked: true });
+  // Read, the store's Unread list drops it: it stays, in its place, while selected.
+  draw(state([unreadRows[0]!, unreadRows[2]!]));
+  expect(all('[data-testid="operator-threads-row"]').map((one) => one.dataset.thread)).toEqual(["u1", "u2", "u3"]);
+  expect(q('[data-thread="u2"]')?.dataset.selected).toBe("true");
+  // Selection moves on: it leaves.
+  act(() => q<HTMLButtonElement>('[data-thread="u3"]')!.click());
+  expect(all('[data-testid="operator-threads-row"]').map((one) => one.dataset.thread)).toEqual(["u1", "u3"]);
+});
+
+it("hears the list's keys from the frame on open, and leaves a field's keys to it", () => {
+  draw(state(rows));
+  const frame = q(".operator-modal__frame")!;
+  act(() => {
+    frame.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  });
+  expect(q('[data-thread="t2"]')?.dataset.selected).toBe("true");
+  expect(chats.at(-1)).toMatchObject({ threadId: "t2", picked: true });
+  const search = q<HTMLInputElement>('input[type="search"], .operator-feed__controls input')!;
+  act(() => {
+    search.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+  });
+  expect(q('[data-thread="t2"]')?.dataset.selected).toBe("true");
+});
+
+it("folds a seat row with no toggle, so Escape is not spent on it", () => {
+  act(() => threadsView$.seatsOpen.set(true));
+  draw(state(rows, { seatCounts: [{ seat: rows[0]!.seat, region: PRODUCT, total: 2, unread: 1 }] }));
+  expect(q('[data-testid="feed-seats-toggle"]')).toBeNull();
+  expect(threadsView$.seatsOpen.peek()).toBe(false);
+});
+
+it("leaves the keyboard on New thread after a send, then on the new thread's row, and clears a filter that hides it", () => {
+  act(() => threadsView$.query.set("line"));
+  draw(state(rows.slice(0, 1)), { quick: true });
+  act(() => q<HTMLButtonElement>('[data-testid="operator-threads-new"]')!.click());
+  act(() => q<HTMLButtonElement>('[data-testid="quick"]')!.click());
+  expect(threadsView$.query.peek()).toBe("");
+  expect(document.activeElement?.getAttribute("data-testid")).toBe("operator-threads-new");
+  draw(state(rows), { quick: true });
+  expect(document.activeElement?.closest("[data-thread]")?.getAttribute("data-thread")).toBe("t2");
+  expect(chats.at(-1)).toMatchObject({ threadId: "t2", picked: true });
 });

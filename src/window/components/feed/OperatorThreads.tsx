@@ -11,7 +11,7 @@ import { closeOperatorModal } from "../../lib/operator-modal";
 import { loadMoreOperatorThreads, useOperatorThreads } from "../../lib/operator-threads";
 import { openSeatOn } from "../../lib/seat-view";
 import { state$ } from "../../lib/state";
-import { seatSummaryOf, threadsStoreView, threadsView$, urgentSeatsFirst } from "../../lib/threads-view";
+import { seatSummaryOf, threadsSeatOn, threadsStoreView, threadsView$, urgentSeatsFirst } from "../../lib/threads-view";
 import { useCanvas } from "../../lib/use-model";
 import { QuickThread } from "../quick-thread/QuickThread";
 import { seatUrgencyOf } from "../SeatRing";
@@ -25,7 +25,7 @@ export function OperatorThreads() {
   const order = use$(threadsView$.order);
   const query = use$(threadsView$.query);
   const unread = use$(threadsView$.unread);
-  const seat = use$(threadsView$.seat);
+  const seat = threadsSeatOn(use$(threadsView$.seat), canvasName);
   // Read once each time Most urgent first is picked (and on open), so the
   // order holds still while the operator moves through it.
   const urgentFirst = useMemo(
@@ -35,8 +35,12 @@ export function OperatorThreads() {
   );
   const view = threadsStoreView({ region, query, unread, seat, order }, canvasName, urgentFirst);
   const read = useOperatorThreads(view);
-  // Every thread on the canvas, for "5 of 24": the same list as the view when nothing narrows it.
-  const all = useOperatorThreads({ canvasName });
+  // Every thread on the canvas, for "5 of 24". With nothing narrowing it is
+  // the view's own list, so it is not held a second time: a second hold of the
+  // same list without the urgent seats would read it newest first again.
+  const narrowed = view.region !== undefined || view.search !== undefined || view.unread === true || view.seat !== undefined;
+  const everything = useOperatorThreads({ canvasName }, narrowed);
+  const all = narrowed ? everything : read;
   return (
     <ThreadsBody
       canvasName={canvasName}
@@ -44,11 +48,13 @@ export function OperatorThreads() {
       all={{ total: all.total, unread: all.unread }}
       nodesById={canvas.nodes}
       onLoadMore={() => void loadMoreOperatorThreads(view)}
-      chat={(row, yields) => (
+      chat={(row, yields, picked) => (
         <ThreadChat
           seat={{ canvasName, seatId: row.seat.nodeId }}
           name={row.seat.name}
           thread={seatSummaryOf(row)}
+          // Only a thread the operator chose is read on sight; the first of the list waits for an act in it.
+          picked={picked}
           yields={yields}
         />
       )}

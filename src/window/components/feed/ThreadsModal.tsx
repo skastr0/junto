@@ -13,10 +13,12 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type HTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
@@ -44,6 +46,7 @@ import {
   threadsFilterOn,
   threadsStatusLine,
   threadsView$,
+  threadsSeatOn,
   toggleThreadsSeat,
   type ThreadRow,
   type ThreadsOrder,
@@ -213,11 +216,12 @@ export function ThreadsBody({
   readonly all: { readonly total: number; readonly unread: number };
   readonly nodesById: ReadonlyMap<string, Node>;
   /**
-   * The one thread chat for the picked row. It marks its thread read while it
-   * is on screen; `yields` is asked as its reply field mounts, true leaving
-   * the keyboard in the list.
+   * The one thread chat for the selected row. `picked` says the operator chose
+   * it (a click, a key that moved to it, a link or a send that opened it):
+   * only then is it read on sight, never as the first of a list. `yields` is
+   * asked as its reply field mounts, true leaving the keyboard in the list.
    */
-  readonly chat: (row: ThreadRow, yields: () => boolean) => ReactNode;
+  readonly chat: (row: ThreadRow, yields: () => boolean, picked: boolean) => ReactNode;
   /**
    * Quick thread: New thread and the threads.quick key open it in the right
    * pane. `done` takes the first new thread, to show it selected; `backOut`
@@ -234,17 +238,44 @@ export function ThreadsBody({
   const order = use$(threadsView$.order);
   const query = use$(threadsView$.query);
   const unreadOnly = use$(threadsView$.unread);
-  const seatId = use$(threadsView$.seat);
+  const seatId = threadsSeatOn(use$(threadsView$.seat), canvasName);
   const seatsOpen = use$(threadsView$.seatsOpen);
   const activeRegion = regionPick?.canvasName === canvasName ? regionPick : undefined;
   const filtering = threadsFilterOn({ query, unread: unreadOnly, seat: seatId });
 
-  const rows = read.rows;
+  // What the view is narrowed to: a row held for the operator is held only under the same narrowing.
+  const viewKey = `${canvasName}\n${order}\n${query.trim()}\n${String(unreadOnly)}\n${seatId ?? ""}\n${activeRegion ? regionPickKey(activeRegion.path) : ""}`;
+  // Selection: a row, and whether the operator chose it. A row shown only
+  // because it came first is not read (product-lead's ruling), so it never
+  // empties an Unread list; one the operator chose stays in the list while it
+  // is selected, even once reading it takes it out of the store's Unread rows.
+  const [pick, setPick] = useState<{ readonly id: string; readonly mine: boolean } | null>(null);
+  const held = useRef<{ readonly key: string; readonly row: ThreadRow; readonly index: number } | null>(null);
+  const holding =
+    held.current !== null &&
+    held.current.key === viewKey &&
+    pick?.mine === true &&
+    pick.id === held.current.row.threadId &&
+    !read.rows.some((row) => row.threadId === pick.id)
+      ? held.current
+      : null;
+  const rows = useMemo(
+    () =>
+      holding === null
+        ? read.rows
+        : [...read.rows.slice(0, holding.index), { ...holding.row, unread: 0 }, ...read.rows.slice(holding.index)],
+    [read.rows, holding],
+  );
   // One row per thread: its id is its key.
   const keys = useMemo(() => rows.map((row) => row.threadId), [rows]);
+  const nothingYetNow = read.loaded && all.total === 0 && !threadsFilterOn({ query, unread: unreadOnly, seat: seatId }) && activeRegion === undefined;
   const regionChips = useMemo(() => threadRegionChips(read.regions, activeRegion?.path), [read.regions, activeRegion]);
   const seatChips = useMemo(() => threadSeatChips(read.seatCounts), [read.seatCounts]);
   const seatsToggleShown = seatChips.length >= 2 || seatId !== undefined;
+  // A seat row with no toggle to fold it is folded, so it holds no Escape.
+  useEffect(() => {
+    if (!seatsToggleShown && seatsOpen) threadsView$.seatsOpen.set(false);
+  }, [seatsToggleShown, seatsOpen]);
   const activeSeat =
     seatId === undefined
       ? undefined
@@ -258,11 +289,8 @@ export function ThreadsBody({
           color: undefined,
         });
 
-  // Selection: a row key, or the Quick thread pane. A row that leaves hands
-  // the pick to its neighbour; nothing picked takes the first.
-  const [picked, setPicked] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
-  // A thread just started from Quick thread: selected as soon as the list has it.
+  // A thread just started from Quick thread: selected, as the operator's, as soon as the list has it.
   const [landing, setLanding] = useState<string | null>(null);
   const landed = landing !== null && keys.includes(landing);
   const previous = useRef<ReadonlyArray<string>>(keys);
@@ -270,17 +298,26 @@ export function ThreadsBody({
     ? null
     : landing !== null
       ? landing
-      : reconcileThreadSelection(previous.current, keys, picked);
+      : reconcileThreadSelection(previous.current, keys, pick?.id ?? null);
   useEffect(() => {
     previous.current = keys;
     if (landed) {
       setLanding(null);
-      setPicked(landing);
+      setPick({ id: landing, mine: true });
       return;
     }
-    if (!composing && landing === null && selected !== picked) setPicked(selected);
-  }, [keys, selected, picked, composing, landing, landed]);
+    // A row handed on, or taken as the first, is shown and not the operator's.
+    if (!composing && landing === null && selected !== (pick?.id ?? null)) setPick(selected === null ? null : { id: selected, mine: false });
+  }, [keys, selected, pick, composing, landing, landed]);
   const selectedRow = selected === null ? undefined : rows.find((row) => row.threadId === selected);
+  const pickedByOperator = pick?.mine === true && pick.id === selected;
+  // The operator's row as the store last had it, and where: what is held if
+  // reading it takes it out of an Unread list.
+  useEffect(() => {
+    if (selected === null || !pickedByOperator) return;
+    const index = read.rows.findIndex((row) => row.threadId === selected);
+    if (index !== -1) held.current = { key: viewKey, row: read.rows[index]!, index };
+  }, [selected, pickedByOperator, read.rows, viewKey]);
 
   // A thread on screen is read: the chat marks it while it shows (ThreadChat).
   // One behind the Quick thread pane, or not picked, has no chat mounted and
@@ -305,7 +342,8 @@ export function ThreadsBody({
     const observer = new ResizeObserver(() => fillNow.current(false));
     observer.observe(list);
     return () => observer.disconnect();
-  }, []);
+    // The column remounts when the empty state comes or goes.
+  }, [nothingYetNow]);
   const [scrolled, setScrolled] = useState(false);
 
   const chatRef = useRef<HTMLDivElement>(null);
@@ -316,7 +354,7 @@ export function ThreadsBody({
   const select = (key: string): void => {
     setComposing(false);
     setLanding(null);
-    setPicked(key);
+    setPick({ id: key, mine: true });
   };
   const nav = useListNav({
     ids: keys,
@@ -333,6 +371,18 @@ export function ThreadsBody({
     },
   });
 
+  // The list's keys are heard anywhere in the modal but where a field, a
+  // control or the chat has its own: on open the keyboard is on the frame.
+  const scopeOf = (): ParentNode | null => document.querySelector('[data-operator-modal="threads"]');
+  const onListKey = (event: ReactKeyboardEvent<HTMLElement>): void => {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+    const target = event.target instanceof Element ? event.target : null;
+    const inList = target !== null && listRef.current?.contains(target) === true;
+    if (!inList) {
+      if (target?.closest('[data-testid="operator-threads-pane"], button, a, input, textarea, select, [role="listbox"], [contenteditable="true"]')) return;
+    }
+    nav.onKeyDown(event);
+  };
   const searchRef = useRef<HTMLInputElement>(null);
   const seatsToggleRef = useRef<HTMLButtonElement>(null);
   const clearAll = (event: ReactMouseEvent<HTMLButtonElement>): void => {
@@ -340,17 +390,47 @@ export function ThreadsBody({
     claimFocus(searchRef.current, "gesture", { event });
   };
   const quickBackOut = useRef<(() => boolean) | null>(null);
+  // Where the keyboard goes once Quick thread leaves the pane and the list
+  // has drawn: New thread (or the empty state's Quick thread), or the new
+  // thread's row once the list has it. Never left on nothing.
+  const focusAfter = useRef<{ readonly want: "new" | "landing"; claimed: boolean } | null>(null);
+  useLayoutEffect(() => {
+    const after = focusAfter.current;
+    if (after === null || composing) return;
+    const scope = scopeOf();
+    if (scope === null) return;
+    const row =
+      after.want === "landing" && selected !== null && landing === null
+        ? [...scope.querySelectorAll<HTMLElement>("[data-list-row]")].find((one) => one.getAttribute("data-list-row") === selected)
+        : undefined;
+    if (row !== undefined) {
+      focusAfter.current = null;
+      claimFocus(row, "gesture", { preventScroll: false });
+      row.scrollIntoView?.({ block: "nearest" });
+      return;
+    }
+    // The pane that had the keyboard is gone: New thread takes it at once.
+    // While the new thread is still on its way it is only put back if lost,
+    // so a keyboard the operator moved stays.
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    const start = scope.querySelector<HTMLElement>('[data-testid="operator-threads-new"], [data-testid="threads-empty-quick"]');
+    if (start !== null && (!after.claimed || lost)) {
+      claimFocus(start, "gesture");
+      after.claimed = true;
+    }
+    if (after.want === "new") focusAfter.current = null;
+  });
   const onEscape = (): boolean => {
     // The innermost layer first: Quick thread's seat picker, then Quick
     // thread itself (its draft is kept), back to the list on New thread.
     if (composing) {
       if (quickBackOut.current?.() !== true) {
+        focusAfter.current = { want: "new", claimed: false };
         setComposing(false);
-        claimFocus(scrollRef.current?.querySelector<HTMLElement>('[data-testid="operator-threads-new"]') ?? null, "gesture");
       }
       return true;
     }
-    if (seatsOpen) {
+    if (seatsOpen && seatsToggleShown) {
       threadsView$.seatsOpen.set(false);
       claimFocus(seatsToggleRef.current, "gesture");
       return true;
@@ -371,14 +451,26 @@ export function ThreadsBody({
   };
   const quickDone = (first?: { readonly seatId: string; readonly threadId: string }): void => {
     setComposing(false);
-    if (first) setLanding(first.threadId);
+    if (!first) {
+      focusAfter.current = { want: "new", claimed: false };
+      return;
+    }
+    // A narrowing that would hide the new thread is cleared, so it lands.
+    if (filtering || activeRegion !== undefined) clearThreadsFilters();
+    focusAfter.current = { want: "landing", claimed: false };
+    setLanding(first.threadId);
   };
   // Cmd+Shift+U while Threads is open starts the thread here, with the
   // keyboard in Quick thread's seat field; the canvas-wide one waits behind.
   const quickKey = useRef<() => void>(() => undefined);
   quickKey.current = () => {
-    openQuick();
-    requestAnimationFrame(() => focusPrimaryControl(chatRef.current));
+    // Quick thread puts the keyboard in its seat field as it mounts; already
+    // up, the key takes the keyboard back there.
+    if (!composing) {
+      openQuick();
+      return;
+    }
+    claimFocus(chatRef.current?.querySelector<HTMLElement>('[data-testid="quick-thread-picker"] input') ?? null, "gesture");
   };
   const hasQuick = quickThread !== undefined;
   useEffect(() => (hasQuick ? provideThreadKey("threads.quick", () => quickKey.current()) : undefined), [hasQuick]);
@@ -391,7 +483,7 @@ export function ThreadsBody({
     : everNarrowed.current
       ? "Every thread shown"
       : "";
-  const nothingYet = read.loaded && all.total === 0 && !filtering && activeRegion === undefined;
+  const nothingYet = nothingYetNow;
 
   return (
     <OperatorModalShell
@@ -406,6 +498,7 @@ export function ThreadsBody({
       fill
       panelClassName="operator-feed__panel operator-threads"
       onEscape={onEscape}
+      onKeyDown={onListKey}
     >
       <div className="operator-feed__controls">
         <FeedRegionStrip
@@ -475,7 +568,7 @@ export function ThreadsBody({
             chosen={seatId}
             open={seatsOpen}
             countWord={(count) => (count === 1 ? "thread" : "threads")}
-            onPick={toggleThreadsSeat}
+            onPick={(id) => toggleThreadsSeat(canvasName, id)}
           />
         ) : null}
       </div>
@@ -490,7 +583,7 @@ export function ThreadsBody({
             copy="Start one and it lands here."
             action={
               quickThread ? (
-                <Button size="sm" variant="subtle" onClick={openQuick}>
+                <Button size="sm" variant="subtle" data-testid="threads-empty-quick" onClick={openQuick}>
                   Quick thread
                 </Button>
               ) : undefined
@@ -540,7 +633,7 @@ export function ThreadsBody({
               />
             ) : null}
             {!read.loaded && !read.error ? <p className="seat-threads__note">Reading threads…</p> : null}
-            <ul ref={listRef} className="operator-threads__list" aria-label="Threads" onKeyDown={nav.onKeyDown}>
+            <ul ref={listRef} className="operator-threads__list" aria-label="Threads">
               {rows.map((row) => (
                 <ThreadListRow
                   key={row.threadId}
@@ -578,7 +671,7 @@ export function ThreadsBody({
                   ) : null}
                 </header>
                 <div className="seat-threads__chat operator-threads__chat" key={selected ?? ""}>
-                  {chat(selectedRow, chatYields)}
+                  {chat(selectedRow, chatYields, pickedByOperator)}
                 </div>
               </>
             ) : landing !== null ? (

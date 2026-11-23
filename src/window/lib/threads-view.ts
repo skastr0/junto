@@ -63,6 +63,13 @@ export const THREADS_ORDER_OPTIONS: ReadonlyArray<{ readonly value: ThreadsOrder
   { value: "urgency", label: "Most urgent first" },
 ];
 
+/** A seat kept, by node id, on its canvas: a pick never follows the operator to another canvas. */
+export type ThreadsSeatPick = { readonly canvasName: string; readonly seatId: string };
+
+/** The kept seat's id on this canvas, or undefined when none is kept here. */
+export const threadsSeatOn = (pick: ThreadsSeatPick | undefined, canvasName: string): string | undefined =>
+  pick?.canvasName === canvasName ? pick.seatId : undefined;
+
 export const threadsView$ = observable<{
   region: FeedRegionPick | undefined;
   order: ThreadsOrder;
@@ -70,8 +77,8 @@ export const threadsView$ = observable<{
   query: string;
   /** Only threads with mail the operator has not read. */
   unread: boolean;
-  /** The one seat kept, by node id; undefined keeps every seat. */
-  seat: string | undefined;
+  /** The one seat kept, on the canvas it was picked on; undefined keeps every seat. */
+  seat: ThreadsSeatPick | undefined;
   /** Whether the seat chips are unfolded; folded by default, as in the feed. */
   seatsOpen: boolean;
 }>({ region: undefined, order: "newest", query: "", unread: false, seat: undefined, seatsOpen: false });
@@ -189,8 +196,8 @@ export const clearThreadsFilters = (): void => {
 };
 
 /** A seat chip's press: the seat becomes the one kept, or leaves when it already is. */
-export const toggleThreadsSeat = (seatId: string): void => {
-  threadsView$.seat.set(threadsView$.seat.peek() === seatId ? undefined : seatId);
+export const toggleThreadsSeat = (canvasName: string, seatId: string): void => {
+  threadsView$.seat.set(threadsSeatOn(threadsView$.seat.peek(), canvasName) === seatId ? undefined : { canvasName, seatId });
 };
 
 /**
