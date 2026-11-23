@@ -331,3 +331,43 @@ it("leaves the keyboard on New thread after a send, then on the new thread's row
   expect(document.activeElement?.closest("[data-thread]")?.getAttribute("data-thread")).toBe("t2");
   expect(chats.at(-1)).toMatchObject({ threadId: "t2", picked: true });
 });
+
+it("watches the column it has, after the empty state gives it back", () => {
+  const watched: Element[] = [];
+  const unwatched: Element[] = [];
+  const Real = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    private at: Element | undefined;
+    observe(element: Element): void {
+      this.at = element;
+      watched.push(element);
+    }
+    unobserve(): void {}
+    disconnect(): void {
+      if (this.at) unwatched.push(this.at);
+    }
+  } as unknown as typeof ResizeObserver;
+  try {
+    draw({ ...state([]), total: 0, unread: 0 }, { quick: true });
+    act(() => root.render(<></>));
+    act(() =>
+      root.render(
+        <ThreadsBody
+          canvasName={CANVAS}
+          read={{ ...state([]), total: 0 }}
+          all={{ total: 0, unread: 0 }}
+          nodesById={new Map()}
+          onLoadMore={loadMore}
+          chat={() => null}
+          quickThread={() => <div data-testid="quick-pane" />}
+        />,
+      ),
+    );
+    act(() => q<HTMLButtonElement>('[data-testid="threads-empty-quick"]')!.click());
+    const column = q(".operator-threads__scroll");
+    expect(column).not.toBeNull();
+    expect(watched.at(-1)).toBe(column);
+  } finally {
+    globalThis.ResizeObserver = Real;
+  }
+});

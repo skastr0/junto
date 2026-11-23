@@ -342,8 +342,10 @@ export function ThreadsBody({
     const observer = new ResizeObserver(() => fillNow.current(false));
     observer.observe(list);
     return () => observer.disconnect();
-    // The column remounts when the empty state comes or goes.
-  }, [nothingYetNow]);
+    // The column is a new element each time the empty state takes its place
+    // and gives it back (on an empty canvas, Quick thread brings it back), so
+    // the observer follows exactly that.
+  }, [nothingYetNow && !composing]);
   const [scrolled, setScrolled] = useState(false);
 
   const chatRef = useRef<HTMLDivElement>(null);
