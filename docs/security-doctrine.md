@@ -127,6 +127,17 @@ facilities; they grant no reach to another seat. Signals may be raised without
 an edge. Only the operator answers or dismisses them through the editing
 machine.
 
+A signal may be raised in a thread, and only in one between the raising seat
+and the operator: never in another seat's thread, never in one between seats,
+never in one the operator is not in. The signal and its message in that thread
+are one act, written both or neither. A plain reply in a thread raises
+nothing. A signal may name the signals it comes after; it names only the
+raising seat's own signals on the same canvas, and only ones that exist when
+it is raised, so no loop can be made. A batch of signals is written whole and
+in its order, or not at all. None of this needs an edge. A signal from a seat
+on another machine is checked again by the machine that edits the canvas, its
+thread and what it comes after alike, before it is stored or shown.
+
 Only a human grants or revokes overseer authority. Copied aliases do not inherit
 the grant. An overseer cannot grant it to another seat, remove its own seat,
 move the operator's viewport, or acquire machine enrollment or credentials.
