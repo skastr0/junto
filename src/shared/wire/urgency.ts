@@ -315,3 +315,122 @@ export const Palette = defineView(
   },
   "own",
 );
+
+// --- the order to act ----------------------------------------------------------
+
+/**
+ * A signal can come after other signals (`dependsOn`, as a task depends on
+ * others): the order the operator acts in. This is that order's one home,
+ * beside the ladder it lifts.
+ *
+ * Whether a signal is ready, and what it still waits on, is not decided
+ * here: an entry carries `ready` and `waitingOn` as the one function beside
+ * AgentSignal in agent-signals.ts reads them. This file only orders by them.
+ * The order advises; it never hides or locks a signal.
+ */
+export type ActEntry = {
+  readonly id: string;
+  readonly rank: UrgencyRank;
+  /** Every signal it comes after is closed, however it closed. */
+  readonly ready: boolean;
+  /** The signals it comes after that are still open. */
+  readonly waitingOn: ReadonlyArray<string>;
+};
+
+/** Where an open signal stands in the order to act. */
+export type ActPlace = {
+  readonly ready: boolean;
+  /**
+   * Its own rank, lifted to the most urgent of the open signals that wait on
+   * it, however far down the chain: an urgent signal stuck behind a quiet one
+   * lifts the quiet one.
+   */
+  readonly rank: UrgencyRank;
+  /** Steps down its open chain from a signal that waits on none: 0 when it waits on none here. */
+  readonly depth: number;
+};
+
+/**
+ * Each entry's place. A loop cannot be raised (a signal names only earlier
+ * ones), but one read here is cut where it closes, so it ranks and never
+ * hangs. A signal waited on that is not among the entries lifts and deepens
+ * nothing.
+ */
+export const placesToAct = (entries: Iterable<ActEntry>): ReadonlyMap<string, ActPlace> => {
+  const open = new Map<string, ActEntry>();
+  for (const entry of entries) open.set(entry.id, entry);
+  const holds = (entry: ActEntry): string[] => [...new Set(entry.waitingOn)].filter((id) => id !== entry.id && open.has(id));
+  const waiters = new Map<string, string[]>();
+  for (const entry of open.values()) {
+    for (const id of holds(entry)) waiters.set(id, [...(waiters.get(id) ?? []), entry.id]);
+  }
+  const depths = new Map<string, number>();
+  const depthOf = (id: string, path: Set<string>): number => {
+    const known = depths.get(id);
+    if (known !== undefined) return known;
+    path.add(id);
+    let depth = 0;
+    for (const before of holds(open.get(id)!)) {
+      if (!path.has(before)) depth = Math.max(depth, depthOf(before, path) + 1);
+    }
+    path.delete(id);
+    depths.set(id, depth);
+    return depth;
+  };
+  const ranks = new Map<string, UrgencyRank>();
+  const rankFor = (id: string, path: Set<string>): UrgencyRank => {
+    const known = ranks.get(id);
+    if (known !== undefined) return known;
+    path.add(id);
+    let rank = open.get(id)!.rank;
+    for (const after of waiters.get(id) ?? []) {
+      if (path.has(after)) continue;
+      const lifted = rankFor(after, path);
+      if (lifted > rank) rank = lifted;
+    }
+    path.delete(id);
+    ranks.set(id, rank);
+    return rank;
+  };
+  const places = new Map<string, ActPlace>();
+  for (const entry of open.values()) {
+    places.set(entry.id, { ready: entry.ready, rank: rankFor(entry.id, new Set()), depth: depthOf(entry.id, new Set()) });
+  }
+  return places;
+};
+
+/**
+ * The order to act, most actionable first: ready before waiting, then the
+ * lifted rank, then down the chain. Zero leaves the tie to the caller, who
+ * names its own (the feed's is oldest first, so a batch raised first to last
+ * reads first to last).
+ */
+export const compareToAct = (a: ActPlace, b: ActPlace): number =>
+  Number(b.ready) - Number(a.ready) || b.rank - a.rank || a.depth - b.depth;
+
+/**
+ * Items in an order of the caller's (newest first, say) that never puts a
+ * signal ahead of an open one it waits on: a chain reads top to bottom
+ * wherever it lands, and between signals in no order the caller's compare
+ * decides. Stable; a loop is cut by taking the caller's first.
+ */
+export const keepingOrderToAct = <T>(
+  items: ReadonlyArray<T>,
+  entryOf: (item: T) => Pick<ActEntry, "id" | "waitingOn">,
+  compare: (a: T, b: T) => number,
+): T[] => {
+  const ids = new Set(items.map((item) => entryOf(item).id));
+  const left = [...items].sort(compare);
+  const placed = new Set<string>();
+  const out: T[] = [];
+  while (left.length > 0) {
+    const free = left.findIndex((item) => {
+      const entry = entryOf(item);
+      return entry.waitingOn.every((id) => id === entry.id || !ids.has(id) || placed.has(id));
+    });
+    const [next] = left.splice(free === -1 ? 0 : free, 1);
+    placed.add(entryOf(next!).id);
+    out.push(next!);
+  }
+  return out;
+};

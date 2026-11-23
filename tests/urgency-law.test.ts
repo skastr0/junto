@@ -39,9 +39,12 @@ import { FeedItemKind } from "../src/shared/wire/operator-feed";
 import { RingForm } from "../src/shared/wire/rings";
 import {
   AlertKind,
+  type ActEntry,
+  compareToAct,
   compareUrgency,
   compareView,
   CueUrgency,
+  keepingOrderToAct,
   Level,
   levelOfFeedItem,
   levelOfRing,
@@ -49,6 +52,7 @@ import {
   MemberSeverity,
   needsOperator,
   Palette,
+  placesToAct,
   rankOf,
   RegionUrgency,
   ringKeepsApart,
@@ -504,5 +508,85 @@ describe("urgency law: every kind is mapped", () => {
     };
     for (const spec of imports(MODULE)) expect(spec === "effect" || /^\.\/[\w-]+$/.test(spec), spec).toBe(true);
     expect(imports("src/shared/wire/rings.ts").filter((spec) => /urgency/.test(spec))).toEqual([]);
+  });
+});
+
+describe("urgency law: the order to act", () => {
+  // An open signal: its rank on the ladder and the open signals it still waits on, as agent-signals reads them.
+  const entry = (id: string, level: UrgencyLevel, waitingOn: string[] = []): ActEntry => ({
+    id,
+    rank: rankOf(level),
+    ready: waitingOn.length === 0,
+    waitingOn,
+  });
+  const actOrder = (entries: ActEntry[]): string[] => {
+    const places = placesToAct(entries);
+    // The caller's tie: the order the entries were raised in.
+    return [...entries]
+      .sort((a, b) => compareToAct(places.get(a.id)!, places.get(b.id)!) || entries.indexOf(a) - entries.indexOf(b))
+      .map((one) => one.id);
+  };
+
+  it("reads a batch raised in order first to last, ready before waiting", () => {
+    const ten = Array.from({ length: 10 }, (_, n) => entry(`s${n + 1}`, Level.escalated, n === 0 ? [] : [`s${n}`]));
+    expect(actOrder([...ten].reverse())).toEqual(ten.map((one) => one.id));
+    expect([...placesToAct(ten).values()].map((place) => place.depth)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  it("puts every ready signal ahead of every waiting one", () => {
+    expect(actOrder([entry("waits", Level.blocked, ["quiet"]), entry("calm", Level.notice), entry("quiet", Level.notice)])).toEqual([
+      "quiet",
+      "calm",
+      "waits",
+    ]);
+  });
+
+  it("lifts a signal others wait on to the most urgent of them, down the whole chain", () => {
+    const places = placesToAct([
+      entry("a", Level.notice),
+      entry("b", Level.review, ["a"]),
+      entry("c", Level.blocked, ["b"]),
+      entry("other", Level.escalated),
+    ]);
+    expect(places.get("a")?.rank).toBe(rankOf(Level.blocked));
+    expect(places.get("b")?.rank).toBe(rankOf(Level.blocked));
+    expect(places.get("other")?.rank).toBe(rankOf(Level.escalated));
+    expect(actOrder([entry("other", Level.escalated), entry("a", Level.notice), entry("b", Level.review, ["a"]), entry("c", Level.blocked, ["b"])])).toEqual([
+      "a",
+      "other",
+      "b",
+      "c",
+    ]);
+  });
+
+  it("with no signal naming another, is exactly urgency then the caller's tie", () => {
+    const levels = [Level.notice, Level.blocked, Level.review, Level.blocked, Level.escalated, Level.done];
+    const entries = levels.map((level, n) => entry(`s${n}`, level));
+    const byUrgency = [...entries]
+      .sort((a, b) => b.rank - a.rank || entries.indexOf(a) - entries.indexOf(b))
+      .map((one) => one.id);
+    expect(actOrder(entries)).toEqual(byUrgency);
+  });
+
+  it("a signal waited on that has closed, or is not here, holds nothing and lifts nothing", () => {
+    const places = placesToAct([entry("b", Level.blocked, ["gone"]), entry("a", Level.notice)]);
+    expect(places.get("b")?.depth).toBe(0);
+    expect(places.get("a")?.rank).toBe(rankOf(Level.notice));
+  });
+
+  it("cuts a loop instead of hanging", () => {
+    const places = placesToAct([entry("a", Level.notice, ["b"]), entry("b", Level.blocked, ["a"])]);
+    expect(places.size).toBe(2);
+    expect(keepingOrderToAct([entry("a", Level.notice, ["b"]), entry("b", Level.blocked, ["a"])], (one) => one, () => 0)).toHaveLength(2);
+  });
+
+  it("newest first never puts a chain upside down, and orders the rest newest first", () => {
+    // Raised oldest first: s1 then s2 after it, then an unrelated x, then s3 after s2.
+    const raised = [entry("s1", Level.escalated), entry("s2", Level.escalated, ["s1"]), entry("x", Level.escalated), entry("s3", Level.escalated, ["s2"])];
+    const newest = (a: ActEntry, b: ActEntry): number => raised.indexOf(b) - raised.indexOf(a);
+    expect(keepingOrderToAct(raised, (one) => one, newest).map((one) => one.id)).toEqual(["x", "s1", "s2", "s3"]);
+    // With no chain it is the caller's order, untouched.
+    const free = [entry("p", Level.notice), entry("q", Level.blocked), entry("r", Level.done)];
+    expect(keepingOrderToAct(free, (one) => one, (a, b) => free.indexOf(b) - free.indexOf(a)).map((one) => one.id)).toEqual(["r", "q", "p"]);
   });
 });
