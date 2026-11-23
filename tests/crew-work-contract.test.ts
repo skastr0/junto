@@ -4,6 +4,7 @@ import {
   MsgPromptArgs, MsgSendArgs, decodeWorkRequest,
 } from "../src/shared/work-control";
 import { admitWorkTarget, connectedCapabilities } from "../src/core/work/authz";
+import { portForWorkOp } from "../src/shared/physics/work-ports";
 import { asNodeId, type Peer } from "../src/shared/model";
 import { OTHER_MACHINE } from "./support/machines";
 import { canvasOf, page, seat, wire } from "./support/model-nodes";
@@ -85,5 +86,31 @@ describe("crew work wire contract", () => {
     }
     expect(Result.isFailure(admitWorkTarget(canvas, "author", "threads", "seat.read"))).toBe(true);
     expect(Result.isSuccess(admitWorkTarget(canvas, "author", "screen", "seat.read"))).toBe(true);
+  });
+
+  it("names the port a mask turned off, for every port, and keeps wrong kind for a target that takes no such op", () => {
+    const canvas = canvasOf(
+      [seat("author"), seat("bare"), page("site")],
+      [wire("b", "author", "bare", "messages", { mask: [] }), wire("p", "author", "site", "navigates")],
+    );
+    for (const op of ["msg.list", "msg.send", "msg.prompt", "seat.wait", "seat.read", "thread.list", "thread.show"] as const) {
+      const port = portForWorkOp(op);
+      const refused = admitWorkTarget(canvas, "author", "bare", op);
+      expect(Result.isFailure(refused) && refused.failure, op).toEqual({
+        type: "ScopeError",
+        message: `the edge between "author" and "bare" does not carry port ${port}, which ${op} needs`,
+        details: {
+          target: "bare",
+          caller: "author",
+          reason: "port_off",
+          missing: port,
+          hint: `the edge is there, with ${port} turned off on it`,
+          next_step: `ask the operator to turn on ${port} for the edge between these nodes on the canvas`,
+          retryable: false,
+        },
+      });
+    }
+    const site = admitWorkTarget(canvas, "author", "site", "thread.list");
+    expect(Result.isFailure(site) && site.failure).toMatchObject({ type: "ScopeError", details: { missing: "compatible target kind" } });
   });
 });
