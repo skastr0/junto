@@ -30,7 +30,21 @@
  * point and takes a zoom-end frame there: the picture right after a zoom
  * ends, on a camera still for three display frames, with the atlas
  * unsettled (rasters for the new scale still in flight, stand-ins showing).
- * It is not a frame from inside a moving gesture. The leg churns first and
+ * It is not a frame from inside a moving gesture: those are the pop check's.
+ *
+ * The pop check (operator ruling 6: nothing visible disappears, pops or goes
+ * blank) reads the CPU tables on every presented frame of every leg's
+ * gestures, never a texel readback (a readback inside a gesture would change
+ * what is measured). Two faults, and nothing else: an in-view atlas quad that
+ * draws nothing, and a quad that showed its own pixels and on a later frame,
+ * at the raster scale it held, shows a stand-in's, its placeholder or
+ * nothing. Own cell, then stand-in, then own cell across a raster scale
+ * change is the design and passes. Its control is a seeded fault
+ * (`popWatch("seed")`: in-view quads let go of their own cells, so the frame
+ * really draws nothing there), run first: the run fails unless the check
+ * catches it.
+ *
+ * The leg churns first and
  * lets the atlas raster the churned seats, then restores the baseline and
  * settles, so the frame holds its reference's content and differs only by
  * what the zoom did. A leg that crosses a tier ends just past the crossing,
@@ -253,7 +267,7 @@ const auditTexels = (page: Page): Promise<TexelAudit | null> =>
   });
 
 /** Checks (b) and (c) at one stop. `seen` carries the GPU error count across stops. */
-const checkStop = async (page: Page, where: string, seen: { errors: number; since: number }): Promise<Record<string, unknown>> => {
+const checkStop = async (page: Page, where: string, seen: { errors: number; since: number; evictions: number }): Promise<Record<string, unknown>> => {
   const state = await readProofState(page);
   const atlas = state.atlas as
     | (typeof state.atlas & { compactions?: number; overwrites?: number; rerasters?: number; rerasterLog?: ReadonlyArray<{ key: string; evictedAt: number; at: number }> })
@@ -264,6 +278,8 @@ const checkStop = async (page: Page, where: string, seen: { errors: number; sinc
   const thrashed = log.filter((r) => r.evictedAt >= seen.since);
   const thrash = { count: thrashed.length, logFull: log.length >= 256 && (log[0]?.evictedAt ?? 0) >= seen.since, keys: thrashed.slice(0, 8).map((r) => r.key) };
   seen.since = now;
+  const evictedThisStop = (atlas?.evictions ?? 0) - seen.evictions;
+  seen.evictions = atlas?.evictions ?? 0;
   const errors = state.gpuErrors?.count ?? 0;
   if (state.gpuErrors === null) fail(`${where}: the build has no gpuErrors hook`);
   else if (errors > seen.errors) fail(`${where}: ${String(errors - seen.errors)} GPU error(s) since the last stop`, { last: state.gpuErrors.last });
@@ -277,7 +293,9 @@ const checkStop = async (page: Page, where: string, seen: { errors: number; sinc
   return {
     tier: state.tier,
     zoom: Math.round(state.camera.zoom * 1000) / 1000,
+    // A running total of cells freed since launch; the stop's own share is the difference from the stop before.
     evictions: atlas?.evictions,
+    evictedThisStop,
     compactions: atlas?.compactions,
     // A cell re-keyed in place (status churn) counts here; pages stay flat.
     overwrites: atlas?.overwrites,
@@ -290,6 +308,26 @@ const checkStop = async (page: Page, where: string, seen: { errors: number; sinc
     texels: t === null ? null : { checked: t.checked, mismatches: t.mismatches.length, worst: Math.round(t.worst * 10) / 10 },
   };
 };
+
+type PopReport = {
+  frames: number;
+  blankFrames: number;
+  blankQuads: number;
+  pops: number;
+  scanned: number;
+  peakQuads: number;
+  scaleChanges: number;
+  seeded: number;
+  samples: Array<Record<string, unknown>>;
+};
+
+/** The pop check's per-frame record (test hook `popWatch`). */
+const popWatch = (page: Page, what: "start" | "read" | "stop" | "seed"): Promise<PopReport | null> =>
+  page.evaluate((w) => {
+    const hook = (window as unknown as { __juntoCanvas?: { popWatch?: (what: string) => unknown } }).__juntoCanvas;
+    if (typeof hook?.popWatch !== "function") return null;
+    return (hook.popWatch(w) ?? null) as never;
+  }, what);
 
 const atlasCounters = async (page: Page): Promise<{ evictions: number; compactions: number }> => {
   const atlas = (await readProofState(page)).atlas as { evictions?: number; compactions?: number } | null;
@@ -766,8 +804,34 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
       const overlay = await overlayMask(page, pane, dpr);
       log("overlay", { share: Math.round(overlay.share * 1000) / 1000 });
       if (overlay.share > 0.5) fail(`the DOM overlay mask covers ${String(Math.round(overlay.share * 100))}% of the pane: it would hide the canvas`);
-      const seen = { errors: (await readProofState(page)).gpuErrors?.count ?? 0, since: await page.evaluate(() => performance.now()) };
+      const launchState = await readProofState(page);
+      const seen = {
+        errors: launchState.gpuErrors?.count ?? 0,
+        since: await page.evaluate(() => performance.now()),
+        evictions: (launchState.atlas as { evictions?: number } | null)?.evictions ?? 0,
+      };
       if (seen.errors > 0) fail(`ladder launch: ${String(seen.errors)} GPU error(s) before the first stop`);
+
+      // The pop check's control: a seeded fault it must catch, before any leg counts.
+      {
+        const place = places[0]!;
+        await placeCamera(page, cameraAt(pane, place, 1.0), 100);
+        await settleAtlas(page);
+        const started = await popWatch(page, "start");
+        if (started === null && (await popWatch(page, "read")) === null) fail("the build has no popWatch hook");
+        await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await popWatch(page, "seed");
+        await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))));
+        await pinch(page, centre, 1.0, 1.41);
+        await stillCamera(page);
+        const control = await popWatch(page, "stop");
+        log("pop control", { ...control, samples: control?.samples.slice(0, 4) });
+        if (control !== null && (control.seeded === 0 || control.pops === 0 || control.blankQuads === 0)) {
+          fail(`the pop check missed its seeded fault (seeded ${String(control.seeded)}, pops ${String(control.pops)}, blank quads ${String(control.blankQuads)})`);
+        }
+        await placeCamera(page, cameraAt(pane, place, LADDER[0]), 100);
+        await settleAtlas(page);
+      }
       let stopIndex = 0;
 
       const stop = async (cycle: number, place: Place, zoom: number, way: "in" | "out"): Promise<void> => {
@@ -809,6 +873,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
         await churn.baseline(junto.app);
         await page.waitForTimeout(1_500);
         await settleAtlas(page);
+        await popWatch(page, "start");
         await pinch(page, centre, from, mid);
         let camera = await stillCamera(page);
         // A tier leg's frame is past the crossing, hysteresis included: nudge a short landing over it.
@@ -827,6 +892,14 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
         }
         const state = { ...(await readProofState(page)), camera };
         await pinch(page, centre, state.camera.zoom, to);
+        await stillCamera(page);
+        const pops = await popWatch(page, "stop");
+        const popName = `c${String(cycle)}-${place.name}-pops-${String(from)}-${String(to)}`;
+        log(`pops ${popName}`, pops === null ? { hook: false } : { ...pops, samples: pops.samples.slice(0, 4) });
+        if (pops !== null && (pops.pops > 0 || pops.blankQuads > 0)) {
+          fail(`${popName}: ${String(pops.pops)} quad(s) lost their own pixels at an unchanged raster scale and ${String(pops.blankQuads)} in-view quad(s) drew nothing, over ${String(pops.frames)} frames of the gesture`, { first: pops.samples.slice(0, 8) });
+          contact.push({ name: popName, strip: "", verdict: "fail", detail: failures[failures.length - 1]! });
+        }
         // The nearest stop of the frame's own tier, in log zoom.
         const candidates = [from, to].filter((z) => tierOf(z) === state.tier);
         const nearest = (candidates.length > 0 ? candidates : [from, to]).sort(
@@ -887,7 +960,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
     server.close();
     await writeFile(join(OUT, "proof.json"), JSON.stringify({ failures, proof }, null, 2));
     const rows = contact
-      .map((c) => `<figure class="${c.verdict}"><figcaption><b>${c.name}</b> ${c.verdict}: ${c.detail.replace(/</g, "&lt;")}</figcaption><img loading="lazy" src="${c.strip}" alt="${c.name}"></figure>`)
+      .map((c) => `<figure class="${c.verdict}"><figcaption><b>${c.name}</b> ${c.verdict}: ${c.detail.replace(/</g, "&lt;")}</figcaption>${c.strip === "" ? "" : `<img loading="lazy" src="${c.strip}" alt="${c.name}">`}</figure>`)
       .join("\n");
     await writeFile(
       join(OUT, "contact", "..", "index.html"),
