@@ -37,10 +37,20 @@ export type SeatMailPendingFile = {
   readonly byteLength: number;
 };
 
+/** One operator file refused on this machine for exceeding attachment bounds. */
+export type SeatMailRefusedFile = {
+  readonly state: "refused";
+  readonly name: string;
+  readonly mediaType: string;
+  readonly byteLength: number;
+  readonly reason: "too-many" | "too-large";
+};
+
 /** What a seat's `msg list` or `msg read` carries for a mail's operator files. */
 export type SeatMailFilesView = {
   readonly files?: ReadonlyArray<string>;
   readonly filesPending?: ReadonlyArray<SeatMailPendingFile>;
+  readonly filesRefused?: ReadonlyArray<SeatMailRefusedFile>;
 };
 
 const heldUnderOwner = (
@@ -63,11 +73,13 @@ const heldUnderOwner = (
     return opened?.state === "verified";
   });
 
-const boundedRefs = (message: Message): ReadonlyArray<ContentRef> => {
-  const refs = operatorFilesOf(message);
-  if (refs.length === 0 || refs.length > OPERATOR_ATTACHMENTS_MAX) return [];
-  return refs.filter((ref) => ref.byteLength <= OPERATOR_ATTACHMENT_MAX_BYTES);
-};
+const refusedEntry = (ref: ContentRef, reason: SeatMailRefusedFile["reason"]): SeatMailRefusedFile => ({
+  state: "refused",
+  name: attachmentDisplayName(ref),
+  mediaType: ref.mediaType,
+  byteLength: ref.byteLength,
+  reason,
+});
 
 /**
  * Pull missing files for one operator mail under that mail's owner on this
@@ -152,13 +164,21 @@ export const seatMailFiles = (input: {
   readonly freeBytes?: number;
 }): Effect.Effect<SeatMailFilesView | undefined, never, ContentService> =>
   Effect.gen(function* () {
-    const refs = boundedRefs(input.message);
+    const refs = operatorFilesOf(input.message);
     if (refs.length === 0) return undefined;
+    if (refs.length > OPERATOR_ATTACHMENTS_MAX) {
+      return { filesRefused: refs.map((ref) => refusedEntry(ref, "too-many")) };
+    }
     const content = yield* ContentService;
     const owner = operatorMailOwner(input.canvasName, input.nodeId, input.message.messageId);
     const readyLines: string[] = [];
     const missing: ContentRef[] = [];
+    const filesRefused: SeatMailRefusedFile[] = [];
     for (const ref of refs) {
+      if (ref.byteLength > OPERATOR_ATTACHMENT_MAX_BYTES) {
+        filesRefused.push(refusedEntry(ref, "too-large"));
+        continue;
+      }
       const held = yield* heldUnderOwner(content, owner, ref);
       if (!held) {
         missing.push(ref);
@@ -196,15 +216,17 @@ export const seatMailFiles = (input: {
     return {
       ...(readyLines.length === 0 ? {} : { files: readyLines }),
       ...(filesPending.length === 0 ? {} : { filesPending }),
+      ...(filesRefused.length === 0 ? {} : { filesRefused }),
     };
   });
 
 /**
  * Delivery's check for an operator mail's files: returns all `Attached:` lines
- * only once every file is verified and kept under the mail on this machine.
- * Otherwise starts a background pull for the missing files and returns
- * undefined so delivery holds until every file is whole; calls `onReady` once
- * a background pull finishes bringing every missing file in.
+ * only once every file is within bounds, verified and kept under the mail on
+ * this machine. Oversized or excess refs fail closed (hold delivery without
+ * pulling). Otherwise starts a background pull for the missing files and
+ * returns undefined so delivery holds until every file is whole; calls
+ * `onReady` once a background pull finishes bringing every missing file in.
  */
 export const deliverOperatorAttachmentLines = (input: {
   readonly content: ContentServiceShape;
@@ -216,8 +238,12 @@ export const deliverOperatorAttachmentLines = (input: {
   readonly freeBytes?: number;
 }): Effect.Effect<ReadonlyArray<string> | undefined> =>
   Effect.gen(function* () {
-    const refs = boundedRefs(input.message);
+    const refs = operatorFilesOf(input.message);
     if (refs.length === 0) return [];
+    // Fail closed: never deliver a mail whose attachments exceed count or size bounds.
+    if (refs.length > OPERATOR_ATTACHMENTS_MAX || refs.some((ref) => ref.byteLength > OPERATOR_ATTACHMENT_MAX_BYTES)) {
+      return undefined;
+    }
     const owner = operatorMailOwner(input.canvasName, input.nodeId, input.message.messageId);
     const missing: ContentRef[] = [];
     for (const ref of refs) {

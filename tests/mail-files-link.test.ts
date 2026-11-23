@@ -55,11 +55,13 @@ import {
 import { EXCHANGE_ROWS_PAGE_BYTES } from "../src/shared/exchange-bounds";
 import { InstallationId } from "../src/shared/installation-id";
 import { LONG_TEXT_FILE } from "../src/shared/mail-text-bound";
+import { OPERATOR_ATTACHMENT_MAX_BYTES, OPERATOR_ATTACHMENTS_MAX } from "../src/shared/operator-attachments";
 import type { Node } from "../src/shared/model";
 import type { NodeId } from "../src/shared/model/base";
 import type { ContentRef } from "../src/shared/wire/content-ref";
 import { WORK_HOME_ENV } from "../src/shared/work-control";
 import { entitledTo, type CanvasPlacement, type RowsFrame } from "../src/shared/work-exchange";
+import type { Message } from "../src/shared/work-model";
 import { ActorSeatId, type ActorRef } from "../src/shared/work-protocol";
 import { OPERATOR_SEAT_ID, operatorActorRef } from "../src/shared/work-reference";
 import { machineLinkOver } from "./support/link-pair";
@@ -572,6 +574,94 @@ describe("operator mail files over the link content channel", () => {
       await freshMini.runtime.dispose();
       await rm(freshMini.root, { recursive: true, force: true });
     }
+  });
+
+  it("fails closed on excess attachment count or oversized refs: holds delivery, pulls nothing, and names refused files on read", async () => {
+    let asked = 0;
+    const puller: Context.Service.Shape<typeof BodyPuller> = {
+      pull: () => Effect.sync(() => { asked += 1; }),
+      placement: () => Effect.succeed({ self: MINI, placement: defaultPlacement }),
+    };
+
+    // Over OPERATOR_ATTACHMENTS_MAX (11 refs).
+    const tooManyRefs = Array.from({ length: OPERATOR_ATTACHMENTS_MAX + 1 }, (_, index) => ({
+      sha256: createHash("sha256").update(`file-${index}`).digest("hex"),
+      byteLength: 10,
+      mediaType: "text/plain",
+      displayName: `f${index}.txt`,
+    })) as unknown as ContentRef[];
+    const tooManyMail = {
+      messageId: "01M854P0000000000000000010",
+      role: "user",
+      parts: [{ kind: "text", text: "too many" }],
+      metadata: { factoryMail: true, fromSeat: OPERATOR_SEAT_ID, senderName: "operator", attachments: tooManyRefs },
+    } as unknown as Message;
+
+    expect(
+      await mini.runtime.runPromise(
+        deliverOperatorAttachmentLines({
+          content: mini.content,
+          canvasName: "factory",
+          canvas: MINI_CANVAS,
+          nodeId: "peer",
+          message: tooManyMail,
+        }).pipe(Effect.provideService(BodyPuller, puller)),
+      ),
+    ).toBeUndefined();
+    const readTooMany = await mini.runtime.runPromise(
+      asSeatReadsIt(MINI_CANVAS, "factory", "peer")(tooManyMail).pipe(Effect.provideService(BodyPuller, puller)),
+    );
+    expect("files" in readTooMany).toBe(false);
+    expect("filesPending" in readTooMany).toBe(false);
+    expect("filesRefused" in readTooMany && readTooMany.filesRefused).toHaveLength(OPERATOR_ATTACHMENTS_MAX + 1);
+    expect("filesRefused" in readTooMany && readTooMany.filesRefused?.[0]).toEqual({
+      state: "refused",
+      name: "f0.txt",
+      mediaType: "text/plain",
+      byteLength: 10,
+      reason: "too-many",
+    });
+
+    // Oversized ref (OPERATOR_ATTACHMENT_MAX_BYTES + 1).
+    const hugeRef = {
+      sha256: createHash("sha256").update("huge").digest("hex"),
+      byteLength: OPERATOR_ATTACHMENT_MAX_BYTES + 1,
+      mediaType: "application/octet-stream",
+      displayName: "huge.bin",
+    } as ContentRef;
+    const hugeMail = {
+      messageId: "01M854P0000000000000000011",
+      role: "user",
+      parts: [{ kind: "text", text: "too big" }],
+      metadata: { factoryMail: true, fromSeat: OPERATOR_SEAT_ID, senderName: "operator", attachments: [hugeRef] },
+    } as unknown as Message;
+
+    expect(
+      await mini.runtime.runPromise(
+        deliverOperatorAttachmentLines({
+          content: mini.content,
+          canvasName: "factory",
+          canvas: MINI_CANVAS,
+          nodeId: "peer",
+          message: hugeMail,
+        }).pipe(Effect.provideService(BodyPuller, puller)),
+      ),
+    ).toBeUndefined();
+    const readHuge = await mini.runtime.runPromise(
+      asSeatReadsIt(MINI_CANVAS, "factory", "peer")(hugeMail).pipe(Effect.provideService(BodyPuller, puller)),
+    );
+    expect("files" in readHuge).toBe(false);
+    expect("filesPending" in readHuge).toBe(false);
+    expect("filesRefused" in readHuge && readHuge.filesRefused).toEqual([
+      {
+        state: "refused",
+        name: "huge.bin",
+        mediaType: "application/octet-stream",
+        byteLength: OPERATOR_ATTACHMENT_MAX_BYTES + 1,
+        reason: "too-large",
+      },
+    ]);
+    expect(asked).toBe(0);
   });
 });
 
