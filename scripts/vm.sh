@@ -1,16 +1,24 @@
 #!/usr/bin/env bash
 # Run Junto's checks on a Boat cloud VM instead of this machine.
 #
-#   scripts/vm.sh new <seat> <purpose>      a VM from the $VM_BASE snapshot, named <seat>-<id>-<purpose>
+#   scripts/vm.sh pool <region> [n]         the id of <region>'s shared VM number n (1 or 2; default 1), started if it is not up
+#   scripts/vm.sh new <seat> <purpose>      a VM of your own from the $VM_BASE snapshot, named <seat>-<id>-<purpose>
 #   scripts/vm.sh sync <id> [ref] [paths…]  put <ref> (HEAD, a branch, a tag or a hash; default HEAD) on the VM, plus your own uncommitted <paths>
-#   scripts/vm.sh run <id> <command…>       run a command in ~/$VM_DIR on the VM, output streamed
-#   scripts/vm.sh stop <id>                 stop it when your work is done, not after each check
+#   scripts/vm.sh run <id> <command…>       run a command in your clone on the VM, output streamed
+#   scripts/vm.sh stop <id>                 stop a VM of your own when your work is done, not after each check
+#
+# Heavy runs go to a VM, not this machine (operator, 2026-11-23): the unit
+# suite, a build, vitest over more than 3 files. Each region shares two VMs.
+# On a shared VM set VM_SEAT=<your seat name> on every sync and run: you then
+# work in a clone of your own (~/$VM_DIR-<seat>), made on your first sync, so
+# no seat's sync moves the tree another seat's run is reading. Never stop a
+# shared VM: it stops itself 3 hours after the last `pool` that named it.
 #
 # A VM lives for a working session, not for one check: every start costs, so
 # reuse it for every check while you work, and stop it when you are done.
 # `new` gives it 3 hours; `boat extend <id> --hours 3` while you still work.
-# Auto-stop is the net for a VM someone forgot. `new` refuses while the
-# hour's included starts are used (boat limits --json: .starts.hour).
+# Auto-stop is the net for a VM someone forgot. `new` and `pool` refuse while
+# the hour's included starts are used (boat limits --json: .starts.hour).
 #
 # The VM holds a git clone, so a sync sends only the commits it lacks, as a
 # git bundle (kilobytes), never the working tree. It never reads the shared
@@ -19,7 +27,8 @@
 #
 # Another repository uses this same script from its own root, with its own
 # snapshot: VM_BASE (default junto-base) names the snapshot, and VM_DIR
-# (default junto) the clone's folder under /home/user on the VM.
+# (default junto) the clone's folder under /home/user on the VM. VM_TYPE
+# (small, default or large) sizes a VM that `new` or `pool` starts.
 set -euo pipefail
 
 # The whole script is one block, parsed before any of it runs: a seat whose
@@ -30,8 +39,11 @@ BOAT=${BOAT:-boat}
 export BOAT_NO_UPDATE=1
 VM_BASE=${VM_BASE:-junto-base}
 VM_DIR=${VM_DIR:-junto}
-# Several checkouts may share one VM (VM_DIR=junto-<seat>): every file a sync
-# sends is named for its checkout, so two syncs at once never share one.
+# Several checkouts may share one VM: every file a sync sends is named for
+# its clone, so two syncs at once never share one. A seat on a shared VM
+# (VM_SEAT) has a clone of its own beside the snapshot's.
+VM_HOME=$VM_DIR
+[ -z "${VM_SEAT:-}" ] || VM_DIR="$VM_DIR-$VM_SEAT"
 ROOT=$(git rev-parse --show-toplevel)
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/junto-vm.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
@@ -68,11 +80,35 @@ remote() { # remote <id> <shell…>: run on the VM, print stdout and stderr, exi
 }
 
 case "${1:-}" in
+  pool)
+    region=${2:?region name}
+    n=${3:-1}
+    case "$n" in
+      1 | 2) ;;
+      *)
+        echo "vm.sh: a region shares two VMs: n is 1 or 2" >&2
+        exit 2
+        ;;
+    esac
+    name="$region-pool-$n"
+    # The oldest VM of that name that is up or starting. Two seats that ask
+    # at once may start two, and both then settle on that one; the other
+    # stops itself. A stopped one is not resumed: it is left to expire.
+    id=$("$BOAT" list --filter rp --json | jq -r --arg name "$name" '[.sandboxes[] | select(.name == $name)] | sort_by(.createdAt) | first | .id // empty')
+    if [ -n "$id" ]; then
+      "$BOAT" extend "$id" --hours 3 --json >/dev/null
+    else
+      may_start
+      id=$("$BOAT" new --from "$VM_BASE" --ttl 10800 --name "$name" ${VM_TYPE:+--type "$VM_TYPE"} --json | jq -r 'select(.event == "ready") | .id' | tail -1)
+      [ -n "$id" ] || { echo "vm.sh: boat new did not report a ready VM" >&2; exit 1; }
+    fi
+    echo "$id"
+    ;;
   new)
     seat=${2:?seat name}
     purpose=${3:?purpose}
     may_start
-    id=$("$BOAT" new --from "$VM_BASE" --ttl 10800 --name "$seat-$purpose" --json | jq -r 'select(.event == "ready") | .id' | tail -1)
+    id=$("$BOAT" new --from "$VM_BASE" --ttl 10800 --name "$seat-$purpose" ${VM_TYPE:+--type "$VM_TYPE"} --json | jq -r 'select(.event == "ready") | .id' | tail -1)
     [ -n "$id" ] || { echo "vm.sh: boat new did not report a ready VM" >&2; exit 1; }
     "$BOAT" rename "$id" "$seat-$id-$purpose" >/dev/null
     echo "$id"
@@ -83,6 +119,11 @@ case "${1:-}" in
     ref=${3:-HEAD}
     shift $(($# < 3 ? $# : 3))
     target=$(git -C "$ROOT" rev-parse --verify "$ref^{commit}")
+    # A seat's own clone is made on its first sync, from the snapshot's clone
+    # and its node_modules (hard links, so no second copy on disk).
+    if [ "$VM_DIR" != "$VM_HOME" ]; then
+      remote "$id" "test -d ~/$VM_DIR/.git || { git clone -q ~/$VM_HOME ~/$VM_DIR && cp -al ~/$VM_HOME/node_modules ~/$VM_DIR/node_modules; }"
+    fi
     have=$("$BOAT" exec "$id" --json -- git -C "/home/user/$VM_DIR" rev-parse HEAD 2>/dev/null | jq -r '.stdout // empty' | tr -d '[:space:]')
     # A bundle carries refs, not bare commits: a hash rides in on a ref that contains it.
     carrier=$(git -C "$ROOT" rev-parse --symbolic-full-name "$ref" 2>/dev/null || true)
@@ -141,7 +182,7 @@ case "${1:-}" in
     "$BOAT" stop "${2:?VM id}"
     ;;
   *)
-    sed -n '2,17p' "$0"
+    sed -n '2,21p' "$0"
     exit 2
     ;;
 esac

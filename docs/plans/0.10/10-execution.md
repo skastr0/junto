@@ -29,6 +29,21 @@ everyone else reports by mail and on the needs-you feed.
   none while the one-minute load is above 40. Team shares: product 5, remote
   5, canvas 5, pty 3, cli 3, performance 2, pi 2; each lead grants its
   team's. No worktrees.
+- **Heavy runs go to cloud VMs** (operator, 2026-11-23). The load sat
+  between 130 and 340 for hours, so nothing above could run and no commit
+  could be gated. The operator: "Let's use the box CLI VMs to run type
+  checks and builds etc", "let's not block releases and such from this",
+  "ensure that every region has at least two VMs they can pull and use".
+  So the unit suite, builds and vitest over more than 3 files run on a
+  region's shared VM through `scripts/vm.sh` (`pool`, then `sync` and `run`
+  with `VM_SEAT` set), and count against no cap here. Measured that day on
+  main: the type check in 3 s, the unit suite (607 files) in 5 min 22 s on
+  the 8-core VM and 8 min 18 s on the 4-core one, both passing. The type
+  check also runs here, at any load. Real-app and e2e runs need this
+  machine's GPU and stay here, one at a time under the app-run lock: a lead
+  may grant one at any load when it checks pixels or behaviour, and a run
+  that measures time waits for a one-minute load under 40. The load rule
+  never blocks a release.
 - **Proof is types first** (operator, 2026-10-21). Contracts are typed so
   misuse fails `tsc`: closed unions, branded ids, exhaustive matches,
   type-level tests where a shape matters. Unit tests on pure modules and
