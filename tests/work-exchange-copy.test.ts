@@ -745,6 +745,37 @@ describe("a seat's signal to the operator", () => {
     }
   });
 
+  it("answered on the editing machine with an answer that starts a thread, is in that thread on the seat's machine, and the link stays open", async () => {
+    const failed: InstallationId[] = [];
+    const macbook = await boot("macbook", MACBOOK, [["mini", MINI]], (peer) => failed.push(peer));
+    const mini = await boot("mini", MINI, [["macbook", MACBOOK]], (peer) => failed.push(peer));
+    await factoryOn(macbook);
+    const stop = await following([macbook, mini]);
+    try {
+      await link(macbook, mini);
+      await settle();
+      const raised = await signals(mini, (store) => store.raise({ canvasName: "factory", nodeId: "peer", kind: "blocked", text: "Plain." }));
+      await pushed();
+      await settle();
+      // As operator.ts answers it: the answer's mail starts a thread, and the signal heads it.
+      const thread = ulid();
+      await signals(macbook, (store) => store.answer(raised.signalId, "Go."));
+      await signals(macbook, (store) => store.setThread(raised.signalId, thread));
+      await pushed();
+      await settle();
+      expect(await signals(mini, (store) => store.get(raised.signalId))).toMatchObject({ state: "answered", threadId: thread });
+      // The seat's machine states it again in that thread, on the next open, and the link stays.
+      macbook.exchange.closed(MINI);
+      mini.exchange.closed(MACBOOK);
+      await link(macbook, mini);
+      await settle();
+      expect(failed).toEqual([]);
+      expect(macbook.exchange.status().map((held) => held.peer)).toEqual([MINI]);
+    } finally {
+      stop();
+    }
+  });
+
   it("is stated back by the editing machine with only the thread, which an answer may have started", () => {
     const placement = { editor: MACBOOK, seatOf: () => ({ machine: MINI }) } as never;
     const answered = {
@@ -841,6 +872,38 @@ describe("a seat's signal to the operator", () => {
       );
       await held.take(signal);
       expect(await held.forgedHeld()).toHaveLength(1);
+    });
+
+    const restated: ReadonlyArray<
+      readonly [string, (held: Awaited<ReturnType<typeof forging>>) => readonly [Record<string, unknown>, Record<string, unknown>], string]
+    > = [
+      ["a plain raise, stated again in a thread", (held) => [{}, { threadId: held.thread }], SIGNAL_THREAD_REFUSAL],
+      ["a plain raise, stated again in a thread with its mail", (held) => [{}, { threadId: held.thread, messageId: ulid() }], SIGNAL_THREAD_REFUSAL],
+      ["a raise in a thread, stated again in another", (held) => [{ threadId: held.thread }, { threadId: held.task }], SIGNAL_THREAD_REFUSAL],
+      ["a raise in a thread, stated again with another mail", (held) => [{ threadId: held.thread, messageId: ulid() }, { threadId: held.thread, messageId: ulid() }], SIGNAL_THREAD_REFUSAL],
+      ["a plain raise, stated again following another", () => [{}, { followsSignalId: ulid() }], SIGNAL_ORDER_REFUSAL],
+      ["a plain raise, stated again after another", () => [{}, { dependsOn: [ulid()] }], SIGNAL_ORDER_REFUSAL],
+      ["a raise after one, stated again after another", () => [{ dependsOn: [ulid()] }, { dependsOn: [ulid()] }], SIGNAL_ORDER_REFUSAL],
+    ];
+    it.each(restated)("stated again with what was not judged: %s, closes the link and writes nothing", async (_case, fields, refusal) => {
+      const held = await forging();
+      const [first, again] = fields(held);
+      const signalId = ulid();
+      await held.take(raise({ signalId, ...first }));
+      const before = await signals(held.macbook, (store) => store.get(signalId));
+      await expect(held.take(raise({ signalId, ...again }))).rejects.toThrow(refusal);
+      expect(await signals(held.macbook, (store) => store.get(signalId))).toEqual(before);
+    });
+
+    it("stated again with no thread, held in the thread an answer started, writes nothing and keeps the link", async () => {
+      const held = await forging();
+      const signalId = ulid();
+      await held.take(raise({ signalId }));
+      // The operator's answer started a thread here; the seat's machine has not taken it yet.
+      await signals(held.macbook, (store) => store.answer(signalId, "Go."));
+      await signals(held.macbook, (store) => store.setThread(signalId, held.thread));
+      await held.take(raise({ signalId }));
+      expect(await signals(held.macbook, (store) => store.get(signalId))).toMatchObject({ state: "answered", threadId: held.thread });
     });
   });
 

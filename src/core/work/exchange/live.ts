@@ -194,20 +194,45 @@ export const makeLiveRowExchange = (
         ),
       );
 
+    /** What a signal comes after, as the store keeps it: each once, never itself. */
+    const namedAfter = (signalId: string, dependsOn: ReadonlyArray<string> | undefined): ReadonlySet<string> =>
+      new Set((dependsOn ?? []).filter((named) => named !== signalId));
+
+    /**
+     * A raise stated again for a signal held here states what it stated when
+     * it was judged, or the link closes and nothing is written: a thread, a
+     * mail or an order is never added after the judgment. Stating no thread
+     * for a signal held in one is the seat's machine not having taken yet the
+     * thread an answer here started (src/core/signals/operator.ts), and it
+     * writes nothing.
+     */
+    const restatedRefusal = (signal: Omit<ExchangeSignal, "attachments">, held: AgentSignal) => {
+      if ((signal.threadId !== undefined && signal.threadId !== held.threadId) || signal.messageId !== held.messageId) {
+        return SIGNAL_THREAD_REFUSAL;
+      }
+      const stated = namedAfter(signal.signalId, signal.dependsOn);
+      const kept = namedAfter(held.signalId, held.dependsOn);
+      if (signal.followsSignalId !== held.followsSignalId || stated.size !== kept.size || [...stated].some((named) => !kept.has(named))) {
+        return SIGNAL_ORDER_REFUSAL;
+      }
+      return undefined;
+    };
+
     /**
      * Why the editing machine will not keep a raise the seat's machine stated,
-     * or undefined. Judged once, when the signal first arrives: one already
-     * held is stated again on every open, and a pointer that has since arrived
-     * as another seat's never closes the link late. Then the thread is one the
-     * operator wrote in, to that seat, outside any task or resource thread;
-     * and every signal it follows or comes after that is held here is that
-     * seat's own on this canvas, raised by no automation. One not held is
-     * kept as a pointer, and one naming itself holds nothing back: the order
-     * is read later, by signalOrderOf.
+     * or undefined. Judged once, when the signal first arrives; stated again
+     * on a later open, it must state the same (restatedRefusal), and a pointer
+     * that has since arrived as another seat's never closes the link late.
+     * Then the thread is one the operator wrote in, to that seat, outside any
+     * task or resource thread; and every signal it follows or comes after that
+     * is held here is that seat's own on this canvas, raised by no automation.
+     * One not held is kept as a pointer, and one naming itself holds nothing
+     * back: the order is read later, by signalOrderOf.
      */
     const raiseRefusal = (canvasName: string, signal: Omit<ExchangeSignal, "attachments">) =>
       Effect.gen(function* () {
-        if (Option.isSome(yield* heldSignal(signal.signalId))) return undefined;
+        const held = yield* heldSignal(signal.signalId);
+        if (Option.isSome(held)) return restatedRefusal(signal, held.value);
         if (signal.threadId !== undefined) {
           const rows = yield* threadRows(canvasName, signal.nodeId, signal.threadId);
           if (signalThreadFault(signal.threadId, rows) !== undefined) return SIGNAL_THREAD_REFUSAL;
