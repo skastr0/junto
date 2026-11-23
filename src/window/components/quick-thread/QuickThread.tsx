@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { use$ } from "@legendapp/state/react";
-import { Check, Plus, X } from "lucide-react";
-import { claimFocus } from "../../lib/focus-ownership";
+import { Check, Clock, Plus, X } from "lucide-react";
+import { claimFocus, claimFocusOnMount, recentGestureKind } from "../../lib/focus-ownership";
 import { keyAria, keyCaps, keyIs } from "../../lib/key-match";
 import { isMac } from "../../lib/platform";
 import {
+  keepQuickThread,
   quickThreadCatalog,
   quickThreadDraft,
+  quickThreadKept,
   quickThreadOptionKey,
   quickThreadOptions,
   setQuickThreadSeats,
-  useQuickThreadSeats,
+  useQuickThreadKept,
   type QuickThreadOption,
   type QuickThreadRegion,
   type QuickThreadSeat,
@@ -23,19 +25,28 @@ import {
   type QuickThreadChange,
 } from "../../lib/quick-thread-keys";
 import { regionChipStyle } from "../../lib/region-chip-style";
-import type { NewThreadsOutcome, ThreadRecipient } from "../../lib/seat-threads";
+import type { NewThread, NewThreadsOutcome, ThreadRecipient } from "../../lib/seat-threads";
 import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
 import { AgentPortrait } from "../AgentPortrait";
 import { ThreadComposer } from "../threads/ThreadComposer";
-import { Combobox, IconButton, Kbd, ResourceChip } from "../ui";
+import { Button, Combobox, IconButton, Kbd, ResourceChip } from "../ui";
 // The thread input's own rules and the region dot live with the screens that drew them first.
 import "../threads/seat-threads.css";
 import "../feed/feed-region-strip.css";
 import "./quick-thread.css";
 
-/** The threads a send started, one per seat. */
-export type QuickThreadSent = ReadonlyArray<{ readonly seatId: string; readonly threadId: string }>;
+/** The threads a send started, one per seat, each with whether its seat has the mail yet. */
+export type QuickThreadSent = ReadonlyArray<NewThread>;
+
+/** A seat that has its thread, with the name it had when it was sent. */
+type Settled = NewThread & { readonly name: string };
+
+/** Who the mail has not reached yet, in one sentence about the seat. */
+const waitingLine = (waiting: ReadonlyArray<Settled>): string =>
+  waiting.length === 1
+    ? `Waiting for ${waiting[0]!.name}. It arrives when the seat is back.`
+    : `Waiting for ${waiting.length} seats. Each gets it when it is back.`;
 
 const seatCount = (seats: number): string => (seats === 1 ? "1 seat" : `${seats} seats`);
 
@@ -59,15 +70,25 @@ const seatCount = (seats: number): string => (seats === 1 ? "1 seat" : `${seats}
  * - The draft (seats, text, files) is kept until it is sent.
  * - A seat that got nothing stays in the row with the reason under it; the
  *   seats that were sent leave, so Send goes to the rest alone.
+ * - Mail that is sent but has not reached its seat (the seat is stopped, or
+ *   out of reach) is never sent again. With `receipt`, a send that leaves a
+ *   seat waiting turns into a receipt that says which, until Done.
  */
 export function QuickThread({
   canvasName,
   onSent,
+  receipt = false,
   backOut,
 }: {
   readonly canvasName: string;
-  /** Every chosen seat has its thread: the threads started, in the order chosen. */
+  /** Every chosen seat has its thread: the threads started, in the order chosen. With a receipt up, on Done. */
   readonly onSent?: (sent: QuickThreadSent) => void;
+  /**
+   * Stay after a send that leaves a seat waiting, to say which (the canvas
+   * home, which would otherwise close without a word). Without it the host
+   * shows the new thread, where each mail says its own state.
+   */
+  readonly receipt?: boolean;
   /**
    * For the host's Escape to ask first: true when Escape only put the picker
    * away (it had been brought back to add a seat), so the host stays open.
@@ -77,7 +98,8 @@ export function QuickThread({
   const canvas = useCanvas(canvasName);
   const recent = use$(state$.seatVisitOrder);
   const catalog = useMemo(() => quickThreadCatalog(canvas, recent), [canvas, recent]);
-  const seatIds = useQuickThreadSeats(canvasName);
+  // The reasons are kept with the draft: closed and opened again, it still says why a seat got nothing.
+  const { seats: seatIds, unsent } = useQuickThreadKept(canvasName);
   // A seat taken off the canvas since it was chosen is no longer a recipient.
   const chosen = useMemo(() => {
     const byId = new Map(catalog.seats.map((seat) => [seat.id, seat]));
@@ -94,7 +116,12 @@ export function QuickThread({
   const [explicit, setExplicit] = useState<string>();
   // The picker, brought back while seats are chosen.
   const [adding, setAdding] = useState(false);
-  const [unsent, setUnsent] = useState<Readonly<Record<string, string>>>({});
+  // The seats that have their thread, across the tries of one send.
+  const [settled, setSettled] = useState<ReadonlyArray<Settled>>([]);
+  // Every seat sent, at least one waiting: the result, in place of the input.
+  const [receiptOf, setReceiptOf] = useState<ReadonlyArray<Settled>>();
+  // A send is on its way: the row takes no change until it ends.
+  const [busy, setBusy] = useState(false);
   const [spoken, setSpoken] = useState({ text: "", turn: 0 });
 
   const narrowed = regionId === undefined ? undefined : catalog.regions.find((region) => region.id === regionId);
@@ -110,9 +137,21 @@ export function QuickThread({
   const picking = chosen.length === 0 || adding;
   const selectedKeys = useMemo(() => new Set(chosen.map((seat) => quickThreadOptionKey(seat))), [chosen]);
 
+  const root = useRef<HTMLDivElement | null>(null);
+  const picker = useRef<HTMLDivElement | null>(null);
   const seatField = useRef<HTMLInputElement | null>(null);
   const message = useRef<HTMLTextAreaElement | null>(null);
-  const sentSoFar = useRef<QuickThreadSent>([]);
+  // The seat whose remove control takes the keyboard once the row has redrawn.
+  const removeNext = useRef<string | null>(null);
+  useEffect(() => {
+    const id = removeNext.current;
+    if (id === null) return;
+    removeNext.current = null;
+    const holder = [...(root.current?.querySelectorAll<HTMLElement>('[data-testid="quick-thread-seat"]') ?? [])].find(
+      (entry) => entry.dataset.seat === id,
+    );
+    claimFocus(holder?.querySelector("button"), "gesture");
+  }, [chosen]);
   const pickingNow = useRef(picking);
   pickingNow.current = picking;
   // The seat field takes the keyboard as it appears: on open with no seat chosen, and when it is brought back.
@@ -136,13 +175,18 @@ export function QuickThread({
   };
 
   const add = (seat: QuickThreadSeat): void => {
+    if (busy) return;
     setSeats([...chosen.map((held) => held.id), seat.id]);
     speak({ kind: "added", seat: seat.name, chosen: chosen.length + 1 });
   };
 
   const remove = (seat: QuickThreadSeat): void => {
+    if (busy) return;
     setSeats(chosen.filter((held) => held.id !== seat.id).map((held) => held.id));
-    setUnsent(({ [seat.id]: _gone, ...rest }) => rest);
+    const { [seat.id]: _gone, ...rest } = unsent;
+    keepQuickThread(canvasName, { unsent: rest });
+    // With the last seat off, a send that reached only some is over: nothing of it is carried into the next.
+    if (chosen.length === 1) setSettled([]);
     speak({ kind: "removed", seat: seat.name, chosen: chosen.length - 1 });
   };
 
@@ -154,12 +198,14 @@ export function QuickThread({
   };
 
   const widen = (): void => {
+    if (narrowed !== undefined) speak({ kind: "widened", region: narrowed.name });
     setRegionId(undefined);
     setExplicit(undefined);
   };
 
   /** Pick an option: a region narrows, a chosen seat comes off, a new seat is chipped. */
   const pick = (option: QuickThreadOption, stay: boolean): void => {
+    if (busy) return;
     if (option.kind === "region") return narrow(option);
     if (selectedKeys.has(quickThreadOptionKey(option))) return remove(option);
     add(option);
@@ -182,13 +228,6 @@ export function QuickThread({
   const onSeatKey = (event: KeyboardEvent<HTMLInputElement>): boolean | void => {
     // The surface's: the list keeps its place and the key goes on.
     if (event.key === "Escape") return true;
-    const bare = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
-    // The region the list is narrowed to goes before any seat does.
-    if (event.key === "Backspace" && bare && query === "" && narrowed !== undefined) {
-      event.preventDefault();
-      widen();
-      return true;
-    }
     const intent = quickThreadIntentOf(
       {
         key: event.key,
@@ -200,7 +239,7 @@ export function QuickThread({
         defaultPrevented: event.defaultPrevented,
         isComposing: event.nativeEvent.isComposing,
       },
-      { query, active: active !== undefined, chosen: chosen.length },
+      { query, active: active !== undefined, chosen: chosen.length, narrowed: narrowed !== undefined },
     );
     if (intent === null) return;
     event.preventDefault();
@@ -224,6 +263,9 @@ export function QuickThread({
       case "nothing":
         speak({ kind: "nothing", query: query.trim() });
         break;
+      case "widen":
+        widen();
+        break;
       case "unpick": {
         const last = chosen.at(-1);
         if (last) remove(last);
@@ -233,21 +275,40 @@ export function QuickThread({
     return true;
   };
 
+  const handOver = (all: ReadonlyArray<Settled>): void => {
+    setReceiptOf(undefined);
+    onSent?.(all.map(({ seatId, threadId, arrival }) => ({ seatId, threadId, arrival })));
+  };
+
   const onSentAll = (outcome: NewThreadsOutcome): void => {
-    sentSoFar.current = [...sentSoFar.current, ...outcome.sent];
+    const all = [
+      ...settled,
+      ...outcome.sent.map((entry) => ({ ...entry, name: chosen.find((seat) => seat.id === entry.seatId)?.name ?? "" })),
+    ];
+    // The seats that have their thread leave the row as it is now: one added while this was on its way stays.
+    const gone = new Set(outcome.sent.map((entry) => entry.seatId));
+    const seats = quickThreadKept(canvasName).seats.filter((id) => !gone.has(id));
+    const waiting = all.filter((entry) => entry.arrival === "waiting");
     if (outcome.failed.length === 0) {
-      const all = sentSoFar.current;
-      sentSoFar.current = [];
-      setSeats([]);
-      setUnsent({});
-      onSent?.(all);
+      keepQuickThread(canvasName, { seats, unsent: {} });
+      setSettled([]);
+      if (!receipt || waiting.length === 0) return handOver(all);
+      setReceiptOf(all);
+      say(`Sent to ${seatCount(all.length)}. ${waitingLine(waiting)}`);
       return;
     }
-    // Only the seats that got nothing stay: Send goes to them alone.
-    setSeats(outcome.failed.map((entry) => entry.seatId));
-    setUnsent(Object.fromEntries(outcome.failed.map((entry) => [entry.seatId, entry.message])));
-    say(`Not sent to ${seatCount(outcome.failed.length)}`);
+    // The seats that got nothing stay, each with its reason: Send goes to them alone.
+    keepQuickThread(canvasName, {
+      seats,
+      unsent: Object.fromEntries(outcome.failed.map((entry) => [entry.seatId, entry.message])),
+    });
+    setSettled(all);
+    const notSent = `Not sent to ${seatCount(outcome.failed.length)}`;
+    say(waiting.length === 0 ? notSent : `${notSent}. ${waitingLine(waiting)}`);
   };
+
+  // While seats are sent again, the ones still waiting stay in sight; the ones that have it have left.
+  const waitingMeanwhile = settled.filter((entry) => entry.arrival === "waiting");
 
   // The reasons, one line for the seats that share one.
   const reasons = useMemo(() => {
@@ -263,7 +324,8 @@ export function QuickThread({
   // Escape, when the picker was brought back to add a seat: back to the message, the row as it was.
   const backOutNow = useRef<() => boolean>(() => false);
   backOutNow.current = () => {
-    if (!adding || chosen.length === 0 || document.activeElement !== seatField.current) return false;
+    // Anywhere in the picker counts: its field, or a control beside it.
+    if (!adding || chosen.length === 0 || picker.current?.contains(document.activeElement) !== true) return false;
     toMessage();
     return true;
   };
@@ -276,11 +338,13 @@ export function QuickThread({
   }, [backOut]);
 
   const another = keyCaps("inQuickThread.another")?.join(isMac() ? "" : "+");
+  // The same key in words, for the line a screen reader hears: caps are drawn as symbols.
+  const anotherSpoken = keyAria("inQuickThread.another")?.split(" ")[0];
 
   const row = (
-    <div className="quick-thread__to">
+    <div className="quick-thread__to" inert={busy} data-busy={busy ? "true" : undefined}>
       {picking ? (
-        <div className="quick-thread__picker" data-testid="quick-thread-picker">
+        <div ref={picker} className="quick-thread__picker" data-testid="quick-thread-picker">
           <Combobox<QuickThreadOption>
             value={query}
             onValueChange={setQuery}
@@ -290,10 +354,8 @@ export function QuickThread({
             onActiveKeyChange={setExplicit}
             selectedKeys={selectedKeys}
             onFieldKeyDown={onSeatKey}
-            // Enter the key table left alone: something is typed and nothing matches it.
-            onCommit={(option) => {
-              if (option === undefined && query.trim() !== "" && options.length === 0) speak({ kind: "nothing", query: query.trim() });
-            }}
+            // Every Enter in this field is the key table's (onFieldKeyDown): nothing is left to commit.
+            onCommit={() => {}}
             onOptionClick={(option) => pick(option, false)}
             aria-label="Seat or region"
             aria-describedby={describedBy}
@@ -327,7 +389,8 @@ export function QuickThread({
             }
             trailing={
               another ? (
-                <span className="quick-thread__hint">
+                // Drawn for the eye; the field's description says the same in words.
+                <span className="quick-thread__hint" aria-hidden="true">
                   <Kbd>{another}</Kbd> adds another
                 </span>
               ) : undefined
@@ -357,18 +420,38 @@ export function QuickThread({
                     <span className="feed-region-chip__swatch" aria-hidden />
                   </span>
                   <span className="quick-thread__option-name">{option.name}</span>
+                  {/* Heard as "Design System, region, 6 seats": Enter on it narrows, it adds nobody. */}
+                  <span className="sr-only">, region, </span>
                   <span className="quick-thread__option-count">{seatCount(option.seats)}</span>
                 </div>
               )
             }
           />
           <span id={describedBy} className="sr-only">
-            {chosenSeatsSpoken(chosen.length)}
+            {anotherSpoken === undefined
+              ? chosenSeatsSpoken(chosen.length)
+              : `${chosenSeatsSpoken(chosen.length)}. ${anotherSpoken} adds another`}
           </span>
         </div>
       ) : null}
       {chosen.length > 0 ? (
         <div className="quick-thread__chosen" data-testid="quick-thread-chosen">
+          {waitingMeanwhile.length > 0 ? (
+            <ul role="list" aria-label="Sent, waiting for the seat" className="quick-thread__seats">
+              {waitingMeanwhile.map((entry) => (
+                <li
+                  key={entry.seatId}
+                  className="quick-thread__seat"
+                  data-testid="quick-thread-waiting"
+                  data-seat={entry.seatId}
+                  data-arrival="waiting"
+                >
+                  <Clock size={11} aria-hidden className="quick-thread__arrival" />
+                  <ResourceChip kind="seat" seat={entry.seatId} label={entry.name} />
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <ul role="list" aria-label="Chosen seats" className="quick-thread__seats">
             {chosen.map((seat) => (
               <li key={seat.id} className="quick-thread__seat" data-testid="quick-thread-seat" data-seat={seat.id}>
@@ -378,10 +461,17 @@ export function QuickThread({
                   aria-label={unpickSpoken(seat.name)}
                   title={unpickSpoken(seat.name)}
                   onClick={() => {
+                    if (busy) return;
+                    const at = chosen.indexOf(seat);
+                    const neighbour = chosen[at + 1] ?? chosen[at - 1];
+                    const byPointer = recentGestureKind() === "pointer";
                     remove(seat);
-                    // The control leaves with its seat: the keyboard goes on to where the operator was headed.
-                    if (picking || chosen.length === 1) claimFocus(seatField.current, "gesture");
-                    else claimFocus(message.current, "gesture");
+                    // The control leaves with its seat. By keyboard the next seat's control takes its place
+                    // (else the one before), so several come off in a row; the last one off, the seat field,
+                    // which takes the keyboard as it appears. A pointer goes on to where it was headed.
+                    if (neighbour === undefined) claimFocus(seatField.current, "gesture");
+                    else if (byPointer) claimFocus(picking ? seatField.current : message.current, "gesture");
+                    else removeNext.current = neighbour.id;
                   }}
                 >
                   <X size={10} strokeWidth={2} />
@@ -415,8 +505,53 @@ export function QuickThread({
     </div>
   );
 
+  const live = (
+    <div className="sr-only" role="status" aria-live="polite" data-testid="quick-thread-spoken">
+      {/* The same line twice in a row is still said: the second differs by a space no one hears. */}
+      {spoken.turn % 2 === 0 ? spoken.text : `${spoken.text}\u00a0`}
+    </div>
+  );
+
+  if (receiptOf !== undefined) {
+    const waiting = receiptOf.filter((entry) => entry.arrival === "waiting");
+    return (
+      <div className="quick-thread quick-thread--receipt" data-testid="quick-thread-receipt">
+        <p className="quick-thread__sent">Sent to {seatCount(receiptOf.length)}</p>
+        <ul role="list" aria-label="Sent to" className="quick-thread__seats">
+          {receiptOf.map((entry) => (
+            <li
+              key={entry.seatId}
+              className="quick-thread__seat"
+              data-testid="quick-thread-sent-seat"
+              data-seat={entry.seatId}
+              data-arrival={entry.arrival}
+            >
+              {entry.arrival === "waiting" ? (
+                <Clock size={11} aria-hidden className="quick-thread__arrival" />
+              ) : (
+                <Check size={11} aria-hidden className="quick-thread__arrival" />
+              )}
+              <ResourceChip kind="seat" seat={entry.seatId} label={entry.name} />
+              <span className="sr-only">{entry.arrival === "waiting" ? "waiting" : "has it"}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="quick-thread__waiting" data-testid="quick-thread-waiting-line">
+          {waitingLine(waiting)}
+        </p>
+        <div className="quick-thread__done">
+          <Button ref={claimFocusOnMount} size="sm" variant="chrome" data-testid="quick-thread-done" onClick={() => handOver(receiptOf)}>
+            Done
+          </Button>
+        </div>
+        {live}
+      </div>
+    );
+  }
+
   return (
     <div
+      ref={root}
       className="quick-thread"
       data-testid="quick-thread"
       onKeyDown={(event) => {
@@ -430,15 +565,13 @@ export function QuickThread({
         recipients={recipients}
         recipientsRow={row}
         onSentAll={onSentAll}
+        onSending={setBusy}
         held={held}
         fieldRef={message}
         // With the picker up the keyboard starts in it; with seats already chosen, in the message.
         yields={() => pickingNow.current}
       />
-      <div className="sr-only" role="status" aria-live="polite" data-testid="quick-thread-spoken">
-        {/* The same line twice in a row is still said: the second differs by a space no one hears. */}
-        {spoken.turn % 2 === 0 ? spoken.text : `${spoken.text} `}
-      </div>
+      {live}
     </div>
   );
 }

@@ -39,6 +39,8 @@ let root: Root;
 let sends: Sent[];
 /** Seats whose send main refuses, with its words. */
 let refused: Record<string, string>;
+/** How main says a seat's mail went, when not delivered. */
+let delivery: Record<string, "waiting_for_seat" | "failed">;
 /** Who each seat is wired to. */
 let wired: Record<string, ReadonlyArray<{ nodeId: string; name: string }>>;
 
@@ -66,6 +68,7 @@ const click = async (element: Element | null) => {
 beforeEach(() => {
   sends = [];
   refused = {};
+  delivery = {};
   wired = {};
   resetSeatThreads();
   resetOperatorGesture();
@@ -81,7 +84,7 @@ beforeEach(() => {
       sends.push(input);
       const words = refused[input.nodeId];
       return words === undefined
-        ? { ok: true, messageId: `m-${input.nodeId}`, threadId: `t-${input.nodeId}`, delivery: "delivered" }
+        ? { ok: true, messageId: `m-${input.nodeId}`, threadId: `t-${input.nodeId}`, delivery: delivery[input.nodeId] ?? "delivered" }
         : { ok: false, reason: "failed", message: words };
     },
   };
@@ -116,14 +119,15 @@ const render = async (
 };
 
 describe("one send to several seats", () => {
-  it("tries every seat and names the one that got nothing", async () => {
+  it("tries every seat, names the one that got nothing, and says which seat the mail waits for", async () => {
     refused[B.seatId] = "cli-lead is not reachable.";
+    delivery[C.seatId] = "waiting_for_seat";
     const outcome = await sendNewThreads(CANVAS, [A.seatId, B.seatId, C.seatId], { text: "status?" });
     expect(sends.map((send) => send.nodeId)).toEqual([A.seatId, B.seatId, C.seatId]);
     expect(sends.every((send) => send.text === "status?")).toBe(true);
     expect(outcome.sent).toEqual([
-      { seatId: A.seatId, threadId: "t-seat-a" },
-      { seatId: C.seatId, threadId: "t-seat-c" },
+      { seatId: A.seatId, threadId: "t-seat-a", arrival: "arrived" },
+      { seatId: C.seatId, threadId: "t-seat-c", arrival: "waiting" },
     ]);
     expect(outcome.failed).toEqual([{ seatId: B.seatId, message: "cli-lead is not reachable." }]);
   });
@@ -172,8 +176,8 @@ describe("the thread input with a row of recipients", () => {
     expect(outcomes).toEqual([
       {
         sent: [
-          { seatId: A.seatId, threadId: "t-seat-a" },
-          { seatId: B.seatId, threadId: "t-seat-b" },
+          { seatId: A.seatId, threadId: "t-seat-a", arrival: "arrived" },
+          { seatId: B.seatId, threadId: "t-seat-b", arrival: "arrived" },
         ],
         failed: [],
       },

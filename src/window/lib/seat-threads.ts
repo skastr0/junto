@@ -844,9 +844,20 @@ export type HeldThreadDraft = {
 /** A seat a new thread goes to, with the name the operator reads. */
 export type ThreadRecipient = { readonly seatId: string; readonly name: string };
 
+/**
+ * A seat's new thread, and whether the seat has the mail. `waiting`: the
+ * mail is in the thread and reaches the seat when the seat is back. It is
+ * never sent again.
+ */
+export type NewThread = {
+  readonly seatId: string;
+  readonly threadId: string;
+  readonly arrival: "arrived" | "waiting";
+};
+
 /** What came of one send to several seats: the thread each seat got, and each seat that got none, with main's words. */
 export type NewThreadsOutcome = {
-  readonly sent: ReadonlyArray<{ readonly seatId: string; readonly threadId: string }>;
+  readonly sent: ReadonlyArray<NewThread>;
   readonly failed: ReadonlyArray<{ readonly seatId: string; readonly message: string }>;
 };
 
@@ -861,11 +872,12 @@ export const sendNewThreads = async (
   mail: Pick<OperatorThreadSend, "text" | "attachments">,
 ): Promise<NewThreadsOutcome> => {
   const results = await Promise.all(seatIds.map((seatId) => sendSeatThread({ canvasName, seatId, ...mail })));
-  const sent: Array<{ seatId: string; threadId: string }> = [];
+  const sent: NewThread[] = [];
   const failed: Array<{ seatId: string; message: string }> = [];
   results.forEach((result, index) => {
     const seatId = seatIds[index]!;
-    if (result.ok) sent.push({ seatId, threadId: result.threadId });
+    // Written is sent, and is never sent again. Anything short of delivered reads as waiting for the seat.
+    if (result.ok) sent.push({ seatId, threadId: result.threadId, arrival: result.delivery === "delivered" ? "arrived" : "waiting" });
     else failed.push({ seatId, message: result.message });
   });
   return { sent, failed };

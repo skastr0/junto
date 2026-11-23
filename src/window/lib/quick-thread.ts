@@ -9,7 +9,10 @@
  * narrows the list to its seats.
  *
  * The draft (seats, text, files) is kept per canvas until it is sent, so
- * closing Quick thread loses nothing. Nothing here writes the canvas.
+ * closing Quick thread loses nothing: after a send that reached only some
+ * seats, the reason for each seat that got nothing is kept with it. The
+ * threads that were started need no record here; they are in Threads.
+ * Nothing here writes the canvas.
  */
 import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
@@ -142,22 +145,35 @@ export const quickThreadOptions = (
 
 // ---- The draft, kept until it is sent ----
 
-// Each canvas's chosen seats, as one value per canvas: read whole, written whole.
-const seats$ = observable<{ byCanvas: Readonly<Record<string, ReadonlyArray<string>>> }>({ byCanvas: {} });
+/** What a canvas's Quick thread keeps beside the text and files. */
+export type QuickThreadKept = {
+  /** The seats chosen, in the order chosen. */
+  readonly seats: ReadonlyArray<string>;
+  /** After a send that reached only some: why each seat still chosen got nothing. */
+  readonly unsent: Readonly<Record<string, string>>;
+};
+
+const NOTHING_KEPT: QuickThreadKept = { seats: [], unsent: {} };
+
+// One value per canvas: read whole, written whole.
+const kept$ = observable<{ byCanvas: Readonly<Record<string, QuickThreadKept>> }>({ byCanvas: {} });
 const texts = new Map<string, string>();
 const files = new Map<string, AttachmentHold>();
 const helds = new Map<string, HeldThreadDraft>();
-const NO_SEATS: ReadonlyArray<string> = [];
+
+export const quickThreadKept = (canvasName: string): QuickThreadKept => kept$.byCanvas.peek()[canvasName] ?? NOTHING_KEPT;
+
+export const useQuickThreadKept = (canvasName: string): QuickThreadKept => use$(kept$.byCanvas)[canvasName] ?? NOTHING_KEPT;
+
+export const keepQuickThread = (canvasName: string, change: Partial<QuickThreadKept>): void => {
+  kept$.byCanvas.set({ ...kept$.byCanvas.peek(), [canvasName]: { ...quickThreadKept(canvasName), ...change } });
+};
 
 /** The seats chosen on this canvas, in the order chosen. */
-export const quickThreadSeats = (canvasName: string): ReadonlyArray<string> => seats$.byCanvas.peek()[canvasName] ?? NO_SEATS;
+export const quickThreadSeats = (canvasName: string): ReadonlyArray<string> => quickThreadKept(canvasName).seats;
 
-export const useQuickThreadSeats = (canvasName: string): ReadonlyArray<string> =>
-  use$(seats$.byCanvas)[canvasName] ?? NO_SEATS;
-
-export const setQuickThreadSeats = (canvasName: string, seatIds: ReadonlyArray<string>): void => {
-  seats$.byCanvas.set({ ...seats$.byCanvas.peek(), [canvasName]: [...new Set(seatIds)] });
-};
+export const setQuickThreadSeats = (canvasName: string, seatIds: ReadonlyArray<string>): void =>
+  keepQuickThread(canvasName, { seats: [...new Set(seatIds)] });
 
 /** The text and files of this canvas's draft, for the thread input to keep them in. One object per canvas. */
 export const quickThreadDraft = (canvasName: string): HeldThreadDraft => {
@@ -202,7 +218,7 @@ export const openQuickThread = (): boolean => {
 /** Test helper: forget every draft. */
 export const resetQuickThreads = (): void => {
   for (const hold of files.values()) hold.drop();
-  seats$.byCanvas.set({});
+  kept$.byCanvas.set({});
   texts.clear();
   files.clear();
   helds.clear();

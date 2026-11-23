@@ -101,6 +101,11 @@
   white-space: nowrap;
 }
 
+/* A send is on its way: the row holds still, and reads as held. */
+.quick-thread__to[data-busy="true"] {
+  opacity: 0.6;
+}
+
 /* The region the list is narrowed to, at the start of the field. */
 .quick-thread__narrowed {
   display: inline-flex;
@@ -125,6 +130,7 @@
 
 .quick-thread__chosen {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 6px;
   min-width: 0;
@@ -136,28 +142,74 @@
   flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
-  max-height: calc(2 * 22px + 6px);
+  max-height: calc(2 * 20px + 6px);
   margin: 0;
   padding: 0;
   overflow-y: auto;
   list-style: none;
 }
 
-/* A seat and the control that takes it off, held as one. */
+/* A seat and the control that takes it off, one token: the holder wears the
+   chip's own fill and no edge, so there is no box round a pill. */
 .quick-thread__seat {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  height: 22px;
+  height: 20px;
   padding-right: 2px;
-  border: 1px solid var(--color-stroke);
   border-radius: var(--radius-sm);
+  background: var(--color-overlay-3);
+}
+
+/* The fill is the holder's: the chip inside is clear, so the tint is laid once. */
+.quick-thread__seat .resource-chip {
+  background: transparent;
+}
+
+/* A seat that has its thread, its state ahead of its name: a check, or a clock while the mail waits for it. */
+.quick-thread__seat[data-arrival] {
+  gap: 4px;
+  padding: 0 0 0 5px;
+}
+
+.quick-thread__arrival {
+  flex: none;
+  color: var(--color-ink-2);
+}
+
+.quick-thread__seat[data-arrival="waiting"] .quick-thread__arrival {
+  color: var(--color-dim);
+}
+
+/* The receipt: what was sent and who it has not reached, in place of the input. */
+.quick-thread--receipt {
+  gap: 10px;
+  padding: 14px 12px 12px;
+}
+
+.quick-thread__sent,
+.quick-thread__waiting {
+  margin: 0;
+  font-size: var(--text-body);
+}
+
+.quick-thread__sent {
+  color: var(--color-ink);
+}
+
+.quick-thread__waiting {
+  color: var(--color-dim);
+}
+
+.quick-thread__done {
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* The control at the end sits on the first line of seats. */
 .quick-thread__chosen > button {
   flex: none;
-  margin-top: 3px;
+  margin-top: 2px;
 }
 
 .quick-thread__unsent {

@@ -43,6 +43,8 @@ let root: Root;
 let release: (() => void) | undefined;
 let sends: Sent[];
 let refused: Record<string, string>;
+/** How main says a seat's mail went, when not delivered. */
+let delivery: Record<string, "waiting_for_seat" | "failed">;
 
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 4; i += 1) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -85,6 +87,7 @@ const press = async (element: Element | null) => {
 beforeEach(() => {
   sends = [];
   refused = {};
+  delivery = {};
   resetQuickThreads();
   resetSeatThreads();
   resetOperatorGesture();
@@ -99,7 +102,7 @@ beforeEach(() => {
       sends.push(input);
       const words = refused[input.nodeId];
       return words === undefined
-        ? { ok: true, messageId: `m-${input.nodeId}`, threadId: `t-${input.nodeId}`, delivery: "delivered" }
+        ? { ok: true, messageId: `m-${input.nodeId}`, threadId: `t-${input.nodeId}`, delivery: delivery[input.nodeId] ?? "delivered" }
         : { ok: false, reason: "failed", message: words };
     },
   };
@@ -192,7 +195,8 @@ describe("Quick thread from the canvas", () => {
     await open();
     await typeIn(seatField()!, "design sys");
     expect(all("quick-thread-option")[0]?.getAttribute("data-kind")).toBe("region");
-    expect(all("quick-thread-option")[0]?.textContent).toContain("2 seats");
+    // Heard for what it is, so narrowing does not surprise.
+    expect(all("quick-thread-option")[0]?.textContent).toBe("Design System, region, 2 seats");
     await key(seatField(), "Enter");
     expect(chosenNames()).toEqual([]);
     expect(q("quick-thread-narrowed")?.textContent).toContain("in Design System");
@@ -206,6 +210,7 @@ describe("Quick thread from the canvas", () => {
     await key(seatField(), "Backspace");
     expect(q("quick-thread-narrowed")).toBeNull();
     expect(optionNames().length).toBe(4);
+    expect(spoken()).toBe("Every seat, not only Design System");
   });
 
   it("adds another with Shift+Enter, marks the chosen, and takes the last off with Backspace", async () => {
@@ -219,7 +224,13 @@ describe("Quick thread from the canvas", () => {
     expect(seatField()!.value).toBe("");
     expect(document.querySelector('[data-seat="s-pty"][data-kind="seat"]')?.closest('[role="option"]')?.getAttribute("aria-selected")).toBe("true");
     expect(seatField()!.getAttribute("aria-describedby")).toBeTruthy();
-    expect(document.getElementById(seatField()!.getAttribute("aria-describedby")!)?.textContent).toBe("1 seat chosen");
+    expect(document.getElementById(seatField()!.getAttribute("aria-describedby")!)?.textContent).toBe(
+      "1 seat chosen. Shift+Enter adds another",
+    );
+    // The caps beside the field are for the eye only.
+    expect(document.querySelector(".quick-thread__hint")?.getAttribute("aria-hidden")).toBe("true");
+    // A list to choose from, with no inline completion promised.
+    expect(seatField()!.getAttribute("aria-autocomplete")).toBe("list");
 
     await typeIn(seatField()!, "cli");
     await key(seatField(), "Enter");
@@ -259,6 +270,14 @@ describe("Quick thread from the canvas", () => {
     expect(q("quick-thread-empty")?.textContent).toBe("No seat or region matches");
     await key(seatField(), "Enter");
     expect(spoken()).toBe("No seat matches zzzz");
+
+    // With a seat chosen it is said the same, once.
+    await typeIn(seatField()!, "ptyl");
+    await key(seatField(), "Enter", { shiftKey: true });
+    await typeIn(seatField()!, "zzzz");
+    await key(seatField(), "Enter");
+    expect(spoken()).toBe("No seat matches zzzz");
+    expect(chosenNames()).toEqual(["s-pty"]);
   });
 
   it("Escape in the picker brought back to add a seat returns to the message; Escape again closes", async () => {
@@ -329,10 +348,164 @@ describe("Quick thread from the canvas", () => {
     expect(messageField().value).toBe("status?");
     expect(spoken()).toBe("Not sent to 1 seat");
 
+    // Closed in the middle and opened again: it still says why.
+    await key(messageField(), "Escape");
+    expect(operatorModal$.open.peek()).toBeNull();
+    await open();
+    expect(chosenNames()).toEqual(["s-cli"]);
+    expect(q("quick-thread-unsent")?.textContent).toBe("Not sent to @cli-lead. cli-lead is on a machine that is not connected.");
+    expect(messageField().value).toBe("status?");
+
     refused = {};
     sends.length = 0;
     await press(sendButton());
     expect(sends.map((send) => send.nodeId)).toEqual(["s-cli"]);
+    expect(operatorModal$.open.peek()).toBeNull();
+  });
+
+  it("holds the row still while a send is on its way", async () => {
+    await mountHost();
+    state$.selectedNodeIds.set(["s-pty", "s-cli"]);
+    await open();
+    let land: (() => void) | undefined;
+    const api = (window as unknown as { junto: { seatThreadSend: (input: Sent) => Promise<unknown> } }).junto;
+    const send = api.seatThreadSend;
+    api.seatThreadSend = async (input) => {
+      await new Promise<void>((resolve) => (land = resolve));
+      return send(input);
+    };
+    await typeIn(messageField(), "status?");
+    await press(sendButton());
+    expect(sendButton().textContent).toBe("Sending");
+    const row = document.querySelector(".quick-thread__to") as HTMLElement;
+    expect(row.hasAttribute("inert")).toBe(true);
+    // A press that gets through anyway changes nothing.
+    act(() => (all("quick-thread-seat")[0]?.querySelector("button") as HTMLElement).click());
+    await flush();
+    expect(chosenNames()).toEqual(["s-pty", "s-cli"]);
+    api.seatThreadSend = send;
+    act(() => land?.());
+    await flush();
+  });
+
+  it("takes several seats off in a row by keyboard: the next seat's control takes the keyboard", async () => {
+    await mountHost();
+    state$.selectedNodeIds.set(["s-design", "s-pty", "s-cli"]);
+    await open();
+    const removeOf = (seatId: string) =>
+      all("quick-thread-seat").find((entry) => entry.getAttribute("data-seat") === seatId)?.querySelector("button") as HTMLElement;
+    const pressKey = async (button: HTMLElement) => {
+      act(() => {
+        button.focus();
+        button.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+        button.click();
+      });
+      await flush();
+    };
+    await pressKey(removeOf("s-pty"));
+    expect(chosenNames()).toEqual(["s-design", "s-cli"]);
+    expect(document.activeElement).toBe(removeOf("s-cli"));
+    // No seat after it: the one before.
+    await pressKey(removeOf("s-cli"));
+    expect(document.activeElement).toBe(removeOf("s-design"));
+    // The last one off: the seat field.
+    await pressKey(removeOf("s-design"));
+    expect(chosenNames()).toEqual([]);
+    expect(document.activeElement).toBe(seatField());
+  });
+
+  it("Escape from a control beside the brought-back seat field returns to the message too", async () => {
+    await mountHost();
+    await open();
+    await typeIn(seatField()!, "ptyl");
+    await key(seatField(), "Enter");
+    await press(q("quick-thread-add"));
+    await typeIn(seatField()!, "design sys");
+    await key(seatField(), "Enter");
+    const showAll = q("quick-thread-narrowed")?.querySelector("button") as HTMLElement;
+    act(() => showAll.focus());
+    await key(showAll, "Escape");
+    expect(operatorModal$.open.peek()).toBe("quick-thread");
+    expect(q("quick-thread-picker")).toBeNull();
+    expect(document.activeElement).toBe(messageField());
+  });
+});
+
+describe("a send that leaves a seat waiting", () => {
+  const sentSeats = () => all("quick-thread-sent-seat").map((entry) => `${entry.getAttribute("data-seat")}:${entry.getAttribute("data-arrival")}`);
+
+  it("turns into a receipt that names the seat, and closes on Done", async () => {
+    await mountHost();
+    state$.selectedNodeIds.set(["s-design", "s-pty", "s-cli"]);
+    await open();
+    delivery["s-pty"] = "waiting_for_seat";
+    await typeIn(messageField(), "status?");
+    await press(sendButton());
+    // Sent to all three, once; it does not close without a word, and the input is gone so nothing sends twice.
+    expect(sends.length).toBe(3);
+    expect(operatorModal$.open.peek()).toBe("quick-thread");
+    expect(q("thread-composer")).toBeNull();
+    expect(q("quick-thread-receipt")?.querySelector(".quick-thread__sent")?.textContent).toBe("Sent to 3 seats");
+    expect(sentSeats()).toEqual(["s-design:arrived", "s-pty:waiting", "s-cli:arrived"]);
+    expect(q("quick-thread-waiting-line")?.textContent).toBe("Waiting for pty-lead. It arrives when the seat is back.");
+    expect(spoken()).toBe("Sent to 3 seats. Waiting for pty-lead. It arrives when the seat is back.");
+    expect(document.activeElement).toBe(q("quick-thread-done"));
+    // Nothing is kept to send again.
+    expect(quickThreadSeats(CANVAS)).toEqual([]);
+
+    await press(q("quick-thread-done"));
+    expect(operatorModal$.open.peek()).toBeNull();
+    expect(sends.length).toBe(3);
+  });
+
+  it("counts the seats when more than one waits, a failed hand-over included, and Escape closes", async () => {
+    await mountHost();
+    state$.selectedNodeIds.set(["s-pty", "s-cli"]);
+    await open();
+    delivery["s-pty"] = "waiting_for_seat";
+    delivery["s-cli"] = "failed";
+    await typeIn(messageField(), "status?");
+    await press(sendButton());
+    expect(q("quick-thread-waiting-line")?.textContent).toBe("Waiting for 2 seats. Each gets it when it is back.");
+    await key(q("quick-thread-done"), "Escape");
+    expect(operatorModal$.open.peek()).toBeNull();
+
+    // The next open starts clean.
+    state$.selectedNodeIds.set([]);
+    await open();
+    expect(q("quick-thread-receipt")).toBeNull();
+    expect(chosenNames()).toEqual([]);
+    expect(messageField().value).toBe("");
+  });
+
+  it("keeps a waiting seat in sight while the seat that got nothing is sent again, and never sends to it twice", async () => {
+    await mountHost();
+    state$.selectedNodeIds.set(["s-pty", "s-cli"]);
+    await open();
+    delivery["s-pty"] = "waiting_for_seat";
+    refused["s-cli"] = "cli-lead could not be written to.";
+    await typeIn(messageField(), "status?");
+    await press(sendButton());
+    expect(chosenNames()).toEqual(["s-cli"]);
+    expect(all("quick-thread-waiting").map((entry) => entry.getAttribute("data-seat"))).toEqual(["s-pty"]);
+    expect(messageField().value).toBe("status?");
+
+    expect(spoken()).toBe("Not sent to 1 seat. Waiting for pty-lead. It arrives when the seat is back.");
+
+    refused = {};
+    sends.length = 0;
+    await press(sendButton());
+    expect(sends.map((send) => send.nodeId)).toEqual(["s-cli"]);
+    expect(sentSeats()).toEqual(["s-pty:waiting", "s-cli:arrived"]);
+    expect(q("quick-thread-receipt")?.querySelector(".quick-thread__sent")?.textContent).toBe("Sent to 2 seats");
+  });
+
+  it("closes at once when every seat has it", async () => {
+    await mountHost();
+    state$.selectedNodeIds.set(["s-pty"]);
+    await open();
+    await typeIn(messageField(), "status?");
+    await press(sendButton());
     expect(operatorModal$.open.peek()).toBeNull();
   });
 });
@@ -348,11 +521,14 @@ describe("Quick thread in a pane of its host's", () => {
     await typeIn(seatField()!, "cli");
     await key(seatField(), "Enter");
     await typeIn(messageField(), "status?");
+    delivery["s-pty"] = "waiting_for_seat";
     await press(sendButton());
+    // No receipt here: the host shows the thread, and is told which seat the mail waits for.
+    expect(q("quick-thread-receipt")).toBeNull();
     expect(sent).toEqual([
       [
-        { seatId: "s-pty", threadId: "t-s-pty" },
-        { seatId: "s-cli", threadId: "t-s-cli" },
+        { seatId: "s-pty", threadId: "t-s-pty", arrival: "waiting" },
+        { seatId: "s-cli", threadId: "t-s-cli", arrival: "arrived" },
       ],
     ]);
     // Sent: it is ready for the next one, the seat field back.

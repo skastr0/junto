@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { MAIL_TEXT_INLINE_MAX_BYTES, type TextBound } from "@shared/mail-text-bound";
 import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
@@ -61,6 +61,8 @@ type ToRecipients = Shared & {
    * With any unsent the draft is kept, for the host to send again to those.
    */
   readonly onSentAll?: (outcome: NewThreadsOutcome) => void;
+  /** A send started or ended, for a host that holds its row still meanwhile. */
+  readonly onSending?: (sending: boolean) => void;
   /** Keep the draft here, past this composer's own life. */
   readonly held?: HeldThreadDraft;
   /** The field, for a host that moves the keyboard to it once a seat is chosen. */
@@ -102,6 +104,11 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
     held?.keepText(next);
   };
   const [sending, setSending] = useState(false);
+  const onSending = useRef(several ? props.onSending : undefined);
+  onSending.current = several ? props.onSending : undefined;
+  useEffect(() => {
+    onSending.current?.(sending);
+  }, [sending]);
   const [failure, setFailure] = useState<string>();
   // The field takes the keyboard once, when it mounts, unless it is asked to
   // yield. The combobox hands its field over again on every render, so the
