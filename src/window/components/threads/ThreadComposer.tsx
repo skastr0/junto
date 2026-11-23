@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { MAIL_TEXT_INLINE_MAX_BYTES, type TextBound } from "@shared/mail-text-bound";
 import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
@@ -70,6 +70,17 @@ type ToRecipients = Shared & {
   readonly onSentAll?: (outcome: NewThreadsOutcome) => void;
   /** A send started or ended, for a host that holds its row still meanwhile. */
   readonly onSending?: (sending: boolean) => void;
+  /**
+   * Asked as Send is pressed with something to send: true, and nothing goes
+   * now. The host has the press, to ask first, and sends through `sender`.
+   */
+  readonly holds?: () => boolean;
+  /**
+   * Filled with the send itself, to exactly the seats it is given and no
+   * others, whatever `recipients` reads by then: what a host confirmed is
+   * what goes. `holds` is not asked again. Empty once the input is gone.
+   */
+  readonly sender?: RefObject<((to: ReadonlyArray<ThreadRecipient>) => void) | null>;
   /** Keep the draft here, past this composer's own life. */
   readonly held?: HeldThreadDraft;
   /** The field, for a host that moves the keyboard to it once a seat is chosen. */
@@ -143,10 +154,11 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
   const unsendable =
     long.blocked || (draft.trim() === "" && !hasFiles) || attachments.ready === undefined || recipients.length === 0;
 
-  const send = async (): Promise<void> => {
+  const send = async (fixed?: ReadonlyArray<ThreadRecipient>): Promise<void> => {
     const text = draft.trim();
     const files = attachments.ready;
     if (unsendable || files === undefined || sending) return;
+    if (fixed === undefined ? several && props.holds?.() === true : fixed.length === 0) return;
     setSending(true);
     setFailure(undefined);
     let carried: Awaited<ReturnType<typeof carryText>>;
@@ -159,7 +171,7 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
     }
     const mail = { text: carried.text, ...(carried.files.length > 0 ? { attachments: carried.files } : {}) };
     if (several) {
-      const outcome = await sendNewThreads(canvasName, seatIds, mail);
+      const outcome = await sendNewThreads(canvasName, fixed?.map((recipient) => recipient.seatId) ?? seatIds, mail);
       setSending(false);
       // Any seat left unsent keeps the draft: the host says which, and Send goes to those.
       if (outcome.failed.length === 0) {
@@ -185,6 +197,18 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
     attachments.clear();
     props.onSent?.(result.threadId, { messageId: result.messageId, waiting: result.delivery !== "delivered" });
   };
+
+  // The host's way to send, as this render knows the draft and its files.
+  const sender = several ? props.sender : undefined;
+  const sendNow = useRef(send);
+  sendNow.current = send;
+  useEffect(() => {
+    if (sender === undefined) return;
+    sender.current = (to) => void sendNow.current(to);
+    return () => {
+      sender.current = null;
+    };
+  }, [sender]);
 
   // The list takes its own keys first; what reaches here is the composer's.
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {

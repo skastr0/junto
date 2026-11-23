@@ -7,7 +7,7 @@
  * is refused for a mention. A held draft, text and files, outlives the
  * composer.
  */
-import { act } from "react";
+import { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { OperatorContentPut, OperatorContentPutResult } from "../src/shared/operator-attachments";
@@ -102,7 +102,12 @@ afterEach(() => {
 
 const render = async (
   recipients: ReadonlyArray<ThreadRecipient>,
-  more: { readonly onSentAll?: (outcome: NewThreadsOutcome) => void; readonly held?: HeldThreadDraft } = {},
+  more: {
+    readonly onSentAll?: (outcome: NewThreadsOutcome) => void;
+    readonly held?: HeldThreadDraft;
+    readonly holds?: () => boolean;
+    readonly sender?: { current: ((to: ReadonlyArray<ThreadRecipient>) => void) | null };
+  } = {},
 ) => {
   act(() =>
     root.render(
@@ -220,6 +225,55 @@ describe("the thread input with a row of recipients", () => {
     await type("@");
     expect(offered().length).toBe(1);
     expect(offered()[0]).toContain("tech-lead");
+  });
+});
+
+describe("a send the host holds to ask first", () => {
+  it("sends nothing on Send, then goes to exactly the seats the host fixed", async () => {
+    const outcomes: NewThreadsOutcome[] = [];
+    const sender = createRef<(to: ReadonlyArray<ThreadRecipient>) => void>();
+    let asked = 0;
+    await render([A, B, C], { onSentAll: (outcome) => outcomes.push(outcome), holds: () => ((asked += 1), true), sender });
+    await type("stop");
+    await click(sendButton());
+    expect(asked).toBe(1);
+    expect(sends).toEqual([]);
+    expect(field().value).toBe("stop");
+
+    // The set was fixed when the host asked: a seat chosen since gets nothing.
+    await render([A, B, C, { seatId: "seat-d", name: "late-lead" }], {
+      onSentAll: (outcome) => outcomes.push(outcome),
+      holds: () => ((asked += 1), true),
+      sender,
+    });
+    await act(async () => sender.current?.([A, C]));
+    await flush();
+    expect(asked).toBe(1);
+    expect(sends.map((send) => send.nodeId)).toEqual([A.seatId, C.seatId]);
+    expect(outcomes[0]?.sent.map((entry) => entry.seatId)).toEqual([A.seatId, C.seatId]);
+    expect(field().value).toBe("");
+  });
+
+  it("is not asked with nothing to send, and sends as ever when the host lets it go", async () => {
+    let asked = 0;
+    await render([A, B], { holds: () => ((asked += 1), false) });
+    await click(sendButton());
+    expect(asked).toBe(0);
+    await type("status?");
+    await click(sendButton());
+    expect(asked).toBe(1);
+    expect(sends.map((send) => send.nodeId)).toEqual([A.seatId, B.seatId]);
+  });
+
+  it("sends to nobody when the host fixes nobody, and lets go of the host when it is gone", async () => {
+    const sender = createRef<(to: ReadonlyArray<ThreadRecipient>) => void>();
+    await render([A], { holds: () => true, sender });
+    await type("status?");
+    await act(async () => sender.current?.([]));
+    await flush();
+    expect(sends).toEqual([]);
+    act(() => root.render(<div />));
+    expect(sender.current).toBeNull();
   });
 });
 
