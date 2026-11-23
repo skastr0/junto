@@ -6,6 +6,7 @@ import { ModelService } from "../model/service";
 import { PausePlane } from "../pause-plane";
 import { resolveNodeRef, type NodeRefResolutionError } from "../node-ref-resolver";
 import { onAgentSignalChanged } from "../signals/changes";
+import { servedSignal } from "../work/signal-pairing";
 import { checkSeatPageBox, postSeatPageShot } from "../work/page-box-comment";
 import { CorePushes, type CorePushesShape } from "../push";
 import { AGENT_SIGNAL_CHANGED, CANVAS_CHANGED, WORK_PREAMBLE } from "../../contract/core/channels";
@@ -27,7 +28,7 @@ export const publishWindowBroadcasts = (
   pushes: CorePushesShape,
 ): { readonly onPreamble: (event: PreambleEvent) => void; readonly stop: () => void } => ({
   onPreamble: (event) => Effect.runSync(pushes.publish(WORK_PREAMBLE, event)),
-  stop: onAgentSignalChanged((signal) => Effect.runSync(pushes.publish(AGENT_SIGNAL_CHANGED, signal))),
+  stop: onAgentSignalChanged((signal) => Effect.runSync(pushes.publish(AGENT_SIGNAL_CHANGED, servedSignal(signal)))),
 });
 
 /** Why a ref named nothing, in the words the link's opener is told. */

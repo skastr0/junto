@@ -157,9 +157,9 @@ export const FeedItem = Schema.Struct({
   health: Schema.optionalKey(FeedHealth),
   /** Set for a canvas need: read off the work graph or a sink, not said by a seat. */
   canvas: Schema.optionalKey(Schema.Boolean),
-  /** The thread between the seat and the operator this signal was raised in: open the exchange there. */
+  /** The thread between the seat and the operator this signal was raised in, once its mail is here and paired: open the exchange there. */
   threadId: Schema.optionalKey(Schema.String),
-  /** The nearest earlier signal in that thread, the head counted: present only when this machine holds it as the same seat's own. */
+  /** The nearest earlier signal in its thread, the head counted: present only when this machine holds it as the same seat's own, never itself. */
   followsSignalId: Schema.optionalKey(Schema.String),
   /** The signals this one comes after, the same seat's own; another seat's id is no dependency and is left out. */
   dependsOn: Schema.optionalKey(Schema.Array(Schema.String)),

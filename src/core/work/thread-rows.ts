@@ -22,7 +22,7 @@
  * Nothing is stored: no table, no column. Mail text never leaves in a log.
  */
 import type { ThreadSignalRef } from "@shared/wire/mail-threads";
-import { openSignalOf, threadSignalsOf, type RowOf, type ThreadSignals } from "./thread-signals";
+import { openSignalOf, threadSignalsOf, waits, type RowOf, type ThreadSignals } from "./thread-signals";
 import { Effect } from "effect";
 import { SqlClient } from "effect/sql";
 import { ulid } from "ulid";
@@ -82,6 +82,8 @@ type Thread = {
   readonly point: MailReadPoint | undefined;
   readonly unread: number;
   readonly openSignal: ThreadSignalRef | undefined;
+  /** The last mail is the operator's and still waits for its seat (thread-signals.ts `waits`). */
+  readonly lastWaits: boolean;
 };
 
 const seatOf = (canvas: Canvas, nodeId: string): OperatorThreadSeat | undefined => {
@@ -183,6 +185,7 @@ const threadsOf = (view: View, who: ThreadRowsWho, points: ReadonlyMap<string, M
     const point = points?.get(threadId);
     out.push({
       openSignal: openSignalOf(threadId, view.signals, view.rowOf),
+      lastWaits: waits(last, view.signals, view.rowOf),
       threadId,
       entries,
       lastAt: last.at,
@@ -298,7 +301,7 @@ const rowOf = (input: MailThreadsInput, thread: Thread): OperatorThreadRow => {
       from: last.from,
       text: last.text.length > OPERATOR_THREAD_PREVIEW_MAX ? last.text.slice(0, OPERATOR_THREAD_PREVIEW_MAX) : last.text,
       at: last.at,
-      ...(last.waiting === true ? { waiting: true as const } : {}),
+      ...(thread.lastWaits ? { waiting: true as const } : {}),
     },
     messageCount: summary.messageCount,
     unread: thread.unread,
@@ -377,7 +380,7 @@ const signOf = (thread: Thread): string =>
   [
     thread.entries.length,
     thread.entries[thread.entries.length - 1]?.messageId ?? "",
-    thread.entries[thread.entries.length - 1]?.waiting === true ? "w" : "",
+    thread.lastWaits ? "w" : "",
     thread.point?.through ?? "",
     thread.unread,
     thread.seat.name,

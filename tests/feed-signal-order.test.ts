@@ -49,12 +49,20 @@ describe("a feed card's order among the seat's signals", () => {
     expect(read.dependsOn).toEqual(ids.slice(0, 8));
   });
 
-  it("gives its thread when its mail is named, and what it follows only as the seat's own", () => {
+  it("gives its thread only once its mail is here and paired, and what it follows only as the seat's own", () => {
     const head = signal("S1", { state: "answered", threadId: "T1" });
-    const card = signal("S2", { threadId: "T1", messageId: "M2", followsSignalId: "S1" });
+    const card = signal("S2", { threadId: "T1", messageId: "M2", followsSignalId: "S1", paired: true });
     expect(signalOrderOf(card, heldOf(head, card))).toEqual({ threadId: "T1", followsSignalId: "S1" });
     // Another seat's signal is never what it follows; one not held is left out.
     expect(signalOrderOf(card, heldOf({ ...head, nodeId: "seat-b" }, card))).toEqual({ threadId: "T1" });
     expect(signalOrderOf(card, heldOf(card))).toEqual({ threadId: "T1" });
+    // Its mail not here yet: no thread link, and it still says what it follows.
+    const { paired: _paired, ...alone } = card;
+    expect(signalOrderOf(alone, heldOf(head, alone))).toEqual({ followsSignalId: "S1" });
+  });
+
+  it("never follows itself", () => {
+    const card = signal("S2", { threadId: "T1", followsSignalId: "S2" });
+    expect(signalOrderOf(card, heldOf(card))).toEqual({});
   });
 });

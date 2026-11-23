@@ -188,6 +188,25 @@ const faceOf = (signal: AgentSignal & { readonly kind: SeatRaiseKind }): ThreadS
   };
 };
 
+/**
+ * The operator's mail still waits for its seat. An answer whose signal
+ * crossed a withdrawal is held on the seat's machine, never typed, so its
+ * receipt never comes: it waits for nothing, and the thread never promises
+ * it arrives when the seat is back. The withdrawal says what happened.
+ */
+export const waits = (entry: MailThreadMessage, signals: ThreadSignals, rowOf: RowOf): boolean => {
+  if (entry.waiting !== true) return false;
+  const answered = answeredIn(entry, signals, rowOf);
+  return answered === undefined || !crossedClosing(answered);
+};
+
+/** The entry with no waiting mark, when it waits for nothing. */
+export const settled = (entry: MailThreadMessage, signals: ThreadSignals, rowOf: RowOf): MailThreadMessage => {
+  if (entry.waiting !== true || waits(entry, signals, rowOf)) return entry;
+  const { waiting: _held, ...rest } = entry;
+  return rest;
+};
+
 /** A thread's messages as it reads them: each signal and each answer named. */
 export const withSignals = (
   entries: ReadonlyArray<MailThreadMessage>,
@@ -198,7 +217,9 @@ export const withSignals = (
     const raised = raisedIn(entry, signals, rowOf);
     if (raised !== undefined) return { ...entry, signal: faceOf(raised) };
     const answered = answeredIn(entry, signals, rowOf);
-    return answered === undefined ? entry : { ...entry, answers: { signalId: answered.signalId, kind: answered.kind, text: answered.text } };
+    return answered === undefined
+      ? entry
+      : { ...settled(entry, signals, rowOf), answers: { signalId: answered.signalId, kind: answered.kind, text: answered.text } };
   });
 
 /** The signal whose answer is the thread's root, when the root is held. */
@@ -214,12 +235,22 @@ export const headSignalOf = (
   return signal === undefined ? undefined : { ...faceOf(signal), at: signal.createdAt };
 };
 
+/**
+ * The signal and its mail are both here and paired, seen from the signal:
+ * the row it names is in its seat's own mailbox, written by the seat, names
+ * it back, and sits in the thread the signal says. The one rule for a
+ * thread's open signal and for the feed's thread link (`paired`).
+ */
+export const pairedIn = (signal: AgentSignal, rowOf: RowOf): boolean => {
+  if (!seatSignal(signal, signal.nodeId) || signal.messageId === undefined || signal.threadId === undefined) return false;
+  const row = rowOf(signal.nodeId, signal.messageId);
+  return writtenBy(row, signal.nodeId) && field(row, "raisedSignalId") === signal.signalId && mailThreadOf(row) === signal.threadId;
+};
+
 /** The earliest open signal raised in the thread, paired with its mail there. */
 export const openSignalOf = (threadId: string, signals: ThreadSignals, rowOf: RowOf): ThreadSignalRef | undefined => {
   for (const signal of signals.openIn(threadId)) {
-    if (!seatSignal(signal, signal.nodeId) || signal.messageId === undefined) continue;
-    const row = rowOf(signal.nodeId, signal.messageId);
-    if (writtenBy(row, signal.nodeId) && field(row, "raisedSignalId") === signal.signalId && mailThreadOf(row) === threadId) {
+    if (signal.threadId === threadId && seatSignal(signal, signal.nodeId) && pairedIn(signal, rowOf)) {
       return { signalId: signal.signalId, kind: signal.kind, text: signal.text };
     }
   }

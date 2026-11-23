@@ -9,10 +9,13 @@
  * core's own process plane with the core's login PATH, as the region secret
  * store does.
  */
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema, Scope } from "effect";
 import { homedir } from "node:os";
 import { resolveJuntoHome } from "@shared/junto-home";
+import { AGENT_SIGNAL_CHANGED } from "../../contract/core/channels";
 import { SignalsRpcs, SignalsUnavailable } from "../../contract/core/signals";
+import { CorePushes } from "../push";
+import { servedSignals, watchSignalPairing } from "../work/signal-pairing";
 import {
   answerAgentSignal,
   dismissAgentSignal,
@@ -58,8 +61,27 @@ const deliverIntoSeat = (answer: {
   }).pipe(Effect.ignore);
 };
 
-export const SignalsHandlers = SignalsRpcs.toLayer({
-  SignalsList: ({ canvasName }) => listCanvasAgentSignals(canvasName).pipe(Effect.mapError(unavailable)),
+export const SignalsHandlers = SignalsRpcs.toLayer(
+  Effect.gen(function* () {
+    const scope = yield* Effect.scope;
+    // A signal whose mail lands after it is served again, marked paired, once
+    // the first list asks: the core hears mail from then on, for its life.
+    let hearing = false;
+    const hearPairing = Effect.gen(function* () {
+      if (hearing) return;
+      hearing = true;
+      const pushes = yield* Effect.serviceOption(CorePushes);
+      if (Option.isNone(pushes)) return;
+      const stop = yield* watchSignalPairing((signal) => Effect.runSync(pushes.value.publish(AGENT_SIGNAL_CHANGED, signal)));
+      yield* Scope.addFinalizer(scope, Effect.sync(stop));
+    });
+    return {
+  SignalsList: ({ canvasName }) =>
+    listCanvasAgentSignals(canvasName).pipe(
+      Effect.tap(() => hearPairing),
+      Effect.flatMap((listed) => servedSignals(canvasName, listed)),
+      Effect.mapError(unavailable),
+    ),
   SignalsAnswer: ({ signalId, text, silent, attachments }) =>
     answerAgentSignal(signalId, text, { silent, attachments }).pipe(Effect.tap(deliverIntoSeat), Effect.mapError(unavailable)),
   SignalsReply: ({ signalId, reply }) =>
@@ -85,4 +107,6 @@ export const SignalsHandlers = SignalsRpcs.toLayer({
       run: runTool,
       path: async () => (await resolvedSpawnEnv()).PATH,
     }).pipe(Effect.tap(deliverIntoSeat), Effect.mapError(unavailable)),
-});
+    };
+  }),
+);

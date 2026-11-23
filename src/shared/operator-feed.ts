@@ -446,14 +446,17 @@ export const signalOrderOf = (
       ? other
       : undefined;
   };
-  const follows = signal.followsSignalId === undefined ? undefined : own(signal.followsSignalId);
+  const follows =
+    signal.followsSignalId === undefined || signal.followsSignalId === signal.signalId ? undefined : own(signal.followsSignalId);
   const dependsOn = [...new Set(signal.dependsOn ?? [])]
     .slice(0, AGENT_SIGNAL_MAX_DEPENDS_ON)
     .filter((signalId) => signalId !== signal.signalId && (!held.has(signalId) || own(signalId) !== undefined));
   const order = dependsOn.length === 0 ? undefined : signalReadiness({ dependsOn }, (signalId) => own(signalId)?.state);
   return {
-    ...(signal.threadId === undefined || signal.messageId === undefined ? {} : { threadId: signal.threadId }),
-    ...(follows === undefined || signal.threadId === undefined ? {} : { followsSignalId: follows.signalId }),
+    // The thread link waits for the mail: until both are here and paired, the signal stands alone.
+    ...(signal.threadId === undefined || signal.paired !== true ? {} : { threadId: signal.threadId }),
+    // What it follows is signal to signal, so it reads with or without the mail.
+    ...(follows === undefined ? {} : { followsSignalId: follows.signalId }),
     ...(order === undefined
       ? {}
       : {

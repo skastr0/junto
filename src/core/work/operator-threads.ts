@@ -41,7 +41,7 @@ import {
   type ThreadGroup,
 } from "@shared/mail-threads";
 import type { MailThreadMessage, MailThreadSummary } from "@shared/wire/mail-threads";
-import { headSignalOf, openSignalOf, signalIdsOf, threadSignalsOf, withSignals, type RowOf, type ThreadSignals } from "./thread-signals";
+import { headSignalOf, openSignalOf, settled, signalIdsOf, threadSignalsOf, withSignals, type RowOf, type ThreadSignals } from "./thread-signals";
 import type { Message } from "@shared/work-model";
 import { operatorActorRef } from "@shared/work-reference";
 import { ModelService } from "../model/service";
@@ -372,11 +372,13 @@ export const seatThreads = (canvasName: string, nodeId: string) =>
     return withOpenSignals(seatMailThreads(input, nodeId), signals, rowOf);
   });
 
-/** Each thread's earliest open signal, paired (work/thread-signals.ts). */
+/** Each thread's earliest open signal, paired, and its last mail's waiting as it holds (work/thread-signals.ts). */
 const withOpenSignals = <T extends MailThreadSummary>(threads: ReadonlyArray<T>, signals: ThreadSignals, rowOf: RowOf): ReadonlyArray<T> =>
   threads.map((thread) => {
     const openSignal = openSignalOf(thread.threadId, signals, rowOf);
-    return openSignal === undefined ? thread : { ...thread, openSignal };
+    const last = settled(thread.last, signals, rowOf);
+    if (openSignal === undefined && last === thread.last) return thread;
+    return { ...thread, last, ...(openSignal === undefined ? {} : { openSignal }) };
   });
 
 export const seatThreadMessages = (canvasName: string, nodeId: string, threadId: string) =>

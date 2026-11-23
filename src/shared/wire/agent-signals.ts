@@ -477,6 +477,13 @@ export const AgentSignal = Schema.Struct({
   dependsOn: Schema.optionalKey(
     Schema.Array(SignalLinkId).check(Schema.isMaxLength(AGENT_SIGNAL_MAX_DEPENDS_ON)),
   ),
+  /**
+   * Read, never stored: the core sets it on a signal it serves to a window
+   * once the seat's mail that is the signal is here too and each names the
+   * other (remote-security's pairing). Until then the signal stands alone,
+   * and a card shows no link to its thread.
+   */
+  paired: Schema.optionalKey(Schema.Literal(true)),
 });
 export type AgentSignal = typeof AgentSignal.Type;
 

@@ -13,6 +13,9 @@ import type { Message } from "../src/shared/work-model";
 import {
   answeredIn,
   headSignalOf,
+  pairedIn,
+  settled,
+  waits,
   openSignalOf,
   raisedIn,
   signalIdsOf,
@@ -116,6 +119,38 @@ describe("an answer and a withdrawal that crossed", () => {
     expect(read(signal("S01", { messageId: "M01", state: "answered", response: answer, withdrawnAt: 6 } as never))).toMatchObject({ state: "answered", crossed: true });
     expect(read(signal("S01", { messageId: "M01", state: "answered", response: answer }))?.crossed).toBeUndefined();
     expect(read(signal("S01", { messageId: "M01", state: "withdrawn" }))?.crossed).toBeUndefined();
+  });
+});
+
+describe("an answer whose signal crossed a withdrawal", () => {
+  it("waits for nothing: it is held, never typed, so the thread never says it arrives", () => {
+    const rowOf = rows({ [SEAT]: [operatorRow("M05", { agentSignalId: "S01" })] });
+    const sent = { ...operatorEntry("M05"), waiting: true as const };
+    const crossedHere = signal("S01", { state: "withdrawn", response: { text: "go", at: 5 } });
+    const crossedThere = signal("S01", { state: "answered", response: { text: "go", at: 5 }, withdrawnAt: 6 } as never);
+    for (const crossed of [crossedHere, crossedThere]) {
+      expect(waits(sent, signalsOf(crossed), rowOf)).toBe(false);
+      expect(settled(sent, signalsOf(crossed), rowOf).waiting).toBeUndefined();
+      expect(withSignals([sent], signalsOf(crossed), rowOf)[0]?.waiting).toBeUndefined();
+    }
+    // An answer to an open or plainly answered signal still waits for its seat.
+    const answered = signal("S01", { state: "answered", response: { text: "go", at: 5 } });
+    expect(waits(sent, signalsOf(answered), rowOf)).toBe(true);
+    expect(withSignals([sent], signalsOf(answered), rowOf)[0]?.waiting).toBe(true);
+    // Mail that answers nothing waits as it always did.
+    expect(waits({ ...sent, messageId: "M09" }, signalsOf(crossedHere), rowOf)).toBe(true);
+  });
+});
+
+describe("a signal paired with its mail, seen from the signal", () => {
+  it("is paired only with its own row in its thread, naming it back", () => {
+    const raised = signal("S01", { messageId: "M01" });
+    expect(pairedIn(raised, rows({ [SEAT]: [seatRow("M01", { raisedSignalId: "S01" })] }))).toBe(true);
+    expect(pairedIn(raised, rows({}))).toBe(false);
+    expect(pairedIn(raised, rows({ [SEAT]: [seatRow("M01", { raisedSignalId: "S99" })] }))).toBe(false);
+    expect(pairedIn(raised, rows({ [SEAT]: [seatRow("M01", { raisedSignalId: "S01", threadId: "01M8560000000000000000ELSE" })] }))).toBe(false);
+    expect(pairedIn(raised, rows({ [SEAT]: [seatRow("M01", { raisedSignalId: "S01", senderAutomationId: "a" })] }))).toBe(false);
+    expect(pairedIn({ ...raised, threadId: undefined } as AgentSignal, rows({ [SEAT]: [seatRow("M01", { raisedSignalId: "S01" })] }))).toBe(false);
   });
 });
 
