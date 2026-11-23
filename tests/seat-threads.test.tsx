@@ -1150,7 +1150,12 @@ describe("the pace of change-driven reads", () => {
 });
 
 describe("paging in Threads", () => {
-  const ROW = 60;
+  // Main decides how many a page holds; the views only follow the cursor. So
+  // the pages here are small: paging reads the same at eight a page as at
+  // fifty, and no test renders hundreds of rows to see it.
+  const PAGE = 8;
+  // A row is tall enough that one page overflows the pane and is not near its end.
+  const ROW = 200;
   const VIEW = 600;
   const defined: Array<[PropertyKey, PropertyDescriptor | undefined]> = [];
   const define = (key: "scrollHeight" | "clientHeight", get: (this: HTMLElement) => number) => {
@@ -1174,7 +1179,8 @@ describe("paging in Threads", () => {
     }
   });
 
-  const TOTAL = 130;
+  // Two full pages and a part of a third.
+  const TOTAL = 20;
   const threadAt = (n: number) => thread({ threadId: `t${String(n).padStart(3, "0")}`, lastAt: at(0, 0) + (TOTAL - n) * 1000 });
   /**
    * The page asks a source saw: a cursor, never the head. The head is read again
@@ -1193,9 +1199,9 @@ describe("paging in Threads", () => {
         if (group === "with-you") calls.push(after);
         if (after !== undefined) asked.push({ group, after });
         const from = after === undefined ? 0 : list.findIndex((item) => item.threadId === after) + 1;
-        const threads = list.slice(from, from + 50);
+        const threads = list.slice(from, from + PAGE);
         const last = threads.at(-1);
-        return { threads, ...(from + 50 < list.length && last ? { next: last.threadId } : {}) };
+        return { threads, ...(from + PAGE < list.length && last ? { next: last.threadId } : {}) };
       },
       messages: async () => ({ messages: [] }),
       onChanged: () => () => undefined,
@@ -1207,17 +1213,17 @@ describe("paging in Threads", () => {
   };
 
   it("keeps the operator's threads on the first page however much newer mail is between seats, and pages that list after theirs", async () => {
-    // Sixty threads between seats, every one newer than any thread with the operator.
-    const between = Array.from({ length: 60 }, (_, n) =>
+    // More than a page of threads between seats, every one newer than any thread with the operator.
+    const between = Array.from({ length: PAGE + 2 }, (_, n) =>
       thread({ threadId: `b${String(n).padStart(3, "0")}`, participants: ["cli-lead", "pty-lead"], canReply: false, lastAt: at(9, 0) - n * 1000 }));
     const { source, asked } = pagedSource(between);
     setSeatThreadsSource(source);
     await render();
     await click(q("seat-view-threads"));
     const group = (testId: string) => [...(q(testId)?.querySelectorAll('[data-testid="seat-threads-row"]') ?? [])];
-    // Both lists open on their own first page: fifty of each, the operator's not pushed off.
-    expect(group("seat-threads-with-you")).toHaveLength(50);
-    expect(group("seat-threads-between-seats")).toHaveLength(50);
+    // Both lists open on their own first page: a page of each, the operator's not pushed off.
+    expect(group("seat-threads-with-you")).toHaveLength(PAGE);
+    expect(group("seat-threads-between-seats")).toHaveLength(PAGE);
 
     // Scrolling pages the operator's list until it ends, then the one between seats, each on its own cursor.
     const list = document.querySelector<HTMLElement>(".seat-threads__list")!;
@@ -1227,12 +1233,12 @@ describe("paging in Threads", () => {
       await flush();
     }
     expect(asked).toEqual([
-      { group: "with-you", after: "t049" },
-      { group: "with-you", after: "t099" },
-      { group: "between", after: "b049" },
+      { group: "with-you", after: "t007" },
+      { group: "with-you", after: "t015" },
+      { group: "between", after: "b007" },
     ]);
     expect(group("seat-threads-with-you")).toHaveLength(TOTAL);
-    expect(group("seat-threads-between-seats")).toHaveLength(60);
+    expect(group("seat-threads-between-seats")).toHaveLength(PAGE + 2);
     expect(q("seat-threads-more")).toBeNull();
   });
 
@@ -1241,7 +1247,7 @@ describe("paging in Threads", () => {
     setSeatThreadsSource(source);
     await render();
     await click(q("seat-view-threads"));
-    expect(all("seat-threads-row")).toHaveLength(50);
+    expect(all("seat-threads-row")).toHaveLength(PAGE);
     expect(pageAsks(calls)).toEqual([]);
 
     const list = document.querySelector<HTMLElement>(".seat-threads__list")!;
@@ -1255,8 +1261,8 @@ describe("paging in Threads", () => {
     list.scrollTop = list.scrollHeight - VIEW - 100;
     act(() => list.dispatchEvent(new Event("scroll")));
     await flush();
-    expect(pageAsks(calls)).toEqual(["t049"]);
-    expect(all("seat-threads-row")).toHaveLength(100);
+    expect(pageAsks(calls)).toEqual(["t007"]);
+    expect(all("seat-threads-row")).toHaveLength(2 * PAGE);
   });
 
   it("asks for no older page while the list is folded, and fills it once it shows again", async () => {
@@ -1280,7 +1286,7 @@ describe("paging in Threads", () => {
     await click(document.querySelector('.two-pane__strip [aria-label="Sidebar"]'));
     act(() => resized.forEach((fire) => fire()));
     await flush();
-    expect(pageAsks(calls)).toEqual(["t049"]);
+    expect(pageAsks(calls)).toEqual(["t007"]);
   });
 
   it("keeps the older pages when the head is read again after new mail", async () => {
@@ -1292,18 +1298,18 @@ describe("paging in Threads", () => {
     list.scrollTop = list.scrollHeight - VIEW - 100;
     act(() => list.dispatchEvent(new Event("scroll")));
     await flush();
-    expect(all("seat-threads-row")).toHaveLength(100);
+    expect(all("seat-threads-row")).toHaveLength(2 * PAGE);
 
     // A thread older than the first page is lifted to the top: the head is read again.
-    const lifted = everything[75]!;
-    everything.splice(75, 1);
+    const lifted = everything[11]!;
+    everything.splice(11, 1);
     everything.unshift({ ...lifted, lastAt: at(5, 0) });
     await act(async () => {
       refreshSeatThreads(SEAT);
     });
     await flush();
     const rows = all("seat-threads-row").map((row) => row.getAttribute("data-thread-id"));
-    expect(rows).toHaveLength(100);
+    expect(rows).toHaveLength(2 * PAGE);
     expect(rows[0]).toBe(lifted.threadId);
     expect(new Set(rows).size).toBe(rows.length);
     expect(calls.at(-1)).toBeUndefined();
@@ -1331,11 +1337,11 @@ describe("paging in Threads", () => {
     act(() => list.dispatchEvent(new Event("scroll")));
     await flush();
     await flush();
-    expect(calls.filter((call) => call === "t049")).toHaveLength(1);
+    expect(calls.filter((call) => call === "t007")).toHaveLength(1);
     expect(q("seat-threads")?.textContent).toContain("no page");
     act(() => list.dispatchEvent(new Event("scroll")));
     await flush();
-    expect(calls.filter((call) => call === "t049")).toHaveLength(2);
+    expect(calls.filter((call) => call === "t007")).toHaveLength(2);
   });
 
   it("lets go of a thread the head no longer has, and keeps the pages beyond it", async () => {
@@ -1347,18 +1353,18 @@ describe("paging in Threads", () => {
     list.scrollTop = list.scrollHeight - VIEW - 100;
     act(() => list.dispatchEvent(new Event("scroll")));
     await flush();
-    const gone = everything.splice(10, 1)[0]!;
+    const gone = everything.splice(3, 1)[0]!;
     await act(async () => {
       refreshSeatThreads(SEAT);
     });
     await flush();
     const rows = all("seat-threads-row").map((row) => row.getAttribute("data-thread-id"));
     expect(rows).not.toContain(gone.threadId);
-    expect(rows).toContain("t099");
+    expect(rows).toContain("t015");
   });
 
   it("opens a long thread on its newest page and reads earlier ones keeping the place", async () => {
-    const everything = Array.from({ length: 120 }, (_, n) => ({
+    const everything = Array.from({ length: TOTAL }, (_, n) => ({
       messageId: `m${String(n).padStart(3, "0")}`,
       author: "pty-lead",
       mine: false,
@@ -1367,12 +1373,12 @@ describe("paging in Threads", () => {
     }));
     const asked: Array<string | undefined> = [];
     const source: SeatThreadsSource = {
-      list: async () => ({ threads: [thread({ threadId: "long", messageCount: 120 })] }),
+      list: async () => ({ threads: [thread({ threadId: "long", messageCount: TOTAL })] }),
       messages: async ({ before }) => {
         asked.push(before);
         const end = before === undefined ? everything.length : everything.findIndex((item) => item.messageId === before);
-        const messages = everything.slice(Math.max(0, end - 50), end);
-        return { messages, ...(end - 50 > 0 ? { older: messages[0]!.messageId } : {}) };
+        const messages = everything.slice(Math.max(0, end - PAGE), end);
+        return { messages, ...(end - PAGE > 0 ? { older: messages[0]!.messageId } : {}) };
       },
       onChanged: () => () => undefined,
       markRead: async () => undefined,
@@ -1384,8 +1390,8 @@ describe("paging in Threads", () => {
     await click(q("seat-view-threads"));
     const stream = q("seat-threads-stream") as HTMLElement;
     const texts = () => all("seat-threads-message").map((message) => message.textContent ?? "");
-    expect(texts()).toHaveLength(50);
-    expect(texts().at(-1)).toContain("line 119");
+    expect(texts()).toHaveLength(PAGE);
+    expect(texts().at(-1)).toContain("line 19");
     expect(asked).toEqual([undefined]);
     // On open it sits at the bottom, far from the top: nothing more asked for.
     expect(stream.scrollTop).toBe(stream.scrollHeight);
@@ -1394,10 +1400,10 @@ describe("paging in Threads", () => {
     const heightBefore = stream.scrollHeight;
     act(() => stream.dispatchEvent(new Event("scroll")));
     await flush();
-    expect(asked).toEqual([undefined, "m070"]);
-    expect(texts()).toHaveLength(100);
-    expect(texts()[0]).toContain("line 20");
-    // The fifty above pushed the same lines down by their height: the reader's place held.
+    expect(asked).toEqual([undefined, "m012"]);
+    expect(texts()).toHaveLength(2 * PAGE);
+    expect(texts()[0]).toContain("line 4");
+    // The page above pushed the same lines down by its height: the reader's place held.
     expect(stream.scrollTop).toBe(10 + (stream.scrollHeight - heightBefore));
   });
 });
