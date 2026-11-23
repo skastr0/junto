@@ -11,8 +11,10 @@ import {
   harnessDisplayName,
   readSkipReseatConfirm,
   reseatOutcomeLine,
+  reseatPickFor,
   reseatPickLabel,
   reseatSeats,
+  seatRunsPick,
   writeSkipReseatConfirm,
 } from "../../lib/agent-reseat";
 import { claimFocus } from "../../lib/focus-ownership";
@@ -20,7 +22,12 @@ import { agentCountLabel } from "../../lib/multi-selection";
 import { AgentHarnessPick, type AgentConfigurationChoices } from "../node-palette/AgentHarnessPick";
 import { ReseatConfirmDialog } from "./ReseatConfirmDialog";
 
-type Pending = { readonly choices: AgentConfigurationChoices; readonly seats: readonly Seat[] };
+type Pending = {
+  readonly choices: AgentConfigurationChoices;
+  readonly seats: readonly Seat[];
+  /** The seats not already on the pick: the ones the confirm says will move. */
+  readonly moving: readonly Seat[];
+};
 
 export type SeatsReseatLine = { readonly text: string; readonly failed: boolean };
 
@@ -40,11 +47,12 @@ export function useSeatsReseat(canvas: string, seats: readonly Seat[]): {
   const [line, setLine] = useState<SeatsReseatLine | null>(null);
 
   const run = useCallback(
-    async ({ choices, seats: moving }: Pending) => {
+    async ({ choices, seats: selected }: Pending) => {
       setBusy(true);
       setLine(null);
-      const names = new Map<string, string>(moving.map((seat) => [seat.id, titleOf(seat)]));
-      const outcome = await reseatSeats(canvas, moving.map((seat) => seat.id), choices);
+      // Every selected seat goes in: one already on the pick is counted, not moved.
+      const names = new Map<string, string>(selected.map((seat) => [seat.id, titleOf(seat)]));
+      const outcome = await reseatSeats(canvas, selected.map((seat) => seat.id), choices);
       setBusy(false);
       setPending(null);
       setLine({
@@ -57,18 +65,20 @@ export function useSeatsReseat(canvas: string, seats: readonly Seat[]): {
 
   const request = useCallback(
     (choices: AgentConfigurationChoices) => {
-      const next = { choices, seats };
+      const moving = seats.filter((seat) => !seatRunsPick(seat, reseatPickFor(choices, seat.host)));
+      const next = { choices, seats, moving };
       setLine(null);
-      if (readSkipReseatConfirm()) void run(next);
+      // Every seat is on that pick already: nothing stops, so nothing to confirm.
+      if (moving.length === 0 || readSkipReseatConfirm()) void run(next);
       else setPending(next);
     },
     [run, seats],
   );
 
-  const only = pending?.seats.length === 1 ? pending.seats[0] : undefined;
+  const only = pending?.moving.length === 1 ? pending.moving[0] : undefined;
   const dialog = pending ? (
     <ReseatConfirmDialog
-      count={pending.seats.length}
+      count={pending.moving.length}
       {...(only ? { fromLabel: harnessDisplayName(only.harness) } : {})}
       toLabel={reseatPickLabel(pending.choices)}
       onCancel={() => setPending(null)}
