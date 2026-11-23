@@ -61,4 +61,109 @@ describe("the inspector tab row", () => {
     expect(el.style.maskImage).toMatch(/^linear-gradient\(to right, transparent/);
     expect(el.style.maskImage).not.toContain("calc(100%");
   });
+
+  it("keeps the panel form as it was: a hairline under the row, tabs rounded at the top", async () => {
+    await act(async () => root.render(<InspectorTabs tabs={TABS} active="look" onSelect={() => undefined} />));
+    expect(row().style.borderBottom).toContain("1px solid");
+    expect(row().className).toBe("flex items-end gap-0.5 overflow-x-auto [scrollbar-width:none]");
+    const tab = document.querySelector<HTMLElement>('[role="tab"]')!;
+    expect(tab.className).toContain("rounded-t-md px-2 py-1.5");
+    expect(tab.hasAttribute("aria-controls")).toBe(false);
+    expect(tab.hasAttribute("data-testid")).toBe(false);
+  });
+
+  it("walks the row on Left and Right, round the ends, with the keyboard on the tab it shows", async () => {
+    const picked: string[] = [];
+    const three = [...TABS, { id: "voice", label: "voice" }];
+    await act(async () => root.render(<InspectorTabs tabs={three} active="look" onSelect={(id) => picked.push(id)} />));
+    const tabs = [...document.querySelectorAll<HTMLElement>('[role="tab"]')];
+    const arrow = async (from: HTMLElement, key: string, more: KeyboardEventInit = {}) => {
+      await act(async () => void from.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...more })));
+    };
+    act(() => tabs[0]!.focus());
+    await arrow(tabs[0]!, "ArrowRight");
+    expect(picked).toEqual(["mood"]);
+    expect(document.activeElement).toBe(tabs[1]);
+    await arrow(tabs[0]!, "ArrowLeft");
+    expect(picked).toEqual(["mood", "voice"]);
+    expect(document.activeElement).toBe(tabs[2]);
+    // A chord is someone else's key.
+    await arrow(tabs[0]!, "ArrowRight", { metaKey: true });
+    expect(picked).toHaveLength(2);
+  });
+});
+
+describe("the tab row in a header", () => {
+  const SEAT_VIEW = [
+    { id: "terminal", label: "Terminal" },
+    { id: "threads", label: "Threads", badge: 3, title: "Threads, 3 unread" },
+  ];
+  const render = async (active = "terminal", tabs: ReadonlyArray<{ id: string; label: string; badge?: number; title?: string }> = SEAT_VIEW) =>
+    act(async () =>
+      root.render(
+        <InspectorTabs frame="chrome" label="Seat view" testId="seat-view" controls="stage" tabs={tabs} active={active} onSelect={() => undefined} />,
+      ),
+    );
+  const tab = (id: string) => document.querySelector<HTMLElement>(`[data-testid="seat-view-${id}"]`)!;
+
+  it("is one bordered pill: no hairline, no scroll, no fade", async () => {
+    await render();
+    const el = row();
+    expect(el.getAttribute("aria-label")).toBe("Seat view");
+    expect(el.className).toContain("inline-flex");
+    expect(el.className).toContain("rounded border border-stroke");
+    expect(el.className).not.toContain("overflow");
+    expect(el.style.borderBottom).toBe("");
+    // A row that would be cut in a panel fades there; here it has no edge to fade.
+    size(el, 542, 530, 0);
+    await act(async () => void el.dispatchEvent(new Event("scroll")));
+    expect(el.style.maskImage).toBe("");
+  });
+
+  it("gives each half the xs Button's box, the 24px hit area and the house focus ring", async () => {
+    await render();
+    for (const id of ["terminal", "threads"]) {
+      const half = tab(id);
+      expect(half.className).toContain("px-1.5 py-0.5 text-label");
+      expect(half.className).toContain("before:h-6");
+      expect(half.className).toContain("focus-visible:shadow-[inset_0_0_0_2px_var(--color-cyan)]");
+      expect(half.className).not.toContain("rounded-t-md");
+      expect(half.getAttribute("aria-controls")).toBe("stage");
+    }
+  });
+
+  it("marks the shown half with a tint and ink, never with an edge", async () => {
+    await render("threads");
+    expect(tab("threads").getAttribute("aria-selected")).toBe("true");
+    expect(tab("threads").style.background).not.toBe("");
+    expect(tab("terminal").getAttribute("aria-selected")).toBe("false");
+    expect(tab("terminal").style.background).toBe("");
+    expect(tab("terminal").className).toContain("hover:bg-ink/10");
+    for (const id of ["terminal", "threads"]) {
+      const half = tab(id);
+      expect(half.className).not.toMatch(/border-[blrt]\b|border-[blrt]-/);
+      expect(half.style.border).toBe("");
+      expect(half.style.borderBottom).toBe("");
+      expect(half.style.boxShadow).toBe("");
+    }
+  });
+
+  it("draws what waits as the unread pill, capped at 99+, and nothing at zero", async () => {
+    await render();
+    const pill = tab("threads").querySelector("span")!;
+    expect(pill.textContent).toBe("3");
+    expect(pill.className).toContain("rounded-full");
+    expect(pill.className).toContain("font-mono");
+    // A minimum width only: the pill never makes its half taller.
+    expect(pill.className).toContain("min-w-");
+    expect(pill.className).not.toMatch(/(^|\s)h-/);
+    expect(tab("threads").getAttribute("title")).toBe("Threads, 3 unread");
+    expect(tab("terminal").querySelector("span")).toBeNull();
+
+    await render("terminal", [SEAT_VIEW[0]!, { id: "threads", label: "Threads", badge: 240 }]);
+    expect(tab("threads").textContent).toBe("Threads99+");
+    await render("terminal", [SEAT_VIEW[0]!, { id: "threads", label: "Threads", badge: 0 }]);
+    expect(tab("threads").textContent).toBe("Threads");
+    expect(tab("threads").hasAttribute("title")).toBe(false);
+  });
 });

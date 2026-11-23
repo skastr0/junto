@@ -1,5 +1,5 @@
 import type { ComponentPropsWithRef, ReactNode } from "react";
-import { FOCUS_RING_INSET } from "./focus";
+import { FOCUS_RING_INSET, HIT_24 } from "./focus";
 
 /**
  * The house button. One component for every clickable action — surface
@@ -29,13 +29,6 @@ const VARIANT: Record<ButtonVariant, string> = {
   armed:
     "border border-cyan/60 bg-ink/[0.04] text-ink shadow-[0_0_0_3px_var(--color-focus-ring)]",
 };
-
-// Every button can be hit across at least 24px of height, the WCAG 2.2 AA
-// target minimum, whatever its drawn size: an invisible area centred on it.
-// The button is positioned for that, so do not place one with absolute or
-// fixed from a caller's className; wrap it instead.
-const HIT_24 =
-  "relative before:absolute before:inset-x-0 before:top-1/2 before:h-6 before:-translate-y-1/2 before:content-['']";
 
 const SIZE: Record<ButtonSize, string> = {
   xs: "gap-1 rounded px-1.5 py-0.5 text-label uppercase tracking-label",
