@@ -61,8 +61,8 @@ export const KEY_ACTIONS: KeyActions = {
   "feed.open": () => toggleOperatorModal("feed"),
   "capture.open": () => toggleOperatorModal("capture"),
   "search.slash": () => openOperatorModal("search"),
-  // Global threads and Quick thread answer these; until one does, the key passes.
-  "threads.open": () => runThreadKey("threads.open"),
+  "threads.open": () => toggleOperatorModal("threads"),
+  // Quick thread's canvas home answers it, and Threads while it is open.
   "threads.quick": () => runThreadKey("threads.quick"),
   "groups.assign": ({ digit }) => assignSelectionToSlot(digit! - 1),
   // An empty slot takes nothing: the digit passes.
