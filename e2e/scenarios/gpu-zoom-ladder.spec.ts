@@ -85,10 +85,16 @@
  *
  * The run fails if the atlas never evicted a plot (reclaim never exercised).
  *
- * Run (the fixture must be a copy; the live database is refused):
- *   sqlite3 "file:$HOME/.junto/state/junto.db?mode=ro" ".backup '/tmp/junto-factory.db'"
- *   JUNTO_GPU_PROOF=1 JUNTO_FACTORY_DB=/tmp/junto-factory.db \
- *     bun run test:e2e:fast e2e/scenarios/gpu-zoom-ladder.spec.ts
+ * The board is never a copy of anyone's database (the rig's rule, and the
+ * operator's): either the seeded factory-like board (the default,
+ * JUNTO_ZOOM_LADDER_SEED names another preset), or a shapes file of a real
+ * board, JUNTO_FACTORY_JSON: { model, stats } with made-up ids and names and
+ * only rects, kinds, region colours and wire verbs, which canvas-lead checks
+ * before any run reads it.
+ *
+ * Run (on the Mac mini, scripts/mini.sh):
+ *   JUNTO_GPU_PROOF=1 scripts/run-e2e.sh e2e/scenarios/gpu-zoom-ladder.spec.ts
+ *   JUNTO_GPU_PROOF=1 JUNTO_FACTORY_JSON=<shapes.json> scripts/run-e2e.sh e2e/scenarios/gpu-zoom-ladder.spec.ts
  * Output: JUNTO_ZOOM_LADDER_OUT (default /tmp/junto-zoom-ladder): proof.json,
  * every stop's screenshot, the references, the diffs, and contact/ (one
  * reference, after, diff strip per stop, with index.html).
@@ -103,11 +109,10 @@ import { SeatStateMachine } from "../../src/core/term/agent-state";
 import { MARK_PHASE_MS } from "../../src/shared/wire/rings";
 import { TIER_FAR_MIN, TIER_HYSTERESIS, TIER_MID_MIN, TIER_NEAR_MIN } from "../../src/shared/canvas-tier";
 import { modelNote } from "../harness/model";
-import type { NestedCanvasFixture } from "../harness/nested-canvas-fixture";
+import { buildNestedCanvasFixture, type NestedCanvasFixture, type NestedCanvasPresetName } from "../harness/nested-canvas-fixture";
 import {
   buildProofBoard,
   launchProofArm,
-  loadFactoryBoard,
   loadFactoryFixture,
   paneRect,
   placeCamera,
@@ -129,16 +134,16 @@ const { PNG } = createRequire(import.meta.url)("pngjs") as {
   };
 };
 
-const DB = process.env["JUNTO_FACTORY_DB"] ?? "";
 const JSON_FIXTURE = process.env["JUNTO_FACTORY_JSON"] ?? "";
-const ENABLED = process.env["JUNTO_GPU_PROOF"] === "1" && (DB !== "" || JSON_FIXTURE !== "");
+const SEED = (process.env["JUNTO_ZOOM_LADDER_SEED"] ?? "factory-like") as NestedCanvasPresetName;
+const ENABLED = process.env["JUNTO_GPU_PROOF"] === "1";
 const OUT = process.env["JUNTO_ZOOM_LADDER_OUT"] ?? "/tmp/junto-zoom-ladder";
 const CYCLES = Number(process.env["JUNTO_ZOOM_LADDER_CYCLES"] ?? 3);
 /** The note images' server: a fixed port, because the seeded board names it. */
 const IMAGE_PORT = Number(process.env["JUNTO_ZOOM_LADDER_IMAGE_PORT"] ?? 47391);
 const CHANNEL = "junto:agent-seat-state-changed";
 
-test.skip(!ENABLED, "set JUNTO_GPU_PROOF=1 and JUNTO_FACTORY_DB=<copy of junto.db> (or JUNTO_FACTORY_JSON=<saved fixture>)");
+test.skip(!ENABLED, "set JUNTO_GPU_PROOF=1 (and JUNTO_FACTORY_JSON=<a real board's shapes> for one)");
 
 /**
  * One stop per raster bucket at the operator's pixel ratio 2, each clear of
@@ -246,7 +251,10 @@ const placesOf = (board: ProofBoard, cluster: Place): Place[] => {
     .map((r) => ({ r, seats: seats.filter((s) => s.x >= r.x && s.y >= r.y && s.x + s.width <= r.x + r.width && s.y + s.height <= r.y + r.height).length }))
     .filter((e) => e.seats > 0 && e.r.width < 4_000)
     .sort((a, b) => b.seats - a.seats);
-  const centre = regions[0]!.r;
+  // A board whose regions hold no seat by these rects (a seeded one nests by parent) centres on its bounds.
+  const b = board.stats.bounds;
+  const whole = { x: b.x, y: b.y, width: b.width, height: b.height };
+  const centre = regions[0]?.r ?? whole;
   const edge = regions[1]?.r ?? centre;
   return [
     { name: "region-centre", x: centre.x + centre.width / 2, y: centre.y + centre.height / 2 },
@@ -775,9 +783,10 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
   await mkdir(join(OUT, "stops"), { recursive: true });
   await mkdir(join(OUT, "references"), { recursive: true });
   await mkdir(join(OUT, "contact"), { recursive: true });
-  const fixture: NestedCanvasFixture = DB === "" && JSON_FIXTURE !== "" ? loadFactoryFixture(JSON_FIXTURE) : loadFactoryBoard(DB).fixture;
+  const fixture: NestedCanvasFixture = JSON_FIXTURE !== "" ? loadFactoryFixture(JSON_FIXTURE) : buildNestedCanvasFixture(SEED);
   const { board, cluster } = withImageNotes(buildProofBoard(fixture, 1));
   const places = placesOf(board, cluster);
+  log("board", { source: JSON_FIXTURE !== "" ? `shapes ${JSON_FIXTURE}` : `seeded ${SEED}`, nodes: board.model.nodes.length });
   const churn = seatChurn(board);
   const server = await servePictures();
   const references = new Map<string, Reference>();

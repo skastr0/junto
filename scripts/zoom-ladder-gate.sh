@@ -6,20 +6,16 @@ set -euo pipefail
 # screenshot against a fresh-launch reference, the atlas audit, the texel
 # readback and the GPU error count. Run before every release:
 #   bun run release:zoom-ladder
-# The board is a read-only backup of this machine's own junto.db (the live
-# database is refused by the fixture loader), or JUNTO_FACTORY_DB if set.
+# The board is the seeded factory-like board, or a real board's shapes file
+# (JUNTO_FACTORY_JSON: made-up ids and names, rects, kinds, region colours and
+# wire verbs only). Never a copy of a database. GPU runs go to the Mac mini:
+#   scripts/mini.sh run <folder> 'scripts/zoom-ladder-gate.sh'
 # Output: JUNTO_ZOOM_LADDER_OUT (default /tmp/junto-zoom-ladder): proof.json,
 # every stop, the references, the diffs and index.html (the contact sheet).
 
 out="${JUNTO_ZOOM_LADDER_OUT:-/tmp/junto-zoom-ladder}"
-db="${JUNTO_FACTORY_DB:-}"
-if [[ -z "$db" ]]; then
-  db="$(mktemp -u "${TMPDIR:-/tmp}/junto-zoom-ladder-board.XXXXXX").db"
-  trap 'rm -f "$db" "$db-shm" "$db-wal"' EXIT
-  sqlite3 "file:$HOME/.junto/state/junto.db?mode=ro" ".backup '$db'"
-fi
 
 rm -rf "$out"
 JUNTO_FEATURE_PROFILE=all-on bun run build:bundles
-JUNTO_GPU_PROOF=1 JUNTO_FACTORY_DB="$db" JUNTO_ZOOM_LADDER_OUT="$out" \
+JUNTO_GPU_PROOF=1 JUNTO_ZOOM_LADDER_OUT="$out" \
   scripts/run-e2e.sh e2e/scenarios/gpu-zoom-ladder.spec.ts "$@"

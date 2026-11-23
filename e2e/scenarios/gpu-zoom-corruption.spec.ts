@@ -16,10 +16,13 @@
  *   - any frame that differs from a settled reference at the same camera,
  *     outside the pixels the board's own motion moves.
  *
- * Run (the fixture must be a copy, the live database is refused):
- *   sqlite3 "file:$HOME/.junto/state/junto.db?mode=ro" ".backup '/tmp/junto-factory.db'"
- *   JUNTO_GPU_PROOF=1 JUNTO_FACTORY_DB=/tmp/junto-factory.db \
- *     bun run test:e2e:fast e2e/scenarios/gpu-zoom-corruption.spec.ts
+ * The board is never a copy of anyone's database: the seeded factory-like
+ * board (JUNTO_ZOOM_GATE_SEED names another preset), or a real board's
+ * shapes file, JUNTO_FACTORY_JSON (made-up ids and names; rects, kinds,
+ * region colours and wire verbs only).
+ *
+ * Run (on the Mac mini, scripts/mini.sh):
+ *   JUNTO_GPU_PROOF=1 scripts/run-e2e.sh e2e/scenarios/gpu-zoom-corruption.spec.ts
  * Images and the report land in JUNTO_ZOOM_GATE_OUT (default /tmp/junto-zoom-gate).
  */
 
@@ -27,11 +30,10 @@ import { test, expect, type Page } from "@playwright/test";
 import { createRequire } from "node:module";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { NestedCanvasFixture } from "../harness/nested-canvas-fixture";
+import { buildNestedCanvasFixture, type NestedCanvasFixture, type NestedCanvasPresetName } from "../harness/nested-canvas-fixture";
 import {
   buildProofBoard,
   launchProofArm,
-  loadFactoryBoard,
   loadFactoryFixture,
   paneRect,
   placeCamera,
@@ -53,13 +55,13 @@ const { PNG } = createRequire(import.meta.url)("pngjs") as {
   };
 };
 
-const DB = process.env["JUNTO_FACTORY_DB"] ?? "";
 const JSON_FIXTURE = process.env["JUNTO_FACTORY_JSON"] ?? "";
-const ENABLED = process.env["JUNTO_GPU_PROOF"] === "1" && (DB !== "" || JSON_FIXTURE !== "");
+const SEED = (process.env["JUNTO_ZOOM_GATE_SEED"] ?? "factory-like") as NestedCanvasPresetName;
+const ENABLED = process.env["JUNTO_GPU_PROOF"] === "1";
 const OUT = process.env["JUNTO_ZOOM_GATE_OUT"] ?? "/tmp/junto-zoom-gate";
 const MAX_CYCLES = Number(process.env["JUNTO_ZOOM_GATE_CYCLES"] ?? 80);
 
-test.skip(!ENABLED, "set JUNTO_GPU_PROOF=1 and JUNTO_FACTORY_DB=<copy of junto.db> (or JUNTO_FACTORY_JSON=<saved fixture>)");
+test.skip(!ENABLED, "set JUNTO_GPU_PROOF=1 (and JUNTO_FACTORY_JSON=<a real board's shapes> for one)");
 
 /** One camera per tier, centred on the board: overview, far, mid, near. */
 const REFERENCE_ZOOMS = [0.15, 0.3, 0.52, 0.9] as const;
@@ -83,8 +85,7 @@ const fail = (line: string, data: Record<string, unknown> = {}): void => {
 
 const fixture = ((): NestedCanvasFixture | null => {
   if (!ENABLED) return null;
-  if (DB === "" && JSON_FIXTURE !== "") return loadFactoryFixture(JSON_FIXTURE);
-  return loadFactoryBoard(DB).fixture;
+  return JSON_FIXTURE !== "" ? loadFactoryFixture(JSON_FIXTURE) : buildNestedCanvasFixture(SEED);
 })();
 
 const audit = (page: Page): Promise<Audit | null> =>
