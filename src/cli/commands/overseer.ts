@@ -230,6 +230,7 @@ const FAMILY_HELP: Readonly<Record<string, string>> = {
   node: "List, get, create, configure, move, resize, recolor, or delete nodes, each told by its kind",
   wire: "List, get, verb-table, connect, configure, or disconnect wires",
   msg: "Mailbox list, send, read, reply, react",
+  thread: "Every seat's threads, read as the operator's window reads them: list, show. Reads mark nothing",
   content: "Content ingest",
   agent: "Agent list, get, reseat, start, wake, prompt, output, interrupt, stop, offboard, offboard-status, offboard-rules, offboard-configure",
   terminal: "Terminal list, get, start, input, output, resize, interrupt, stop",
@@ -421,8 +422,94 @@ const makeAutomationWriteCommand = (entry: OverseerCatalogEntry, operation: Auto
       ),
   ).pipe(Command.withDescription(AUTOMATION_WRITE_DESCRIPTIONS[operation]));
 
+// Threads ----------------------------------------------------------------
+// `thread list` and `thread show` take flags, as the seat's own `junto thread`
+// commands do: the words of the two read alike.
+
+const textFlag = (name: string, description: string) =>
+  Flag.String(name).pipe(Flag.optional, Flag.withDescription(description));
+const limitFlag = Flag.Int("limit").pipe(Flag.optional, Flag.withDescription("How many on a page"));
+const canvasFlag = textFlag("canvas", "Another canvas than the overseer's own");
+
+/** The flags given, as the operation's args: a flag not given is no key. */
+const threadArgs = (flags: Readonly<Record<string, Option.Option<unknown>>>): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(flags).flatMap(([key, value]) => (Option.isSome(value) ? [[key, value.value]] : [])),
+  );
+
+const sendThreadArgs = (entry: OverseerCatalogEntry, args: Record<string, unknown>, timeout: Option.Option<number>) =>
+  executeJsonCommand(
+    commandNameFor(entry),
+    Effect.gen(function* () {
+      const decoded = decodeOverseerArgs(entry.operation, args);
+      if (Result.isFailure(decoded)) {
+        return yield* Effect.fail(
+          new InputError({
+            message: decoded.failure.message,
+            path: "args",
+            expected: entry.operation,
+            received: args,
+            hint: `junto overseer schema show ${entry.operation}`,
+          }),
+        );
+      }
+      return yield* callOverseer(entry.operation, decoded.success, toUndefined(timeout));
+    }),
+  );
+
+export const THREAD_LIST_DESCRIPTION =
+  "List threads, newest activity first: every thread on the canvas, between seats included, or with --seat <seat> that seat's. A page at a time: --limit, and --after <next> from the page before. --group with-you|between with --seat; --region <label> (repeat, outer to inner) and --search <words> without it. Reads mark nothing";
+export const THREAD_SHOW_DESCRIPTION =
+  "Read one thread of a seat, the newest messages first as a page, oldest first within it: <threadId> --seat <seat>, --limit, and --before <older> from the page after. Reads mark nothing";
+
+const makeThreadListCommand = (entry: OverseerCatalogEntry) =>
+  Command.make(
+    entry.verb,
+    {
+      seat: textFlag("seat", "One seat's threads: its name, node id or ref"),
+      limit: limitFlag,
+      after: textFlag("after", "The next cursor the page before gave"),
+      group: textFlag("group", "With --seat, one list alone: with-you or between"),
+      region: Flag.String("region").pipe(
+        Flag.atLeast(0),
+        Flag.withDescription("Without --seat, a region's path, outer to inner: repeat once per label"),
+      ),
+      search: textFlag("search", "Without --seat, words that must each appear"),
+      canvas: canvasFlag,
+      timeout: timeoutOption,
+    },
+    ({ seat, limit, after, group, region, search, canvas, timeout }) =>
+      sendThreadArgs(
+        entry,
+        {
+          ...threadArgs({ canvas, seat, limit, after, group, search }),
+          ...(region.length === 0 ? {} : { region }),
+        },
+        timeout,
+      ),
+  ).pipe(Command.withDescription(THREAD_LIST_DESCRIPTION));
+
+const makeThreadShowCommand = (entry: OverseerCatalogEntry) =>
+  Command.make(
+    entry.verb,
+    {
+      threadId: Argument.String("threadId").pipe(Argument.withDescription("The thread's id, as thread list gave it")),
+      seat: textFlag("seat", "The seat whose thread it is: its name, node id or ref"),
+      limit: limitFlag,
+      before: textFlag("before", "The older cursor the page after gave"),
+      canvas: canvasFlag,
+      timeout: timeoutOption,
+    },
+    ({ threadId, seat, limit, before, canvas, timeout }) =>
+      sendThreadArgs(entry, { ...threadArgs({ canvas, seat, limit, before }), threadId }, timeout),
+  ).pipe(Command.withDescription(THREAD_SHOW_DESCRIPTION));
+
 const makeFamilyVerbCommand = (entry: OverseerCatalogEntry) =>
-  isAutomationWriteOp(entry.operation)
+  entry.operation === "thread.list"
+    ? makeThreadListCommand(entry)
+    : entry.operation === "thread.show"
+    ? makeThreadShowCommand(entry)
+    : isAutomationWriteOp(entry.operation)
     ? makeAutomationWriteCommand(entry, entry.operation)
     : BODY_WRITE[entry.operation] !== undefined
     ? makeBodyWriteCommand(entry, BODY_WRITE[entry.operation]!)
@@ -646,6 +733,10 @@ export const overseerSchemas: ReadonlyArray<CommandSchemaContract> = OVERSEER_CA
     schema_id: `overseer.${entry.operation}.input/v1`,
     description: isAutomationWriteOp(entry.operation)
       ? `${AUTOMATION_WRITE_DESCRIPTIONS[entry.operation]}. Overseer; edges not required. Ruled on the machine that edits the canvas, and returns applied with the new version; on any other machine it is refused not_available, naming that machine.`
+      : entry.operation === "thread.list"
+      ? `${THREAD_LIST_DESCRIPTION}. Overseer; edges not required.`
+      : entry.operation === "thread.show"
+      ? `${THREAD_SHOW_DESCRIPTION}. Overseer; edges not required.`
       : `${describeEntry(entry)}. Overseer; edges not required.`,
     // `secret put` documents what the command takes, which is not what the
     // wire carries: the value never is an argument.
@@ -661,7 +752,9 @@ export const overseerSchemas: ReadonlyArray<CommandSchemaContract> = OVERSEER_CA
           ? OverseerBriefingWriteInput
           : OverseerArgsSchemas[entry.operation],
     accepts_batch: false,
-    input_modes: entry.operation === "secret.put" ? secretPutInputModes : inputModes,
+    input_modes: entry.operation === "secret.put"
+      ? secretPutInputModes
+      : entry.family === "thread" ? ["argv"] : inputModes,
   }),
 );
 
@@ -1041,6 +1134,30 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     name: "delete an app-wide reference",
     args: ["overseer", "references", "delete"],
     input: { name: "style" },
+  },
+  {
+    command_id: commandIdFor("thread.list"),
+    command: "overseer thread list",
+    name: "list every thread on the canvas",
+    description: "Every thread of every seat, between seats included, newest activity first, one row per thread with its seat. --region and --search narrow it; --after <next> reads the page after. No edge needed; nothing is marked read.",
+    args: ["overseer", "thread", "list", "--limit", "20"],
+    input: { limit: 20 },
+  },
+  {
+    command_id: commandIdFor("thread.list"),
+    command: "overseer thread list",
+    name: "list one seat's threads",
+    description: "Any seat on the canvas, by name, node id or ref: the threads the operator is in and those between seats, or one of them with --group. Each summary has no read state: an overseer read is not the operator's.",
+    args: ["overseer", "thread", "list", "--seat", "cli-lead", "--group", "with-you"],
+    input: { seat: "cli-lead", group: "with-you" },
+  },
+  {
+    command_id: commandIdFor("thread.show"),
+    command: "overseer thread show",
+    name: "read one thread of a seat",
+    description: "The newest messages of the thread, oldest first; --before <older> reads the page above. The thread id comes from thread list; the seat is the one whose list held it.",
+    args: ["overseer", "thread", "show", "01M852PMBH4TE0XVAJJ82N70HA", "--seat", "cli-lead", "--limit", "50"],
+    input: { threadId: "01M852PMBH4TE0XVAJJ82N70HA", seat: "cli-lead", limit: 50 },
   },
   {
     command_id: commandIdFor("briefing.read"),

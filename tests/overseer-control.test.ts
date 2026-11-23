@@ -401,3 +401,36 @@ describe("overseer command contract", () => {
     );
   });
 });
+
+describe("overseer thread reads", () => {
+  const thread = "01M852PMBH4TE0XVAJJ82N70HA";
+  const decodes = (operation: "thread.list" | "thread.show", args: unknown) =>
+    Result.isSuccess(decodeOverseerArgs(operation, args));
+
+  it("are read-only, never a mutation", () => {
+    expect(isOverseerMutation("thread.list")).toBe(false);
+    expect(isOverseerMutation("thread.show")).toBe(false);
+  });
+
+  it("list one seat's threads with group, or every seat's with region and search, never both", () => {
+    expect(decodes("thread.list", {})).toBe(true);
+    expect(decodes("thread.list", { seat: "cli-lead", group: "between", limit: 200, after: "1.x" })).toBe(true);
+    expect(decodes("thread.list", { region: ["Junto", "CLI"], search: "review" })).toBe(true);
+    expect(decodes("thread.list", { region: [] })).toBe(true);
+    expect(decodes("thread.list", { group: "with-you" })).toBe(false);
+    expect(decodes("thread.list", { seat: "cli-lead", search: "x" })).toBe(false);
+    expect(decodes("thread.list", { seat: "cli-lead", region: ["CLI"] })).toBe(false);
+    expect(decodes("thread.list", { limit: 0 })).toBe(false);
+    expect(decodes("thread.list", { limit: 201 })).toBe(false);
+    expect(decodes("thread.list", { group: "mine", seat: "cli-lead" })).toBe(false);
+    expect(decodes("thread.list", { readPoints: true })).toBe(false);
+  });
+
+  it("show one thread of a named seat, by its ULID", () => {
+    expect(decodes("thread.show", { seat: "cli-lead", threadId: thread, limit: 5, before: "2.y" })).toBe(true);
+    expect(decodes("thread.show", { threadId: thread })).toBe(false);
+    expect(decodes("thread.show", { seat: "cli-lead" })).toBe(false);
+    expect(decodes("thread.show", { seat: "cli-lead", threadId: "not-a-ulid" })).toBe(false);
+    expect(decodes("thread.show", { seat: "cli-lead", threadId: thread, after: "1.x" })).toBe(false);
+  });
+});

@@ -11,6 +11,9 @@ import { OverseerLiveCorrelation } from "./overseer-host-control";
 import { SECRET_ID_PATTERN, secretValueProblem } from "./region-secrets";
 import { ARTIFACT_MOVE_MAX } from "./artifact-move";
 import { ItemId } from "./work-ids";
+import { MailMessageId } from "./crew";
+import { PAGE_MAX, THREAD_GROUPS } from "./mail-threads";
+import { OPERATOR_THREADS_PAGE_MAX, OPERATOR_THREADS_SEARCH_MAX } from "./operator-threads";
 import {
   OffboardRulesPatch,
   SEAT_OFFBOARD_ACTIONS,
@@ -66,6 +69,9 @@ export const OVERSEER_OPERATION_NAMES = [
   "msg.read",
   "msg.reply",
   "msg.react",
+  // Every seat's threads, read as the window reads them; no edge needed.
+  "thread.list",
+  "thread.show",
   "content.ingest",
   "agent.list",
   "agent.get",
@@ -320,6 +326,46 @@ const MessageReact = Schema.Struct({
   messageId: Id,
   reaction: Schema.optionalKey(Schema.Literal("ack")),
 });
+// Threads: the overseer reads any seat's, through the one read the window
+// uses: one seat's list is seatThreadsPage, every seat's is threadRowsPage
+// (src/core/work/thread-rows.ts), and a thread is seatThreadMessagesPage.
+// `seat` is a name, node id or ref of any seat on the canvas. A read takes no
+// read points: the operator's read point never moves.
+const ThreadSeat = Id;
+const ThreadPageLimit = Schema.Int.check(
+  Schema.isBetween({ minimum: 1, maximum: Math.min(PAGE_MAX, OPERATOR_THREADS_PAGE_MAX) }),
+);
+const ThreadPageCursor = NonEmpty.pipe(Schema.check(Schema.isMaxLength(256)));
+const ThreadList = Schema.Struct({
+  ...CanvasOptional,
+  /** One seat's threads; absent, every thread on the canvas, between seats included, newest activity first. */
+  seat: Schema.optionalKey(ThreadSeat),
+  limit: Schema.optionalKey(ThreadPageLimit),
+  /** The `next` a page gave. */
+  after: Schema.optionalKey(ThreadPageCursor),
+  /** With `seat`: one list alone, the threads the operator is in or those between seats. */
+  group: Schema.optionalKey(Schema.Literals(THREAD_GROUPS)),
+  /** Without `seat`: a region's path, outer to inner, itself last; its children are in it. */
+  region: Schema.optionalKey(
+    Schema.Array(NonEmpty.pipe(Schema.check(Schema.isMaxLength(200)))).pipe(Schema.check(Schema.isMaxLength(32))),
+  ),
+  /** Without `seat`: words, each of which must appear, in any case, in the thread's line, its seat's name or its mail. */
+  search: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(OPERATOR_THREADS_SEARCH_MAX)))),
+}).pipe(
+  Schema.check(Schema.makeFilter(({ seat, group, region, search }) =>
+    seat === undefined
+      ? group === undefined || "group is one seat's list: it takes seat"
+      : (region === undefined && search === undefined) ||
+        "region and search narrow every seat's threads: send them without seat")),
+);
+const ThreadShow = Schema.Struct({
+  ...CanvasOptional,
+  seat: ThreadSeat,
+  threadId: MailMessageId,
+  limit: Schema.optionalKey(ThreadPageLimit),
+  /** The `older` a page gave. */
+  before: Schema.optionalKey(ThreadPageCursor),
+});
 const ContentIngest = Schema.Struct({
   ...CanvasOptional,
   bytesBase64: NonEmpty,
@@ -557,6 +603,8 @@ export const OverseerArgsSchemas = {
   "msg.read": MessageRead,
   "msg.reply": MessageReply,
   "msg.react": MessageReact,
+  "thread.list": ThreadList,
+  "thread.show": ThreadShow,
   "content.ingest": ContentIngest,
   "agent.list": Schema.Struct(CanvasOptional),
   "agent.get": Schema.Struct(NodeTarget),
@@ -677,6 +725,8 @@ export const OVERSEER_READ_ONLY_OPERATIONS = [
   "wire.list",
   "wire.get",
   "wire.verbs",
+  "thread.list",
+  "thread.show",
   "agent.list",
   "agent.get",
   "agent.output",

@@ -13,6 +13,7 @@ import { isAutomationWriteOp } from "../src/shared/automation-control";
 const canvasSource = readFileSync(resolve(__dirname, "../src/core/overseer/canvas.ts"), "utf8");
 const nativeSource = readFileSync(resolve(__dirname, "../src/core/overseer/native.ts"), "utf8");
 const workSource = readFileSync(resolve(__dirname, "../src/core/overseer/work.ts"), "utf8");
+const threadSource = readFileSync(resolve(__dirname, "../src/core/overseer/threads.ts"), "utf8");
 
 /** Whether a handler file names the operation as one it answers. */
 const answers = (source: string, operation: string): boolean => source.includes(`"${operation}"`);
@@ -43,7 +44,10 @@ describe("overseer operation routing", () => {
         if (!isAutomationWriteOp(operation)) unanswered.push(`${operation} -> ${route}`);
         continue;
       }
-      const source = route === "canvas" ? canvasSource : route === "work" ? workSource : nativeSource;
+      const source = route === "canvas" ? canvasSource
+        : route === "work" ? workSource
+        : route === "thread" ? threadSource
+        : nativeSource;
       if (!answers(source, operation)) unanswered.push(`${operation} -> ${route}`);
     }
     // Answered before routing, in the dispatcher itself: status, the
@@ -52,6 +56,11 @@ describe("overseer operation routing", () => {
     const answeredEarlier = (entry: string): boolean =>
       /^(status|env\.doctor|env\.report|secret\.|references\.|briefing\.|agent\.offboard|artifact\.move)/u.test(entry);
     expect(unanswered.filter((entry) => !answeredEarlier(entry))).toEqual([]);
+  });
+
+  it("sends the thread reads to the thread handlers", () => {
+    expect(overseerRouteOf("thread.list")).toBe("thread");
+    expect(overseerRouteOf("thread.show")).toBe("thread");
   });
 
   it("routes no retired name anywhere but to the refusal", () => {

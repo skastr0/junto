@@ -30,6 +30,7 @@ import { overseerOffboard, type OverseerOffboard } from "./offboard-seam";
 import { executeOverseerReferences } from "./references";
 import { executeOverseerSecret } from "./secret";
 import { overseerSecretStore, type OverseerSecretStore } from "./secret-store-seam";
+import { executeOverseerThreads } from "./threads";
 import { executeOverseerWork } from "./work";
 
 export interface OverseerRuntime {
@@ -148,14 +149,16 @@ const inFamily = (operation: string, families: ReadonlyArray<string>): boolean =
  * adapter, which refuses it; the catalog walk in the tests holds this list to
  * the catalog so that cannot happen unseen.
  */
-export const overseerRouteOf = (operation: string): "canvas" | "work" | "automation" | "native" =>
+export const overseerRouteOf = (operation: string): "canvas" | "work" | "thread" | "automation" | "native" =>
   operation !== "canvas.screenshot" && inFamily(operation, CANVAS_FAMILIES)
     ? "canvas"
     : inFamily(operation, WORK_FAMILIES)
       ? "work"
-      : inFamily(operation, ["automation"])
-        ? "automation"
-        : "native";
+      : inFamily(operation, ["thread"])
+        ? "thread"
+        : inFamily(operation, ["automation"])
+          ? "automation"
+          : "native";
 
 export const executeOverseer = Effect.fn("overseer.execute")(function* (
   caller: OverseerCaller,
@@ -280,7 +283,9 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
       ? executeOverseerCanvas(caller, request)
       : route === "work"
         ? executeOverseerWork(caller, request, { kind: "overseer", actor: authority.actor })
-        : route === "automation"
+        : route === "thread"
+          ? executeOverseerThreads(caller, operation as "thread.list" | "thread.show", decoded.success as OverseerArgsFor<"thread.list" | "thread.show">)
+          : route === "automation"
           ? executeOverseerAutomation(caller, request, authority.actor)
           : runtime.native(caller, request);
     return { ok: true, operation, data } satisfies OverseerResult;

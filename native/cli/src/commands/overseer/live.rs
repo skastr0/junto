@@ -7,7 +7,7 @@
 use std::process::ExitCode;
 
 use clap::error::ErrorKind;
-use clap::{Arg, ArgMatches, FromArgMatches, Subcommand, value_parser};
+use clap::{Arg, ArgAction, ArgMatches, FromArgMatches, Subcommand, value_parser};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -59,6 +59,8 @@ pub struct Call {
     input: Option<String>,
     body: Option<String>,
     op_id: Option<String>,
+    /// `thread list` and `thread show`: the flags given, as the operation's args.
+    thread: Map<String, Value>,
     timeout: Timeout,
 }
 
@@ -74,6 +76,9 @@ impl Call {
             Shape::Rows => judged(self.send(self.args()?, None)?, refused_any),
             Shape::SecretPut => self.send(self.secret()?, None).map(Into::into),
             Shape::Body { empty } => self.send(self.with_body(empty)?, None).map(Into::into),
+            Shape::Thread => self
+                .send(Value::Object(self.thread.clone()), None)
+                .map(Into::into),
             Shape::Automation(write) => {
                 let given = input::load(self.input.as_deref().unwrap_or("{}"))?;
                 let (args, op_id) = automation::args(write, given, self.op_id.as_deref())?;
@@ -352,13 +357,75 @@ fn unwrap(data: &Data) -> Result<Data> {
 
 // --- the command line, built from the catalog ---------------------------------
 
+/// The keys of `thread list` and `thread show`, in their schema's order
+/// (ThreadList, ThreadShow in src/shared/overseer-control.ts): the args go
+/// in that order, as the TypeScript decode sends them.
+const THREAD_LIST_KEYS: [&str; 7] = [
+    "canvas", "seat", "limit", "after", "group", "region", "search",
+];
+const THREAD_SHOW_KEYS: [&str; 5] = ["canvas", "seat", "threadId", "limit", "before"];
+
+fn thread_keys(op: &Operation) -> &'static [&'static str] {
+    if op.name == "thread.list" {
+        &THREAD_LIST_KEYS
+    } else {
+        &THREAD_SHOW_KEYS
+    }
+}
+
+/// `thread list` and `thread show` take flags, not a JSON argument; a thread
+/// is named by its one positional argument.
+fn thread_command(op: &'static Operation, command: clap::Command) -> clap::Command {
+    thread_keys(op)
+        .iter()
+        .fold(command, |command, key| match *key {
+            "threadId" => command.arg(Arg::new(*key)),
+            "limit" => command.arg(Arg::new(*key).long(*key).value_parser(value_parser!(i64))),
+            "region" => command.arg(Arg::new(*key).long(*key).action(ArgAction::Append)),
+            _ => command.arg(Arg::new(*key).long(*key)),
+        })
+}
+
+/// The flags given, as the operation's args: a flag not given is no key.
+fn thread_args(op: &Operation, matches: &ArgMatches) -> Map<String, Value> {
+    let mut args = Map::new();
+    for key in thread_keys(op) {
+        let value: Option<Value> = match *key {
+            "limit" => matches
+                .try_get_one::<i64>(key)
+                .ok()
+                .flatten()
+                .map(|n| (*n).into()),
+            "region" => matches
+                .try_get_many::<String>(key)
+                .ok()
+                .flatten()
+                .map(|labels| labels.cloned().collect::<Vec<_>>().into()),
+            _ => matches
+                .try_get_one::<String>(key)
+                .ok()
+                .flatten()
+                .cloned()
+                .map(Into::into),
+        };
+        if let Some(value) = value {
+            args.insert((*key).into(), value);
+        }
+    }
+    args
+}
+
 /// One verb's command: its JSON argument, and the flags its shape takes.
 fn verb_command(op: &'static Operation) -> clap::Command {
-    let command = clap::Command::new(op.verb()).arg(Arg::new("input")).arg(
-        Arg::new("timeout")
-            .long("timeout")
-            .value_parser(value_parser!(i64)),
-    );
+    let timeout = Arg::new("timeout")
+        .long("timeout")
+        .value_parser(value_parser!(i64));
+    if op.shape == Shape::Thread {
+        return thread_command(op, clap::Command::new(op.verb()).arg(timeout));
+    }
+    let command = clap::Command::new(op.verb())
+        .arg(Arg::new("input"))
+        .arg(timeout);
     match op.shape {
         Shape::Body { .. } => command.arg(Arg::new("body").long("body")),
         Shape::Automation(_) => command.arg(Arg::new("op_id").long("op-id")),
@@ -417,6 +484,11 @@ impl FromArgMatches for Call {
             input: text("input"),
             body: text("body"),
             op_id: text("op_id"),
+            thread: if op.shape == Shape::Thread {
+                thread_args(op, matches)
+            } else {
+                Map::new()
+            },
             timeout: matches
                 .try_get_one::<i64>("timeout")
                 .ok()

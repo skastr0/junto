@@ -37,6 +37,8 @@ import {
   executeOverseerWork,
   overseerWorkRunsLocally,
 } from "../src/core/overseer/work";
+import { executeOverseerThreads } from "../src/core/overseer/threads";
+import { readPoints } from "../src/core/work/mail-reads";
 
 const mockHome = join(tmpdir(), `junto-overseer-work-${randomUUID()}`);
 
@@ -284,5 +286,89 @@ describe("executeOverseerWork", () => {
         overseerWorkAdmin(actor),
       ),
     )).rejects.toBeDefined();
+  });
+});
+
+describe("executeOverseerThreads", () => {
+  const caller = (canvas: string) => ({ canvasName: canvas, nodeId: "boss" });
+
+  const seedThreads = async (canvas: string) => {
+    await writeFactory(canvas);
+    await grantOverseer(canvas, "boss", true);
+    const { actor } = await actorOn(canvas, "boss");
+    await run(
+      executeOverseerWork(
+        caller(canvas),
+        { operation: "msg.send", args: { target: "worker", text: "thread opener" } },
+        overseerWorkAdmin(actor),
+      ),
+    );
+  };
+
+  it("lists a seat's threads without an edge, by node id or name, and with no read state", async () => {
+    await seedThreads("threads-list");
+    for (const seat of ["worker", "WORKER"]) {
+      const listed = await run(executeOverseerThreads(caller("threads-list"), "thread.list", { seat })) as {
+        readonly seat: string;
+        readonly threads: ReadonlyArray<Record<string, unknown>>;
+      };
+      expect(listed.seat).toBe("worker");
+      expect(listed.threads).toHaveLength(1);
+      expect(listed.threads[0]).toMatchObject({ messageCount: 1, canReply: false });
+      expect(listed.threads[0]).not.toHaveProperty("unread");
+      expect(listed.threads[0]).not.toHaveProperty("readAt");
+    }
+  });
+
+  it("lists every thread on the canvas with no seat, between seats included, narrowed by search", async () => {
+    await seedThreads("threads-every");
+    const every = await run(executeOverseerThreads(caller("threads-every"), "thread.list", {})) as {
+      readonly threads: ReadonlyArray<Record<string, unknown>>;
+      readonly total: number;
+    };
+    expect(every.total).toBe(1);
+    expect(every.threads).toHaveLength(1);
+    expect(every.threads[0]).toMatchObject({ messageCount: 1 });
+    expect(every.threads[0]).not.toHaveProperty("unread");
+    expect(every.threads[0]).not.toHaveProperty("readAt");
+    const found = await run(executeOverseerThreads(caller("threads-every"), "thread.list", { search: "opener" })) as { readonly total: number };
+    expect(found.total).toBe(1);
+    const none = await run(executeOverseerThreads(caller("threads-every"), "thread.list", { search: "nowhere-in-mail" })) as { readonly total: number };
+    expect(none.total).toBe(0);
+  });
+
+  it("shows one thread a page at a time and never moves the operator's read point", async () => {
+    await seedThreads("threads-show");
+    const listed = await run(executeOverseerThreads(caller("threads-show"), "thread.list", { seat: "worker" })) as {
+      readonly threads: ReadonlyArray<{ readonly threadId: string }>;
+    };
+    const threadId = listed.threads[0]!.threadId;
+    const shown = await run(
+      executeOverseerThreads(caller("threads-show"), "thread.show", { seat: "worker", threadId, limit: 1 }),
+    ) as { readonly threadId: string; readonly messages: ReadonlyArray<{ readonly text: string }>; readonly older?: string };
+    expect(shown.threadId).toBe(threadId);
+    expect(shown.messages).toHaveLength(1);
+    expect(shown.messages[0]!.text).toContain("thread opener");
+    expect(shown.older).toBeUndefined();
+    const points = await run(readPoints("threads-show", "worker"));
+    expect(points.size).toBe(0);
+  });
+
+  it("refuses a seat that is not on the canvas, and a thread the seat does not hold", async () => {
+    await seedThreads("threads-refuse");
+    const missing = await run(
+      executeOverseerThreads(caller("threads-refuse"), "thread.list", { seat: "nobody" }).pipe(Effect.result),
+    );
+    expect(Result.isFailure(missing) && missing.failure).toMatchObject({ type: "UnknownTarget", details: { target: "nobody" } });
+    const noThread = await run(
+      executeOverseerThreads(caller("threads-refuse"), "thread.show", {
+        seat: "worker",
+        threadId: "01M852PMBH4TE0XVAJJ82N70HA",
+      }).pipe(Effect.result),
+    );
+    expect(Result.isFailure(noThread) && noThread.failure).toMatchObject({
+      type: "UnknownTarget",
+      details: { next_step: "junto overseer thread list --seat worker" },
+    });
   });
 });

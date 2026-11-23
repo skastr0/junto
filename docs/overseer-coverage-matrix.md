@@ -54,6 +54,7 @@ replay.
 | Dispatch | `tests/overseer-dispatch.test.ts` |
 | Canvas / node / wire | `tests/overseer-canvas-commands.test.ts` |
 | Work | `tests/overseer-work.test.ts` |
+| Threads | `tests/overseer-work.test.ts`, `tests/overseer-cli.test.ts`, `tests/overseer-control.test.ts` |
 | Operator offboard | `tests/overseer-offboard.test.ts`, `tests/overseer-dispatch.test.ts`, `tests/overseer-cli.test.ts` |
 | Region environment / secrets | `tests/overseer-env-secret.test.ts`, `tests/overseer-canvas-commands.test.ts`, `tests/overseer-dispatch.test.ts`, `tests/overseer-cli.test.ts` |
 | Native | `tests/overseer-native.test.ts` |
@@ -61,7 +62,7 @@ replay.
 | Human toggle / identity | `tests/overseer-set.test.ts`, `tests/overseer-toggle.test.tsx`, `tests/overseer-mark.test.tsx` |
 | Canvas edits / grant isolation | `tests/canvas-edit-commands.test.ts`, `tests/overseer-set.test.ts` |
 
-## Wire operations (120)
+## Wire operations (83)
 
 | operation | catalog | owning service | coverage | suite |
 | --- | --- | --- | --- | --- |
@@ -93,6 +94,8 @@ replay.
 | `msg.read` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `msg.reply` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `msg.react` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
+| `thread.list` | read | threads `executeOverseerThreads` over `seatThreadsView` (one seat) and `threadRowsPage` with `who: all` (every seat) | exercised | tests/overseer-work.test.ts; tests/overseer-cli.test.ts; tests/overseer-control.test.ts |
+| `thread.show` | read | threads `executeOverseerThreads` over `seatThreadMessagesView` | exercised | tests/overseer-work.test.ts; tests/overseer-cli.test.ts; tests/overseer-control.test.ts |
 | `content.ingest` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts; tests/overseer-dispatch.test.ts; local ingest exercised; Remote page/content stay on caller installation in dispatch |
 | `agent.list` | read | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts |
 | `agent.get` | read | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts |

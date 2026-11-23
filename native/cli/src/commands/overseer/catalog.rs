@@ -54,6 +54,8 @@ pub enum Shape {
     Body { empty: &'static str },
     /// An automation write: this process mints its opId, or resends `--op-id`.
     Automation(Write),
+    /// `thread list` and `thread show`: flags, as the seat's own `junto thread` takes them.
+    Thread,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -112,6 +114,8 @@ const READ_ONLY: &[&str] = &[
     "wire.list",
     "wire.get",
     "wire.verbs",
+    "thread.list",
+    "thread.show",
     "agent.list",
     "agent.get",
     "agent.output",
@@ -137,7 +141,7 @@ const fn op(name: &'static str, shape: Shape) -> Operation {
     Operation { name, shape }
 }
 
-use Shape::{Automation, Body, Plain, Report, Rows, SecretPut};
+use Shape::{Automation, Body, Plain, Report, Rows, SecretPut, Thread};
 
 pub static OPERATIONS: &[Operation] = &[
     op("status", Plain),
@@ -168,6 +172,8 @@ pub static OPERATIONS: &[Operation] = &[
     op("msg.read", Plain),
     op("msg.reply", Plain),
     op("msg.react", Plain),
+    op("thread.list", Thread),
+    op("thread.show", Thread),
     op("content.ingest", Plain),
     op("agent.list", Plain),
     op("agent.get", Plain),

@@ -805,6 +805,43 @@ describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST
     expect(observed).toHaveLength(sent);
   });
 
+  it("sends thread list and thread show from their flags, and refuses a mixed list before the socket", async () => {
+    const observed: Array<Record<string, unknown>> = [];
+    const { workHome } = await startFakeWorkSocket((request) => {
+      observed.push(request);
+      return overseerOk((request.args as { operation: string }).operation, { seat: "worker", threads: [] });
+    });
+    const thread = "01M852PMBH4TE0XVAJJ82N70HA";
+    for (const [args, operation, sent] of [
+      [["overseer", "thread", "list"], "thread.list", {}],
+      [["overseer", "thread", "list", "--seat", "worker", "--limit", "20", "--after", "1.x", "--group", "between"], "thread.list", { seat: "worker", limit: 20, after: "1.x", group: "between" }],
+      [["overseer", "thread", "list", "--region", "Junto", "--region", "CLI", "--search", "review", "--canvas", "factory"], "thread.list", { canvas: "factory", search: "review", region: ["Junto", "CLI"] }],
+      [["overseer", "thread", "show", thread, "--seat", "worker", "--limit", "5", "--before", "2.y"], "thread.show", { seat: "worker", limit: 5, before: "2.y", threadId: thread }],
+    ] as const) {
+      const result = await runCli(args, { workHome });
+      expect(result.code, args.join(" ")).toBe(0);
+      expect(innerOf(observed.at(-1))).toEqual({ operation, args: sent });
+    }
+    const sentBefore = observed.length;
+    for (const args of [
+      ["overseer", "thread", "list", "--group", "with-you"],
+      ["overseer", "thread", "list", "--seat", "worker", "--search", "x"],
+      ["overseer", "thread", "show", thread],
+      ["overseer", "thread", "show", "not-a-ulid", "--seat", "worker"],
+    ]) {
+      const refused = await runCli(args, { workHome });
+      expect(refused.code, args.join(" ")).not.toBe(0);
+      // The answer is one JSON line, on stdout or, for a refusal, stderr.
+      expect(parseStdout(refused.stdout.trim() || refused.stderr)).toMatchObject({ ok: false, error: { type: "InputError" } });
+    }
+    expect(observed).toHaveLength(sentBefore);
+    for (const operation of ["thread.list", "thread.show"] as const) {
+      expect(overseerExamples.some((example) => example.command_id === `overseer.${operation}`)).toBe(true);
+      expect(OVERSEER_CATALOG.find((entry) => entry.operation === operation)?.mutation).toBe(false);
+    }
+    expect(OVERSEER_SKILL_MARKDOWN).toContain("thread show <threadId> --seat <seat>");
+  }, 120_000);
+
   it("sends the other references and briefing commands as their own operations", async () => {
     const observed: Array<Record<string, unknown>> = [];
     const { workHome } = await startFakeWorkSocket((request) => {
