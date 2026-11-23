@@ -1,4 +1,22 @@
 /**
+ * Where a signal stands in a thread (0.12, threads parts 7 and 8): the thread
+ * between the seat and the operator it was raised in, the seat's mail there
+ * that is this signal, and the nearest earlier signal in that thread. All
+ * empty on a signal raised outside a thread, which is every signal written
+ * before step 76. Each id is a ULID. Step 76 adds them in this order; the
+ * table below holds them in the same place, so a fresh store and a stepped
+ * one are one schema.
+ */
+const ULID_OR_NULL = (column: string) =>
+  `${column} IS NULL OR (length(${column}) = 26 AND ${column} NOT GLOB '*[^0-9A-HJKMNP-TV-Z]*')`;
+
+export const AGENT_SIGNAL_THREAD_COLUMNS_SQL = [
+  `thread_id TEXT CHECK (${ULID_OR_NULL("thread_id")})`,
+  `message_id TEXT CHECK ((${ULID_OR_NULL("message_id")}) AND (message_id IS NULL OR thread_id IS NOT NULL))`,
+  `follows_signal_id TEXT CHECK (${ULID_OR_NULL("follows_signal_id")})`,
+] as const;
+
+/**
  * Agent signals: a seat's declared claim that it needs the operator
  * (`@shared/agent-signals`). Durable because each one waits for an operator
  * response; closed rows stay as the seat's history. A row is open until it is
@@ -33,6 +51,7 @@ export const AGENT_SIGNALS_STATE_SCHEMA_SQL = `
       CHECK (response_text IS NULL OR length(response_text) BETWEEN 1 AND 8000),
     response_at INTEGER,
     closed_at INTEGER,
+    ${AGENT_SIGNAL_THREAD_COLUMNS_SQL.join(",\n    ")},
     CHECK ((state = 'open') = (closed_at IS NULL)),
     CHECK ((state = 'answered') = (response_text IS NOT NULL)),
     CHECK ((response_text IS NULL) = (response_at IS NULL))
@@ -87,4 +106,53 @@ export const AGENT_SIGNAL_PARTS_STATE_SCHEMA_SQL = `
     caption TEXT CHECK (caption IS NULL OR length(caption) >= 1),
     PRIMARY KEY (signal_id, position)
   ) STRICT, WITHOUT ROWID;
+`;
+
+/**
+ * The reads a signal in a thread needs (0.12, threads parts 7 and 8): a
+ * seat's signals in one thread, newest first, found on every raise there;
+ * and a seat's newest signal on a canvas, for a batch raised in order. A
+ * mail is one signal at most.
+ */
+export const AGENT_SIGNAL_THREAD_INDEXES_SQL = `
+  CREATE UNIQUE INDEX IF NOT EXISTS agent_signals_by_message
+    ON agent_signals(message_id)
+    WHERE message_id IS NOT NULL;
+
+  CREATE INDEX IF NOT EXISTS agent_signals_by_thread
+    ON agent_signals(canvas_name, node_id, thread_id, created_at)
+    WHERE thread_id IS NOT NULL;
+
+  CREATE INDEX IF NOT EXISTS agent_signals_by_seat_newest
+    ON agent_signals(canvas_name, node_id, created_at);
+`;
+
+/**
+ * What a signal comes after, the order to act (0.12, threads part 8): one
+ * row per signal it names, in the order given, eight at most
+ * (`AGENT_SIGNAL_MAX_DEPENDS_ON`), each a ULID. Given when the signal is
+ * raised and never changed, so a loop cannot be made. The signal named is
+ * not a foreign key: a signal taken from another machine may name one this
+ * machine does not hold yet, and a name this machine cannot find holds
+ * nothing back. Indexed by the signal named, so a close finds what waits on
+ * it. Rows go with their signal.
+ */
+export const AGENT_SIGNAL_DEPENDS_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS agent_signal_depends (
+    signal_id TEXT NOT NULL
+      REFERENCES agent_signals(signal_id) ON DELETE CASCADE,
+    position INTEGER NOT NULL
+      CHECK (typeof(position) = 'integer' AND position BETWEEN 0 AND 7),
+    depends_on_signal_id TEXT NOT NULL
+      CHECK (
+        length(depends_on_signal_id) = 26
+        AND depends_on_signal_id NOT GLOB '*[^0-9A-HJKMNP-TV-Z]*'
+        AND depends_on_signal_id <> signal_id
+      ),
+    PRIMARY KEY (signal_id, position),
+    UNIQUE (signal_id, depends_on_signal_id)
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE INDEX IF NOT EXISTS agent_signal_depends_by_named
+    ON agent_signal_depends(depends_on_signal_id);
 `;

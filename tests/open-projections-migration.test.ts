@@ -26,9 +26,8 @@ import {
 } from "../src/core/state/migrations";
 import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
 import { OPEN_READS, openCommandsOf } from "../src/core/work/open-projections-schema";
-import { STATE_SCHEMA_V72_SQL, STATE_SCHEMA_V73_SQL, STATE_SCHEMA_V74_SQL } from "./fixtures/state-v13/schema";
+import { STATE_SCHEMA_V72_SQL, STATE_SCHEMA_V73_SQL, STATE_SCHEMA_V74_SQL, STATE_SCHEMA_V75_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -259,8 +258,8 @@ describe("state migration 73 -> 74 (the loom seed)", () => {
 });
 
 describe("state migration 74 -> 75 (the loom seed in parts)", () => {
-  it("ends at the version-75 witness, which is the current schema", () => {
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V75_IDENTITY);
+  it("ends at the version-75 witness", () => {
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V75_SQL)).toEqual(STATE_SCHEMA_V75_IDENTITY);
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(
@@ -273,7 +272,7 @@ describe("state migration 74 -> 75 (the loom seed in parts)", () => {
           ...STATE_SCHEMA_V74_IDENTITY,
         });
         const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
-        expect(migrateStateSchema(database, upTo(75, STATE_SCHEMA_SQL))).toMatchObject({
+        expect(migrateStateSchema(database, upTo(75, STATE_SCHEMA_V75_SQL))).toMatchObject({
           schemaVersion: 75,
           ...STATE_SCHEMA_V75_IDENTITY,
         });

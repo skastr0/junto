@@ -7,4 +7,4 @@
  * `state/migrations.ts` imports this and re-exports it, so the name still
  * reads from there, where it is documented; a schema bump edits it here.
  */
-export const CURRENT_STATE_SCHEMA_VERSION = 75;
+export const CURRENT_STATE_SCHEMA_VERSION = 76;

@@ -84,6 +84,11 @@ import { TASK_HEADS_BY_STATE_INDEX_SQL } from "../work/task-state-schema";
 import { OPEN_PROJECTIONS_BACKFILL_SQL, OPEN_PROJECTIONS_STATE_SCHEMA_SQL } from "../work/open-projections-schema";
 import { LOOM_SEEDS_STATE_SCHEMA_SQL, LOOM_SEED_PARTS_STATE_SCHEMA_SQL } from "../loom-seed/state-schema";
 import {
+  AGENT_SIGNAL_DEPENDS_STATE_SCHEMA_SQL,
+  AGENT_SIGNAL_THREAD_COLUMNS_SQL,
+  AGENT_SIGNAL_THREAD_INDEXES_SQL,
+} from "../signals/state-schema";
+import {
   actualStateSchemaSha256,
   normalizeSchemaSql,
   expectedStateSchemaIdentity,
@@ -930,6 +935,20 @@ export const STATE_SCHEMA_V75_IDENTITY = {
     "310f2b4202b59a9715e061d9af29d25e776883a08318b772c08b33efec7febd0",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+/**
+ * Version 76 lets a signal stand in a thread and come after other signals
+ * (0.12, threads parts 7 and 8): `agent_signals` gains `thread_id`,
+ * `message_id` and `follows_signal_id`, empty on every signal already held,
+ * so each reads as raised outside a thread; two indexes read a seat's
+ * signals in a thread and its newest; `agent_signal_depends` keeps what a
+ * signal comes after, empty, so every signal already held is ready. Expand
+ * only.
+ */
+export const STATE_SCHEMA_V76_IDENTITY = {
+  actualSchemaSha256:
+    "019e4af78cce21ec1e8fbf256820a6517955d472780babf1370564f8e8d0833e",
+} as const satisfies VerifiedStateSchemaIdentity;
+
 import { CURRENT_STATE_SCHEMA_VERSION } from "../../node/state/schema-version";
 
 export { CURRENT_STATE_SCHEMA_VERSION };
@@ -1537,6 +1556,19 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V74_IDENTITY,
     migrate: (database) => database.exec(LOOM_SEED_PARTS_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 75,
+    toVersion: 76,
+    name: "let a signal stand in a thread and come after other signals",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V75_IDENTITY,
+    migrate: (database) => {
+      for (const column of AGENT_SIGNAL_THREAD_COLUMNS_SQL) {
+        database.exec(`ALTER TABLE agent_signals ADD COLUMN ${column}`);
+      }
+      database.exec(`${AGENT_SIGNAL_THREAD_INDEXES_SQL}\n${AGENT_SIGNAL_DEPENDS_STATE_SCHEMA_SQL}`);
+    },
   },
 ];
 

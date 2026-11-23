@@ -444,3 +444,9 @@ export const STATE_SCHEMA_V75_SQL = stepped(
   STATE_SCHEMA_V74_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 75)!.migrate,
 );
+
+/** Step 76 lets a signal stand in a thread and come after other signals: three columns, two indexes and `agent_signal_depends`. */
+export const STATE_SCHEMA_V76_SQL = stepped(
+  STATE_SCHEMA_V75_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 76)!.migrate,
+);

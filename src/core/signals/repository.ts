@@ -4,6 +4,7 @@ import { ulid } from "ulid";
 import { asNodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";
 import {
+  AGENT_SIGNAL_MAX_DEPENDS_ON,
   type AgentSignal,
   type AgentSignalAttachment,
   type AgentSignalAttachmentKind,
@@ -19,6 +20,7 @@ import {
 import type { ContentRef } from "@shared/wire/content-ref";
 import { SignalReplySecret, type SignalReplyArtifact } from "@shared/agent-signals";
 import { StateTransactionOperation } from "../state/service";
+import { afterSqlCommit } from "../state/sql-commit";
 import { emitAgentSignalChanged } from "./changes";
 
 export class AgentSignalPersistenceError extends Schema.TaggedError<AgentSignalPersistenceError>()(
@@ -67,6 +69,18 @@ export type RaiseAgentSignal = AgentSignalSeat & {
   readonly attachments?: ReadonlyArray<AgentSignalAttachment>;
   /** Replies the seat pre-baked for the operator, at most two, in order. */
   readonly suggestions?: ReadonlyArray<string>;
+  /** The thread between the seat and the operator it is raised in. */
+  readonly threadId?: string;
+  /** The seat's mail in `threadId` that is this signal; only with `threadId`. */
+  readonly messageId?: string;
+  /** The nearest earlier signal in that thread. */
+  readonly followsSignalId?: string;
+  /**
+   * The signals it comes after, in order: each one a signal of the same seat
+   * on the same canvas, or the raise fails `AgentSignalNotFound`. Raised
+   * after them, it cannot make a loop.
+   */
+  readonly dependsOn?: ReadonlyArray<string>;
 };
 
 /**
@@ -87,6 +101,12 @@ export type TakenAgentSignal = AgentSignalSeat & {
   readonly suggestions?: ReadonlyArray<string>;
   /** What the raise attached, as kept here: a file of no stated kind until judged. */
   readonly attachments?: ReadonlyArray<AgentSignalAttachment>;
+  /** Where it stands, as its seat's machine wrote it. A thread set later lands on a signal held without one. */
+  readonly threadId?: string;
+  readonly messageId?: string;
+  readonly followsSignalId?: string;
+  /** What it comes after, kept as named: a signal not held here holds nothing back. */
+  readonly dependsOn?: ReadonlyArray<string>;
   readonly createdAt: number;
   /** The closing to take, when the sender is the one that may write it. */
   readonly closing?:
@@ -178,6 +198,35 @@ export class AgentSignalRepository extends Context.Service<AgentSignalRepository
       seat: AgentSignalSeat,
       fromMs?: number,
     ) => Effect.Effect<ReadonlyArray<AgentSignal>, AgentSignalRepositoryError>;
+    /**
+     * A seat's signals in one thread, every state, newest first: the head is
+     * the signal a new raise there follows.
+     */
+    readonly listSeatThread: (
+      seat: AgentSignalSeat,
+      threadId: string,
+    ) => Effect.Effect<ReadonlyArray<AgentSignal>, AgentSignalRepositoryError>;
+    /** A seat's newest signal on its canvas, any state; undefined when it has none. */
+    readonly latestSeat: (
+      seat: AgentSignalSeat,
+    ) => Effect.Effect<AgentSignal | undefined, AgentSignalRepositoryError>;
+    /**
+     * The open signals that come after this one, oldest first: what a close
+     * of it may make ready.
+     */
+    readonly listWaitingOn: (
+      signalId: string,
+    ) => Effect.Effect<ReadonlyArray<AgentSignal>, AgentSignalRepositoryError>;
+    /**
+     * Put a signal held without a thread into one, as when the operator's
+     * answer starts it; that signal is then the head of the thread's chain.
+     * Set once: the same thread again changes nothing, another thread fails
+     * `AgentSignalNotFound`. Any state.
+     */
+    readonly setThread: (
+      signalId: string,
+      threadId: string,
+    ) => Effect.Effect<AgentSignal, AgentSignalRepositoryError>;
   }>()("@junto/AgentSignalRepository") {}
 
 const SignalRow = Schema.Struct({
@@ -195,6 +244,10 @@ const SignalRow = Schema.Struct({
   response_text: Schema.NullOr(Schema.String),
   response_at: Schema.NullOr(Schema.Number),
   closed_at: Schema.NullOr(Schema.Number),
+  thread_id: Schema.NullOr(Schema.String),
+  message_id: Schema.NullOr(Schema.String),
+  follows_signal_id: Schema.NullOr(Schema.String),
+  depends_json: Schema.String,
   attachments_json: Schema.String,
   suggestions_json: Schema.String,
   answer_files_json: Schema.String,
@@ -232,6 +285,15 @@ const columnsOf = (from: string): string => `
   ${from}.signal_id, ${from}.canvas_name, ${from}.node_id, ${from}.kind, ${from}.text, ${from}.detail,
   ${from}.source_json, ${from}.work_json, ${from}.form_json,
   ${from}.created_at, ${from}.state, ${from}.response_text, ${from}.response_at, ${from}.closed_at,
+  ${from}.thread_id, ${from}.message_id, ${from}.follows_signal_id,
+  (
+    SELECT json_group_array(depends_on_signal_id)
+    FROM (
+      SELECT depends_on_signal_id FROM agent_signal_depends
+      WHERE agent_signal_depends.signal_id = ${from}.signal_id
+      ORDER BY position
+    )
+  ) AS depends_json,
   (
     SELECT json_group_array(json_object('kind', kind, 'body', json(body_json), 'caption', caption))
     FROM (
@@ -358,6 +420,17 @@ const withSuggestions = (json: string): { readonly suggestions?: ReadonlyArray<s
   return suggestions.length > 0 ? { suggestions } : {};
 };
 
+const withDependsOn = (json: string): { readonly dependsOn?: ReadonlyArray<string> } => {
+  const dependsOn = (JSON.parse(json) as ReadonlyArray<unknown>).filter(
+    (entry): entry is string => typeof entry === "string" && entry.length > 0,
+  );
+  return dependsOn.length > 0 ? { dependsOn } : {};
+};
+
+/** What a signal comes after, once each, in the order named, never itself. */
+const dependsOnOf = (signalId: string, named: ReadonlyArray<string> | undefined): ReadonlyArray<string> =>
+  [...new Set(named ?? [])].filter((id) => id !== signalId);
+
 /** A signal's own fields as its column holds them: one JSON object, or null. */
 const jsonOf = (value: object | undefined): string | null => (value === undefined ? null : JSON.stringify(value));
 
@@ -397,6 +470,10 @@ const fromRow = (row: typeof SignalRow.Type): AgentSignal => {
           },
         }),
     ...(row.closed_at === null ? {} : { closedAt: Number(row.closed_at) }),
+    ...(row.thread_id === null ? {} : { threadId: row.thread_id }),
+    ...(row.message_id === null ? {} : { messageId: row.message_id }),
+    ...(row.follows_signal_id === null ? {} : { followsSignalId: row.follows_signal_id }),
+    ...withDependsOn(row.depends_json),
   };
 };
 
@@ -468,13 +545,48 @@ export const AgentSignalRepositoryLive: Layer.Layer<
         WHERE canvas_name = ? AND node_id = ? AND state <> 'open'`, [seat.canvasName, seat.nodeId]),
     });
 
+    // A signal is announced once its write commits: after the outermost
+    // transaction it joined, never when that one rolls back.
+    const announce = (signal: AgentSignal) => afterSqlCommit(sql, () => emitAgentSignalChanged(signal));
+
+    const ownSignalRows = SqlSchema.findAll({
+      Request: Schema.Tuple([Schema.String, Schema.String, Schema.Array(Schema.String)]),
+      Result: Schema.Struct({ signal_id: Schema.String }),
+      execute: ([canvasName, nodeId, ids]) => sql.unsafe(`SELECT signal_id FROM agent_signals
+        WHERE canvas_name = ? AND node_id = ? AND signal_id IN (${ids.map(() => "?").join(", ")})`,
+        [canvasName, nodeId, ...ids]),
+    });
+
+    const insertDepends = Effect.fn("agent-signals.insert-depends")(function* (
+      signalId: string,
+      dependsOn: ReadonlyArray<string>,
+    ) {
+      for (const [position, named] of dependsOn.entries()) {
+        yield* sql`
+          INSERT INTO agent_signal_depends(signal_id, position, depends_on_signal_id)
+          VALUES (${signalId}, ${position}, ${named})
+        `;
+      }
+    });
+
     const raise = Effect.fn("agent-signals.raise")(function* (input: RaiseAgentSignal) {
       const signalId = input.signalId ?? ulid();
+      const dependsOn = dependsOnOf(signalId, input.dependsOn);
+      if (dependsOn.length > 0) {
+        const own = new Set((yield* ownSignalRows([input.canvasName, input.nodeId, dependsOn])).map((row) => row.signal_id));
+        const stranger = dependsOn.find((id) => !own.has(id));
+        if (stranger !== undefined) {
+          return yield* notFound(stranger, `signal ${stranger} is not a signal of this seat, so this one cannot come after it`);
+        }
+      }
       yield* sql`
-        INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, detail, source_json, work_json, form_json, created_at, state)
+        INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, detail, source_json, work_json, form_json, created_at, state,
+          thread_id, message_id, follows_signal_id)
         VALUES (${signalId}, ${input.canvasName}, ${input.nodeId}, ${input.kind}, ${input.text}, ${input.detail ?? null},
-          ${jsonOf(input.source)}, ${jsonOf(input.work)}, ${jsonOf(input.form)}, ${Date.now()}, 'open')
+          ${jsonOf(input.source)}, ${jsonOf(input.work)}, ${jsonOf(input.form)}, ${Date.now()}, 'open',
+          ${input.threadId ?? null}, ${input.messageId ?? null}, ${input.followsSignalId ?? null})
       `;
+      yield* insertDepends(signalId, dependsOn);
       for (const [position, attachment] of (input.attachments ?? []).entries()) {
         const part = partOf(attachment);
         yield* sql`
@@ -490,7 +602,9 @@ export const AgentSignalRepositoryLive: Layer.Layer<
           VALUES (${signalId}, ${offset + index}, ${SUGGEST_PART_KIND}, ${JSON.stringify({ text: suggestion })})
         `;
       }
-      return (yield* readOne(signalId))!;
+      const raised = (yield* readOne(signalId))!;
+      yield* announce(raised);
+      return raised;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.raise"),
     Effect.mapError(persistence("raise")));
 
@@ -508,7 +622,9 @@ export const AgentSignalRepositoryLive: Layer.Layer<
           return yield* notFound(id, `signal ${id} is not an open signal of this seat`);
         }
       }
-      return yield* Effect.forEach(ids, (id) => readOne(id).pipe(Effect.map((signal) => signal!)));
+      const withdrawn = yield* Effect.forEach(ids, (id) => readOne(id).pipe(Effect.map((signal) => signal!)));
+      yield* Effect.forEach(withdrawn, announce, { discard: true });
+      return withdrawn;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.withdraw"),
     Effect.mapError(persistence("withdraw")));
 
@@ -554,7 +670,9 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       if (Number(changed.changes) === 0) {
         return yield* notFound(signalId, `signal ${signalId} is not open`);
       }
-      return (yield* readOne(signalId))!;
+      const closed = (yield* readOne(signalId))!;
+      yield* announce(closed);
+      return closed;
     }, sql.withTransaction, (effect, operation) => effect.pipe(
       Effect.provideService(StateTransactionOperation, `agent-signals.${operation}`),
       Effect.mapError(persistence(operation)),
@@ -597,7 +715,9 @@ export const AgentSignalRepositoryLive: Layer.Layer<
           VALUES (${signalId}, ${Number(after?.next ?? 0) + files.length}, ${ANSWER_REPLY_PART_KIND}, ${JSON.stringify(reply)})
         `;
       }
-      return (yield* readOne(signalId))!;
+      const answered = (yield* readOne(signalId))!;
+      yield* announce(answered);
+      return answered;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.answer"),
     Effect.mapError(persistence("answer")));
 
@@ -619,10 +739,14 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       if (held === undefined) {
         if (!input.raises) return yield* notFound(input.signalId, `no signal ${input.signalId} to close`);
         yield* sql`
-          INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, detail, source_json, work_json, form_json, created_at, state)
+          INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, detail, source_json, work_json, form_json, created_at, state,
+            thread_id, message_id, follows_signal_id)
           VALUES (${input.signalId}, ${input.canvasName}, ${input.nodeId}, ${input.kind}, ${input.text}, ${input.detail ?? null},
-            ${jsonOf(input.source)}, ${jsonOf(input.work)}, ${jsonOf(input.form)}, ${input.createdAt}, 'open')
+            ${jsonOf(input.source)}, ${jsonOf(input.work)}, ${jsonOf(input.form)}, ${input.createdAt}, 'open',
+            ${input.threadId ?? null}, ${input.messageId ?? null}, ${input.followsSignalId ?? null})
         `;
+        // Another machine's raise keeps no more than the bound; a local raise past it is refused by the store.
+        yield* insertDepends(input.signalId, dependsOnOf(input.signalId, input.dependsOn).slice(0, AGENT_SIGNAL_MAX_DEPENDS_ON));
         // What it attached lands as parts by reference, then the suggestions behind them, as a raise stores them.
         for (const [position, attachment] of (input.attachments ?? []).entries()) {
           const part = partOf(attachment);
@@ -641,6 +765,13 @@ export const AgentSignalRepositoryLive: Layer.Layer<
         changed = true;
       } else if (held.canvasName !== input.canvasName || held.nodeId !== input.nodeId) {
         return yield* notFound(input.signalId, `signal ${input.signalId} belongs to another seat`);
+      } else if (held.threadId === undefined && input.threadId !== undefined) {
+        // A thread set after the raise, as an answer that starts one, crosses the same way.
+        const placed = yield* sql`
+          UPDATE agent_signals SET thread_id = ${input.threadId}
+          WHERE signal_id = ${input.signalId} AND thread_id IS NULL
+        `.raw.pipe(Effect.flatMap(changes));
+        changed = Number(placed.changes) > 0;
       }
       const closing = input.closing;
       if (closing !== undefined) {
@@ -653,7 +784,10 @@ export const AgentSignalRepositoryLive: Layer.Layer<
         `.raw.pipe(Effect.flatMap(changes));
         changed = changed || Number(closed.changes) > 0;
       }
-      return changed ? yield* readOne(input.signalId) : undefined;
+      if (!changed) return undefined;
+      const taken = (yield* readOne(input.signalId))!;
+      yield* announce(taken);
+      return taken;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.take"),
     Effect.mapError(persistence("take")));
 
@@ -676,35 +810,79 @@ export const AgentSignalRepositoryLive: Layer.Layer<
         `.raw.pipe(Effect.flatMap(changes));
         changed += Number(updated.changes);
       }
-      return changed > 0 ? yield* readOne(signalId) : undefined;
+      if (changed === 0) return undefined;
+      const judged = yield* readOne(signalId);
+      if (judged !== undefined) yield* announce(judged);
+      return judged;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.judge-file"),
     Effect.mapError(persistence("judge-file")));
 
-    // Listeners hear of a write once it is committed, never from inside it.
-    const told = <E, R>(write: Effect.Effect<AgentSignal, E, R>) =>
-      write.pipe(Effect.tap((signal) => Effect.sync(() => emitAgentSignalChanged(signal))));
+    const threadRows = SqlSchema.findAll({
+      Request: Schema.Tuple([Schema.String, Schema.String, Schema.String]),
+      Result: SignalRow,
+      execute: ([canvasName, nodeId, threadId]) => sql.unsafe(`SELECT ${COLUMNS} FROM agent_signals INDEXED BY agent_signals_by_thread
+        WHERE canvas_name = ? AND node_id = ? AND thread_id = ?
+        ORDER BY created_at DESC, signal_id DESC`, [canvasName, nodeId, threadId]),
+    });
+    const listSeatThread = Effect.fn("agent-signals.list-seat-thread")(function* (seat: AgentSignalSeat, threadId: string) {
+      return (yield* threadRows([seat.canvasName, seat.nodeId, threadId])).map(fromRow);
+    }, Effect.mapError(persistence("list seat thread")));
+
+    const latestRows = SqlSchema.findAll({
+      Request: Schema.Tuple([Schema.String, Schema.String]),
+      Result: SignalRow,
+      execute: ([canvasName, nodeId]) => sql.unsafe(`SELECT ${COLUMNS} FROM agent_signals INDEXED BY agent_signals_by_seat_newest
+        WHERE canvas_name = ? AND node_id = ?
+        ORDER BY created_at DESC, signal_id DESC LIMIT 1`, [canvasName, nodeId]),
+    });
+    const latestSeat = Effect.fn("agent-signals.latest-seat")(function* (seat: AgentSignalSeat) {
+      const [row] = yield* latestRows([seat.canvasName, seat.nodeId]);
+      return row === undefined ? undefined : fromRow(row);
+    }, Effect.mapError(persistence("latest seat")));
+
+    const waitingRows = SqlSchema.findAll({
+      Request: Schema.String,
+      Result: SignalRow,
+      execute: (signalId) => sql.unsafe(`SELECT ${columnsOf("waiting")} FROM agent_signal_depends AS named
+        INDEXED BY agent_signal_depends_by_named
+        JOIN agent_signals AS waiting ON waiting.signal_id = named.signal_id
+        WHERE named.depends_on_signal_id = ? AND waiting.state = 'open'
+        ORDER BY waiting.created_at, waiting.signal_id`, [signalId]),
+    });
+    const listWaitingOn = Effect.fn("agent-signals.list-waiting-on")(function* (signalId: string) {
+      return (yield* waitingRows(signalId)).map(fromRow);
+    }, Effect.mapError(persistence("list waiting on")));
+
+    const setThread = Effect.fn("agent-signals.set-thread")(function* (signalId: string, threadId: string) {
+      const held = yield* readOne(signalId);
+      if (held === undefined) return yield* notFound(signalId, `no signal ${signalId}`);
+      if (held.threadId === threadId) return held;
+      if (held.threadId !== undefined) {
+        return yield* notFound(signalId, `signal ${signalId} is already in thread ${held.threadId}`);
+      }
+      yield* sql`UPDATE agent_signals SET thread_id = ${threadId} WHERE signal_id = ${signalId} AND thread_id IS NULL`;
+      const placed = (yield* readOne(signalId))!;
+      yield* announce(placed);
+      return placed;
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.set-thread"),
+    Effect.mapError(persistence("set thread")));
 
     return AgentSignalRepository.of({
-      raise: (input) => told(raise(input)),
-      withdraw: (seat, signalId) =>
-        withdraw(seat, signalId).pipe(
-          Effect.tap((signals) => Effect.sync(() => signals.forEach(emitAgentSignalChanged))),
-        ),
+      raise,
+      withdraw,
       listSeat,
       countClosedSeat,
       listCanvas,
       get,
-      answer: (signalId, text, files, reply) => told(answer(signalId, text, files, reply)),
-      dismiss: (signalId) => told(dismiss(signalId)),
-      take: (input) =>
-        takeRow(input).pipe(
-          Effect.tap((signal) => Effect.sync(() => (signal === undefined ? undefined : emitAgentSignalChanged(signal)))),
-        ),
-      judgeFile: (signalId, object, mediaType) =>
-        judgeFileRow(signalId, object, mediaType).pipe(
-          Effect.tap((signal) => Effect.sync(() => (signal === undefined ? undefined : emitAgentSignalChanged(signal)))),
-        ),
+      answer,
+      dismiss,
+      take: takeRow,
+      judgeFile: judgeFileRow,
       listSeatAnswered,
+      listSeatThread,
+      latestSeat,
+      listWaitingOn,
+      setThread,
     });
   }),
 );
