@@ -53,6 +53,8 @@ type FullHook = CanvasTestHook & {
   readonly atlasAudit: () => AtlasAudit | null;
   /** Texel readback of referenced landed sprite cells against fresh rasters of their own quads. */
   readonly atlasAuditTexels: (limit?: number) => Promise<AtlasTexelAudit> | null;
+  /** Hold the canvas's frame clocks at an epoch instant (ring phase, fades), or let go with undefined. */
+  readonly holdClocks: (wall: number | undefined) => void;
   /** The map and placement the minimap last drew, for the SVG parity check (issue 912). */
   readonly minimapDrawn: () => { readonly map: PackedMap; readonly paint: MapPaint } | undefined;
 };
@@ -190,6 +192,7 @@ const build = (
     gpuErrors: () => pageDeviceKeeper().errors(),
     atlasAudit: () => pageGpuAtlasAudit(engine()?.heldCells?.()),
     atlasAuditTexels: (limit) => pageGpuAtlasAuditTexels(limit),
+    holdClocks: (wall) => engine()?.holdClocks?.(wall),
     minimapDrawn: drawnMinimap,
     wireStats,
     ...(pulse === undefined ? {} : { pulse }),

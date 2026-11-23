@@ -323,6 +323,13 @@ export const createEngine = (host: EngineHost): SeamEngine => {
   const renderer = createRenderer();
 
   const wallNow = (): number => wallClock();
+  /**
+   * Test hook only (the zoom ladder's screenshots): the frame clocks held at
+   * one epoch instant, so ring phase and every clock-driven style are the
+   * same in two launches. The shader's phase is (now + timeOrigin) mod period,
+   * so holding `wall` at W and `now` at the page time of W fixes it.
+   */
+  let held: { readonly now: number; readonly wall: number } | undefined;
 
   const sideOf = (handle: string): ConnectionPreview["fromSide"] => {
     if (handle.endsWith("top")) return "top";
@@ -665,10 +672,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     keepPeaks();
     // The atlas's visibleBlank counter reads what this presented frame drew.
     host.cells?.recordVisibleBlank?.(blank.visibleBlank);
-    const wall = wallNow();
+    const wall = held?.wall ?? wallNow();
     // The shader's clock is page-relative: `Date.now()` in a float32 uniform
     // quantizes to about two minutes, freezing every fade and every phase.
-    const shaderNow = clock();
+    const shaderNow = held?.now ?? clock();
     scene.setClocks({ now: shaderNow, wall, frame: true });
     if (prepared.orderChanged) dirty = true;
 
@@ -942,7 +949,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     apply: (ops) => {
       // A style change starts its transition at the wall clock of the fact,
       // not at the last frame's.
-      scene.setClocks({ now: clock(), wall: wallNow() });
+      scene.setClocks({ now: held?.now ?? clock(), wall: held?.wall ?? wallNow() });
       for (const op of ops) {
         if (op.kind === "theme") ground = clearColour(themeRuntime(op.mode).ground ?? "");
         if (op.kind === "load") loaded = true;
@@ -1024,6 +1031,10 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     partsOf: (id) => scene.partsOf(id),
     seatStats: () => scene.seatStats(),
     heldCells: () => scene.heldCells(),
+    holdClocks: (wall) => {
+      held = wall === undefined ? undefined : { now: clock() + (wall - wallNow()), wall };
+      invalidate();
+    },
     setCull: (mode) => {
       scene.setCullOnGpu(mode === "gpu");
       renderer.setCull(mode);

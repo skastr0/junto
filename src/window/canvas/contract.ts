@@ -875,6 +875,8 @@ export interface Engine {
   readonly seatStats?: () => SeatStats;
   /** Atlas cells the draw records hold, with how many records hold each (the atlas audit's input). */
   readonly heldCells?: () => ReadonlyMap<number, number>;
+  /** Test hook only: hold the frame clocks at one epoch instant (undefined lets go), for screenshots two launches can compare. */
+  readonly holdClocks?: (wall: number | undefined) => void;
   readonly stats: () => EngineStats;
   readonly dispose: () => void;
 }
