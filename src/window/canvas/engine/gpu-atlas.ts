@@ -481,6 +481,15 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   let requests = 0;
   let landedCount = 0;
   let evictions = 0;
+  // Read-only diagnostics: when each evicted key went, and its requests after.
+  const evictedAt = new Map<string, number>();
+  let rerasters = 0;
+  const rerasterLog: Array<{ key: string; evictedAt: number; at: number }> = [];
+  const noteEvicted = (key: string): void => {
+    evictedAt.delete(key);
+    evictedAt.set(key, performance.now());
+    if (evictedAt.size > 8192) evictedAt.delete(evictedAt.keys().next().value!);
+  };
   let overwrites = 0;
   let failures = 0;
   let lostPixels = 0;
@@ -1059,6 +1068,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
    */
   const evictPlot = (plot: Plot): void => {
     for (const rec of [...plot.cells]) {
+      noteEvicted(rec.key);
       freeSlot(rec);
       evictions += 1;
     }
@@ -1923,7 +1933,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       return;
     }
     const hadOwnTexture = rec.standalone !== undefined;
-    if (rec.state === "landed") evictions += 1;
+    if (rec.state === "landed") {
+      evictions += 1;
+      noteEvicted(rec.key);
+    }
     freeSlot(rec);
     if (hadOwnTexture) markDirty();
   };
@@ -2000,6 +2013,13 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     slots[index] = rec;
     trackWaiting(rec);
     requests += 1;
+    const wentAt = evictedAt.get(keys.key);
+    if (wentAt !== undefined) {
+      evictedAt.delete(keys.key);
+      rerasters += 1;
+      rerasterLog.push({ key: keys.key, evictedAt: wentAt, at: performance.now() });
+      if (rerasterLog.length > 256) rerasterLog.shift();
+    }
 
     // Never flash blank. The same content at the nearest landed size is what
     // any asker of the key may see, so that slot goes by its key. What this
@@ -2084,6 +2104,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       pending: queuedSet.size + inFlightCount,
       landed: landedCount,
       evictions,
+      rerasters,
+      rerasterLog: rerasterLog.slice(),
       overwrites,
       failures,
       failedCells,

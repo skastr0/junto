@@ -60,7 +60,15 @@ export type AtlasStats = {
   readonly requests: number;
   readonly pending: number;
   readonly landed: number;
+  /** Landed cells freed (one per cell, never per plot), a running total since launch. */
   readonly evictions: number;
+  /**
+   * Requests for a key whose landed cell was evicted earlier, a running total,
+   * and the last 256 of them with both times (performance.now): a key evicted
+   * and rastered again inside one window is thrash.
+   */
+  readonly rerasters?: number;
+  readonly rerasterLog?: ReadonlyArray<{ readonly key: string; readonly evictedAt: number; readonly at: number }>;
   /** Landings written over the cell their slot showed, when nothing else held it: a changed status line takes no new rect. */
   readonly overwrites: number;
   /** Failures reported so far, a running total. `failedCells` is the slots failed now. */
