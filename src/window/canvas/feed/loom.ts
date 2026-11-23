@@ -112,7 +112,7 @@ const workerHost = (send: (update: LoomUpdate) => void, snapshot: (change: LoomS
   return {
     request: (request) => {
       if (request.kind === "plan") last = request;
-      if (request.kind === "focus") lastView = request.view;
+      if (request.kind === "route-first") lastView = request.view;
       if (fallback !== undefined) {
         fallback.request(request);
         return;
@@ -231,7 +231,7 @@ export const retainWireRoutes = (
     }, 600);
   };
   const host = inWorker() ? workerHost(send, snapshot) : pageHost(send, snapshot);
-  const onView = (view: Rect): void => host.request({ kind: "focus", view });
+  const onView = (view: Rect): void => host.request({ kind: "route-first", view });
   viewListeners.add(onView);
   // The seed is read before the first board is planned: hold the board until
   // then, so a launch never routes what the seed already holds.

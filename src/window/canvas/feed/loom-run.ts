@@ -15,7 +15,7 @@ export type LoomRequest =
   | { readonly kind: "plan"; readonly cards: ReadonlyArray<LoomCard>; readonly wires: ReadonlyArray<LoomWireRow>; readonly view?: Rect }
   /** A board packed on the page (loom-board.ts): every card, and only this run's share of the wires. */
   | { readonly kind: "board"; readonly cards: PackedCards; readonly wires: string; readonly view?: Rect }
-  | { readonly kind: "focus"; readonly view: Rect }
+  | { readonly kind: "route-first"; readonly view: Rect }
   | { readonly kind: "reset" }
   /** The stored seed from the page, before the first board; cards packed once. */
   | {
@@ -105,8 +105,8 @@ export const createLoomRun = (
         case "settled":
           snapshot?.(planner.snapshot());
           return;
-        case "focus":
-          planner.focus(request.view);
+        case "route-first":
+          planner.routeFirst(request.view);
           return;
         case "reset":
           board = undefined;

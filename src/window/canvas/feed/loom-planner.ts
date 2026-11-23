@@ -106,8 +106,8 @@ export type LoomPlanner = {
    * has passed (at least one wire per call), and return their facts.
    */
   readonly step: (budgetMs: number, clock: () => number) => LoomUpdate;
-  /** The view moved: route what is still owed from the new one outwards. */
-  readonly focus: (view: Rect) => void;
+  /** The view moved: the wires still owed in it are routed first, then outwards from it. */
+  readonly routeFirst: (view: Rect) => void;
   /** Wires the plan still owes a route. */
   readonly owed: () => number;
   /**
@@ -467,7 +467,7 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
     return { set, remove: first.remove };
   };
 
-  const focus: LoomPlanner["focus"] = (next) => {
+  const routeFirst: LoomPlanner["routeFirst"] = (next) => {
     view = next;
     order();
   };
@@ -583,7 +583,7 @@ export const createLoomPlanner = (share?: LoomShare): LoomPlanner => {
     queue = [];
   };
 
-  return { plan, begin, step, focus, owed: () => queue.length, seed, snapshot, reset, stats: () => ({ ...counts }) };
+  return { plan, begin, step, routeFirst, owed: () => queue.length, seed, snapshot, reset, stats: () => ({ ...counts }) };
 };
 
 /**

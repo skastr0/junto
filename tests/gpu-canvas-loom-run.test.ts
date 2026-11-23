@@ -40,7 +40,7 @@ describe("the loom planner, in steps", () => {
   it("takes a moved view before the next step", () => {
     const planner = createLoomPlanner();
     planner.begin(cards, wires, atOrigin);
-    planner.focus(atFar);
+    planner.routeFirst(atFar);
     expect(ids(planner.step(0, ONE))).toEqual(["far"]);
   });
 
@@ -168,7 +168,7 @@ describe("the loom's run loop", () => {
     const turns: Array<() => void> = [];
     const run = createLoomRun((update) => sent.push(update), ONE, (next) => turns.push(next));
     run.request({ kind: "plan", cards, wires });
-    run.request({ kind: "focus", view: atFar });
+    run.request({ kind: "route-first", view: atFar });
     turns.shift()!();
     expect(sent.map(ids)).toEqual([["far"]]);
   });
