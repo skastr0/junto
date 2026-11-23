@@ -23,6 +23,7 @@ import { runPageChromeKey } from "./page-chrome-keys";
 import { movePaneFocus } from "./pane-focus";
 import { toggleQuickOpenFor } from "./quick-open-host";
 import { state$ } from "./state";
+import { runThreadKey } from "./thread-keys";
 import { spacePressesControl, stepToNextAgent } from "./urgency-step";
 import { modelStore, nodeAt } from "./use-model";
 
@@ -60,6 +61,9 @@ export const KEY_ACTIONS: KeyActions = {
   "feed.open": () => toggleOperatorModal("feed"),
   "capture.open": () => toggleOperatorModal("capture"),
   "search.slash": () => openOperatorModal("search"),
+  // Global threads and Quick thread answer these; until one does, the key passes.
+  "threads.open": () => runThreadKey("threads.open"),
+  "threads.quick": () => runThreadKey("threads.quick"),
   "groups.assign": ({ digit }) => assignSelectionToSlot(digit! - 1),
   // An empty slot takes nothing: the digit passes.
   "groups.recall": ({ digit }) => recallSlot(digit! - 1),

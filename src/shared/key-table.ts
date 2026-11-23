@@ -60,6 +60,7 @@ const NOT_TYPING: ReadonlyArray<KeyContext> = ["canvas", "working", "operator"];
 export type ShortcutArea =
   | "Anywhere"
   | "Search and feed"
+  | "Threads"
   | "Quick capture"
   | "Canvas"
   | "Agent and terminal"
@@ -68,6 +69,7 @@ export type ShortcutArea =
   | "Inside search"
   | "Inside quick capture"
   | "Inside the needs-you feed"
+  | "Inside quick thread"
   | "Inside a list"
   | "Inside a preview"
   | "Inside an artifact"
@@ -81,6 +83,7 @@ export type ShortcutArea =
 export const SHORTCUT_AREAS: ReadonlyArray<ShortcutArea> = [
   "Anywhere",
   "Search and feed",
+  "Threads",
   "Quick capture",
   "Canvas",
   "Agent and terminal",
@@ -89,6 +92,7 @@ export const SHORTCUT_AREAS: ReadonlyArray<ShortcutArea> = [
   "Inside search",
   "Inside quick capture",
   "Inside the needs-you feed",
+  "Inside quick thread",
   "Inside a list",
   "Inside a preview",
   "Inside an artifact",
@@ -105,6 +109,8 @@ export type ShortcutId =
   | "search.slash"
   | "feed.open"
   | "capture.open"
+  | "threads.open"
+  | "threads.quick"
   | "groups.assign"
   | "groups.recall"
   | "groups.jump"
@@ -178,6 +184,11 @@ export type SurfaceKeyId =
   | "inFeed.dismiss"
   | "inFeed.acknowledge"
   | "inFeed.quietNote"
+  | "inQuickThread.move"
+  | "inQuickThread.pick"
+  | "inQuickThread.another"
+  | "inQuickThread.unpick"
+  | "inQuickThread.send"
   | "inPreview.step"
   | "inPreview.compare"
   | "inPreview.zoom"
@@ -280,6 +291,31 @@ const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
     where: OVER_DIALOGS,
     // Ctrl+T transposes two characters in a shell.
     whereOther: ["canvas", "field", "working", "operator", "dialog"],
+  },
+  // Threads, the operator talking to a seat. U sits beside I, the needs-you
+  // feed, the seat asking for the operator.
+  {
+    id: "threads.open",
+    name: "Open threads",
+    area: "Threads",
+    does: "Open your threads with every seat, or close them when they are open",
+    mac: ["Cmd+U"],
+    other: ["Ctrl+U"],
+    where: OVER_DIALOGS,
+    // Ctrl+U in a shell deletes to the start of the line.
+    whereOther: ["canvas", "field", "working", "operator", "dialog"],
+  },
+  // Not under a dialog: it asks a question and waits. Inside threads, it
+  // starts the new thread there.
+  {
+    id: "threads.quick",
+    name: "Quick thread",
+    area: "Threads",
+    does: "Start a new thread with one seat or more",
+    mac: ["Cmd+Shift+U"],
+    other: ["Ctrl+Shift+U"],
+    where: EVERYWHERE,
+    whereOther: ["canvas", "field", "working", "operator"],
   },
   {
     id: "groups.assign",
@@ -877,6 +913,49 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     does: "Send quiet note 1 to 9 to the selected item; the seat is not woken",
     keys: ["Shift+Digit"],
     where: ["operator"],
+  }),
+
+  // Quick thread: the seat field is a combobox, so its keys are the ones a
+  // combobox owns, and the message is a thread input with its own.
+  surfaceKey({
+    id: "inQuickThread.move",
+    area: "Inside quick thread",
+    name: "Move through the seats",
+    does: "Move through the seats and regions that match what is typed",
+    keys: ["ArrowDown", "ArrowUp"],
+    where: ["field"],
+  }),
+  surfaceKey({
+    id: "inQuickThread.pick",
+    area: "Inside quick thread",
+    name: "Pick the seat",
+    does: "Pick the seat and write the message; on a region, show only its seats",
+    keys: ["Enter", "Tab"],
+    where: ["field"],
+  }),
+  surfaceKey({
+    id: "inQuickThread.another",
+    area: "Inside quick thread",
+    name: "Pick it and add another",
+    does: "Pick the seat and stay in the seat field, to add another",
+    keys: ["Shift+Enter"],
+    where: ["field"],
+  }),
+  surfaceKey({
+    id: "inQuickThread.unpick",
+    area: "Inside quick thread",
+    name: "Take the last seat off",
+    does: "With nothing typed in the seat field, take the last seat off",
+    keys: ["Backspace"],
+    where: ["field"],
+  }),
+  surfaceKey({
+    id: "inQuickThread.send",
+    area: "Inside quick thread",
+    name: "Start the threads",
+    does: "Send the message as a new thread to each seat picked; Shift+Tab goes back to the seats",
+    keys: ["Enter"],
+    where: ["field"],
   }),
   surfaceKey({
     id: "inPreview.step",

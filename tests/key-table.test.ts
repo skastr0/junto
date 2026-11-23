@@ -336,6 +336,64 @@ describe("quick capture", () => {
   });
 });
 
+describe("threads", () => {
+  it("opens threads with Cmd+U from everywhere the feed opens, dialogs included", () => {
+    for (const context of [...APP, "dialog"] as const) {
+      expect(resolveKey(key({ key: "u", metaKey: true }), at(context))).toEqual({ id: "threads.open" });
+    }
+    expect(resolveKey(key({ key: "u", metaKey: true }), at("switcher"))).toBeNull();
+    expect(resolveKey(key({ key: "u", metaKey: true, altKey: true }), at("canvas"))).toBeNull();
+  });
+
+  it("starts a quick thread with Cmd+Shift+U from everywhere but under a dialog", () => {
+    for (const context of APP) {
+      expect(resolveKey(key({ key: "U", metaKey: true, shiftKey: true }), at(context))).toEqual({
+        id: "threads.quick",
+      });
+    }
+    expect(resolveKey(key({ key: "U", metaKey: true, shiftKey: true }), at("dialog"))).toBeNull();
+    expect(resolveKey(key({ key: "U", metaKey: true, shiftKey: true }), at("switcher"))).toBeNull();
+  });
+
+  it("uses Ctrl+U and Ctrl+Shift+U elsewhere, never from a terminal", () => {
+    for (const context of ["canvas", "field", "working", "operator"] as const) {
+      expect(resolveKey(key({ key: "u", ctrlKey: true }), at(context, false))).toEqual({ id: "threads.open" });
+      expect(resolveKey(key({ key: "U", ctrlKey: true, shiftKey: true }), at(context, false))).toEqual({
+        id: "threads.quick",
+      });
+    }
+    // Ctrl+U deletes to the start of the line in a shell.
+    expect(resolveKey(key({ key: "u", ctrlKey: true }), at("terminal", false))).toBeNull();
+    expect(resolveKey(key({ key: "U", ctrlKey: true, shiftKey: true }), at("terminal", false))).toBeNull();
+  });
+
+  it("lets the operator change both, and lists them under Threads", () => {
+    for (const id of ["threads.open", "threads.quick"]) {
+      const row = KEY_TABLE.find((def) => def.id === id)!;
+      expect(row.fixed, id).toBeUndefined();
+      expect(row.surface, id).toBeUndefined();
+      expect(row.area, id).toBe("Threads");
+    }
+    expect(KEY_TABLE.find((def) => def.id === "threads.open")!.name).toBe("Open threads");
+    expect(KEY_TABLE.find((def) => def.id === "threads.quick")!.name).toBe("Quick thread");
+    expect(resolveChord("Cmd+J", at("canvas"), { "threads.open": ["Cmd+J"] })).toEqual({ id: "threads.open" });
+    expect(resolveChord("Cmd+U", at("canvas"), { "threads.open": ["Cmd+J"] })).toBeNull();
+  });
+
+  it("gives quick thread's seat field and message the keys a combobox and a thread input own", () => {
+    const row = (id: string) => KEY_TABLE.find((def) => def.id === id)!;
+    expect(chordsFor(row("inQuickThread.move"), true)).toEqual(["ArrowDown", "ArrowUp"]);
+    expect(chordsFor(row("inQuickThread.pick"), true)).toEqual(["Enter", "Tab"]);
+    expect(chordsFor(row("inQuickThread.another"), true)).toEqual(["Shift+Enter"]);
+    expect(chordsFor(row("inQuickThread.unpick"), true)).toEqual(["Backspace"]);
+    expect(chordsFor(row("inQuickThread.send"), true)).toEqual(["Enter"]);
+    for (const id of ["inQuickThread.move", "inQuickThread.pick", "inQuickThread.another", "inQuickThread.unpick", "inQuickThread.send"]) {
+      expect(row(id).surface, id).toBe(true);
+      expect(row(id).area, id).toBe("Inside quick thread");
+    }
+  });
+});
+
 describe("the key table off macOS", () => {
   it("keeps Ctrl+K and Ctrl+I, anywhere but a terminal", () => {
     for (const context of ["canvas", "field", "working", "operator"] as const) {
@@ -507,7 +565,7 @@ describe("the agent view and the canvas", () => {
 });
 
 describe("under a dialog", () => {
-  it("answers only search, the feed, quick capture and closing what is in front", () => {
+  it("answers only search, the feed, threads, quick capture and closing what is in front", () => {
     const live = new Set<string>();
     for (const def of KEY_TABLE) {
       if (def.surface) continue;
@@ -516,7 +574,7 @@ describe("under a dialog", () => {
         if (hit) live.add(hit.id);
       }
     }
-    expect([...live].sort()).toEqual(["capture.open", "feed.open", "front.close", "search.open"]);
+    expect([...live].sort()).toEqual(["capture.open", "feed.open", "front.close", "search.open", "threads.open"]);
   });
 
   it("does not jump to another agent, undo, or cycle alerts from under a dialog", () => {

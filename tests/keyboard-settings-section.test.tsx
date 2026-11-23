@@ -81,6 +81,7 @@ describe("keyboard shortcuts section", () => {
     expect([...host.querySelectorAll("section > h3")].map((title) => title.textContent)).toEqual([
       "Anywhere",
       "Search and feed",
+      "Threads",
       "Quick capture",
       "Canvas",
       "Agent and terminal",
@@ -89,6 +90,7 @@ describe("keyboard shortcuts section", () => {
       "Inside search",
       "Inside quick capture",
       "Inside the needs-you feed",
+      "Inside quick thread",
       "Inside a list",
       "Inside a preview",
       "Inside an artifact",
