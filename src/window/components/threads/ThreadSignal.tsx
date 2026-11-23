@@ -13,8 +13,9 @@ import { ThreadHeadline, threadHeadlineText } from "./ThreadHeadline";
 // operator's answer says what it answered, and the reply field says what a
 // reply will answer before it is sent. The glyph, the hue and the name of a
 // kind are the feed's own, so a signal is the same kind here as on its card.
-// Inside a sentence a signal is named by its own headline, which also says
-// which one when a thread holds several.
+// A line that speaks of one signal names it by its own headline, which also
+// says which one when a thread holds several. A headline is a whole sentence
+// with its own end, so it always comes last, after a colon.
 
 /** What a signal asks the operator to hand in, when a reply alone does not close it. */
 export type SignalAsks = "document" | "proof" | "secret";
@@ -149,7 +150,7 @@ export function AnswerTo({
   return (
     <p className="seat-threads__answer-to" data-testid="seat-threads-answer-to">
       <CornerDownRight size={11} strokeWidth={2.25} aria-hidden />
-      <span className="seat-threads__signal-lead">Answer to</span>{" "}
+      <span className="seat-threads__signal-lead">Answer to:</span>{" "}
       <SignalHeadline text={text} known={known} />
     </p>
   );
@@ -173,9 +174,9 @@ export function WaitingMark({ name }: { readonly name: string }) {
  * reply answers every open plain signal in the thread, so they are said as
  * one line, a button that brings the earliest into view: the one signal by
  * its headline, several by their count. A signal that asks for work is not
- * closed by a reply: it says so, with Hand in. Nothing open, nothing said. It
- * reads the thread's live state, so it goes as the signals close, not when
- * Send is pressed.
+ * closed by a reply: it says what closes it, with Hand in. Nothing open,
+ * nothing said. It reads the thread's live state, so it goes as the signals
+ * close, not when Send is pressed.
  */
 export function ReplyAnswers({
   open,
@@ -206,7 +207,7 @@ export function ReplyAnswers({
           // name read off them could run two words together.
           aria-label={
             plain.length === 1
-              ? `Your reply answers ${threadHeadlineText(first.text, known)}`
+              ? `Your reply answers: ${threadHeadlineText(first.text, known)}`
               : `Your reply answers ${String(plain.length)} open signals`
           }
           onClick={() => onShow(first.signalId)}
@@ -214,7 +215,7 @@ export function ReplyAnswers({
           <CornerDownRight size={11} strokeWidth={2.25} aria-hidden />
           {plain.length === 1 ? (
             <>
-              <span className="seat-threads__signal-lead">Your reply answers</span>{" "}
+              <span className="seat-threads__signal-lead">Your reply answers:</span>{" "}
               <SignalHeadline text={first.text} known={known} />
             </>
           ) : (
@@ -226,9 +227,8 @@ export function ReplyAnswers({
         signal.asks === undefined ? null : (
           <p key={signal.signalId} className="thread-composer__answers-line" data-testid="thread-composer-answers-work">
             <CornerDownRight size={11} strokeWidth={2.25} aria-hidden />
-            <span className="seat-threads__signal-lead">Your reply leaves</span>{" "}
+            <span className="seat-threads__signal-lead">Stays open until {ASKS_WORD[signal.asks]} is handed in:</span>{" "}
             <SignalHeadline text={signal.text} known={known} />{" "}
-            <span className="seat-threads__signal-lead">open: it asks for {ASKS_WORD[signal.asks]}.</span>{" "}
             <Button
               size="sm"
               variant="chrome"

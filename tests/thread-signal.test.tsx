@@ -142,7 +142,7 @@ describe("the operator's side", () => {
     await render(<AnswerTo text="pty-lead: the migration number is taken." known={KNOWN} />);
     // The headline as a row draws it: the author's preamble is not part of it.
     expect(words(q("seat-threads-signal-headline"))).toBe("The migration number is taken.");
-    expect(words(q("seat-threads-answer-to"))).toBe("Answer to The migration number is taken.");
+    expect(words(q("seat-threads-answer-to"))).toBe("Answer to: The migration number is taken.");
     expect(q("seat-threads-answer-to")!.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
   });
 
@@ -182,10 +182,10 @@ describe("what a reply will answer", () => {
   it("names the one open signal a reply answers by its headline, and brings it into view", async () => {
     await line([signal({ signalId: "s3", kind: "feedback", text: "The switch is ready to look at." })]);
     const plain = q("thread-composer-answers-plain")!;
-    expect(words(plain)).toBe("Your reply answers The switch is ready to look at.");
+    expect(words(plain)).toBe("Your reply answers: The switch is ready to look at.");
     expect(plain.tagName).toBe("BUTTON");
     // Its name is the sentence, whole.
-    expect(plain.getAttribute("aria-label")).toBe("Your reply answers The switch is ready to look at.");
+    expect(plain.getAttribute("aria-label")).toBe("Your reply answers: The switch is ready to look at.");
     press(plain);
     expect(show.mock.calls).toEqual([["s3"]]);
     expect(q("thread-composer-answers-work")).toBeNull();
@@ -199,11 +199,11 @@ describe("what a reply will answer", () => {
     expect(show.mock.calls).toEqual([["s1"]]);
   });
 
-  it("says a reply leaves a signal that asks for work open, with Hand in", async () => {
+  it("says what closes a signal that asks for work, since a reply does not, with Hand in", async () => {
     await line([signal({ signalId: "s4", asks: "document" })]);
     expect(q("thread-composer-answers-plain")).toBeNull();
     expect(words(q("thread-composer-answers-work"))).toBe(
-      "Your reply leaves The migration number is taken. open: it asks for a document. Hand in",
+      "Stays open until a document is handed in: The migration number is taken. Hand in",
     );
     press(q("thread-composer-answers-hand-in"));
     expect(handIn.mock.calls).toEqual([["s4"]]);
@@ -215,17 +215,21 @@ describe("what a reply will answer", () => {
       signal({ signalId: "b", asks: "proof", kind: "feedback" }),
       signal({ signalId: "c", asks: "secret", kind: "escalate" }),
     ]);
-    expect(all("thread-composer-answers-work").map((el) => words(el.querySelector(".seat-threads__signal-lead:last-of-type")))).toEqual([
-      "open: it asks for a document.",
-      "open: it asks for proof.",
-      "open: it asks for a secret.",
+    expect(all("thread-composer-answers-work").map((el) => words(el.querySelector(".seat-threads__signal-lead")))).toEqual([
+      "Stays open until a document is handed in:",
+      "Stays open until proof is handed in:",
+      "Stays open until a secret is handed in:",
     ]);
+    // The headline is a whole sentence, so it always comes last.
+    for (const el of all("thread-composer-answers-work")) {
+      expect(el.querySelector(".seat-threads__signal-lead + .seat-threads__signal-headline")).not.toBeNull();
+    }
   });
 
   it("says the plain line first, then the one that stays open, when both are open", async () => {
     await line([signal({ signalId: "w", asks: "proof" }), signal({ signalId: "p", kind: "escalate" })]);
     const lines = [...q("thread-composer-answers")!.children].map((el) => el.getAttribute("data-testid"));
     expect(lines).toEqual(["thread-composer-answers-plain", "thread-composer-answers-work"]);
-    expect(words(q("thread-composer-answers-plain"))).toBe("Your reply answers The migration number is taken.");
+    expect(words(q("thread-composer-answers-plain"))).toBe("Your reply answers: The migration number is taken.");
   });
 });
