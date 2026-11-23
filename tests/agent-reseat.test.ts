@@ -8,6 +8,8 @@ import { note } from "./support/model-nodes";
 import {
   readSkipReseatConfirm,
   reseatChoicesFromConfiguration,
+  reseatOutcomeLine,
+  reseatPickLabel,
   reseatSeats,
   seatLaunchCwd,
   seatRunsPick,
@@ -190,5 +192,24 @@ describe("reseatSeats: one pick for many seats", () => {
     expect(seatRunsPick(seat, { harness: "claude", model: "opus", effort: "high" })).toBe(false);
     expect(seatRunsPick(seat, { harness: "claude" })).toBe(false);
     expect(seatRunsPick(seat, { harness: "codex", model: "opus" })).toBe(false);
+  });
+});
+
+describe("reseat lines the operator reads", () => {
+  it("a pick reads as its harness and each dial it sets", () => {
+    expect(reseatPickLabel({ harness: "claude", model: "opus", effort: "xhigh" })).toBe("Claude Code, opus, xhigh");
+    expect(reseatPickLabel({ harness: "codex" })).toBe("Codex");
+  });
+
+  it("a re-seat of several says how many moved, how many were on it, and which failed", () => {
+    const names: Record<string, string> = { a: "cli-lead", b: "cli-skill" };
+    const nameOf = (id: string) => names[id] ?? id;
+    expect(reseatOutcomeLine({ moved: ["x", "y", "z"], unchanged: ["w"], failed: [] }, nameOf)).toBe(
+      "3 re-seated, 1 already on it",
+    );
+    expect(
+      reseatOutcomeLine({ moved: ["x"], unchanged: [], failed: [{ id: "a", message: "not an agent seat" }] }, nameOf),
+    ).toBe("1 re-seated, 1 failed: cli-lead (not an agent seat)");
+    expect(reseatOutcomeLine({ moved: [], unchanged: ["a", "b"], failed: [] }, nameOf)).toBe("2 already on it");
   });
 });

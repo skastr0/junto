@@ -2,36 +2,51 @@ import { useState } from "react";
 import { ConfirmDialog } from "../ui";
 
 /**
- * Confirm before re-seating an agent: the old process stops and a new one
- * starts on the seat. Shared by the command card's re-seat and the agent
- * editor's Launch section.
+ * Confirm before re-seating: each old process stops and a new one starts in
+ * its seat. Shared by the kind strip's re-seat, the agent editor's Launch
+ * section, and the command card's re-seat of several seats, which confirms
+ * once for all of them.
  */
 export function ReseatConfirmDialog({
   fromLabel,
   toLabel,
+  count = 1,
   onConfirm,
   onCancel,
 }: {
-  readonly fromLabel: string;
+  /** What the one seat runs now. A re-seat of several names no single one. */
+  readonly fromLabel?: string;
   readonly toLabel: string;
+  /** How many seats move. */
+  readonly count?: number;
   readonly onConfirm: (dontShowAgain: boolean) => void;
   readonly onCancel: () => void;
 }) {
   const [dontShowAgain, setDontShowAgain] = useState(false);
+  const many = count > 1;
   return (
     <ConfirmDialog
-      title="Re-seat agent process"
-      confirmLabel="Stop and re-seat"
+      title={many ? `Re-seat ${count} agents` : "Re-seat agent process"}
+      confirmLabel={many ? `Stop and re-seat ${count}` : "Stop and re-seat"}
       onConfirm={() => onConfirm(dontShowAgain)}
       onCancel={onCancel}
     >
-      <span>
-        Swapping from <strong className="text-ink">{fromLabel}</strong> to{" "}
-        <strong className="text-ink">{toLabel}</strong> stops the
-        current agent process and starts a new one on a fresh seat. Unsaved
-        in-process work in the old harness will be lost. The workspace path
-        on this seat is kept.
-      </span>
+      {many ? (
+        <span>
+          Moving {count} agents to <strong className="text-ink">{toLabel}</strong> stops
+          each one&apos;s agent process and starts a new one in the same seat. Unsaved
+          in-process work in their old harnesses will be lost. Each seat keeps its
+          name, its wires and its folder.
+        </span>
+      ) : (
+        <span>
+          Swapping from <strong className="text-ink">{fromLabel ?? "current seat"}</strong> to{" "}
+          <strong className="text-ink">{toLabel}</strong> stops the
+          current agent process and starts a new one on a fresh seat. Unsaved
+          in-process work in the old harness will be lost. The workspace path
+          on this seat is kept.
+        </span>
+      )}
       <label className="flex items-center gap-2">
         <input
           type="checkbox"

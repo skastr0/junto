@@ -281,3 +281,107 @@
   background: transparent;
 }
 
+
+/* One seat selected: identity, then what it runs as a label and value grid
+   beside it. Facts flow down three rows, then across. */
+.rts-kind-id--seat {
+  align-items: center;
+  gap: 10px;
+}
+
+.rts-kind-id--seat .rts-kind-id__text {
+  flex: 0 1 auto;
+  max-width: 28%;
+}
+
+.rts-seat-facts {
+  display: grid;
+  flex: 1 1 0;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(3, 14px);
+  grid-auto-columns: minmax(0, 1fr);
+  column-gap: 14px;
+  row-gap: 1px;
+  min-width: 0;
+  margin: 0;
+}
+
+.rts-seat-fact {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  line-height: var(--leading-compact);
+}
+
+.rts-seat-fact dt {
+  flex-shrink: 0;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+
+.rts-seat-fact dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-body);
+  color: var(--color-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A folder drops its start first: the end of the path names the project. */
+.rts-seat-fact--folder dd {
+  direction: rtl;
+  text-align: left;
+}
+
+.rts-seat-fact dd.rts-seat-fact__default {
+  color: var(--color-faint);
+}
+
+/* Several seats selected: the actions, then the seats by how they launch. */
+.rts-multi-seat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.rts-seat-tally {
+  display: flex;
+  flex: 1 1 0;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+
+.rts-seat-tally__group {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.rts-seat-tally__count {
+  flex-shrink: 0;
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-dim);
+}
+
+.rts-seat-tally__summary {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-body);
+  color: var(--color-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

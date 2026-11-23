@@ -64,6 +64,12 @@ export type AgentHarnessPickProps = {
   readonly cascadeDismissRef?: MutableRefObject<CascadeDismiss | null>;
   /** The machine the seat is placed on; absent means this machine. Its inventory says what it has. */
   readonly machine?: string;
+  /**
+   * Several machines, for one pick that seats on each (a re-seat of many):
+   * only a harness installed on every one is offered. Models are read from
+   * the first. Takes the place of `machine`.
+   */
+  readonly machines?: readonly string[];
 };
 
 const isTabStop = (element: HTMLElement): boolean => {
@@ -93,10 +99,14 @@ export function AgentHarnessPick({
   currentHarness,
   cascadeDismissRef,
   machine,
+  machines,
 }: AgentHarnessPickProps) {
   const thisMachine = useThisMachineName();
   /** Every machine is read through its inventory, this one included. */
-  const target = machine !== undefined && machine !== "" ? machine : thisMachine;
+  const single = machine !== undefined && machine !== "" ? machine : thisMachine;
+  const named = machines?.filter((name) => name !== "") ?? [];
+  const targetsKey = (named.length > 0 ? [...new Set(named)] : [single]).join("\n");
+  const target = targetsKey.split("\n")[0] ?? "";
   const settings = use$(state$.settings);
   const [agentCascade, setAgentCascade] = useState<{
     readonly harness: HarnessId;
@@ -224,19 +234,25 @@ export function AgentHarnessPick({
 
   useEffect(() => {
     // Settings name this machine once they load; until then nothing is offered.
-    if (target === "") return;
+    const targets = targetsKey.split("\n");
+    if (targets.some((name) => name === "")) return;
     let cancelled = false;
     setInstalledHarnesses(null);
-    void pickerInventory(target).then((inventory) => {
+    void Promise.all(targets.map((name) => pickerInventory(name))).then((inventories) => {
       if (cancelled) return;
+      const installedOn = inventories.map(
+        (inventory) =>
+          new Set((inventory?.harnesses ?? []).filter((row) => row.installed).map((row) => row.harness as HarnessId)),
+      );
+      const [first, ...rest] = installedOn;
       setInstalledHarnesses(
-        new Set((inventory?.harnesses ?? []).filter((row) => row.installed).map((row) => row.harness as HarnessId)),
+        new Set([...(first ?? [])].filter((harness) => rest.every((set) => set.has(harness)))),
       );
     });
     return () => {
       cancelled = true;
     };
-  }, [target]);
+  }, [targetsKey]);
 
   const probing = installedHarnesses === null;
   const installedTemplates = useMemo(() => {
@@ -291,7 +307,9 @@ export function AgentHarnessPick({
     : featureTemplates.length === 0
       ? "No agent harnesses enabled in this build."
       : installedTemplates.length === 0
-        ? "No installed agent CLIs found on this machine."
+        ? targetsKey.includes("\n")
+          ? "No agent CLI is installed on every one of these machines."
+          : "No installed agent CLIs found on this machine."
         : eligibleTemplates.length === 0
           ? "All installed agents are hidden by Settings."
           : query.trim() && matchingTemplates.length === 0

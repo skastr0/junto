@@ -11,7 +11,7 @@
  * Regions: ops on the command card. Kind strip is field keys only —
  * briefing, page defaults, folder paths. No plate, no placement.
  */
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRtsNodes, useRtsWire, useSelectedNodeIds } from "../../lib/rts-selection";
 import { use$ } from "@legendapp/state/react";
 import {
@@ -34,6 +34,8 @@ import {
 import { state$ } from "../../lib/state";
 import { openTerminalGrid } from "../../lib/terminal-grid-state";
 import { titleOf } from "@shared/model/title";
+import { seatLaunchFacts, tallyLaunchConfigurations } from "@shared/seat-launch-facts";
+import { machineInWords, useThisMachineName } from "../../lib/machines";
 import { detailOf } from "../../lib/node-presentation";
 import { HUE } from "../../lib/theme";
 import {
@@ -71,27 +73,85 @@ const ICON = 12;
 
 type RegionFormKey = "briefing" | "page";
 
+/** How a line names a seat's machine: "this machine", else its label. */
+function useMachineWords(): (host: string) => string {
+  const machines = use$(state$.machines);
+  const thisMachine = useThisMachineName();
+  return useCallback((host: string) => machineInWords(machines, host, thisMachine), [machines, thisMachine]);
+}
+
 /**
- * Seat-native agent glance — harness mark + document label.
+ * What the seat runs, as a label and value grid: the harness, each dial it
+ * declares, machine and folder. Launch facts only: a dial the seat leaves to
+ * the harness reads "harness default"; no live model is claimed.
+ */
+function SeatLaunchFactsGrid({ node }: { readonly node: Seat }) {
+  const machine = useMachineWords();
+  const facts = useMemo(() => seatLaunchFacts(node, { machine }), [node, machine]);
+  return (
+    <dl className="rts-seat-facts" aria-label="How this seat launches" data-testid="rts-seat-facts">
+      {facts.map((fact) => (
+        <div
+          key={fact.key}
+          className={`rts-seat-fact rts-seat-fact--${fact.key}`}
+          title={`${fact.label}: ${fact.value}`}
+        >
+          <dt>{fact.label}</dt>
+          <dd className={fact.harnessDefault ? "rts-seat-fact__default" : undefined}>
+            {/* A folder truncates from its start, so the end of the path stays. */}
+            {fact.key === "folder" ? <bdi>{fact.value}</bdi> : fact.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** The selected seats by how they launch: a count and a summary for each launch. */
+function SeatLaunchTally({ seats }: { readonly seats: ReadonlyArray<Seat> }) {
+  const tally = useMemo(() => tallyLaunchConfigurations(seats), [seats]);
+  if (tally.length === 0) return null;
+  return (
+    <ul
+      className="rts-seat-tally"
+      aria-label="Selected agents by launch"
+      data-testid="rts-seat-tally"
+      title={tally.map((group) => `${group.count} ${group.summary}`).join("\n")}
+    >
+      {tally.map((group) => (
+        <li key={group.key} className="rts-seat-tally__group">
+          <span className="rts-seat-tally__count">{group.count}</span>
+          <span className="rts-seat-tally__summary">{group.summary}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const seatsOf = (nodes: ReadonlyArray<Node>): ReadonlyArray<Seat> =>
+  nodes.filter((node): node is Seat => node.kind === "agent");
+
+/**
+ * Seat-native agent glance: portrait ring and name, then what the seat runs.
  * No hermes corpus join, no matrix/avatar IPC, no adapter freshness copy.
  */
 function AgentSeatGlance({ node }: { readonly node: Seat }) {
   const glance = useSeatGlanceOf(node);
   const overseer = node.overseer;
   return (
-    <div className="rts-kind-id" title={titleOf(node)} data-overseer={overseer ? "true" : undefined}>
+    <div className="rts-kind-id rts-kind-id--seat" data-overseer={overseer ? "true" : undefined}>
       <CustomizeAgentButton identity={node.id} name={titleOf(node)} hint>
         <SeatRingView node={node} px={44} glance={glance} />
       </CustomizeAgentButton>
-      <div className="rts-kind-id__text">
+      <div className="rts-kind-id__text" title={titleOf(node)}>
         <div className="rts-kind-id__name">{titleOf(node)}</div>
-        <div className="rts-kind-id__live">{node.harness}</div>
         {overseer ? (
           <div className="mt-0.5">
             <OverseerMark size="card" />
           </div>
         ) : null}
       </div>
+      <SeatLaunchFactsGrid node={node} />
     </div>
   );
 }
@@ -399,11 +459,13 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<Node> }) {
   );
 
   if (classified.mode === "heterogeneous") {
+    const seats = seatsOf(selectedNodes);
     return (
       <div className="rts-kind-surface">
         <div className="rts-quiet rts-quiet--compact">
           {selectionLabelOf(classified)} — colors on command card
         </div>
+        {seats.length > 0 ? <SeatLaunchTally seats={seats} /> : null}
       </div>
     );
   }
@@ -419,16 +481,19 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<Node> }) {
   if (classified.surface === "kind:agent" && targets.length > 0) {
     return (
       <>
-        <div className="rts-kind-strip" role="toolbar" aria-label="Selected agents actions">
-          <SeatOffboardKindKey nodeIds={targets.map((target) => target.nodeId)} />
-          <IconButton
-            aria-label="Open selected agents in a grid"
-            title="Open selected agents in a grid"
-            data-testid="rts-open-grid"
-            onClick={() => openTerminalGrid(targets.map((target) => target.nodeId))}
-          >
-            <LayoutGrid size={14} />
-          </IconButton>
+        <div className="rts-multi-seat-head">
+          <div className="rts-kind-strip" role="toolbar" aria-label="Selected agents actions">
+            <SeatOffboardKindKey nodeIds={targets.map((target) => target.nodeId)} />
+            <IconButton
+              aria-label="Open selected agents in a grid"
+              title="Open selected agents in a grid"
+              data-testid="rts-open-grid"
+              onClick={() => openTerminalGrid(targets.map((target) => target.nodeId))}
+            >
+              <LayoutGrid size={14} />
+            </IconButton>
+          </div>
+          <SeatLaunchTally seats={seatsOf(classified.nodes)} />
         </div>
         <MultiPromptComposer
           key={ownerIdentity}
@@ -442,6 +507,7 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<Node> }) {
   if (classified.surface === "kind:agent" && targets.length === 0) {
     return (
       <div className="rts-kind-surface">
+        <SeatLaunchTally seats={seatsOf(classified.nodes)} />
         <div className="rts-quiet rts-quiet--compact">
           agents missing managed seats — multi-prompt needs terminal.bindingId
         </div>

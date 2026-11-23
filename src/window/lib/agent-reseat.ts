@@ -35,6 +35,19 @@ export const writeSkipReseatConfirm = (skip: boolean): void => {
 export const harnessDisplayName = (harness: HarnessId): string =>
   templateFor(harness).displayName;
 
+/** A pick as the operator reads it: the harness, then each dial it sets. */
+export const reseatPickLabel = (choices: AgentConfigurationChoices): string =>
+  [
+    harnessDisplayName(choices.harness),
+    choices.profile,
+    choices.model,
+    choices.effort,
+    choices.mode,
+    choices.permissionMode,
+  ]
+    .filter((part): part is string => Boolean(part?.trim()))
+    .join(", ");
+
 /** Working directory stamped on the seat launch (if any). */
 export const seatLaunchCwd = (node: Seat): string | undefined => {
   const cwd = node.launch?.cwd;
@@ -65,6 +78,21 @@ export type ReseatOutcome = {
   /** Already on that exact pick, so left alone. */
   readonly unchanged: readonly string[];
   readonly failed: ReadonlyArray<{ readonly id: string; readonly message: string }>;
+};
+
+/**
+ * What a re-seat of several seats did, in one line: how many moved, how many
+ * were already on the pick, and which failed and why.
+ */
+export const reseatOutcomeLine = (outcome: ReseatOutcome, nameOf: (id: string) => string): string => {
+  const parts: string[] = [];
+  if (outcome.moved.length > 0) parts.push(`${outcome.moved.length} re-seated`);
+  if (outcome.unchanged.length > 0) parts.push(`${outcome.unchanged.length} already on it`);
+  if (outcome.failed.length > 0) {
+    const which = outcome.failed.map((failure) => `${nameOf(failure.id)} (${failure.message})`).join(", ");
+    parts.push(`${outcome.failed.length} failed: ${which}`);
+  }
+  return parts.join(", ") || "nothing to re-seat";
 };
 
 /**
