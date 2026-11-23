@@ -427,7 +427,13 @@ export const selectDetachedForCopy = (helper: HTMLTextAreaElement): void => {
   const previous = activeElementNow() as (HTMLElement & Focusable) | null;
   helper.select();
   if (previous && previous !== helper && activeElementNow() !== previous) {
-    previous.focus({ preventScroll: true });
+    // Handing focus back is the code's move, like a claim: never the operator's act.
+    claimsInFlight += 1;
+    try {
+      previous.focus({ preventScroll: true });
+    } finally {
+      claimsInFlight -= 1;
+    }
   }
 };
 
