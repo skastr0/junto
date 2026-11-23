@@ -23,6 +23,7 @@ import { subjectNoticeId } from "@shared/subject-notice";
 import { OpId } from "@shared/work-ids";
 import { asNodeId, type Canvas } from "@shared/model";
 import type { NodeId } from "@shared/physics/schema";
+import { isSeatKind } from "@shared/region-reach";
 import { titleOf } from "@shared/model/title";
 import { makeUserMessage } from "@shared/task";
 import {
@@ -68,7 +69,12 @@ const subjectKey = (subject: ResourceSubject): string =>
   : subject.kind === "file" ? `file:${subject.nodeId}:${subject.path}`
   : `page:${subject.nodeId}`;
 
-const agentSeatsOf = (canvas: Canvas) => [...canvas.nodes.values()].filter((node) => node.kind === "agent");
+/**
+ * Every seat on the canvas whose mail the index holds: the seats this machine
+ * runs or edits, and a peer, another machine's seat as this machine's copy of
+ * the canvas holds it (region-reach.ts SEAT_KINDS).
+ */
+const agentSeatsOf = (canvas: Canvas) => [...canvas.nodes.values()].filter((node) => isSeatKind(node.kind));
 
 /** What one held mailbox contributes to the threads it is in. */
 type MailboxThreads = {
