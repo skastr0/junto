@@ -34,6 +34,12 @@ export const LISTED_SETTINGS: ReadonlyArray<SettingEntry> = [
   entry("appearance", "Interface size", "Text, buttons and spacing, larger or smaller"),
   entry("appearance", "Agent terminals", "Change colours with the theme, or keep their own", "colours terminal"),
 
+  entry(
+    "terminal",
+    "Seat opens on",
+    "What a seat shows when you open it: its terminal or its threads",
+    "modal view default",
+  ),
   entry("terminal", "Font family", "The fonts terminals use, in order"),
   entry("terminal", "Font size", "Text size in pixels"),
   entry("terminal", "Line height", "Space between lines, as a multiple of the font size", "accessibility"),

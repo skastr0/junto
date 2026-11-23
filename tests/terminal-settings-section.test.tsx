@@ -125,6 +125,18 @@ describe("terminal settings section", () => {
     expect(selectLabel(html, "Bell")).toBe("Flash the terminal");
   });
 
+  it("shows the view a seat opens on, terminal when the key is absent", () => {
+    expect(selectLabel(render(defaultSettings()), "Seat opens on")).toBe("Terminal");
+    const { terminal: _absent, ...withoutTerminal } = defaultSettings();
+    expect(selectLabel(render(withoutTerminal), "Seat opens on")).toBe("Terminal");
+    expect(
+      selectLabel(
+        render({ ...defaultSettings(), terminal: { ...defaultTerminal(), seatOpenView: "threads" } }),
+        "Seat opens on",
+      ),
+    ).toBe("Threads");
+  });
+
   it("resolves an installation written before the terminal fragment", () => {
     const { terminal: _absent, ...withoutTerminal } = defaultSettings();
     const html = render(withoutTerminal);
@@ -161,17 +173,20 @@ describe("terminal settings section", () => {
 
   it("sorts the rows into titled groups, each a labelled section", () => {
     const html = render(defaultSettings());
-    const titles = ["Text", "Cursor", "Scrolling and copying", "Bell and screen reader"];
+    const titles = ["Seats", "Text", "Cursor", "Scrolling and copying", "Bell and screen reader"];
     const at = titles.map((title) => html.indexOf(`>${title}</h3>`));
 
     for (const [index, position] of at.entries()) expect(position, titles[index]).toBeGreaterThan(-1);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
     expect(html.match(/<section class="settings-group" aria-labelledby=/g)).toHaveLength(titles.length);
     // A row sits under its own title.
-    expect(html.indexOf('aria-label="Font size"')).toBeLessThan(at[1]!);
-    expect(html.indexOf('aria-label="Cursor blink"')).toBeGreaterThan(at[1]!);
-    expect(html.indexOf('aria-label="Scrollback"')).toBeGreaterThan(at[2]!);
-    expect(html.indexOf('aria-label="Screen reader mode"')).toBeGreaterThan(at[3]!);
+    expect(html.indexOf('aria-label="Seat opens on"')).toBeGreaterThan(at[0]!);
+    expect(html.indexOf('aria-label="Seat opens on"')).toBeLessThan(at[1]!);
+    expect(html.indexOf('aria-label="Font size"')).toBeGreaterThan(at[1]!);
+    expect(html.indexOf('aria-label="Font size"')).toBeLessThan(at[2]!);
+    expect(html.indexOf('aria-label="Cursor blink"')).toBeGreaterThan(at[2]!);
+    expect(html.indexOf('aria-label="Scrollback"')).toBeGreaterThan(at[3]!);
+    expect(html.indexOf('aria-label="Screen reader mode"')).toBeGreaterThan(at[4]!);
   });
 
   it("labels every control", () => {

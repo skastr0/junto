@@ -15,7 +15,9 @@ import { use$ } from "@legendapp/state/react";
 import { useEffect, useState } from "react";
 import {
   TERMINAL_BOUNDS,
+  seatOpenView,
   terminalSettings,
+  type SeatOpenView,
   type TerminalBell,
   type TerminalCursorStyle,
   type TerminalPatch,
@@ -174,6 +176,14 @@ const BELLS: ReadonlyArray<{
   { value: "sound", label: "Play a sound" },
 ];
 
+const SEAT_VIEWS: ReadonlyArray<{
+  readonly value: SeatOpenView;
+  readonly label: string;
+}> = [
+  { value: "terminal", label: "Terminal" },
+  { value: "threads", label: "Threads" },
+];
+
 export function TerminalSettingsSection() {
   const settings = use$(state$.settings);
   const terminal = terminalSettings(settings);
@@ -185,6 +195,24 @@ export function TerminalSettingsSection() {
 
   return (
     <div className="settings-section settings-groups">
+      <SettingGroup title="Seats">
+        <FieldRow group label="Seat opens on" hint="What a seat shows when you open it.">
+          <Select
+            dense
+            value={seatOpenView(settings)}
+            aria-label="Seat opens on"
+            options={SEAT_VIEWS.map((option) => ({
+              value: option.value,
+              label: option.label,
+            }))}
+            onChange={(value) => {
+              const choice = SEAT_VIEWS.find((option) => option.value === value);
+              if (choice) void patch({ seatOpenView: choice.value });
+            }}
+          />
+        </FieldRow>
+      </SettingGroup>
+
       <SettingGroup title="Text">
         <FontFamilyRow
           value={terminal.fontFamily}

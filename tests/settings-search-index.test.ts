@@ -78,6 +78,14 @@ describe("settings search index", () => {
     for (const word of ["screen reader", "VoiceOver", "blind"]) expect(found(word)).toEqual(["Screen reader mode"]);
   });
 
+  test("the view a seat opens on is found by the words people use for it", () => {
+    const found = (query: string): ReadonlyArray<string> =>
+      searchSettings(LISTED_SETTINGS, { terminal: "Terminal" }, query).map((hit) => hit.name);
+    for (const query of ["seat opens", "threads", "seat view", "modal"]) {
+      expect(found(query), query).toContain("Seat opens on");
+    }
+  });
+
   test("a hit carries its page's name", () => {
     expect(searchSettings(entries, labels, "all sounds")[0]?.sectionLabel).toBe("Sound");
   });
