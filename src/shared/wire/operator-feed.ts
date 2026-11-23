@@ -157,6 +157,18 @@ export const FeedItem = Schema.Struct({
   health: Schema.optionalKey(FeedHealth),
   /** Set for a canvas need: read off the work graph or a sink, not said by a seat. */
   canvas: Schema.optionalKey(Schema.Boolean),
+  /** The thread between the seat and the operator this signal was raised in: open the exchange there. */
+  threadId: Schema.optionalKey(Schema.String),
+  /** The nearest earlier signal in that thread, the head counted: present only when this machine holds it as the same seat's own. */
+  followsSignalId: Schema.optionalKey(Schema.String),
+  /** The signals this one comes after, the same seat's own; another seat's id is no dependency and is left out. */
+  dependsOn: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** Every signal it comes after is closed, or not here: present with `dependsOn`. */
+  ready: Schema.optionalKey(Schema.Boolean),
+  /** The `dependsOn` ids still open, in order. */
+  waitingOn: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** The `dependsOn` ids this machine does not hold yet: they hold nothing back, and the card says they have not arrived. */
+  notReceived: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 export type FeedItem = typeof FeedItem.Type;
 

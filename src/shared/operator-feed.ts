@@ -1,6 +1,7 @@
 import { asNodeId, inPaintOrder, regionStack as modelRegionStack, regionName, type Canvas, type Node } from "./model";
 import { titleOf } from "./model/title";
 import type { AgentSignal } from "./agent-signals";
+import { AGENT_SIGNAL_MAX_DEPENDS_ON, signalReadiness } from "./wire/agent-signals";
 import { deriveNeeds, type SeatSnapshot } from "./harness-domain";
 import type { MailHold } from "./mail-hold";
 import { seatStatusTime } from "./seat-status-text";
@@ -426,6 +427,44 @@ export const seatChipsOf = (
   return [...chips.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 };
 
+
+/**
+ * Where a signal stands among the seat's others: the thread it is in, the
+ * signal it follows, and the signals it comes after, read as remote-security
+ * set it for seats on any machine. Another signal counts only as the same
+ * seat's own, raised by no automation, on this canvas: one held as another
+ * seat's is no dependency, and one not held holds nothing back and is named
+ * as not received. At most `AGENT_SIGNAL_MAX_DEPENDS_ON` are read.
+ */
+export const signalOrderOf = (
+  signal: AgentSignal,
+  held: ReadonlyMap<string, AgentSignal>,
+): Pick<FeedItem, "threadId" | "followsSignalId" | "dependsOn" | "ready" | "waitingOn" | "notReceived"> => {
+  const own = (signalId: string): AgentSignal | undefined => {
+    const other = held.get(signalId);
+    return other !== undefined && other.canvasName === signal.canvasName && other.nodeId === signal.nodeId && other.source === undefined
+      ? other
+      : undefined;
+  };
+  const follows = signal.followsSignalId === undefined ? undefined : own(signal.followsSignalId);
+  const dependsOn = [...new Set(signal.dependsOn ?? [])]
+    .slice(0, AGENT_SIGNAL_MAX_DEPENDS_ON)
+    .filter((signalId) => signalId !== signal.signalId && (!held.has(signalId) || own(signalId) !== undefined));
+  const order = dependsOn.length === 0 ? undefined : signalReadiness({ dependsOn }, (signalId) => own(signalId)?.state);
+  return {
+    ...(signal.threadId === undefined || signal.messageId === undefined ? {} : { threadId: signal.threadId }),
+    ...(follows === undefined || signal.threadId === undefined ? {} : { followsSignalId: follows.signalId }),
+    ...(order === undefined
+      ? {}
+      : {
+          dependsOn,
+          ready: order.ready,
+          ...(order.waitingOn.length === 0 ? {} : { waitingOn: order.waitingOn }),
+          ...(order.notReceived.length === 0 ? {} : { notReceived: order.notReceived }),
+        }),
+  };
+};
+
 /** The feed's seat chips: one per seat with a need. */
 export const feedSeatChips = (sections: ReadonlyArray<FeedSection>): ReadonlyArray<FeedSeatChip> =>
   seatChipsOf(
@@ -456,6 +495,7 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
     });
   };
 
+  const signalsById = new Map(input.signals.map((signal) => [signal.signalId, signal] as const));
   for (const signal of input.signals) {
     if (signal.state !== "open" || signal.canvasName !== canvasName) continue;
     const source = input.sources?.get(signal.nodeId);
@@ -485,6 +525,7 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
       ...(signal.source === undefined ? {} : { source: signal.source }),
       ...(signal.work === undefined ? {} : { work: signal.work }),
       ...(signal.form === undefined ? {} : { form: signal.form }),
+      ...signalOrderOf(signal, signalsById),
     });
   }
 
