@@ -1,6 +1,8 @@
 import { RESOURCE_IPC_CHANNELS } from "@shared/resource-ipc-channels";
 import { MENTION_IPC_CHANNELS } from "@shared/mention-ipc-channels";
 import type { MentionIpcApi, MentionsChanged } from "@shared/mention-ipc";
+import { OPERATOR_THREADS_IPC_CHANNELS } from "@shared/operator-threads-channels";
+import type { OperatorThreadsChanged } from "@shared/operator-threads";
 import { ARTIFACT_LINKS_IPC_CHANNELS } from "@shared/artifact-links-ipc-channels";
 import type { ArtifactLinksApi, ArtifactLinksChanged } from "@shared/artifact-links-ipc";
 import { PAGE_BOX_DRAW_MS } from "@shared/browser-limits";
@@ -455,6 +457,10 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   tracing: otlpBaseUrl(process.env) !== undefined,
   mentions: mentionsApi,
   artifactLinks: artifactLinksApi,
+  operatorThreadsList: (query) => invoke(OPERATOR_THREADS_IPC_CHANNELS.list, IPC_TIMEOUT_MS, query),
+  operatorThreadsWatch: (filter) => invoke(OPERATOR_THREADS_IPC_CHANNELS.watch, IPC_TIMEOUT_MS, filter),
+  operatorThreadsUnwatch: (input) => invoke(OPERATOR_THREADS_IPC_CHANNELS.unwatch, IPC_TIMEOUT_MS, input),
+  onOperatorThreadsChanged: (listener) => subscribe<OperatorThreadsChanged>(OPERATOR_THREADS_IPC_CHANNELS.changed, listener),
   openWindowLink: () => ipcRenderer.send(IPC_CHANNELS.windowLinkOpen),
   rendererSurfaceReady: () => {
     rendererSurfaceMounted = true;

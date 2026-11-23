@@ -123,6 +123,7 @@ import type { AgentSignalOperatorResult as AgentSignalOperatorResultSchema } fro
 import type { DigestResult as DigestResultSchema } from "../contract/core/status";
 import type { SeatCacheWindow, SeatNextTurn } from "./seat-next-launch";
 import type { OverseerLiveApi } from "./overseer-live";
+import type { OperatorThreadsApi } from "./operator-threads";
 export type { UpdateStatus, AvailableRelease, UpdatePhase } from "./update";
 
 export type AgentSignalOperatorResult = typeof AgentSignalOperatorResultSchema.Type;
@@ -596,7 +597,7 @@ export interface JuntoViewStateApi {
   readonly onChanged: (listener: (event: ViewStateEvent) => void) => () => void;
 }
 
-export interface JuntoApi extends OverseerLiveApi {
+export interface JuntoApi extends OverseerLiveApi, OperatorThreadsApi {
   /**
    * Ask main for this window's link. The port arrives as a page message of
    * type `IPC_CHANNELS.windowLink`, the port moved alongside, so listen first
