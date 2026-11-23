@@ -3,6 +3,7 @@ import { MAIL_TEXT_INLINE_MAX_BYTES, type TextBound } from "@shared/mail-text-bo
 import type { NodeKind } from "@shared/model/kinds";
 import type { NodeId } from "@shared/physics/schema";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { keyIs } from "../../lib/key-match";
 import { useContentCalls } from "../../lib/content-calls";
 import { carryText, useLongText } from "../../lib/long-text";
 import { useMentionItems } from "../../lib/mention-items";
@@ -174,7 +175,9 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
   // The list takes its own keys first; what reaches here is the composer's.
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (event.nativeEvent.isComposing) return;
-    if (event.key === "Enter" && !event.shiftKey) {
+    // The key table's send for every thread input: Keyboard settings and the
+    // help say what this field does, and a change there changes it here.
+    if (keyIs(event, "inThread.send")) {
       event.preventDefault();
       void send();
     }
