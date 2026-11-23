@@ -6,9 +6,9 @@
  * chip where the feed has its kinds.
  *
  * The store (operator-threads.ts, over the core's read) answers the rows: it
- * narrows by region, words and unread, puts the seats asked for first, pages,
- * and counts the total, the unread and each region over everything the
- * filter holds, never a page. This module says what to ask it.
+ * narrows by region, words, unread and seat, puts the seats asked for first,
+ * pages, and counts the total, the unread, each region and each seat over
+ * everything the filter holds, never a page. This module says what to ask it.
  *
  * Pure but for the view state, which is session-lived and module-scoped like
  * the feed's (feedView$): it survives the modal's open and close without
@@ -17,10 +17,9 @@
 import { observable } from "@legendapp/state";
 import type { Seat } from "@shared/model";
 import type { FeedSeatChip } from "@shared/operator-feed";
-import { seatChipsOf } from "@shared/operator-feed";
 import { SeatUrgency } from "@shared/wire/urgency";
 import { regionChipsOf, regionPickName, type FeedRegionChip, type FeedRegionPick } from "./operator-feed";
-import type { OperatorThreadRow, OperatorThreadsRegionCount, OperatorThreadsView } from "./operator-threads";
+import type { OperatorThreadRow, OperatorThreadsRegionCount, OperatorThreadsSeatCount, OperatorThreadsView } from "./operator-threads";
 import type { SeatGroup } from "./seat-line";
 import type { SeatThreadSummary } from "./seat-threads";
 import { seatUrgencyOrder } from "./urgency-order";
@@ -101,12 +100,13 @@ export const urgentSeatsFirst = <S extends Seat>(
     .map((seat) => seat.id);
 };
 
-/** What the store is asked for: the canvas, the picked region, the words, Unread and the seats put first. */
+/** What the store is asked for: the canvas, the picked region, the words, Unread, the seat and the seats put first. */
 export const threadsStoreView = (
   view: {
     readonly region: FeedRegionPick | undefined;
     readonly query: string;
     readonly unread: boolean;
+    readonly seat: string | undefined;
     readonly order: ThreadsOrder;
   },
   canvasName: string,
@@ -118,6 +118,7 @@ export const threadsStoreView = (
     ...(view.region?.canvasName === canvasName ? { region: view.region.path } : {}),
     ...(search === "" ? {} : { search }),
     ...(view.unread ? { unread: true } : {}),
+    ...(view.seat === undefined ? {} : { seat: view.seat }),
     ...(view.order === "urgency" && urgentFirst.length > 0 ? { urgentFirst } : {}),
   };
 };
@@ -125,10 +126,6 @@ export const threadsStoreView = (
 /** Whether the operator narrowed anything besides a region: the surface offers to clear it. */
 export const threadsFilterOn = (view: { readonly query: string; readonly unread: boolean; readonly seat: string | undefined }): boolean =>
   view.query.trim() !== "" || view.unread || view.seat !== undefined;
-
-/** The kept seat's rows; every row when none is kept. */
-export const keepSeat = (rows: ReadonlyArray<ThreadRow>, seat: string | undefined): ReadonlyArray<ThreadRow> =>
-  seat === undefined ? rows : rows.filter((row) => row.seat.nodeId === seat || row.alsoSeats?.some((also) => also.nodeId === seat) === true);
 
 /**
  * The region strip's chips from the store's counts, each the innermost
@@ -144,9 +141,24 @@ export const threadRegionChips = (
     pick,
   );
 
-/** The seat chips over the rows: one per seat, the most threads first, counting threads. */
-export const threadSeatChips = (rows: ReadonlyArray<ThreadRow>): ReadonlyArray<FeedSeatChip> =>
-  seatChipsOf(rows.map((row) => ({ seatId: row.seat.nodeId, name: row.seat.name, region: row.region })));
+/**
+ * The seat chips from the store's counts, over the filter with its seat left
+ * out: one per seat, the most threads first, counting threads.
+ */
+export const threadSeatChips = (counts: ReadonlyArray<OperatorThreadsSeatCount>): ReadonlyArray<FeedSeatChip> =>
+  [...counts]
+    .map(
+      (count): FeedSeatChip => ({
+        seatId: count.seat.nodeId,
+        name: count.seat.name,
+        count: count.total,
+        regionLabel: count.region.label,
+        regionPath: count.region.path,
+        open: count.region.path.length === 0,
+        color: count.region.color,
+      }),
+    )
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 
 /**
  * The status line, in the feed's form: "24 threads, 3 unread"; with a region

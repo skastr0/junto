@@ -3,7 +3,6 @@ import { SeatUrgency } from "../src/shared/wire/urgency";
 import type { FeedRegion } from "../src/shared/operator-feed";
 import type { Seat } from "../src/shared/model";
 import {
-  keepSeat,
   reconcileThreadSelection,
   seatSummaryOf,
   threadRegionChips,
@@ -59,27 +58,20 @@ describe("threads view", () => {
   });
 
   it("asks the store for the region, the words, Unread and the urgent seats, only on this canvas", () => {
-    const base = { region: undefined, query: "  ", unread: false, order: "newest" as const };
+    const base = { region: undefined, query: "  ", unread: false, seat: undefined, order: "newest" as const };
     expect(threadsStoreView(base, "factory", ["a"])).toEqual({ canvasName: "factory" });
     expect(
       threadsStoreView(
-        { region: { canvasName: "factory", path: ["Junto"] }, query: " fix tabs ", unread: true, order: "urgency" },
+        { region: { canvasName: "factory", path: ["Junto"] }, query: " fix tabs ", unread: true, seat: "a", order: "urgency" },
         "factory",
         ["c", "a"],
       ),
-    ).toEqual({ canvasName: "factory", region: ["Junto"], search: "fix tabs", unread: true, urgentFirst: ["c", "a"] });
+    ).toEqual({ canvasName: "factory", region: ["Junto"], search: "fix tabs", unread: true, seat: "a", urgentFirst: ["c", "a"] });
     expect(threadsStoreView({ ...base, region: { canvasName: "other", path: ["Junto"] } }, "factory", [])).toEqual({
       canvasName: "factory",
     });
     // Most urgent first with no urgent seat is newest first: the store is not asked for an empty order.
     expect(threadsStoreView({ ...base, order: "urgency" }, "factory", [])).toEqual({ canvasName: "factory" });
-  });
-
-  it("keeps one seat, a seat a review copied in included", () => {
-    expect(keepSeat(rows, "a").map((one) => one.threadId)).toEqual(["t1", "t4"]);
-    const copied = { ...rows[0]!, alsoSeats: [{ nodeId: "c", name: "charlie", portraitIdentity: "c" }] };
-    expect(keepSeat([copied], "c")).toHaveLength(1);
-    expect(keepSeat(rows, undefined)).toHaveLength(4);
   });
 
   it("counts the words, Unread and a seat as filters, a blank search not", () => {
@@ -112,8 +104,16 @@ describe("threads view", () => {
     expect(threadRegionChips([], ["Junto", "Gone"]).map((chip) => chip.label)).toEqual(["Gone"]);
   });
 
-  it("draws one seat chip per seat, the most threads first", () => {
-    expect(threadSeatChips(rows).map((chip) => [chip.name, chip.count])).toEqual([
+  it("draws one seat chip per seat from the store's counts, the most threads first", () => {
+    const counts = [
+      { seat: rows[0]!.seat, region: CANVAS, total: 1, unread: 0 },
+      { seat: rows[1]!.seat, region: OPEN, total: 1, unread: 1 },
+      { seat: rows[2]!.seat, region: PRODUCT, total: 2, unread: 2 },
+    ];
+    const chips = threadSeatChips(counts);
+    expect(chips[0]).toMatchObject({ seatId: "a", regionLabel: "Product", color: "2", open: false });
+    expect(chips.find((chip) => chip.seatId === "c")?.open).toBe(true);
+    expect(chips.map((chip) => [chip.name, chip.count])).toEqual([
       ["alpha", 2],
       ["bravo", 1],
       ["charlie", 1],
