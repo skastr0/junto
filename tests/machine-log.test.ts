@@ -327,8 +327,8 @@ describe("console hook", () => {
     expect(child.stderr).toBe("");
     const rows = rowsOf(home);
     expect(rows).toMatchObject([
-      { level: "error", source: "main", area: "budget", message: "[budget] held the main thread", failure: { tag: "Error" } },
-      { level: "info", area: "main", message: "plain {\"a\":1}" },
+      { level: "error", source: "core", area: "budget", message: "[budget] held the main thread", failure: { tag: "Error" } },
+      { level: "info", source: "core", area: "core", message: "plain {\"a\":1}" },
     ]);
     expect(JSON.stringify(rows)).not.toContain("child-secret-value");
   });

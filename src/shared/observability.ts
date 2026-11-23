@@ -19,9 +19,7 @@ export const ObservabilityLogLevel = Schema.Literals(["trace", "debug",
 "fatal",]);
 export type ObservabilityLogLevel = typeof ObservabilityLogLevel.Type;
 
-export const ObservabilityLogSource = Schema.Literals(["effect", "main",
-"renderer",
-"system",]);
+export const ObservabilityLogSource = Schema.Literals(["effect", "main", "core", "renderer", "system"]);
 export type ObservabilityLogSource = typeof ObservabilityLogSource.Type;
 
 export const ObservabilityLogEntry = Schema.Struct({

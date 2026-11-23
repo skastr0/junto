@@ -71,6 +71,7 @@ const isEncodedFailure = Schema.is(EncodedFailure);
 const DEFAULT_AREA: Record<ObservabilityLogSource, string> = {
   effect: "effect",
   main: "main",
+  core: "core",
   renderer: "renderer",
   system: "system",
 };
@@ -243,7 +244,7 @@ export const createLogger = (options: LogOptions): Log => {
 
     let area = DEFAULT_AREA[input.source];
     let message = input.message;
-    if (input.source === "main" || input.source === "renderer") {
+    if (input.source === "main" || input.source === "core" || input.source === "renderer") {
       const prefix = CONSOLE_PREFIX.exec(message)?.[1]?.toLowerCase();
       if (prefix !== undefined) area = prefix;
     }
@@ -325,7 +326,8 @@ export const createLogger = (options: LogOptions): Log => {
     if (file !== undefined && OBSERVABILITY_LEVEL_RANK[row.level] >= OBSERVABILITY_LEVEL_RANK[FILE_MIN_LEVEL]) {
       file.write(fitRow(row));
     }
-    if (options.echo && input.source !== "main") {
+    // A console row was already printed by the console itself.
+    if (options.echo && input.source !== "main" && input.source !== "core") {
       try {
         process.stdout.write(`[${input.source}:${row.level}] ${shown.replace(/\n/g, " - ")}\n`);
       } catch {
@@ -379,6 +381,8 @@ export const createLogger = (options: LogOptions): Log => {
     if (consoleHookInstalled) return;
     consoleHookInstalled = true;
     const echo = hookOptions.echo ?? true;
+    // A console line is the process's own: a core's reads as `core`, never as main's.
+    const consoleSource: ObservabilityLogSource = options.process === "core" ? "core" : "main";
     let depth = 0;
 
     const wrap =
@@ -393,7 +397,7 @@ export const createLogger = (options: LogOptions): Log => {
           if (echo || file === undefined) original.apply(console, args);
           const split = splitParts(args);
           if (!split.message && split.failure === undefined) return;
-          writeLog({ level: CONSOLE_LEVEL[method], source: "main", message: split.message, failure: split.failure });
+          writeLog({ level: CONSOLE_LEVEL[method], source: consoleSource, message: split.message, failure: split.failure });
         } finally {
           depth -= 1;
         }

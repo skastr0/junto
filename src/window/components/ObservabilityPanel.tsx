@@ -36,6 +36,7 @@ const LEVELS: ReadonlyArray<ObservabilityLogLevel> = [
 const SOURCES: ReadonlyArray<ObservabilityLogSource> = [
   "effect",
   "main",
+  "core",
   "renderer",
   "system",
 ];
@@ -52,6 +53,7 @@ const LEVEL_COLOR: Record<ObservabilityLogLevel, string> = {
 const SOURCE_COLOR: Record<ObservabilityLogSource, string> = {
   effect: HUE.violet,
   main: HUE.cyan,
+  core: HUE.indigo,
   renderer: HUE.gold,
   system: GREEN,
 };

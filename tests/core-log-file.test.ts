@@ -45,7 +45,8 @@ describe("a core's log file", () => {
       expect(child.status, child.stderr).toBe(0);
       const rows = rowsIn(home);
       expect(rows.every((row) => row.process === "core")).toBe(true);
-      expect(rows.some((row) => row.message.includes("[core] pid 4242"))).toBe(true);
+      // A core's console line is the core's own, never written as main's.
+      expect(rows.find((row) => row.message.includes("[core] pid 4242"))).toMatchObject({ source: "core", area: "core" });
       expect(rows.some((row) => row.area === "link" && row.level === "warn" && row.message === "link dial failed")).toBe(true);
       // Only an echoing core prints its rows: a windowless core's stdout is an unbounded service file.
       expect(child.stdout.includes("link dial failed")).toBe(echo);

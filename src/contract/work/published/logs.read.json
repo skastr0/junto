@@ -96,6 +96,7 @@
                 "enum": [
                   "effect",
                   "main",
+                  "core",
                   "renderer",
                   "system"
                 ]
