@@ -8,11 +8,11 @@
 import type { CanvasTestHook, DrawnCluster, DrawnPart, Hit, NodeId, Part, Point, PopReport, Rect, SeatStats } from "../contract";
 import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
 import type { SeamEngine } from "../engine/engine";
-import type { AtlasAudit, AtlasTexelAudit, AtlasPendingEntry, AtlasStats } from "../engine/types";
+import type { AtlasAudit, AtlasTexelAudit, AtlasPendingEntry, AtlasRerasterEntry, AtlasStats } from "../engine/types";
 import type { GpuErrors } from "../engine/device";
 import { drawnMinimap } from "../../components/FactoryMinimap";
 import type { MapPaint, PackedMap } from "../../components/minimap-draw";
-import { pageGpuAtlasAudit, pageGpuAtlasAuditTexels, pageGpuAtlasPendingKeys, pageGpuAtlasStats } from "./gpu-atlas-page";
+import { pageGpuAtlasAudit, pageGpuAtlasAuditTexels, pageGpuAtlasPendingKeys, pageGpuAtlasRerasterLog, pageGpuAtlasStats } from "./gpu-atlas-page";
 import { pageDeviceKeeper } from "./gpu-device";
 import { engineStats } from "./gpu-canvas-api";
 import type { SurfaceMirror } from "./surface-mirror";
@@ -35,6 +35,8 @@ type FullHook = CanvasTestHook & {
   readonly atlasStats: () => AtlasStats;
   /** Bounded snapshot of pending (queued/rasterizing) atlas cell keys for diagnostics. */
   readonly pendingKeys: (limit?: number) => ReadonlyArray<AtlasPendingEntry>;
+  /** The last keys asked for again after their landed cell was freed (thrash, logged per ladder stop). */
+  readonly rerasterLog: (limit?: number) => ReadonlyArray<AtlasRerasterEntry>;
   /** Engine hit test at canvas-local screen coordinates. */
   readonly pick: (screen: Point) => Hit | null;
   /** Painted quads for a card, with rect in page screen pixels. */
@@ -191,6 +193,7 @@ const build = (
     atlasPending,
     atlasStats,
     pendingKeys: pageGpuAtlasPendingKeys,
+    rerasterLog: pageGpuAtlasRerasterLog,
     gpuErrors: () => pageDeviceKeeper().errors(),
     atlasAudit: () => pageGpuAtlasAudit(engine()?.heldCells?.()),
     atlasAuditTexels: (limit) => pageGpuAtlasAuditTexels(limit),

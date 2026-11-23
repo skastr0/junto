@@ -270,11 +270,13 @@ const auditTexels = (page: Page): Promise<TexelAudit | null> =>
 const checkStop = async (page: Page, where: string, seen: { errors: number; since: number; evictions: number }): Promise<Record<string, unknown>> => {
   const state = await readProofState(page);
   const atlas = state.atlas as
-    | (typeof state.atlas & { compactions?: number; overwrites?: number; rerasters?: number; rerasterLog?: ReadonlyArray<{ key: string; evictedAt: number; at: number }> })
+    | (typeof state.atlas & { compactions?: number; overwrites?: number; rerasters?: number })
     | null;
   // Thrash: keys evicted and rastered again inside this stop's window (since the last stop). Logged for canvas-services, not failed.
-  const now = await page.evaluate(() => performance.now());
-  const log = atlas?.rerasterLog ?? [];
+  const { now, log } = await page.evaluate(() => {
+    const hook = (window as unknown as { __juntoCanvas?: { rerasterLog?: () => ReadonlyArray<{ key: string; evictedAt: number; at: number }> } }).__juntoCanvas;
+    return { now: performance.now(), log: hook?.rerasterLog?.() ?? [] };
+  });
   const thrashed = log.filter((r) => r.evictedAt >= seen.since);
   const thrash = { count: thrashed.length, logFull: log.length >= 256 && (log[0]?.evictedAt ?? 0) >= seen.since, keys: thrashed.slice(0, 8).map((r) => r.key) };
   seen.since = now;

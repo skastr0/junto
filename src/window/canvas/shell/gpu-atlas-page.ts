@@ -13,7 +13,7 @@
 
 import { themeMode$ } from "../../lib/theme-mode";
 import { createGpuAtlas, browserRasterizers, type GpuAtlas } from "../engine/gpu-atlas";
-import type { AtlasAudit, AtlasTexelAudit, AtlasPendingEntry, AtlasStats } from "../engine/types";
+import type { AtlasAudit, AtlasTexelAudit, AtlasPendingEntry, AtlasRerasterEntry, AtlasStats } from "../engine/types";
 import { pageDeviceKeeper } from "./gpu-device";
 
 const EMPTY_ATLAS_STATS: AtlasStats = {
@@ -22,6 +22,7 @@ const EMPTY_ATLAS_STATS: AtlasStats = {
   landed: 0,
   evictions: 0,
   overwrites: 0,
+  rerasters: 0,
   failures: 0,
   failedCells: 0,
   pages: 0,
@@ -49,6 +50,9 @@ export const pageGpuAtlasStats = (): AtlasStats => atlas?.stats() ?? EMPTY_ATLAS
 /** Bounded snapshot of queued or in-flight atlas cells (for proof diagnostics). */
 export const pageGpuAtlasPendingKeys = (limit = 200): ReadonlyArray<AtlasPendingEntry> =>
   atlas?.pendingKeys(limit) ?? [];
+
+/** The last keys asked for again after their landed cell was freed (thrash diagnostics). */
+export const pageGpuAtlasRerasterLog = (limit = 256): ReadonlyArray<AtlasRerasterEntry> => atlas?.rerasterLog(limit) ?? [];
 
 /** The atlas's read-only invariant check, or null before first mount. */
 export const pageGpuAtlasAudit = (held?: ReadonlyMap<number, number>): AtlasAudit | null => atlas?.audit(held) ?? null;

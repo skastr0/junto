@@ -48,7 +48,7 @@
 import type { ColorRef, Quad, TextRun } from "../contract";
 import { gpuColorCss, themeGpu, type GpuColor, type GpuTheme, type ThemeMode } from "@shared/theme";
 import { NO_ATLAS_CELL } from "./quad";
-import { ATLAS_CELL_FLOATS, atlasBindBudget, type AtlasBinding, type AtlasDirtyCells, type AtlasAudit, type AtlasAuditViolation, type AtlasTexelAudit, type AtlasTexelMismatch, type AtlasPendingEntry, type AtlasStats } from "./types";
+import { ATLAS_CELL_FLOATS, atlasBindBudget, type AtlasBinding, type AtlasDirtyCells, type AtlasAudit, type AtlasAuditViolation, type AtlasTexelAudit, type AtlasTexelMismatch, type AtlasPendingEntry, type AtlasRerasterEntry, type AtlasStats } from "./types";
 import { resolveColour } from "./styles";
 import { drawGlyph, glyphKnown } from "./glyphs";
 import {
@@ -162,6 +162,8 @@ export interface GpuAtlas {
   stats(): AtlasStats;
   /** Bounded diagnostic snapshot of pending (queued/rasterizing) cells. */
   pendingKeys(limit?: number): ReadonlyArray<AtlasPendingEntry>;
+  /** The last keys asked for again after their landed cell was freed, oldest first (at most 256). */
+  rerasterLog(limit?: number): ReadonlyArray<AtlasRerasterEntry>;
   /**
    * Read-only invariant check over the cell table (the zoom-corruption gate).
    * `held` counts the references draw records hold per cell. Never mutates.
@@ -486,10 +488,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   // Read-only diagnostics: when each evicted key went, and its requests after.
   const evictedAt = new Map<string, number>();
   let rerasters = 0;
-  const rerasterLog: Array<{ key: string; evictedAt: number; at: number }> = [];
-  const noteEvicted = (key: string): void => {
+  const rerasterLog: AtlasRerasterEntry[] = [];
+  const noteEvicted = (key: string, at: number): void => {
     evictedAt.delete(key);
-    evictedAt.set(key, performance.now());
+    evictedAt.set(key, at);
     if (evictedAt.size > 8192) evictedAt.delete(evictedAt.keys().next().value!);
   };
   let overwrites = 0;
@@ -1074,8 +1076,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
    * plot.
    */
   const evictPlot = (plot: Plot): void => {
+    const at = nowMs();
     for (const rec of [...plot.cells]) {
-      noteEvicted(rec.key);
+      noteEvicted(rec.key, at);
       freeSlot(rec);
       evictions += 1;
     }
@@ -1942,7 +1945,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     const hadOwnTexture = rec.standalone !== undefined;
     if (rec.state === "landed") {
       evictions += 1;
-      noteEvicted(rec.key);
+      // Only the slot its key finds: the others are a burst's unnamed landings, and the key's cell may still be cached.
+      if (byKey.get(rec.key) === rec) noteEvicted(rec.key, nowMs());
     }
     freeSlot(rec);
     if (hadOwnTexture) markDirty();
@@ -2024,7 +2028,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (wentAt !== undefined) {
       evictedAt.delete(keys.key);
       rerasters += 1;
-      rerasterLog.push({ key: keys.key, evictedAt: wentAt, at: performance.now() });
+      rerasterLog.push({ key: keys.key, evictedAt: wentAt, at: nowMs() });
       if (rerasterLog.length > 256) rerasterLog.shift();
     }
 
@@ -2112,7 +2116,6 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       landed: landedCount,
       evictions,
       rerasters,
-      rerasterLog: rerasterLog.slice(),
       overwrites,
       failures,
       failedCells,
@@ -2789,6 +2792,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     revision: () => revision,
     stats,
     pendingKeys,
+    rerasterLog: (limit = 256): ReadonlyArray<AtlasRerasterEntry> => rerasterLog.slice(-limit),
     audit,
     auditTexels,
     get requests() {

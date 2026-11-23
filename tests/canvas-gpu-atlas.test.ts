@@ -1265,3 +1265,77 @@ describe("a failed slot is tried again by the atlas, with nobody asking", () => 
     expect(source.rasters("held")).toBe(3);
   });
 });
+
+describe("gpu atlas rerasters: keys asked again after their landed cell was freed (ladder thrash)", () => {
+  const twice = async (): Promise<void> => {
+    await settle();
+    await settle();
+  };
+
+  it("a key evicted for room and asked again counts once, gone no later than asked", async () => {
+    const { atlas } = atlasWith({ size: 64, rasterizeText: async () => pixels(40, 40) });
+    atlas.attach(fakeDevice().device);
+    const a = atlas.acquire(textQuad({ ...textRun, text: "a" }), 1);
+    await twice();
+    atlas.release(a);
+    // b needs a's plot: a's cell is freed for room.
+    const b = atlas.acquire(textQuad({ ...textRun, text: "b" }), 1);
+    await twice();
+    expect(atlas.stats().evictions).toBe(1);
+    expect(atlas.stats().rerasters).toBe(0);
+    atlas.release(b);
+    atlas.acquire(textQuad({ ...textRun, text: "a" }), 1);
+    await twice();
+    expect(atlas.stats().rerasters).toBe(1);
+    const log = atlas.rerasterLog();
+    expect(log).toHaveLength(1);
+    expect(log[0]!.evictedAt).toBeLessThanOrEqual(log[0]!.at);
+    // Asked once more while it holds its cell: nothing new.
+    atlas.acquire(textQuad({ ...textRun, text: "a" }), 1);
+    expect(atlas.stats().rerasters).toBe(1);
+    // The stats a poll reads carry the number, never the list.
+    expect("rerasterLog" in atlas.stats()).toBe(false);
+  });
+
+  it("a line written over counts nothing", async () => {
+    const run1: TextRun = { text: "step 1", font: "mono", size: 11, weight: 400, truncate: "end", width: 80 };
+    const run2: TextRun = { text: "step 2", font: "mono", size: 11, weight: 400, truncate: "end", width: 80 };
+    const { atlas } = atlasWith({ rasterizeText: async () => pixels(160, 27) });
+    atlas.attach(fakeDevice().device);
+    const first = atlas.acquire(textQuad(run1), 2);
+    await twice();
+    const second = atlas.acquire(textQuad(run2), 2, first);
+    await twice();
+    expect(atlas.stats().overwrites).toBe(1);
+    atlas.acquire(textQuad(run1), 2, second);
+    await twice();
+    expect(atlas.stats().rerasters).toBe(0);
+  });
+
+  it("a device attached anew counts nothing", async () => {
+    const { atlas } = atlasWith();
+    atlas.attach(fakeDevice().device);
+    const keep = atlas.acquire(textQuad({ ...textRun, text: "keep" }), 2);
+    const drop = atlas.acquire(textQuad({ ...textRun, text: "drop" }), 2);
+    await twice();
+    atlas.release(drop);
+    atlas.attach(fakeDevice().device);
+    await twice();
+    expect(atlas.hasImage(keep)).toBe(true);
+    atlas.acquire(textQuad({ ...textRun, text: "drop" }), 2);
+    await twice();
+    expect(atlas.stats().rerasters).toBe(0);
+  });
+
+  it("a slot let go before it landed counts nothing", async () => {
+    const { atlas } = atlasWith();
+    atlas.attach(fakeDevice().device);
+    const early = atlas.acquire(textQuad({ ...textRun, text: "early" }), 1);
+    atlas.release(early);
+    await twice();
+    atlas.acquire(textQuad({ ...textRun, text: "early" }), 1);
+    await twice();
+    expect(atlas.stats().rerasters).toBe(0);
+    expect(atlas.rerasterLog()).toEqual([]);
+  });
+});
