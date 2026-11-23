@@ -11,7 +11,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pinThreadToday } from "../src/window/lib/thread-time";
-import type { MailThreadMessage, MailThreadSummary } from "../src/shared/wire/mail-threads";
+import type { MailThreadMessage, MailThreadSummary, ThreadHeadSignal, ThreadSignal, ThreadSignalRef } from "../src/shared/wire/mail-threads";
 import { OPERATOR_MAIL_MAX_TEXT } from "../src/shared/mail-threads";
 import {
   THREAD_TEXT_MAX,
@@ -30,6 +30,9 @@ import {
 import { setOperatorContentPutter } from "../src/window/lib/operator-attachments";
 import { SeatThreadsStage, SeatViewSwitch } from "../src/window/components/threads/SeatThreads";
 import { resetOperatorGesture } from "../src/window/lib/focus-ownership";
+import { agentSignals$ } from "../src/window/lib/agent-signals-state";
+import { feedAsked$ } from "../src/window/lib/operator-feed";
+import { closeOperatorModal, isOperatorModalOpen } from "../src/window/lib/operator-modal";
 import { asCanvasName } from "../src/shared/model";
 import type { SeatOpenView } from "../src/shared/settings";
 import { modelStore } from "../src/window/lib/use-model";
@@ -86,6 +89,7 @@ const reader = thread({
 const fake = () => {
   const listeners = new Set<(change: { canvasName: string; seatId?: string }) => void>();
   const readListeners = new Set<(change: { canvasName: string; seatIds: ReadonlyArray<string> }) => void>();
+  const signalListeners = new Set<(change: { canvasName: string }) => void>();
   const marks: Array<{ readonly canvasName: string; readonly seatId: string; readonly threadId: string }> = [];
   const state = {
     threads: [notes, banner, reader] as SeatThreadSummary[],
@@ -96,6 +100,8 @@ const fake = () => {
       ],
       reader: [{ messageId: "r1", author: "cli-lead", mine: false, text: "Switch the reader.", at: at(0, 31) }],
     } as Record<string, SeatThreadMessage[]>,
+    /** The signal whose answer started a thread, by thread. */
+    heads: {} as Record<string, ThreadHeadSignal>,
     lists: 0,
     /** Set to stand in for a seat with more threads than one page holds. */
     total: undefined as number | undefined,
@@ -108,10 +114,17 @@ const fake = () => {
       state.lists += 1;
       return { threads: state.threads };
     },
-    messages: async ({ threadId }) => ({ messages: state.messages[threadId] ?? [] }),
+    messages: async ({ threadId }) => ({
+      messages: state.messages[threadId] ?? [],
+      ...(state.heads[threadId] === undefined ? {} : { headSignal: state.heads[threadId] }),
+    }),
     onChanged: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    onSignalsChanged: (listener) => {
+      signalListeners.add(listener);
+      return () => signalListeners.delete(listener);
     },
     // As main rules it: a mark moves the point, and marking a read thread writes nothing.
     markRead: async ({ canvasName, seatId, threadId }) => {
@@ -132,12 +145,14 @@ const fake = () => {
     },
   };
   const change = (seatId?: string) => listeners.forEach((listener) => listener({ canvasName: "factory", seatId }));
+  /** A signal closed with no mail written: a dismissal, or a withdrawal. */
+  const signalChange = () => signalListeners.forEach((listener) => listener({ canvasName: "factory" }));
   /** The operator read on another device: the counts move, and the notice names the seats. */
   const readElsewhere = (threadId: string, seatIds: ReadonlyArray<string> = ["seat-1"]) => {
     state.threads = state.threads.map((item) => (item.threadId === threadId ? { ...item, unread: 0, readAt: at(2, 0) } : item));
     readListeners.forEach((listener) => listener({ canvasName: "factory", seatIds }));
   };
-  return { state, source, change, listeners, marks, readListeners, readElsewhere };
+  return { state, source, change, signalChange, listeners, marks, readListeners, readElsewhere };
 };
 
 let host: HTMLDivElement;
@@ -217,6 +232,199 @@ const press = async (element: Element | null) => {
 };
 /** Whether Threads is the view on screen. */
 const threadsShown = () => q("seat-threads")?.hasAttribute("hidden") === false;
+
+describe("signals in a thread", () => {
+  const ask: ThreadSignal = { signalId: "s1", kind: "escalate", state: "open", text: "Which store holds the notes?" };
+  const ref: ThreadSignalRef = { signalId: "s1", kind: "escalate", text: "Which store holds the notes?" };
+  const mine: SeatThreadMessage = { messageId: "m1", author: "you", mine: true, text: "Move them into junto.db.", at: at(1, 2) };
+  const raised = (signal: ThreadSignal, over: Partial<SeatThreadMessage> = {}): SeatThreadMessage => ({
+    messageId: "m2",
+    author: "pty-lead",
+    mine: false,
+    text: signal.text,
+    at: at(1, 4),
+    signal,
+    ...over,
+  });
+  const openOn = async (fixture: ReturnType<typeof fake>) => {
+    setSeatThreadsSource(fixture.source);
+    await render();
+    await click(q("seat-view-threads"));
+  };
+
+  it("reads a seat's message that is a signal as one, and says before the send what a reply answers", async () => {
+    const fixture = fake();
+    fixture.state.messages.notes = [mine, raised(ask)];
+    await openOn(fixture);
+    const [plain, theirs] = all("seat-threads-message");
+    const frame = theirs!.querySelector<HTMLElement>('[data-testid="seat-threads-signal"]')!;
+    expect(frame.dataset.signalKind).toBe("escalate");
+    expect(frame.dataset.state).toBe("open");
+    expect(frame.querySelector('[data-testid="seat-threads-signal-state"]')?.textContent).toBe("Open");
+    // The message is whole inside the frame: who, when, the words.
+    expect(frame.textContent).toContain("pty-lead 01:04");
+    expect(frame.textContent).toContain("Which store holds the notes?");
+    expect(plain!.querySelector('[data-testid="seat-threads-signal"]')).toBeNull();
+    // Words alone answer it, so it has no button: the reply field says what a reply will answer.
+    expect(q("seat-threads-signal-hand-in")).toBeNull();
+    const line = q("thread-composer-answers")!;
+    expect(q("thread-composer-answers-plain")?.getAttribute("aria-label")).toBe("Your reply answers: Which store holds the notes?");
+    // In the field's frame, before the field: read before the operator writes.
+    expect(line.parentElement?.className).toContain("thread-composer__field");
+    expect(line.compareDocumentPosition(q("thread-composer-input")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("follows a signal that closes with no mail written: where it stands is said, and the reply answers nothing", async () => {
+    const fixture = fake();
+    fixture.state.messages.notes = [mine, raised(ask)];
+    fixture.state.threads = [thread({ ...notes, openSignal: ref }), banner];
+    await openOn(fixture);
+    const row = document.querySelector('[data-testid="seat-threads-row"][data-thread-id="notes"]')!;
+    expect(row.querySelector('[data-testid="seat-threads-row-signal"]')?.getAttribute("data-signal-kind")).toBe("escalate");
+    expect(document.querySelector('[data-thread-id="banner"] [data-testid="seat-threads-row-signal"]')).toBeNull();
+    const counts = fixture.state.counts;
+
+    // Dismissed: no mail is written, so only the signal's own change says it.
+    fixture.state.messages.notes = [mine, raised({ ...ask, state: "dismissed" })];
+    fixture.state.threads = [notes, banner];
+    fixture.signalChange();
+    await flush();
+    expect(q("seat-threads-signal")?.getAttribute("data-state")).toBe("dismissed");
+    expect(q("seat-threads-signal-state")?.textContent).toBe("Dismissed");
+    expect(q("thread-composer-answers")).toBeNull();
+    expect(q("seat-threads-row-signal")).toBeNull();
+    // No mail moved: no unread count is asked for.
+    expect(fixture.state.counts).toBe(counts);
+  });
+
+  it("marks a row with its open signal before the unread count", async () => {
+    const fixture = fake();
+    fixture.state.threads = [thread({ ...notes, unread: 2, openSignal: { ...ref, kind: "blocked" } }), banner];
+    await openOn(fixture);
+    const mark = document.querySelector('[data-thread-id="notes"] [data-testid="seat-threads-row-signal"]')!;
+    expect(mark.getAttribute("data-signal-kind")).toBe("blocked");
+    expect(mark.nextElementSibling?.getAttribute("data-testid")).toBe("seat-threads-row-unread");
+  });
+
+  it("says above the operator's answer what it answered, and on the signal that its seat withdrew it first", async () => {
+    const fixture = fake();
+    fixture.state.messages.notes = [
+      mine,
+      raised({ ...ask, state: "withdrawn", crossed: true }),
+      { messageId: "m3", author: "you", mine: true, text: "junto.db holds them.", at: at(1, 9), answers: ref },
+    ];
+    await openOn(fixture);
+    const [first, , answer] = all("seat-threads-message");
+    const line = answer!.querySelector('[data-testid="seat-threads-answer-to"]')!;
+    expect(line.textContent).toContain("Answer to:");
+    expect(line.textContent).toContain("Which store holds the notes?");
+    // Above the words of the answer, under who wrote it.
+    expect(line.nextElementSibling?.className).toContain("seat-threads__block");
+    expect(first!.querySelector('[data-testid="seat-threads-answer-to"]')).toBeNull();
+    expect(q("seat-threads-signal-state")?.textContent).toBe("Withdrawn");
+    expect(q("seat-threads-signal-crossed")?.textContent).toBe("pty-lead withdrew this before your answer reached it.");
+    expect(q("thread-composer-answers")).toBeNull();
+  });
+
+  it("heads a thread an answer started with the signal that began it, once the thread's start is read", async () => {
+    const fixture = fake();
+    const headSignal: ThreadHeadSignal = { signalId: "s0", kind: "blocked", state: "answered", text: "The store is locked.", at: at(1, 0) };
+    const answer: SeatThreadMessage = {
+      messageId: "m1", author: "you", mine: true, text: "Unlocked it.", at: at(1, 2),
+      answers: { signalId: "s0", kind: "blocked", text: "The store is locked." },
+    };
+    const earlier: SeatThreadMessage = { messageId: "m0", author: "pty-lead", mine: false, text: "Thanks.", at: at(1, 1) };
+    let letGo!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    setSeatThreadsSource({
+      ...fixture.source,
+      // The newest page first, with more above it; the page above waits.
+      messages: async ({ before }) => {
+        if (before === undefined) return { messages: [answer], older: "c1", headSignal };
+        await gate;
+        return { messages: [earlier], headSignal };
+      },
+    });
+    await render();
+    await click(q("seat-view-threads"));
+    // The thread's start is not read yet: the signal is not drawn over the middle of it.
+    expect(q("seat-threads-older")).not.toBeNull();
+    expect(q("seat-threads-head-signal")).toBeNull();
+
+    letGo();
+    await flush();
+    const head = q("seat-threads-head-signal")!;
+    expect(head.nextElementSibling).toBe(all("seat-threads-message")[0]);
+    // As its seat's, at its own time, and where it stands.
+    expect(head.textContent).toContain("pty-lead 01:00");
+    expect(head.textContent).toContain("The store is locked.");
+    expect(head.querySelector('[data-testid="seat-threads-signal"]')?.getAttribute("data-signal-kind")).toBe("blocked");
+    expect(head.querySelector('[data-testid="seat-threads-signal-state"]')?.textContent).toBe("Answered");
+    expect(q("seat-threads-answer-to")?.textContent).toContain("The store is locked.");
+    // It is answered: a reply here answers nothing.
+    expect(q("thread-composer-answers")).toBeNull();
+  });
+
+  it("says a signal that asks for work stays open until it is handed in, and opens Needs you on it", async () => {
+    const fixture = fake();
+    fixture.state.messages.notes = [mine, raised({ ...ask, asks: "document" })];
+    await openOn(fixture);
+    try {
+      expect(q("thread-composer-answers-plain")).toBeNull();
+      const work = q("thread-composer-answers-work")!;
+      expect(work.textContent).toContain("Stays open until a document is handed in:");
+      expect(work.textContent).toContain("Which store holds the notes?");
+      await click(q("seat-threads-signal-hand-in"));
+      expect(feedAsked$.itemId.peek()).toBe("signal:s1");
+      expect(isOperatorModalOpen("feed")).toBe(true);
+      feedAsked$.itemId.set(null);
+      await click(q("thread-composer-answers-hand-in"));
+      expect(feedAsked$.itemId.peek()).toBe("signal:s1");
+    } finally {
+      act(() => {
+        feedAsked$.itemId.set(null);
+        closeOperatorModal("feed");
+      });
+    }
+  });
+
+  it("answers every open signal with one reply, and brings the earliest into view from the line", async () => {
+    const fixture = fake();
+    const second: ThreadSignal = { signalId: "s2", kind: "blocked", state: "open", text: "The migration is stuck." };
+    fixture.state.messages.notes = [mine, raised(ask), raised(second, { messageId: "m3", at: at(1, 6) })];
+    await openOn(fixture);
+    const line = q("thread-composer-answers-plain")!;
+    expect(line.getAttribute("aria-label")).toBe("Your reply answers 2 open signals");
+    const shown: Element[] = [];
+    const proto = Element.prototype as { scrollIntoView?: (this: Element) => void };
+    const had = proto.scrollIntoView;
+    proto.scrollIntoView = function (this: Element) {
+      shown.push(this);
+    };
+    try {
+      await click(line);
+      expect(shown).toEqual([all("seat-threads-message")[1]]);
+    } finally {
+      if (had === undefined) delete proto.scrollIntoView;
+      else proto.scrollIntoView = had;
+    }
+  });
+
+  it("keeps the head on a signal and on the mail after it, where the same seat writing again would fold", async () => {
+    const fixture = fake();
+    const soon = (seconds: number) => at(1, 4) + seconds * 1000;
+    fixture.state.messages.notes = [
+      { messageId: "a", author: "pty-lead", mine: false, text: "Looking.", at: soon(0) },
+      raised(ask, { messageId: "b", at: soon(1) }),
+      { messageId: "c", author: "pty-lead", mine: false, text: "Meanwhile I am reading the schema.", at: soon(2) },
+      { messageId: "d", author: "pty-lead", mine: false, text: "It has two tables.", at: soon(3) },
+    ];
+    await openOn(fixture);
+    expect(all("seat-threads-message").map((message) => message.getAttribute("data-folded"))).toEqual([null, null, null, "true"]);
+  });
+});
 
 describe("the seat's threads, in words", () => {
   it("groups with you and between seats, newest first", () => {
@@ -513,6 +721,54 @@ describe("main's threads IPC as the source", () => {
     mail.forEach((listener) => listener({ canvasName: "other", nodeId: "seat-1" }));
     await flush();
     expect(seatThreadsList.mock.calls.length).toBe(settled);
+  });
+
+  it("carries a thread's signals as main read them, and hears a signal change that writes no mail", async () => {
+    const operator = { kind: "operator" } as const;
+    const ptyLead = { kind: "seat", nodeId: "seat-1", name: "pty-lead" } as const;
+    const ref: ThreadSignalRef = { signalId: "s1", kind: "escalate", text: "Which store?" };
+    const signal: ThreadSignal = { ...ref, state: "open", asks: "proof" };
+    const headSignal: ThreadHeadSignal = { signalId: "s0", kind: "blocked", state: "answered", text: "Locked.", at: at(1, 0) };
+    const answer: MailThreadMessage = {
+      messageId: "m1", threadId: "t1", from: operator, to: [ptyLead], mine: true, text: "Unlocked.", at: at(1, 2),
+      answers: { signalId: "s0", kind: "blocked", text: "Locked." },
+    };
+    const raise: MailThreadMessage = {
+      messageId: "m2", threadId: "t1", from: ptyLead, to: [operator], mine: false, text: "Which store?", at: at(1, 4), signal,
+    };
+    const summary: MailThreadSummary = {
+      threadId: "t1", title: "Unlocked.", participants: [operator, ptyLead], startedAt: at(1, 2), lastAt: at(1, 4),
+      last: raise, messageCount: 2, canReply: true, owned: true, unread: 1, openSignal: ref,
+    };
+    (window as { junto?: unknown }).junto = {
+      seatThreadsList: vi.fn(async () => ({ threads: [summary] })),
+      seatThreadMessages: vi.fn(async () => ({ messages: [answer, raise], headSignal })),
+      onWorkMailChanged: () => () => undefined,
+      seatThreadUnread: vi.fn(async () => 1),
+      seatThreadMarkRead: vi.fn(async () => undefined),
+      onSeatThreadReadChanged: () => () => undefined,
+    };
+    const source = juntoSeatThreadsSource()!;
+    const page = await source.messages({ canvasName: "factory", seatId: "seat-1", threadId: "t1" });
+    expect(page.headSignal).toEqual(headSignal);
+    expect(page.messages[0]?.answers).toEqual({ signalId: "s0", kind: "blocked", text: "Locked." });
+    expect(page.messages[1]?.signal).toEqual(signal);
+    const list = await source.list({ canvasName: "factory", seatId: "seat-1", group: "with-you" });
+    expect(list.threads[0]?.openSignal).toEqual(ref);
+
+    // The window's own signals say a dismissal or a withdrawal: no mail does.
+    const heard: string[] = [];
+    const off = source.onSignalsChanged!((change) => heard.push(change.canvasName));
+    try {
+      agentSignals$.s1.set({ signalId: "s1", canvasName: "factory", nodeId: "seat-1", state: "dismissed" } as never);
+      expect(heard).toEqual(["factory"]);
+    } finally {
+      off();
+      agentSignals$.set({});
+    }
+    agentSignals$.s1.set({ signalId: "s1", canvasName: "factory", nodeId: "seat-1", state: "open" } as never);
+    agentSignals$.set({});
+    expect(heard).toEqual(["factory"]);
   });
 });
 

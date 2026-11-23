@@ -20,7 +20,8 @@ import { useEffect, useState } from "react";
 import type { MentionableSeat, OperatorThreadSend, OperatorThreadSent, ThreadGroup } from "@shared/mail-threads";
 import type { ResourceSubject } from "@shared/thread-subject";
 import type { ContentRef } from "@shared/wire/content-ref";
-import type { MailParty, MailThreadMessage } from "@shared/wire/mail-threads";
+import type { MailParty, MailThreadMessage, ThreadHeadSignal, ThreadSignal, ThreadSignalRef } from "@shared/wire/mail-threads";
+import { agentSignals$ } from "./agent-signals-state";
 import { getJuntoApi } from "./junto-api";
 import type { AttachmentHold } from "./operator-attachments";
 
@@ -48,6 +49,8 @@ export type SeatThreadSummary = {
   readonly unread: number;
   /** A comment thread's task, artifact or page; absent for a mailbox thread. */
   readonly subject?: ResourceSubject;
+  /** The earliest signal raised in it that is still open; absent when none is. */
+  readonly openSignal?: ThreadSignalRef;
 };
 
 /** One message in a thread. */
@@ -64,6 +67,10 @@ export type SeatThreadMessage = {
   readonly attachments?: ReadonlyArray<ContentRef>;
   /** The operator's own mail that has not reached its seat yet; absent once it has, and on a seat's mail. */
   readonly waiting?: true;
+  /** The seat's mail that is a signal, as the signal stands now; absent on plain mail. */
+  readonly signal?: ThreadSignal;
+  /** The operator's mail that answered a signal: the signal it answered. */
+  readonly answers?: ThreadSignalRef;
 };
 
 /** Threads in a page: the first on open, and each older page as the list nears its end. */
@@ -74,8 +81,16 @@ export const MESSAGES_PAGE = 50;
 /** One page of one of a seat's two lists, newest first; `next` asks for the page after it. */
 export type SeatThreadsPage = { readonly threads: ReadonlyArray<SeatThreadSummary>; readonly next?: string };
 
-/** One page of a thread's messages, oldest first; `older` asks for the page above it. */
-export type SeatThreadMessagesPage = { readonly messages: ReadonlyArray<SeatThreadMessage>; readonly older?: string };
+/**
+ * One page of a thread's messages, oldest first; `older` asks for the page
+ * above it. `headSignal` is the signal whose answer started the thread, on
+ * every page: it is drawn before the thread's first message.
+ */
+export type SeatThreadMessagesPage = {
+  readonly messages: ReadonlyArray<SeatThreadMessage>;
+  readonly older?: string;
+  readonly headSignal?: ThreadHeadSignal;
+};
 
 /** What reads a seat's threads, a page at a time. */
 export type SeatThreadsSource = {
@@ -87,6 +102,12 @@ export type SeatThreadsSource = {
   ) => Promise<SeatThreadMessagesPage>;
   /** Something changed in this canvas's threads; no seat means any. */
   readonly onChanged: (listener: (change: { readonly canvasName: string; readonly seatId?: string }) => void) => () => void;
+  /**
+   * A signal on this canvas changed where it stands. A dismissal or a
+   * withdrawal writes no mail, so no mail change says it: the threads read
+   * differently, and no unread count moves.
+   */
+  readonly onSignalsChanged?: (listener: (change: { readonly canvasName: string }) => void) => () => void;
   /** What the operator has not read in the seat, over every thread of it, never a page of them; undefined when it cannot be read. */
   readonly unreadTotal: (seat: SeatAddress) => Promise<number | undefined>;
   /** The operator read a thread: their shared point moves, on every device. It never rejects. */
@@ -109,6 +130,8 @@ const messageOf = (message: MailThreadMessage): SeatThreadMessage => ({
   at: message.at,
   ...(message.attachments === undefined || message.attachments.length === 0 ? {} : { attachments: message.attachments }),
   ...(message.waiting === true ? { waiting: true as const } : {}),
+  ...(message.signal === undefined ? {} : { signal: message.signal }),
+  ...(message.answers === undefined ? {} : { answers: message.answers }),
 });
 
 /** The source over main's threads IPC, or undefined while the bridge lacks it. */
@@ -152,6 +175,7 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
           ...(thread.readAt === undefined ? {} : { readAt: thread.readAt }),
           unread: thread.unread,
           ...(thread.subject === undefined ? {} : { subject: thread.subject }),
+          ...(thread.openSignal === undefined ? {} : { openSignal: thread.openSignal }),
         })),
         ...(page.next === undefined ? {} : { next: page.next }),
       };
@@ -167,10 +191,18 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
       return {
         messages: page.messages.map(messageOf),
         ...(page.older === undefined ? {} : { older: page.older }),
+        ...(page.headSignal === undefined ? {} : { headSignal: page.headSignal }),
       };
     },
     // Any mailbox can change a seat's threads: the canvas alone decides.
     onChanged: (listener) => onMail((event) => listener({ canvasName: event.canvasName })),
+    // The window's own signals are the open canvas's, kept current by main:
+    // any of them changing is that canvas's threads reading differently.
+    onSignalsChanged: (listener) =>
+      agentSignals$.onChange(({ value }) => {
+        const canvasName = Object.values(value ?? {})[0]?.canvasName;
+        if (canvasName !== undefined) listener({ canvasName });
+      }),
     unreadTotal: ({ canvasName, seatId }) => unreadTotal({ canvasName, nodeId: seatId }),
     markRead: async ({ canvasName, seatId, threadId }) => {
       // Main answers the point or undefined, and never rejects; the list is read again either way.
@@ -193,6 +225,8 @@ export const setSeatThreadsSource = (next: SeatThreadsSource | undefined): void 
   offChanged = undefined;
   offRead?.();
   offRead = undefined;
+  offSignals?.();
+  offSignals = undefined;
   installed = next;
   if (listed.size > 0 || counted.size > 0) listenForChanges();
   for (const key of listed.keys()) void refreshSeat(key);
@@ -223,6 +257,8 @@ type ThreadState = {
   readonly older?: string;
   /** An older page is being read. */
   readonly loadingMore?: true;
+  /** The signal whose answer started the thread, as the newest read had it. */
+  readonly headSignal?: ThreadHeadSignal;
 };
 
 export const seatThreads$ = observable<{
@@ -387,6 +423,7 @@ const refreshThread = (key: string): Promise<void> =>
         error: "",
         ...(head.cursor === undefined ? {} : { older: head.cursor }),
         ...(prior?.loadingMore ? { loadingMore: true as const } : {}),
+        ...(page.headSignal === undefined ? {} : { headSignal: page.headSignal }),
       });
     } catch (error) {
       const prior = seatThreads$.messages[key].peek();
@@ -473,6 +510,7 @@ const counted = new Map<string, number>();
 const openThreads = new Map<string, number>();
 let offChanged: (() => void) | undefined;
 let offRead: (() => void) | undefined;
+let offSignals: (() => void) | undefined;
 
 /** The keys of `held` this change touches: its canvas, and the seat the change names when it names one. */
 const touched = (
@@ -585,6 +623,14 @@ const listenForChanges = (): void => {
       for (const key of touched(counted.keys(), change)) if (seats.has(seatOfKey(key).seatId)) pace.counts.add(key);
     });
   });
+  // A signal changed where it stands: a row's open mark and an open thread's
+  // signals read again. No mail moved, so no count is asked for.
+  offSignals ??= read.onSignalsChanged?.((change) => {
+    paceCanvas(change.canvasName, (pace) => {
+      for (const key of touched(listed.keys(), change)) pace.lists.add(key);
+      for (const key of touched(openThreads.keys(), change)) pace.threads.add(key);
+    });
+  });
 };
 
 const stopListeningIfIdle = (): void => {
@@ -593,6 +639,8 @@ const stopListeningIfIdle = (): void => {
   offChanged = undefined;
   offRead?.();
   offRead = undefined;
+  offSignals?.();
+  offSignals = undefined;
 };
 
 /**
@@ -914,6 +962,8 @@ export const sendSeatThread = async (
 export const resetSeatThreads = (): void => {
   offChanged?.();
   offChanged = undefined;
+  offSignals?.();
+  offSignals = undefined;
   installed = undefined;
   bridged = undefined;
   listed.clear();

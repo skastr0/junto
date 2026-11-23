@@ -53,6 +53,8 @@ type ToOneSeat = Shared & {
   readonly inReplyTo?: string;
   /** Sent: the thread it went in (a new thread's own id), and the mail as the send answered for it. */
   readonly onSent?: (threadId: string, mail: SentMail) => void;
+  /** Reply: drawn in the field's frame above the field, as what the reply will answer. */
+  readonly above?: ReactNode;
 };
 
 /** New threads to the seats the operator chose, one each (Quick thread). */
@@ -266,6 +268,7 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
         </div>
       ) : null}
       <div className="thread-composer__field">
+        {several ? null : props.above}
         <MentionCombobox
           fieldRef={setField}
           dense

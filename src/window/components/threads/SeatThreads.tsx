@@ -18,6 +18,7 @@ import {
   type SeatThreadSummary,
 } from "../../lib/seat-threads";
 import { deepActiveElement, focusPrimaryControl, isFocusClaimInFlight, recentGestureKind } from "../../lib/focus-ownership";
+import { openNeedsYouOn } from "../../lib/operator-feed";
 import { mentionChipOf, openMention, subjectChipOf, type MentionChip } from "../../lib/mention-open";
 import { stripAuthorPreamble } from "../../lib/thread-text";
 import { useCanvas } from "../../lib/use-model";
@@ -33,7 +34,17 @@ import { ResourceChip, ResourceGlyphMark, mentionMark } from "../ui/ResourceChip
 import { MessageAttachments } from "./MessageAttachments";
 import { ThreadComposer, type SentMail } from "./ThreadComposer";
 import { ThreadHeadline } from "./ThreadHeadline";
-import { sentArrived, sentWaiting, ThreadSaid, WaitingMark, type Said } from "./ThreadSignal";
+import {
+  AnswerTo,
+  ReplyAnswers,
+  RowSignal,
+  sentArrived,
+  sentWaiting,
+  SignalFrame,
+  ThreadSaid,
+  WaitingMark,
+  type Said,
+} from "./ThreadSignal";
 import { ThreadTime } from "./ThreadTime";
 import { rehypeThreadCodeWells, rehypeThreadInlineIds } from "./thread-inline-ids";
 import "./seat-threads.css";
@@ -254,6 +265,7 @@ function SeatThreads({
             <AgentPortrait identity={portraitOf(item.last.author)} size={18} frame="round" badge={false} outline={false} />
           )}
           <span className="seat-threads__row-who">{item.last.author === "you" ? "You" : item.last.author}</span>
+          {item.openSignal ? <RowSignal kind={item.openSignal.kind} /> : null}
           {item.unread > 0 ? (
             <span
               className="seat-threads__row-unread"
@@ -443,7 +455,7 @@ export function ThreadChat({
     [kindOf],
   );
   const portraitOf = usePortraitOf(seat.canvasName);
-  const { messages, loaded, error, older, loadingMore } = useSeatThreadMessages(seat, thread.threadId);
+  const { messages, loaded, error, older, loadingMore, headSignal } = useSeatThreadMessages(seat, thread.threadId);
   // A thread is read when the operator picks it or acts in it: a press, a
   // key or a scroll inside its chat, or focus they move into it. One that
   // shows only because it is first in a list is not: an unread the operator
@@ -542,6 +554,22 @@ export function ThreadChat({
     }, SAID_AFTER_MOUNT_MS);
     return () => clearTimeout(timer);
   }, [startedWaiting, name, say]);
+  // The signals raised in this thread that are still open, earliest first:
+  // what a reply will answer, and what stays open until work is handed in.
+  // The signal at the thread's head is not among them: its answer is what
+  // started the thread.
+  const openSignals = useMemo(
+    () => messages.flatMap((message) => (!message.mine && message.signal?.state === "open" ? [message.signal] : [])),
+    [messages],
+  );
+  const showSignal = (signalId: string): void => {
+    const marked = streamRef.current?.querySelectorAll<HTMLElement>("[data-signal-id]") ?? [];
+    for (const one of marked) {
+      if (one.dataset.signalId !== signalId) continue;
+      one.scrollIntoView?.({ block: "nearest" });
+      return;
+    }
+  };
   const subject = thread.subject ? subjectChipOf(thread.subject, thread.title, kindOf) : undefined;
   const count = `${thread.messageCount} ${thread.messageCount === 1 ? "message" : "messages"}`;
   const lastId = messages.at(-1)?.messageId;
@@ -599,39 +627,89 @@ export function ThreadChat({
             </p>
           ) : null}
           {loaded && messages.length === 0 && !error ? <p className="seat-threads__empty">Nothing sent yet.</p> : null}
+          {/* The signal whose answer started the thread, where the thread
+              starts: it was raised before any mail here, so it has no message
+              of its own. Its seat is the one this chat is with. */}
+          {headSignal !== undefined && older === undefined ? (
+            <article className="seat-threads__message" data-testid="seat-threads-head-signal" data-signal-id={headSignal.signalId}>
+              <SignalFrame signal={headSignal} author={name} onHandIn={openNeedsYouOn}>
+                <div className="seat-threads__message-head">
+                  <AgentPortrait identity={portraitOf(name)} size={20} frame="round" badge={false} outline={false} />
+                  <strong>{name}</strong>{" "}
+                  <ThreadTime className="seat-threads__message-time" form="message" at={headSignal.at} />
+                </div>
+                <div className="seat-threads__body">
+                  <ArtifactMarkdown
+                    source={stripAuthorPreamble(headSignal.text, [name])}
+                    className="seat-threads__prose"
+                    renderLink={renderLink}
+                    rehypePlugins={THREAD_MARKDOWN_PLUGINS}
+                  />
+                </div>
+              </SignalFrame>
+            </article>
+          ) : null}
           {messages.map((message, index) => {
             const previous = messages[index - 1];
+            // A seat's mail that is a signal reads as one: the message, in a frame.
+            const signal = message.mine ? undefined : message.signal;
             // The same seat writing twice in a row says its name once; the folded
             // head stays in the document, so a reader still hears who is speaking.
-            const folded = previous !== undefined && previous.author === message.author && message.at - previous.at < FOLD_MS;
+            // A signal keeps its head, and so does the mail after it: the frame
+            // ends the run.
+            const folded =
+              previous !== undefined &&
+              previous.author === message.author &&
+              message.at - previous.at < FOLD_MS &&
+              signal === undefined &&
+              previous.signal === undefined;
+            const head = (
+              <div className={folded ? "seat-threads__message-head sr-only" : "seat-threads__message-head"}>
+                {message.mine ? null : (
+                  <AgentPortrait identity={portraitOf(message.author)} size={20} frame="round" badge={false} outline={false} />
+                )}
+                <strong>{message.mine ? "You" : message.author}</strong>{" "}
+                <ThreadTime className="seat-threads__message-time" form="message" at={message.at} />
+              </div>
+            );
+            const words =
+              message.text !== "" || message.attachments === undefined ? (
+                <div className={message.mine ? "seat-threads__block" : "seat-threads__body"}>
+                  <ArtifactMarkdown
+                    source={stripAuthorPreamble(message.text, [message.author])}
+                    className="seat-threads__prose"
+                    renderLink={renderLink}
+                    rehypePlugins={THREAD_MARKDOWN_PLUGINS}
+                  />
+                </div>
+              ) : null;
+            const files = message.attachments ? <MessageAttachments files={message.attachments} /> : null;
             return (
               <article
                 key={message.messageId}
                 className="seat-threads__message"
                 data-mine={message.mine ? "true" : undefined}
                 data-folded={folded ? "true" : undefined}
+                data-signal-id={signal?.signalId}
                 data-testid="seat-threads-message"
               >
-                <div className={folded ? "seat-threads__message-head sr-only" : "seat-threads__message-head"}>
-                  {message.mine ? null : (
-                    <AgentPortrait identity={portraitOf(message.author)} size={20} frame="round" badge={false} outline={false} />
-                  )}
-                  <strong>{message.mine ? "You" : message.author}</strong>{" "}
-                  <ThreadTime className="seat-threads__message-time" form="message" at={message.at} />
-                </div>
-                {message.text !== "" || message.attachments === undefined ? (
-                  <div className={message.mine ? "seat-threads__block" : "seat-threads__body"}>
-                    <ArtifactMarkdown
-                      source={stripAuthorPreamble(message.text, [message.author])}
-                      className="seat-threads__prose"
-                      renderLink={renderLink}
-                      rehypePlugins={THREAD_MARKDOWN_PLUGINS}
-                    />
-                  </div>
-                ) : null}
-                {message.attachments ? <MessageAttachments files={message.attachments} /> : null}
-                {/* The operator's own mail that its seat does not have yet. */}
-                {message.mine && message.waiting ? <WaitingMark name={name} /> : null}
+                {signal !== undefined ? (
+                  <SignalFrame signal={signal} author={message.author} onHandIn={openNeedsYouOn}>
+                    {head}
+                    {words}
+                    {files}
+                  </SignalFrame>
+                ) : (
+                  <>
+                    {head}
+                    {/* The operator's mail that answered a signal says which, above its words. */}
+                    {message.mine && message.answers ? <AnswerTo text={message.answers.text} known={thread.participants} /> : null}
+                    {words}
+                    {files}
+                    {/* The operator's own mail that its seat does not have yet. */}
+                    {message.mine && message.waiting ? <WaitingMark name={name} /> : null}
+                  </>
+                )}
               </article>
             );
           })}
@@ -647,6 +725,7 @@ export function ThreadChat({
           threadId={thread.threadId}
           inReplyTo={lastId}
           yields={yields}
+          above={<ReplyAnswers open={openSignals} known={thread.participants} onShow={showSignal} onHandIn={openNeedsYouOn} />}
           onSent={(_threadId, mail) => {
             if (!mail.waiting) return;
             followed.current.add(mail.messageId);
