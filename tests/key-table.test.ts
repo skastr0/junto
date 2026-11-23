@@ -393,7 +393,20 @@ describe("threads", () => {
     expect(KEY_TABLE.some((def) => def.id.startsWith("inQuickThread.") && def.name.startsWith("Send"))).toBe(false);
     // The shell's Escape asks Quick thread for one step back before it closes.
     expect(chordsFor(row("inQuickThread.back"), true)).toEqual(["Escape"]);
-    for (const id of ["inQuickThread.move", "inQuickThread.pick", "inQuickThread.another", "inQuickThread.unpick", "inQuickThread.back"]) {
+    // Into a region with Cmd+Enter, as search opens a result; Escape in the confirm is Cancel.
+    expect(chordsFor(row("inQuickThread.narrow"), true)).toEqual(["Cmd+Enter"]);
+    expect(chordsFor(row("inQuickThread.narrow"), false)).toEqual(["Ctrl+Enter"]);
+    expect(chordsFor(row("inQuickThread.cancelSend"), true)).toEqual(["Escape"]);
+    expect(row("inQuickThread.cancelSend").where).toEqual(["operator"]);
+    for (const id of [
+      "inQuickThread.move",
+      "inQuickThread.pick",
+      "inQuickThread.another",
+      "inQuickThread.unpick",
+      "inQuickThread.back",
+      "inQuickThread.narrow",
+      "inQuickThread.cancelSend",
+    ]) {
       expect(row(id).surface, id).toBe(true);
       expect(row(id).area, id).toBe("Inside quick thread");
     }

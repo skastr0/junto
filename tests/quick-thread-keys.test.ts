@@ -66,6 +66,37 @@ describe("quick thread keys", () => {
   });
 });
 
+describe("regions as recipients", () => {
+  const onRegion: QuickThreadKeyState = { query: "jun", active: true, activeKind: "region", chosen: 0 };
+
+  it("chooses a region with Enter and goes into it with Cmd+Enter", () => {
+    expect(quickThreadIntentOf(key({ key: "Enter" }), onRegion, true)).toBe("pick");
+    expect(quickThreadIntentOf(key({ key: "Enter", shiftKey: true }), onRegion, true)).toBe("pickAnother");
+    expect(quickThreadIntentOf(key({ key: "Enter", metaKey: true }), onRegion, true)).toBe("narrow");
+  });
+
+  it("goes into nothing from a seat, or with no option active", () => {
+    expect(quickThreadIntentOf(key({ key: "Enter", metaKey: true }), typing, true)).toBeNull();
+    expect(quickThreadIntentOf(key({ key: "Enter", metaKey: true }), { ...onRegion, active: false }, true)).toBeNull();
+  });
+
+  it("takes a chosen region off as one with Backspace, after the narrowing", () => {
+    expect(quickThreadIntentOf(key({ key: "Backspace" }), { query: "", active: false, chosen: 1 }, true)).toBe("unpick");
+    expect(
+      quickThreadIntentOf(key({ key: "Backspace" }), { query: "", active: false, chosen: 1, narrowed: true }, true),
+    ).toBe("widen");
+  });
+
+  it("counts regions apart from seats in what it says", () => {
+    expect(chosenSeatsSpoken(2, 1)).toBe("1 region and 2 seats chosen");
+    expect(chosenSeatsSpoken(0, 2)).toBe("2 regions chosen");
+    expect(quickThreadSpoken({ kind: "added", seat: "Junto", chosen: 1, regions: 1 })).toBe("Junto added, 1 region chosen");
+    expect(quickThreadSpoken({ kind: "removed", seat: "Junto", chosen: 2, regions: 0 })).toBe(
+      "Junto taken off, 2 seats chosen",
+    );
+  });
+});
+
 describe("what quick thread says", () => {
   it("says each pick, each unpick and each narrowing with the count", () => {
     expect(quickThreadSpoken({ kind: "added", seat: "product-feed", chosen: 2 })).toBe("product-feed added, 2 seats chosen");

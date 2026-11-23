@@ -190,6 +190,8 @@ export type SurfaceKeyId =
   | "inQuickThread.another"
   | "inQuickThread.unpick"
   | "inQuickThread.back"
+  | "inQuickThread.narrow"
+  | "inQuickThread.cancelSend"
   | "inThread.send"
   | "inPreview.step"
   | "inPreview.compare"
@@ -932,7 +934,7 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     id: "inQuickThread.pick",
     area: "Inside quick thread",
     name: "Pick the seat",
-    does: "Pick the seat and write the message; on a region, show only its seats",
+    does: "Pick the seat or the region and write the message",
     keys: ["Enter"],
     where: ["field"],
   }),
@@ -940,7 +942,7 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     id: "inQuickThread.another",
     area: "Inside quick thread",
     name: "Pick it and add another",
-    does: "Pick the seat and stay in the seat field, to add another",
+    does: "Pick the seat or the region and stay in the seat field, to add another",
     keys: ["Shift+Enter"],
     where: ["field"],
   }),
@@ -948,7 +950,7 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     id: "inQuickThread.unpick",
     area: "Inside quick thread",
     name: "Take the last seat off",
-    does: "With nothing typed in the seat field, show every seat again, then take the last seat off",
+    does: "With nothing typed in the seat field, show every seat again, then take the last seat or region off",
     keys: ["Backspace"],
     where: ["field"],
   }),
@@ -960,6 +962,25 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     does: "Put the seat list away and go back to the message, when it was brought back to add a seat; otherwise close",
     keys: ["Escape"],
     where: ["field"],
+  }),
+  // Go into a region as search goes into a result: Cmd+Enter.
+  surfaceKey({
+    id: "inQuickThread.narrow",
+    area: "Inside quick thread",
+    name: "Pick seats in the region",
+    does: "On a region, show only its seats, to pick some of them",
+    keys: ["Cmd+Enter"],
+    keysOther: ["Ctrl+Enter"],
+    where: ["field"],
+  }),
+  // The confirm before a send to a region: its buttons have the keyboard.
+  surfaceKey({
+    id: "inQuickThread.cancelSend",
+    area: "Inside quick thread",
+    name: "Back to the draft",
+    does: "Before a send to a region, cancel it and go back to the draft",
+    keys: ["Escape"],
+    where: ["operator"],
   }),
   // A waiting card's way to what comes first. W for waits: J and K move, O,
   // A and D answer, and the digits send.
