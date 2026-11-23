@@ -35,13 +35,14 @@ describe("quick thread keys", () => {
 
   it("moves on to the message on Enter once a seat is chosen and nothing is typed", () => {
     expect(quickThreadIntentOf(key({ key: "Enter" }), empty, true)).toBe("write");
-    expect(quickThreadIntentOf(key({ key: "Enter" }), { ...empty, query: "zz" }, true)).toBeNull();
     expect(quickThreadIntentOf(key({ key: "Enter", shiftKey: true }), empty, true)).toBeNull();
   });
 
-  it("answers an Enter with nothing to pick and no seat chosen, so it can be said", () => {
+  it("answers an Enter with nothing to pick and nowhere to go, so it can be said", () => {
     expect(quickThreadIntentOf(key({ key: "Enter" }), { ...empty, chosen: 0 }, true)).toBe("nothing");
     expect(quickThreadIntentOf(key({ key: "Enter" }), { query: "zz", active: false, chosen: 0 }, true)).toBe("nothing");
+    // A query that matches nothing is said even with a seat chosen.
+    expect(quickThreadIntentOf(key({ key: "Enter" }), { ...empty, query: "zz" }, true)).toBe("nothing");
   });
 
   it("takes the last seat off with Backspace only when nothing is typed", () => {

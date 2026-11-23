@@ -24,7 +24,7 @@ export type QuickThreadIntent =
   | "pickAnother"
   /** Nothing to pick, a seat already chosen: on to the message. */
   | "write"
-  /** Enter with nothing to pick and no seat chosen: say why nothing happened. */
+  /** Enter with nothing to pick and nowhere to go: say why nothing happened. */
   | "nothing"
   /** Take the last chosen seat off. */
   | "unpick";
@@ -55,7 +55,8 @@ export const quickThreadIntentOf = (
   if (keyIs(event, "inQuickThread.pick", mac)) {
     if (state.active) return "pick";
     if (state.query === "" && state.chosen > 0) return "write";
-    return state.chosen === 0 ? "nothing" : null;
+    // No seat chosen, or a query that matches nothing: say why.
+    return "nothing";
   }
   if (keyIs(event, "inQuickThread.unpick", mac)) return state.query === "" && state.chosen > 0 ? "unpick" : null;
   return null;
