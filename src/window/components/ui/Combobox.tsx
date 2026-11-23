@@ -5,6 +5,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type KeyboardEvent,
   type ReactNode,
   type Ref,
 } from "react";
@@ -37,9 +38,12 @@ export function Combobox<T>({
   onOptionClick,
   onOptionDoubleClick,
   "aria-label": ariaLabel,
+  "aria-describedby": ariaDescribedBy,
+  "aria-keyshortcuts": ariaKeyShortcuts,
   listLabel,
   placeholder,
   fieldRef,
+  onFieldKeyDown,
   leading,
   trailing,
   status,
@@ -75,10 +79,20 @@ export function Combobox<T>({
   readonly onOptionClick?: (option: T) => void;
   readonly onOptionDoubleClick?: (option: T) => void;
   readonly "aria-label": string;
+  /** What else the field says of itself: the id of a line beside it. */
+  readonly "aria-describedby"?: string;
+  /** Keys a host adds to the field, as aria-keyshortcuts says them. */
+  readonly "aria-keyshortcuts"?: string;
   readonly listLabel: string;
   readonly placeholder?: string;
   /** The field itself, for a host that moves the keyboard to it. */
   readonly fieldRef?: Ref<HTMLInputElement>;
+  /**
+   * The host's keys in the field, asked before the combobox's own. True, or
+   * a key it prevented: the key was the host's and the combobox leaves it
+   * alone (an Escape the host sends on to its surface, a key of its own).
+   */
+  readonly onFieldKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => boolean | void;
   /** What stands before the field on its line (a filter the list is narrowed to). */
   readonly leading?: ReactNode;
   /** Controls beside the field (icon buttons). */
@@ -160,6 +174,8 @@ export function Combobox<T>({
             ref={setInput}
             role="combobox"
             aria-label={ariaLabel}
+            aria-describedby={ariaDescribedBy}
+            aria-keyshortcuts={ariaKeyShortcuts}
             aria-autocomplete="both"
             aria-expanded={listVisible && options.length > 0}
             aria-controls={listVisible ? listId : undefined}
@@ -184,6 +200,7 @@ export function Combobox<T>({
               onValueChange(event.target.value);
             }}
             onKeyDown={(event) => {
+              if (onFieldKeyDown?.(event) === true || event.defaultPrevented) return;
               const intent = comboboxKeyIntent(
                 {
                   key: event.key,

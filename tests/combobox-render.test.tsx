@@ -53,6 +53,14 @@ describe("Combobox markup", () => {
     expect(render({ selectedKey: "Projects" })).toContain('role="option" aria-selected="true"');
   });
 
+  it("says what a host adds to the field: a line that describes it and its own keys", () => {
+    const html = render({ "aria-describedby": "chosen-count", "aria-keyshortcuts": "Shift+Enter" });
+    expect(html).toContain('aria-describedby="chosen-count"');
+    expect(html).toContain('aria-keyshortcuts="Shift+Enter"');
+    // A field with neither says neither.
+    expect(render()).not.toContain("aria-keyshortcuts");
+  });
+
   it("marks every chosen option in a list that takes several", () => {
     const html = render({ selectedKeys: new Set(["Projects", "Pictures"]) });
     expect(html).toContain('aria-multiselectable="true"');
