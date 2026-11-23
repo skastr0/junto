@@ -141,3 +141,11 @@
 .operator-threads__pane-head .operator-threads__region {
   margin-right: 0;
 }
+
+/* Line 3's mark for the operator's own mail that waits for its seat: dim, on the text's middle. */
+.operator-threads__waiting {
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: -1px;
+  color: var(--color-dim);
+}

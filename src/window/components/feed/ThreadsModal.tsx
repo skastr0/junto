@@ -22,14 +22,14 @@ import {
   type RefObject,
 } from "react";
 import { use$ } from "@legendapp/state/react";
-import { Check, Plus } from "lucide-react";
+import { Check, Clock, Plus } from "lucide-react";
 import { titleOf, type Node } from "@shared/model";
 import type { FeedRegion } from "@shared/operator-feed";
 import { regionChipStyle } from "../../lib/region-chip-style";
 import { claimFocus, focusPrimaryControl } from "../../lib/focus-ownership";
 import { useListNav } from "../../lib/list-nav";
 import { regionPickKey, regionPickName } from "../../lib/operator-feed";
-import { previewText } from "../../lib/seat-threads";
+import { previewText, waitingForSeats } from "../../lib/seat-threads";
 import { ThreadTime } from "../threads/ThreadTime";
 import { provideThreadKey } from "../../lib/thread-keys";
 import { threadHeadline } from "../../lib/thread-text";
@@ -163,6 +163,13 @@ function ThreadListRow({
           <Line text={row.title} known={[row.seat.name]} />
         </span>
         <span className="operator-threads__last">
+          {/* The operator's own last mail, not yet with its seat. */}
+          {mine && row.last.waiting === true ? (
+            <>
+              <Clock className="operator-threads__waiting" size={11} strokeWidth={2} aria-hidden data-testid="operator-threads-row-waiting" />
+              <span className="sr-only">{waitingForSeats([row.seat.name])} </span>
+            </>
+          ) : null}
           {mine ? "You: " : null}
           <Line text={row.last.text} known={[row.seat.name]} />
         </span>
