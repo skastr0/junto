@@ -251,7 +251,7 @@ const auditTexels = (page: Page): Promise<TexelAudit | null> =>
 /** Checks (b) and (c) at one stop. `seen` carries the GPU error count across stops. */
 const checkStop = async (page: Page, where: string, seen: { errors: number }): Promise<Record<string, unknown>> => {
   const state = await readProofState(page);
-  const atlas = state.atlas as (typeof state.atlas & { compactions?: number }) | null;
+  const atlas = state.atlas as (typeof state.atlas & { compactions?: number; overwrites?: number }) | null;
   const errors = state.gpuErrors?.count ?? 0;
   if (state.gpuErrors === null) fail(`${where}: the build has no gpuErrors hook`);
   else if (errors > seen.errors) fail(`${where}: ${String(errors - seen.errors)} GPU error(s) since the last stop`, { last: state.gpuErrors.last });
@@ -267,6 +267,8 @@ const checkStop = async (page: Page, where: string, seen: { errors: number }): P
     zoom: Math.round(state.camera.zoom * 1000) / 1000,
     evictions: atlas?.evictions,
     compactions: atlas?.compactions,
+    // A cell re-keyed in place (status churn) counts here; pages stay flat.
+    overwrites: atlas?.overwrites,
     pages: atlas?.pages,
     landed: atlas?.landed,
     gpuErrors: errors,
