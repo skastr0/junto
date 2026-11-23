@@ -27,8 +27,13 @@
  *   (c) no GPU error since the last stop.
  *
  * During each gesture between two stops (each leg crosses one bucket
- * boundary), one frame is captured mid-gesture with the atlas unsettled and
- * compared, downsampled to 8 px blocks, against the reference of the nearest
+ * boundary), one frame is captured mid-gesture with the atlas unsettled. The
+ * leg churns first and lets the atlas raster the churned seats, then restores
+ * the baseline and settles, so the frame holds its reference's content and
+ * differs only by what the zoom did. A leg that crosses a tier captures just
+ * past the crossing, hysteresis included (where a card changes its drawing
+ * and a pop would show); any other leg captures at its geometric middle. The
+ * frame is compared, downsampled to 8 px blocks, against the reference of the nearest
  * stop of the same tier, mapped to the frame's camera. Tolerance: a block is
  * hot when its mean channel delta is over 56, and the frame fails on a
  * connected group of 12 or more hot blocks (about a 28 px square, smaller
@@ -539,6 +544,19 @@ const strip = (images: ReadonlyArray<PngImage>): PngImage => {
   return out;
 };
 
+/**
+ * Where a leg captures its frame: just past the tier boundary it crosses, as
+ * the hysteresis places it (in: the boundary plus 0.03, out: minus 0.03), or
+ * the geometric middle of a leg inside one tier.
+ */
+const captureZoom = (from: number, to: number): number => {
+  for (const edge of [TIER_FAR_MIN, TIER_MID_MIN, TIER_NEAR_MIN]) {
+    if (to > from && from < edge + TIER_HYSTERESIS && edge + TIER_HYSTERESIS < to) return Math.min(to, (edge + TIER_HYSTERESIS) * 1.02);
+    if (to < from && to < edge - TIER_HYSTERESIS && edge - TIER_HYSTERESIS < from) return Math.max(to, (edge - TIER_HYSTERESIS) / 1.02);
+  }
+  return Math.sqrt(from * to);
+};
+
 const tierOf = (zoom: number): string => (zoom >= TIER_NEAR_MIN ? "near" : zoom >= TIER_MID_MIN ? "mid" : zoom >= TIER_FAR_MIN ? "far" : "overview");
 
 const cameraAt = (pane: Rect, place: Place, zoom: number): Camera => ({
@@ -667,10 +685,15 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
         log(`stop ${name}`, { changed, blocks, ...facts });
       };
 
-      /** One gesture leg with a frame captured halfway, unsettled. */
+      /** One gesture leg with a frame captured unsettled: past a tier crossing, or halfway. */
       const leg = async (cycle: number, place: Place, from: number, to: number): Promise<void> => {
-        const mid = Math.sqrt(from * to);
+        const mid = captureZoom(from, to);
+        // Churn works the atlas; the baseline puts the reference's content back before the gesture.
         await churn.churn(junto.app);
+        await settleAtlas(page);
+        await churn.baseline(junto.app);
+        await page.waitForTimeout(1_500);
+        await settleAtlas(page);
         await pinch(page, centre, from, mid);
         const frame = await shot(page, pane);
         const state = await readProofState(page);
@@ -683,7 +706,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
         const ref = references.get(refKey(place.name, nearest))!;
         const { worstGroup, hot, diff } = compareGesture({ image: ref.unheld, mask: ref.mask, camera: ref.camera }, frame, state.camera, dpr);
         const name = `c${String(cycle)}-${place.name}-gesture-${String(from)}-${String(to)}`;
-        log(`gesture ${name}`, { zoom: Math.round(state.camera.zoom * 1000) / 1000, tier: state.tier, against: nearest, hot, worstGroup });
+        log(`gesture ${name}`, { aimed: Math.round(mid * 1000) / 1000, zoom: Math.round(state.camera.zoom * 1000) / 1000, tier: state.tier, against: nearest, hot, worstGroup });
         if (worstGroup >= 12) {
           const framePath = join(OUT, "stops", `${name}-frame.png`);
           const diffPath = join(OUT, "stops", `${name}-diff.png`);
