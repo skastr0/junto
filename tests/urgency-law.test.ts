@@ -574,10 +574,53 @@ describe("urgency law: the order to act", () => {
     expect(places.get("a")?.rank).toBe(rankOf(Level.notice));
   });
 
-  it("cuts a loop instead of hanging", () => {
-    const places = placesToAct([entry("a", Level.notice, ["b"]), entry("b", Level.blocked, ["a"])]);
-    expect(places.size).toBe(2);
-    expect(keepingOrderToAct([entry("a", Level.notice, ["b"]), entry("b", Level.blocked, ["a"])], (one) => one, () => 0)).toHaveLength(2);
+  it("takes a loop as one step, the same whatever order the entries come in", () => {
+    const loop = [entry("a", Level.notice, ["b"]), entry("b", Level.blocked, ["a"]), entry("c", Level.review, ["a"])];
+    const places = placesToAct(loop);
+    expect(placesToAct([...loop].reverse())).toEqual(places);
+    expect(places.get("a")).toEqual({ ready: false, rank: rankOf(Level.blocked), depth: 0 });
+    expect(places.get("b")).toEqual(places.get("a"));
+    expect(places.get("c")?.depth).toBe(1);
+    const kept = keepingOrderToAct(loop, (one) => one, () => 0).map((one) => one.id);
+    expect([...kept].sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("lifts and deepens through a diamond by the most of every path", () => {
+    // root, then left and right after it, then top after both; right sits one deeper.
+    const places = placesToAct([
+      entry("root", Level.notice),
+      entry("left", Level.notice, ["root"]),
+      entry("mid", Level.notice, ["root"]),
+      entry("right", Level.review, ["mid"]),
+      entry("top", Level.blocked, ["left", "right"]),
+    ]);
+    expect(places.get("top")?.depth).toBe(3);
+    expect(places.get("left")?.depth).toBe(1);
+    for (const id of ["root", "left", "mid", "right"]) expect(places.get(id)?.rank).toBe(rankOf(Level.blocked));
+  });
+
+  it("reads nothing from an empty list, a signal naming itself, or an id given twice", () => {
+    expect(placesToAct([]).size).toBe(0);
+    expect(keepingOrderToAct([], (one: ActEntry) => one, () => 0)).toEqual([]);
+    expect(placesToAct([entry("self", Level.notice, ["self"])]).get("self")).toEqual({ ready: false, rank: rankOf(Level.notice), depth: 0 });
+    const twice = placesToAct([entry("d", Level.blocked, ["x"]), entry("x", Level.notice), entry("d", Level.notice)]);
+    expect(twice.size).toBe(2);
+    expect(twice.get("x")?.rank).toBe(rankOf(Level.notice));
+  });
+
+  it("reads a chain of ten thousand without recursion", () => {
+    const long = Array.from({ length: 10_000 }, (_, n) => entry(`s${n}`, n === 9_999 ? Level.blocked : Level.notice, n === 0 ? [] : [`s${n - 1}`]));
+    const places = placesToAct(long);
+    expect(places.get("s9999")?.depth).toBe(9_999);
+    expect(places.get("s0")?.rank).toBe(rankOf(Level.blocked));
+  });
+
+  it("oldest first keeps a chain in order, and an id not here holds nothing", () => {
+    const raised = [entry("s1", Level.escalated, ["gone"]), entry("s2", Level.escalated, ["s1"]), entry("x", Level.escalated)];
+    const oldest = (a: ActEntry, b: ActEntry): number => raised.indexOf(a) - raised.indexOf(b);
+    expect(keepingOrderToAct(raised, (one) => one, oldest).map((one) => one.id)).toEqual(["s1", "s2", "x"]);
+    // Newest first, s2 waits behind s1, which waits on nothing here.
+    expect(keepingOrderToAct(raised, (one) => one, (a, b) => oldest(b, a)).map((one) => one.id)).toEqual(["x", "s1", "s2"]);
   });
 
   it("newest first never puts a chain upside down, and orders the rest newest first", () => {

@@ -352,49 +352,95 @@ export type ActPlace = {
 
 /**
  * Each entry's place. A loop cannot be raised (a signal names only earlier
- * ones), but one read here is cut where it closes, so it ranks and never
- * hangs. A signal waited on that is not among the entries lifts and deepens
- * nothing.
+ * ones), but one read here is taken as one step: every signal in it shares
+ * the loop's depth and its most urgent rank, so the answer never hangs and
+ * never depends on the order the entries come in. A signal waited on that is
+ * not among the entries lifts and deepens nothing; a signal naming itself
+ * waits on nothing; an id given twice is its last entry.
+ *
+ * It follows every id an entry names: the bound of eight a signal may come
+ * after is the schema's (agent-signals.ts), not this walk's. No recursion, so
+ * a chain of any length reads in a stack of one frame.
  */
 export const placesToAct = (entries: Iterable<ActEntry>): ReadonlyMap<string, ActPlace> => {
   const open = new Map<string, ActEntry>();
   for (const entry of entries) open.set(entry.id, entry);
-  const holds = (entry: ActEntry): string[] => [...new Set(entry.waitingOn)].filter((id) => id !== entry.id && open.has(id));
-  const waiters = new Map<string, string[]>();
-  for (const entry of open.values()) {
-    for (const id of holds(entry)) waiters.set(id, [...(waiters.get(id) ?? []), entry.id]);
+  const ids = [...open.keys()].sort();
+  const holds = new Map<string, string[]>();
+  for (const id of ids) holds.set(id, [...new Set(open.get(id)!.waitingOn)].filter((before) => before !== id && open.has(before)).sort());
+
+  // The loops, one group each (Tarjan, with its own stack): a group is
+  // emitted only after every group it waits on.
+  const groupOf = new Map<string, number>();
+  const groups: string[][] = [];
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  let counter = 0;
+  for (const root of ids) {
+    if (index.has(root)) continue;
+    const frames: Array<{ readonly id: string; next: number }> = [{ id: root, next: 0 }];
+    index.set(root, counter);
+    low.set(root, counter++);
+    stack.push(root);
+    onStack.add(root);
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1]!;
+      const before = holds.get(frame.id)!;
+      if (frame.next < before.length) {
+        const to = before[frame.next++]!;
+        if (!index.has(to)) {
+          index.set(to, counter);
+          low.set(to, counter++);
+          stack.push(to);
+          onStack.add(to);
+          frames.push({ id: to, next: 0 });
+        } else if (onStack.has(to)) {
+          low.set(frame.id, Math.min(low.get(frame.id)!, index.get(to)!));
+        }
+        continue;
+      }
+      frames.pop();
+      const parent = frames[frames.length - 1];
+      if (parent !== undefined) low.set(parent.id, Math.min(low.get(parent.id)!, low.get(frame.id)!));
+      if (low.get(frame.id) !== index.get(frame.id)) continue;
+      const group: string[] = [];
+      for (;;) {
+        const member = stack.pop()!;
+        onStack.delete(member);
+        groupOf.set(member, groups.length);
+        group.push(member);
+        if (member === frame.id) break;
+      }
+      groups.push(group);
+    }
   }
-  const depths = new Map<string, number>();
-  const depthOf = (id: string, path: Set<string>): number => {
-    const known = depths.get(id);
-    if (known !== undefined) return known;
-    path.add(id);
-    let depth = 0;
-    for (const before of holds(open.get(id)!)) {
-      if (!path.has(before)) depth = Math.max(depth, depthOf(before, path) + 1);
+
+  // Depth in emit order (what a group waits on comes first), rank in reverse
+  // (what waits on a group comes first), each over the groups, not the ids.
+  const depth = groups.map(() => 0);
+  const rank = groups.map((group) => Math.max(...group.map((id) => open.get(id)!.rank)) as UrgencyRank);
+  for (let at = 0; at < groups.length; at++) {
+    for (const id of groups[at]!) {
+      for (const before of holds.get(id)!) {
+        const from = groupOf.get(before)!;
+        if (from !== at) depth[at] = Math.max(depth[at]!, depth[from]! + 1);
+      }
     }
-    path.delete(id);
-    depths.set(id, depth);
-    return depth;
-  };
-  const ranks = new Map<string, UrgencyRank>();
-  const rankFor = (id: string, path: Set<string>): UrgencyRank => {
-    const known = ranks.get(id);
-    if (known !== undefined) return known;
-    path.add(id);
-    let rank = open.get(id)!.rank;
-    for (const after of waiters.get(id) ?? []) {
-      if (path.has(after)) continue;
-      const lifted = rankFor(after, path);
-      if (lifted > rank) rank = lifted;
+  }
+  for (let at = groups.length - 1; at >= 0; at--) {
+    for (const id of groups[at]!) {
+      for (const before of holds.get(id)!) {
+        const to = groupOf.get(before)!;
+        if (to !== at && rank[at]! > rank[to]!) rank[to] = rank[at]!;
+      }
     }
-    path.delete(id);
-    ranks.set(id, rank);
-    return rank;
-  };
+  }
   const places = new Map<string, ActPlace>();
-  for (const entry of open.values()) {
-    places.set(entry.id, { ready: entry.ready, rank: rankFor(entry.id, new Set()), depth: depthOf(entry.id, new Set()) });
+  for (const [id, entry] of open) {
+    const at = groupOf.get(id)!;
+    places.set(id, { ready: entry.ready, rank: rank[at]!, depth: depth[at]! });
   }
   return places;
 };
