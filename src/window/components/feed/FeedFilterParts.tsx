@@ -82,8 +82,8 @@ export function FeedSeatsRow({
   /** The kept seat's id; undefined keeps every seat. */
   readonly chosen: string | undefined;
   readonly open: boolean;
-  /** What a chip's count counts, as its name says it ("2 waiting", "2 threads"). */
-  readonly countWord: string;
+  /** What a chip's count counts, as its name says it ("2 waiting", "1 thread"). */
+  readonly countWord: string | ((count: number) => string);
   readonly onPick: (seatId: string) => void;
 }) {
   return (
@@ -96,7 +96,7 @@ export function FeedSeatsRow({
           data-testid="feed-seat-chip"
           data-seat={chip.seatId}
           aria-pressed={chosen === chip.seatId}
-          aria-label={`${chip.name}${chip.count > 0 ? `, ${chip.count} ${countWord}` : ""}`}
+          aria-label={`${chip.name}${chip.count > 0 ? `, ${chip.count} ${typeof countWord === "string" ? countWord : countWord(chip.count)}` : ""}`}
           style={regionChipStyle(chip)}
           title={chip.regionLabel ? `${chip.name} in ${chip.regionLabel}` : chip.name}
           onClick={() => onPick(chip.seatId)}

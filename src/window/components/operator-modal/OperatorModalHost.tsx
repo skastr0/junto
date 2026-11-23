@@ -3,6 +3,7 @@ import type { ComponentType } from "react";
 import { operatorModal$, type OperatorModalId } from "../../lib/operator-modal";
 import { CommandBar } from "../command-bar/CommandBar";
 import { OperatorFeed } from "../feed/OperatorFeed";
+import { OperatorThreads } from "../feed/OperatorThreads";
 import { CommitReviewModal } from "../git/CommitReviewModal";
 import { QuickCapture } from "../capture/QuickCapture";
 
@@ -15,6 +16,8 @@ const MODALS: Record<OperatorModalId, ComponentType> = {
   git: CommitReviewModal,
   // Cmd+T: a new document with the caret in it, and the canvas's artifacts beside it.
   capture: QuickCapture,
+  // Cmd+U: the operator's threads across every seat, the feed's sibling.
+  threads: OperatorThreads,
 };
 
 /**

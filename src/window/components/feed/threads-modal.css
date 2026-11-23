@@ -1,0 +1,143 @@
+/* Threads, the needs-you feed's sibling. The shell, controls, filter bar,
+   split and empty states are the feed's (operator-feed.css); the row box,
+   its selection, the unread pill and the time are the seat Threads list's
+   (seat-threads.css), so both lists read and select the same way. Only what
+   neither holds is here. */
+
+.operator-threads__scroll {
+  display: flex;
+  flex-direction: column;
+  padding-top: 4px;
+}
+
+.operator-threads__new {
+  align-self: flex-start;
+  margin: 2px 0 8px;
+}
+
+.operator-threads__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.operator-threads__row {
+  gap: 4px;
+}
+
+/* Line 1: the ring, the seat (it truncates first), its region, unread, time. */
+.operator-threads__row-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.operator-threads__face {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+}
+
+.operator-threads__seat,
+.operator-threads__pane-seat {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--color-ink);
+}
+
+/* Unread is said three ways, never by colour alone: the pill, the seat at
+   600, and the last mail in ink. */
+.operator-threads__row[data-unread="true"] .operator-threads__seat {
+  font-weight: 600;
+}
+
+.operator-threads__region {
+  display: inline-flex;
+  flex: 0 2 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-right: auto;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+
+.operator-threads__region .feed-region-chip__swatch {
+  width: 12px;
+  height: 12px;
+}
+
+.operator-threads__region[data-open-field="true"] .feed-region-chip__swatch {
+  background: transparent;
+}
+
+.operator-threads__region[data-open-field="true"] .feed-region-chip__swatch::before {
+  box-sizing: border-box;
+  border: 1.5px solid var(--color-dim);
+  background: transparent;
+}
+
+.operator-threads__region-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operator-threads__time {
+  color: var(--color-faint);
+}
+
+/* Lines 2 and 3: the thread's line, then its last mail. One line each. */
+.operator-threads__line,
+.operator-threads__last {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+}
+
+.operator-threads__line {
+  color: var(--color-ink);
+}
+
+.operator-threads__last {
+  color: var(--color-dim);
+}
+
+.operator-threads__row[data-unread="true"] .operator-threads__last {
+  color: var(--color-ink);
+}
+
+/* The right pane: the seat, its region and Open seat over the one thread chat. */
+.operator-threads__pane-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--color-stroke);
+}
+
+.operator-threads__open {
+  flex: none;
+  margin-left: auto;
+}
+
+.operator-threads__pane-head .operator-threads__region {
+  margin-right: 0;
+}
