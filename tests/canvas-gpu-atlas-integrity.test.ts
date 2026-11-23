@@ -9,7 +9,7 @@
  * WebGPU rejects. The rest hold the line beside them.
  */
 import { describe, expect, it } from "vitest";
-import { createGpuAtlas, type AtlasPixels, type GpuAtlasOptions } from "../src/window/canvas/engine/gpu-atlas";
+import { createGpuAtlas, rasterizeSprite, type AtlasPixels, type GpuAtlasOptions } from "../src/window/canvas/engine/gpu-atlas";
 import { ATLAS_CELL_FLOATS } from "../src/window/canvas/engine/types";
 import { NO_ATLAS_CELL } from "../src/window/canvas/engine/quad";
 import type { Quad, QuadStyle, SpriteRef } from "../src/window/canvas/contract";
@@ -427,5 +427,73 @@ describe("a stand-in names a cell with pixels of its own", () => {
     const text = atlas.acquire(textQuad("status"), 1, sprite);
     expect(text).not.toBe(sprite);
     expect(atlas.hasImage(text)).toBe(false);
+  });
+});
+
+describe("an async sprite raster answers with pixels of its own", () => {
+  it("two cells waiting on one decode each land their own picture", async () => {
+    const g = globalThis as Record<string, unknown>;
+    const saved = { document: g["document"], Image: g["Image"], createImageBitmap: g["createImageBitmap"] };
+    const createObjectURL = URL.createObjectURL;
+    const revokeObjectURL = URL.revokeObjectURL;
+    // A canvas that remembers the last picture drawn on it, and a
+    // createImageBitmap that, like the real one, copies what the canvas holds
+    // at the moment it is called.
+    type FakeCanvas = { width: number; height: number; holds: string; getContext: () => unknown };
+    g["document"] = {
+      createElement: (): FakeCanvas => {
+        const canvas: FakeCanvas = {
+          width: 1,
+          height: 1,
+          holds: "",
+          getContext: () => ({
+            clearRect: () => {
+              canvas.holds = "";
+            },
+            drawImage: (_image: unknown, _x: number, _y: number, w: number, h: number) => {
+              canvas.holds = `${w}x${h}`;
+            },
+          }),
+        };
+        return canvas;
+      },
+    };
+    g["Image"] = class FakeImage {
+      src = "";
+      async decode(): Promise<void> {}
+    };
+    g["createImageBitmap"] = (source: FakeCanvas, _x: number, _y: number, width: number, height: number) => {
+      const holds = source.holds;
+      return Promise.resolve({ width, height, holds, close: () => undefined });
+    };
+    URL.createObjectURL = () => "blob:fake";
+    URL.revokeObjectURL = () => undefined;
+
+    try {
+      const portrait = (side: number): Quad =>
+        spriteQuad(
+          { atlas: "image", key: "integrity-shared-scratch", svg: "<svg></svg>", size: { width: 40, height: 40 } } as SpriteRef,
+          side,
+          side,
+        );
+      // One portrait at two sizes, asked for in one frame: both wait on the same decode.
+      const [small, large] = (await Promise.all([
+        rasterizeSprite(portrait(20), "dark", 1),
+        rasterizeSprite(portrait(40), "dark", 1),
+      ])) as unknown as ReadonlyArray<{ readonly width: number; readonly holds?: string; readonly source?: unknown }>;
+
+      // 0.11.14: both answers were the one scratch canvas, which by then held the
+      // larger picture, so the small cell landed its top-left corner.
+      expect(small!.source).toBeUndefined();
+      expect(large!.source).toBeUndefined();
+      expect(small!.holds).toBe("20x20");
+      expect(large!.holds).toBe("40x40");
+    } finally {
+      g["document"] = saved.document;
+      g["Image"] = saved.Image;
+      g["createImageBitmap"] = saved.createImageBitmap;
+      URL.createObjectURL = createObjectURL;
+      URL.revokeObjectURL = revokeObjectURL;
+    }
   });
 });

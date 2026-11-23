@@ -2305,7 +2305,12 @@ const getMeasureCtx = (): CanvasRenderingContext2D => {
   return measureScratch.ctx;
 };
 
-/** Grow-only scratch canvas: never shrinks, clears (w+1)x(h+1) so the 1px gutter is transparent. */
+/**
+ * Grow-only scratch canvas: never shrinks, clears (w+1)x(h+1) so the 1px
+ * gutter is transparent. Its pixels are good only until the next raster: a
+ * caller copies from it before anything else runs, and never hands the canvas
+ * itself across an `await`.
+ */
 let drawScratch: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | undefined;
 const getDrawScratch = (w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } => {
   const cw = Math.max(1, Math.ceil(w));
@@ -2824,6 +2829,17 @@ export const rasterizeSpriteSync: SpriteRasterizeSync = (quad, mode, scale) => {
   return { source: canvas, width: w, height: h };
 };
 
+/**
+ * The async sprite rasterizer answers with a bitmap of its own, never with
+ * the shared scratch.
+ *
+ * Every cell waiting on one decode resumes back to back. Each cleared and
+ * redrew the scratch, and only then did the atlas copy from it, so every cell
+ * but the last landed the last one's picture cropped to its own box: a small
+ * portrait cell held the top-left corner of a larger raster of the same
+ * portrait, for good. `createImageBitmap` copies the canvas's pixels when it
+ * is called, so the bitmap is taken in the same turn as the draw.
+ */
 export const rasterizeSprite: SpriteRasterize = async (quad, mode, scale) => {
   const ref = quad.sprite;
   if (ref === undefined) throw new Error("rasterizeSprite needs a sprite quad");
@@ -2838,14 +2854,14 @@ export const rasterizeSprite: SpriteRasterize = async (quad, mode, scale) => {
     const entry = await decodeSvgSourceOnce(ref, mode);
     const { canvas, ctx } = getDrawScratch(w, h);
     drawDecodedSvg(ctx, entry, w, h);
-    return { source: canvas, width: w, height: h };
+    return createImageBitmap(canvas, 0, 0, w, h);
   }
 
   // media: decode once per file, draw fitted at any scale
   const entry = await decodeMediaSourceOnce(ref);
   const { canvas, ctx } = getDrawScratch(w, h);
   drawDecodedMedia(ctx, entry, ref.fit, mode, w, h);
-  return { source: canvas, width: w, height: h };
+  return createImageBitmap(canvas, 0, 0, w, h);
 };
 
 // --- OffscreenCanvas worker pool for off-main-thread rasterization -----------
