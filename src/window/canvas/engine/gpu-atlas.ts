@@ -157,6 +157,8 @@ interface Plot {
   pinnedCount: number;
   floorPinnedCount: number;
   lastUsedTick: number;
+  /** A cell was placed here since the plot's texels were last cleared. */
+  written: boolean;
 }
 
 interface Page {
@@ -246,6 +248,8 @@ const RGBA_MAX_MIP_LEVELS = 4; // 1x, 1/2x, 1/4x, 1/8x -> needs 8px gutter
 const INITIAL_CELL_CAPACITY = 256;
 const TEXTURE_USAGE_ATLAS = 0x01 | 0x02 | 0x04 | 0x10; // COPY_SRC | COPY_DST | TEXTURE_BINDING | RENDER_ATTACHMENT
 const TEXTURE_USAGE_COVERAGE = 0x01 | 0x02 | 0x04; // COPY_SRC | COPY_DST | TEXTURE_BINDING (writeTexture needs no RENDER_ATTACHMENT)
+/** A plot is cleared in bands of rows no larger than this, from one reused buffer of zeros. */
+const WIPE_BAND_BYTES = 1 << 20;
 const BASE_RETRY_MS = 250;
 const MAX_RETRY_MS = 8000;
 
@@ -376,6 +380,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const gutterFor = (kind: PoolKind): number =>
     kind === "rgba" && rgbaMipCount > 1 ? 1 << (rgbaMipCount - 1) : 1;
 
+  let wipeZeros: Uint8Array<ArrayBuffer> = new Uint8Array(0);
   let dirty = false;
   let flushScheduled = false;
   let disposed = false;
@@ -789,6 +794,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
             pinnedCount: 0,
             floorPinnedCount: 0,
             lastUsedTick: ++plotTick,
+            written: false,
           });
         }
       }
@@ -807,6 +813,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
           pinnedCount: 0,
           floorPinnedCount: 0,
           lastUsedTick: ++plotTick,
+          written: false,
         });
       }
     } else {
@@ -822,6 +829,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         pinnedCount: 0,
         floorPinnedCount: 0,
         lastUsedTick: ++plotTick,
+        written: false,
       });
     }
 
@@ -864,6 +872,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     plot.cursorY = cy;
     plot.rowH = Math.max(rh, needH);
     plot.lastUsedTick = ++plotTick;
+    plot.written = true;
     return { pool: pool.kind, page, plot, x, y, w, h };
   };
 
@@ -885,6 +894,53 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     return undefined;
   };
 
+  /**
+   * Clear a plot's texels at every level.
+   *
+   * A cell's own gutter is on its right and below. What is on its left and
+   * above is a neighbour's gutter, or space no cell was given, and a linear
+   * tap at the cell's edge or one of its smaller levels reads it. A landing
+   * writes exactly its own pixels, so whatever a plot's last tenants left
+   * would sit in the new tenants' gutters. The plot is cleared once, when it
+   * is emptied, and every cell placed in it after that lands on transparent
+   * texels.
+   */
+  const wipePlot = (pool: PagePool, page: Page, plot: Plot): void => {
+    if (!plot.written) return;
+    plot.written = false;
+    if (device === undefined || page.dead) return;
+    for (let level = 0; level < page.mipCount; level += 1) {
+      const x = plot.x0 >> level;
+      const y = plot.y0 >> level;
+      const w = Math.max(1, plot.w >> level);
+      const h = Math.max(1, plot.h >> level);
+      const bytesPerRow = w * pool.bytesPerPixel;
+      const bandRows = Math.max(1, Math.min(h, Math.floor(WIPE_BAND_BYTES / bytesPerRow)));
+      if (wipeZeros.length < bytesPerRow * bandRows) wipeZeros = new Uint8Array(bytesPerRow * bandRows);
+      for (let row = 0; row < h; row += bandRows) {
+        const rows = Math.min(bandRows, h - row);
+        device.queue.writeTexture(
+          { texture: page.texture, origin: { x, y: y + row, z: 0 }, mipLevel: level },
+          wipeZeros,
+          { bytesPerRow, rowsPerImage: rows },
+          { width: w, height: rows, depthOrArrayLayers: 1 },
+        );
+      }
+    }
+  };
+
+  /** An emptied plot starts over: nothing listed, its cursor at the origin, its texels clear. */
+  const resetPlot = (pool: PagePool, page: Page, plot: Plot): void => {
+    plot.cells.clear();
+    plot.pinnedCount = 0;
+    plot.floorPinnedCount = 0;
+    // (0,0) of page 0 stays transparent: a row of zeros samples it.
+    plot.cursorX = page.pageIndex === 0 && plot.x0 === 0 && plot.y0 === 0 ? 1 : 0;
+    plot.cursorY = 0;
+    plot.rowH = 0;
+    wipePlot(pool, page, plot);
+  };
+
   const demoteFloor = (rec: SlotRecord): void => {
     if (!rec.isFloor) return;
     rec.isFloor = false;
@@ -902,7 +958,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
    * Evict every cell of a plot in one shot (zero fragmentation). The caller
    * has checked that no quad holds one of them.
    */
-  const evictPlot = (page: Page, plot: Plot): void => {
+  const evictPlot = (pool: PagePool, page: Page, plot: Plot): void => {
     for (const idx of [...plot.cells]) {
       const rec = slots[idx];
       // Only a slot placed in this plot is this plot's to free.
@@ -910,12 +966,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       freeSlot(rec);
       evictions += 1;
     }
-    plot.cells.clear();
-    plot.pinnedCount = 0;
-    plot.floorPinnedCount = 0;
-    plot.cursorX = page.pageIndex === 0 && plot.x0 === 0 && plot.y0 === 0 ? 1 : 0;
-    plot.cursorY = 0;
-    plot.rowH = 0;
+    resetPlot(pool, page, plot);
   };
 
   /**
@@ -957,20 +1008,14 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       }
     }
     if (bestPage === undefined || bestPlot === undefined) return undefined;
-    evictPlot(bestPage, bestPlot);
+    evictPlot(pool, bestPage, bestPlot);
     return { page: bestPage, plot: bestPlot };
   };
 
   const freePlaced = (at: Placed, cellIndex: number): void => {
     at.plot.cells.delete(cellIndex);
     standaloneTextures.delete(cellIndex);
-    if (at.plot.cells.size === 0) {
-      at.plot.pinnedCount = 0;
-      at.plot.floorPinnedCount = 0;
-      at.plot.cursorX = at.page.pageIndex === 0 && at.plot.x0 === 0 && at.plot.y0 === 0 ? 1 : 0;
-      at.plot.cursorY = 0;
-      at.plot.rowH = 0;
-    }
+    if (at.plot.cells.size === 0) resetPlot(poolFor(at.pool), at.page, at.plot);
   };
 
   const freeStandalone = (rec: SlotRecord): void => {
@@ -1098,12 +1143,14 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       return;
     }
     const imgSource = ("source" in pixels ? pixels.source : pixels) as unknown as ImageBitmap;
-    const copyW = "source" in pixels && pixels.source.width >= gw ? gw : w;
-    const copyH = "source" in pixels && pixels.source.height >= gh ? gh : h;
+    // Exactly the raster's own pixels. The gutter is the plot's cleared
+    // texels; past its cell, a scratch canvas holds whatever a larger raster
+    // left there, and copying that margin put it in the gutter for the
+    // smaller levels to average into the cell's edge.
     device!.queue.copyExternalImageToTexture(
       { source: imgSource },
       { texture: at.page.texture, origin: { x: at.x, y: at.y, z: 0 } },
-      { width: copyW, height: copyH },
+      { width: w, height: h },
     );
     if (at.page.mipCount > 1) {
       dirtyMipRects.push({ texture: at.page.texture, mipCount: at.page.mipCount, x: at.x, y: at.y, w, h, gutter });

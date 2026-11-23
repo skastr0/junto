@@ -478,6 +478,122 @@ describe("a cell landed inside a frame has its smaller levels before the frame i
   });
 });
 
+/** A device that can draw mip levels (the atlas then keeps four, with an 8px gutter) and records every texel write. */
+const recordingMipDevice = () => {
+  type Write = {
+    readonly op: "copy" | "write";
+    readonly level: number;
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+    /** A write of nothing but zeros, long enough for its rect. */
+    readonly clears: boolean;
+  };
+  const writes: Write[] = [];
+  const base = fakeDevice().device as unknown as Record<string, unknown>;
+  type Target = { readonly origin?: { readonly x?: number; readonly y?: number }; readonly mipLevel?: number };
+  const device = {
+    ...base,
+    createShaderModule: () => ({}),
+    createBindGroupLayout: () => ({}),
+    createPipelineLayout: () => ({}),
+    createRenderPipeline: () => ({}),
+    createBindGroup: () => ({}),
+    createCommandEncoder: () => ({
+      copyTextureToTexture: () => undefined,
+      beginRenderPass: () => ({ setPipeline: () => undefined, setBindGroup: () => undefined, setScissorRect: () => undefined, draw: () => undefined, end: () => undefined }),
+      finish: () => ({}),
+    }),
+    queue: {
+      copyExternalImageToTexture: (_source: unknown, target: Target, size: { width: number; height: number }) =>
+        writes.push({ op: "copy", level: target.mipLevel ?? 0, x: target.origin?.x ?? 0, y: target.origin?.y ?? 0, width: size.width, height: size.height, clears: false }),
+      writeTexture: (target: Target, data: Uint8Array, layout: { bytesPerRow: number }, size: { width: number; height: number }) =>
+        writes.push({
+          op: "write",
+          level: target.mipLevel ?? 0,
+          x: target.origin?.x ?? 0,
+          y: target.origin?.y ?? 0,
+          width: size.width,
+          height: size.height,
+          clears: data.length >= layout.bytesPerRow * size.height && data.every((byte) => byte === 0),
+        }),
+      submit: () => undefined,
+      writeBuffer: () => undefined,
+    },
+  } as unknown as GPUDevice;
+  return { device, writes };
+};
+
+describe("the gutter round a cell is clear", () => {
+  it("a landing copies exactly its raster's pixels, not the scratch canvas beside them", () => {
+    const { device, writes } = recordingMipDevice();
+    // The raster drew 24 by 24 on a scratch canvas left 400 by 400 by an earlier, larger sprite.
+    const scratch = { width: 400, height: 400 };
+    const atlas = atlasWith({ rasterizeSpriteSync: () => ({ source: scratch, width: 24, height: 24 }) as unknown as AtlasPixels });
+    atlas.attach(device);
+    const cell = atlas.acquire(spriteQuad({ atlas: "mark", cell: { col: 0, row: 0 } } as SpriteRef, 24, 24), 1);
+    expect(atlas.ensureNow(cell)).toBe(true);
+
+    // 0.11.14: copied 32 by 32, the cell and its 8px gutter, and the scratch
+    // was cleared one pixel past the cell: seven gutter pixels held the larger
+    // sprite, and the smaller levels averaged them into the cell's edge.
+    const copies = writes.filter((write) => write.op === "copy");
+    expect(copies).toHaveLength(1);
+    expect(copies[0]).toMatchObject({ width: 24, height: 24 });
+  });
+
+  it("a plot handed out again is cleared at every level before its next cell lands", async () => {
+    // A 64px colour page with four levels: one plot, four 16px cells with their 8px gutters.
+    const { device, writes } = recordingMipDevice();
+    const atlas = atlasWith({ size: 64 });
+    atlas.attach(device);
+    const first: number[] = [];
+    for (let i = 0; i < 4; i += 1) first.push(atlas.acquire(mark(i), 1));
+    await drain();
+    expect(atlas.stats().pages).toBe(1);
+    for (const cell of first) atlas.release(cell);
+
+    // The fifth cell has no room: the plot, which nothing on screen holds, is wiped and reused.
+    writes.length = 0;
+    const next = atlas.acquire(mark(9), 1);
+    await drain();
+    expect(atlas.hasImage(next)).toBe(true);
+    expect(atlas.stats().pages).toBe(1);
+    expect(atlas.stats().evictions).toBe(4);
+
+    // 0.11.14: the plot's cursor went back to its origin and its texels stayed,
+    // so the new cell's gutter and smaller levels held the last cells' pixels.
+    const landing = writes.findIndex((write) => write.op === "copy");
+    expect(landing).toBeGreaterThan(-1);
+    const cleared = writes.slice(0, landing).filter((write) => write.clears);
+    expect(cleared.map((write) => [write.level, write.x, write.y, write.width, write.height])).toEqual([
+      [0, 0, 0, 64, 64],
+      [1, 0, 0, 32, 32],
+      [2, 0, 0, 16, 16],
+      [3, 0, 0, 8, 8],
+    ]);
+  });
+
+  it("a text plot handed out again is cleared too", async () => {
+    const { device, writes } = recordingMipDevice();
+    const atlas = atlasWith({ size: 64, rasterizeText: async () => pixels(40, 40) });
+    atlas.attach(device);
+    const a = atlas.acquire(textQuad("a"), 1);
+    await drain();
+    atlas.release(a);
+
+    writes.length = 0;
+    const b = atlas.acquire(textQuad("b"), 1);
+    await drain();
+    expect(atlas.hasImage(b)).toBe(true);
+    expect(atlas.stats().evictions).toBe(1);
+    // 0.11.14: nothing cleared the plot. The first write is the whole plot, zeros; the cell follows.
+    expect(writes[0]).toMatchObject({ op: "write", level: 0, x: 0, y: 0, width: 64, height: 64, clears: true });
+    expect(writes.length).toBeGreaterThan(1);
+  });
+});
+
 describe("an async sprite raster answers with pixels of its own", () => {
   it("two cells waiting on one decode each land their own picture", async () => {
     const g = globalThis as Record<string, unknown>;
