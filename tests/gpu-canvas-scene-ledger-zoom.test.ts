@@ -5,7 +5,8 @@
 // lines and portraits as it goes and rasters landing in a random order. A
 // ledger wraps the atlas interface and holds the scene to the contract on
 // every call; every frame, the cells the scene's records hold are matched
-// against it and handed to the atlas's own audit, which must find nothing.
+// against it and handed to the atlas's own audit, which must find nothing,
+// and no record in view draws empty.
 
 import { describe, expect, it } from "vitest";
 import { asCanvasName } from "@shared/model";
@@ -92,6 +93,7 @@ type Run = {
   readonly ledger: ReadonlyArray<string>;
   readonly audit: ReadonlyArray<string>;
   readonly lostImage: ReadonlyArray<string>;
+  readonly blank: ReadonlyArray<string>;
 };
 
 /** Zoom 2.4 to 0.16 and back, `rounds` times, on an atlas of `page` px pages and `bindLimit` sampled textures. */
@@ -199,6 +201,7 @@ const zoomRun = async (page: number, bindLimit: number, rounds: number): Promise
   const ledger: string[] = [];
   const audited: string[] = [];
   const lostImage: string[] = [];
+  const blank: string[] = [];
   const lastImage = new Map<number, number>();
   const tiers = new Set<CanvasTier>();
   let tier: CanvasTier = tierForZoom(zoom);
@@ -216,6 +219,10 @@ const zoomRun = async (page: number, bindLimit: number, rounds: number): Promise
     tier = tierForZoom(zoom, tier);
     tiers.add(tier);
     scene.prepare(viewAt(), tier);
+    // Every record in view has its image this frame, or a cold sprite's shape
+    // (a cell evicted under pressure is rasterized again in the frame).
+    const { visibleBlank } = scene.blankStats();
+    if (visibleBlank > 0) blank.push(`${at()} at ${zoom.toFixed(3)} ${tier}: ${String(visibleBlank)} records in view draw empty`);
     // The records' source words are the ledger, cell for cell.
     const words = scene.heldCells();
     for (const [cell, count] of words) if ((held.get(cell) ?? 0) !== count) ledger.push(`${at()}: ${String(cell)} held by ${String(count)} records, ${String(held.get(cell) ?? 0)} by the ledger`);
@@ -265,7 +272,7 @@ const zoomRun = async (page: number, bindLimit: number, rounds: number): Promise
     for (const resolve of pending.splice(0)) resolve();
     await frame();
   }
-  return { acquires, releases, tiers, evictions: atlas.stats().evictions, contract, ledger, audit: audited, lostImage };
+  return { acquires, releases, tiers, evictions: atlas.stats().evictions, contract, ledger, audit: audited, lostImage, blank };
 };
 
 describe("the scene's side of the atlas reference contract, through a zoom out and in", () => {
@@ -289,5 +296,7 @@ describe("the scene's side of the atlas reference contract, through a zoom out a
     expect(run.audit.slice(0, 5)).toEqual([]);
     // No drawn record loses an image it had while it keeps the cell.
     expect(run.lostImage.slice(0, 5)).toEqual([]);
+    // No record in view draws empty in any frame.
+    expect(run.blank.slice(0, 5)).toEqual([]);
   }, 120_000);
 });
