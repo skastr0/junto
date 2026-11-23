@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { ContentRef } from "./content-ref";
+import { ULID_PATTERN } from "./ulid";
 
 /**
  * Agent signals: a seat's own declared claim that it needs the operator.
@@ -410,6 +411,12 @@ export const AgentSignalResponse = Schema.Struct({
 });
 export type AgentSignalResponse = typeof AgentSignalResponse.Type;
 
+/** The most signals one signal may come after. */
+export const AGENT_SIGNAL_MAX_DEPENDS_ON = 8;
+
+/** A thread's, a mail's or a signal's id where a signal names one: a ULID. */
+const SignalLinkId = Schema.String.check(Schema.isPattern(ULID_PATTERN));
+
 export const AgentSignal = Schema.Struct({
   signalId: Schema.String,
   canvasName: Schema.String,
@@ -447,25 +454,29 @@ export const AgentSignal = Schema.Struct({
    * Absent on a signal raised outside a thread, which is every signal before
    * signals could be raised in one.
    */
-  threadId: Schema.optionalKey(Schema.String),
+  threadId: Schema.optionalKey(SignalLinkId),
   /**
    * The seat's mail in `threadId` that is this signal: one act, two faces.
    * That mail carries `metadata.raisedSignalId`; `metadata.agentSignalId`
-   * stays the operator's answer. Present only with `threadId`.
+   * stays the operator's answer. Present only with `threadId`; a signal is
+   * one mail at most, and a mail one signal at most.
    */
-  messageId: Schema.optionalKey(Schema.String),
+  messageId: Schema.optionalKey(SignalLinkId),
   /**
    * The nearest earlier signal in the same thread, counting the signal whose
    * answer started it. Provenance, not order: see `dependsOn`.
    */
-  followsSignalId: Schema.optionalKey(Schema.String),
+  followsSignalId: Schema.optionalKey(SignalLinkId),
   /**
    * The signals this one comes after, the task's word for it: the order to
    * act. Given when the signal is raised, so it names only earlier signals
-   * and a loop cannot be made. Absent or empty: it comes after nothing.
-   * Ready or waiting is read, never stored: `signalReadiness`.
+   * and a loop cannot be made. At most `AGENT_SIGNAL_MAX_DEPENDS_ON`.
+   * Absent or empty: it comes after nothing. Ready or waiting is read,
+   * never stored: `signalReadiness`.
    */
-  dependsOn: Schema.optionalKey(Schema.Array(Schema.String)),
+  dependsOn: Schema.optionalKey(
+    Schema.Array(SignalLinkId).check(Schema.isMaxLength(AGENT_SIGNAL_MAX_DEPENDS_ON)),
+  ),
 });
 export type AgentSignal = typeof AgentSignal.Type;
 
@@ -475,6 +486,12 @@ export interface SignalReadiness {
   readonly ready: boolean;
   /** The signals it comes after that are still open, in `dependsOn` order. */
   readonly waitingOn: ReadonlyArray<string>;
+  /**
+   * The signals it comes after that the lookup does not know, in `dependsOn`
+   * order: not yet received here, or gone. They hold nothing back; the feed
+   * can say so.
+   */
+  readonly notReceived: ReadonlyArray<string>;
 }
 
 /**
@@ -482,17 +499,21 @@ export interface SignalReadiness {
  * comes after is closed (answered, dismissed or withdrawn); until then it
  * waits on the ones still open. A signal that names none is ready, so every
  * signal written before this reads ready. An id the lookup does not know
- * holds nothing back: the order advises, it never locks the operator out.
+ * holds nothing back (it is listed in `notReceived`): the order advises, it
+ * never locks the operator out. Direct dependencies only, so no walk.
  */
 export const signalReadiness = (
   signal: Pick<AgentSignal, "dependsOn">,
   stateOf: (signalId: string) => AgentSignalState | undefined,
 ): SignalReadiness => {
   const waitingOn: Array<string> = [];
-  for (const id of signal.dependsOn ?? []) {
-    if (stateOf(id) === "open" && !waitingOn.includes(id)) waitingOn.push(id);
+  const notReceived: Array<string> = [];
+  for (const id of new Set(signal.dependsOn ?? [])) {
+    const state = stateOf(id);
+    if (state === "open") waitingOn.push(id);
+    else if (state === undefined) notReceived.push(id);
   }
-  return { ready: waitingOn.length === 0, waitingOn };
+  return { ready: waitingOn.length === 0, waitingOn, notReceived };
 };
 
 /** Live renderer event: the signal as it now stands (upsert by signalId). */
