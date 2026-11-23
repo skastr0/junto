@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { Schema } from "effect";
+import type { MachineInstallNotice } from "@shared/machine-install";
+import { enableMachineUserLinger, type MachineCommandRun } from "../../node/hosts/linger";
 import { ensureMachineDirectory, ownedMachineFile, removeMachineServiceFile, writeMachineServiceFile } from "./install-paths";
 import { quiesceMachineService } from "./quiesce-service";
 
@@ -15,7 +17,7 @@ const unit = (value: string): string => '"' + value.replace(/[%\\"\n\r]/g, token
 
 export interface MachineService {
   readonly provider: "launchd" | "systemd-user";
-  readonly reconcile: () => Promise<void>;
+  readonly reconcile: () => Promise<readonly MachineInstallNotice[]>;
   readonly observe: () => Promise<{ loaded: boolean; pid: number; matchesDesiredPlacement: boolean }>;
   readonly stop: () => Promise<void>;
   readonly start: () => Promise<void>;
@@ -113,18 +115,19 @@ export const darwinMachineService = async (
       },
     }, { loaded: true, pid: job.pid }, () => {});
   };
-  const reconcile = async (): Promise<void> => {
+  const reconcile = async (): Promise<readonly MachineInstallNotice[]> => {
     // Validate every loaded job before changing either. A foreign job remains
     // a refusal; two proven jobs of this install are an owned repair.
     const jobs = await snapshot();
     const graphical = jobs.find(job => job.domain === gui);
-    if (graphical === undefined) return;
+    if (graphical === undefined) return [];
     const fallback = jobs.find(job => job.domain === user);
     if (fallback !== undefined) await quiesceJob(fallback);
     domain = gui; desired = aqua;
     const previous = await definition();
     if (previous !== undefined && previous !== desired) await removeMachineServiceFile(file, previous);
     await writeMachineServiceFile(file, desired);
+    return [];
   };
   let admitted: Observed | undefined;
   return {
@@ -169,43 +172,61 @@ export const darwinMachineService = async (
 /** Only the install's exact service name and definition can be acted on. */
 export const machineService = async (root: string, home: string, label: MachineServiceLabel): Promise<MachineService> => {
   admitMachineServiceLabel(label);
-  const node = join(root, "current/bin/node");
-  const entry = join(root, "current/core/junto.cjs");
   if (process.platform === "darwin") {
     return darwinMachineService(root, home, label);
   }
   if (process.platform !== "linux") throw refused("platform-unsupported", "machine services support macOS and Linux");
+  return linuxMachineService(root, home, label);
+};
+
+/** The installed Linux unit restarts forever and asks loginctl for linger. */
+export const linuxMachineService = async (
+  root: string, home: string, label: MachineServiceLabel,
+  runner: MachineCommandRun = run,
+): Promise<MachineService> => {
+  admitMachineServiceLabel(label);
+  const node = join(root, "current/bin/node");
+  const entry = join(root, "current/core/junto.cjs");
   const name = label + ".service";
   const file = join(homedir(), ".config/systemd/user", name);
-  const body = `[Unit]\nDescription=Junto\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=:${unit(node)} ${unit(entry)}\nEnvironment=${unit('JUNTO_HOME='+home)}\nRestart=on-failure\nRestartSec=2\nTimeoutStopSec=30\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
+  const body = `[Unit]\nDescription=Junto\nAfter=network.target\nStartLimitIntervalSec=0\n\n[Service]\nType=simple\nExecStart=:${unit(node)} ${unit(entry)}\nEnvironment=${unit('JUNTO_HOME='+home)}\nRestart=on-failure\nRestartSec=10\nTimeoutStopSec=30\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
+  const legacyBody = `[Unit]\nDescription=Junto\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=:${unit(node)} ${unit(entry)}\nEnvironment=${unit('JUNTO_HOME='+home)}\nRestart=on-failure\nRestartSec=2\nTimeoutStopSec=30\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
   await ensureMachineDirectory(dirname(file));
-  const existed = await ownedMachineFile(file);
-  if (existed && await readFile(file, "utf8") !== body) throw refused("service-foreign", "existing service definition belongs to a different install");
+  const definition = async (): Promise<string | undefined> => {
+    if (!await ownedMachineFile(file)) return undefined;
+    const value = await readFile(file, "utf8");
+    if (value !== body && value !== legacyBody) throw refused("service-foreign", "existing service definition belongs to a different install");
+    return value;
+  };
+  await definition();
+  let linger: Promise<readonly MachineInstallNotice[]> | undefined;
   return {
     provider: "systemd-user",
-    reconcile: async () => {},
+    reconcile: async () => (linger ??= enableMachineUserLinger(runner).then((enabled): readonly MachineInstallNotice[] => enabled ? [] : ["linger-not-enabled"])),
     observe: async () => {
-      const output = await run("/usr/bin/systemctl", ["--user", "show", name, "--property=LoadState,MainPID,FragmentPath,ExecStart"]);
+      const output = await runner("/usr/bin/systemctl", ["--user", "show", name, "--property=LoadState,MainPID,FragmentPath,ExecStart"]);
       const fields = Object.fromEntries(output.trim().split("\n").map(line => { const index = line.indexOf("="); return [line.slice(0,index),line.slice(index+1)]; }));
       if (fields.LoadState === "not-found" && fields.MainPID === "0") return { loaded: false, pid: 0, matchesDesiredPlacement: true };
       if (fields.LoadState !== "loaded" || fields.FragmentPath !== file || !fields.ExecStart?.includes(`path=${node} ;`)) throw refused("not-this-install", "loaded service does not belong to this install");
       if (!/^(0|[1-9][0-9]*)$/.test(fields.MainPID ?? "")) throw refused("invalid-pid", "service returned an invalid process id");
       return { loaded: true, pid: Number(fields.MainPID), matchesDesiredPlacement: true };
     },
-    stop: async () => { await run("/usr/bin/systemctl", ["--user", "stop", name]); },
+    stop: async () => { await runner("/usr/bin/systemctl", ["--user", "stop", name]); },
     start: async () => {
+      const previous = await definition();
+      if (previous !== undefined && previous !== body) await removeMachineServiceFile(file, previous);
       await writeMachineServiceFile(file, body);
-      await run("/usr/bin/systemctl", ["--user", "daemon-reload"]);
-      await run("/usr/bin/systemctl", ["--user", "enable", name]);
-      await run("/usr/bin/systemctl", ["--user", "start", name]);
+      await runner("/usr/bin/systemctl", ["--user", "daemon-reload"]);
+      await runner("/usr/bin/systemctl", ["--user", "enable", name]);
+      await runner("/usr/bin/systemctl", ["--user", "start", name]);
     },
     removeDefinition: async () => {
       // Refuse a changed file before asking systemd to alter its links.
-      if (await ownedMachineFile(file)) {
-        if (await readFile(file, "utf8") !== body) throw refused("service-changed", "service definition changed; cleanup refused");
-        await run("/usr/bin/systemctl", ["--user", "disable", name]);
-        await removeMachineServiceFile(file, body);
-        await run("/usr/bin/systemctl", ["--user", "daemon-reload"]);
+      const value = await definition();
+      if (value !== undefined) {
+        await runner("/usr/bin/systemctl", ["--user", "disable", name]);
+        await removeMachineServiceFile(file, value);
+        await runner("/usr/bin/systemctl", ["--user", "daemon-reload"]);
       }
     },
   };

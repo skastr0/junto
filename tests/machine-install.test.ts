@@ -27,7 +27,7 @@ vi.mock("../src/cli/hosts/install-service", async (original) => ({
   ...await original<typeof import("../src/cli/hosts/install-service")>(),
   machineService: async () => ({
     provider: "launchd",
-    reconcile: async () => {},
+    reconcile: async () => [],
     observe: async () => ({ loaded: fixture.loaded, pid: fixture.pid, matchesDesiredPlacement: fixture.matchesDesiredPlacement }),
     stop: async () => {
       fixture.stopSelections.push(await readlink(join(fixture.root, "current")));

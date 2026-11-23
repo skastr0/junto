@@ -124,7 +124,7 @@ export const installMachine = (input: MachineInstallInput): Effect.Effect<Machin
       await verifyGeneration(directory, manifest);
       record({ step: "verified", build: manifest.build });
       const service = await machineService(installRoot, juntoHome, label);
-      await service.reconcile();
+      const notices = [...new Set(await service.reconcile())];
       const before = await service.observe();
       let installationId = input.expectedInstallationId;
       if (before.pid > 0) {
@@ -135,7 +135,7 @@ export const installMachine = (input: MachineInstallInput): Effect.Effect<Machin
         installationId = incumbent.installationId;
         if (previous === generation && incumbent.build === manifest.build && incumbent.ready && before.matchesDesiredPlacement) {
           record({ step: "ready", pid: incumbent.pid });
-          return { build: manifest.build, juntoHome, installRoot, directory, serviceLabel: label, provider: service.provider, updated: false, disposition: "ready", installationId, machineName: incumbent.machineName, pid: incumbent.pid, transitions };
+          return { build: manifest.build, juntoHome, installRoot, directory, serviceLabel: label, provider: service.provider, updated: false, disposition: "ready", installationId, machineName: incumbent.machineName, pid: incumbent.pid, transitions, notices };
         }
       }
       const incumbent = await quiesceMachineService(service, before, () => { disposition = "uncertain"; });
@@ -163,7 +163,7 @@ export const installMachine = (input: MachineInstallInput): Effect.Effect<Machin
             if (installationId !== undefined && status.installationId !== installationId) throw refused("candidate-identity-changed", "candidate installation identity changed");
             if (status.ready) {
               record({ step: "ready", pid: status.pid });
-              return { build: manifest.build, juntoHome, installRoot, directory, serviceLabel: label, provider: service.provider, updated, disposition: "ready", installationId: status.installationId, machineName: status.machineName, pid: status.pid, transitions };
+              return { build: manifest.build, juntoHome, installRoot, directory, serviceLabel: label, provider: service.provider, updated, disposition: "ready", installationId: status.installationId, machineName: status.machineName, pid: status.pid, transitions, notices };
             }
           } catch (cause) { last = cause; detail = scrubMessage(errorText(cause)); }
           await sleep(200);

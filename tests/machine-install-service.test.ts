@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, realpath, rm, unlink, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, realpath, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,7 +8,7 @@ vi.mock("node:os", async original => ({ ...await original<typeof import("node:os
 vi.mock("../src/node/process-epoch", () => ({
   readSingleProcessEpochSnapshot: (pid: number) => account.isLive(pid) ? [{ pid, startKey: `fixture-${pid}` }] : [],
 }));
-import { admitMachineServiceLabel, darwinMachineService, machineService, MachineServiceRefused } from "../src/cli/hosts/install-service";
+import { admitMachineServiceLabel, darwinMachineService, linuxMachineService, machineService, MachineServiceRefused } from "../src/cli/hosts/install-service";
 import { removeMachineServiceFile } from "../src/cli/hosts/install-paths";
 
 type Job = { pid: number; path: string; program: string; args: string[]; home: string };
@@ -271,6 +271,111 @@ describe("owned macOS machine service", () => {
     await expect(removeMachineServiceFile(file, legacyBody)).rejects.toThrow("definition changed");
     expect(mutations()).toEqual([]); expect(jobs.has(gui)).toBe(true);
     expect(await readFile(file, "utf8")).not.toBe(legacyBody);
+  });
+});
+
+describe("linux machine service", () => {
+  const q = (value: string): string => '"' + value.replace(/[%\\"\n\r]/g, token => token === "%" ? "%%" : "\\" + token) + '"';
+  const node = () => join(root, "current/bin/node"), entry = () => join(root, "current/core/junto.cjs");
+  const legacyUnit = (): string => `[Unit]\nDescription=Junto\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=:${q(node())} ${q(entry())}\nEnvironment=${q("JUNTO_HOME=" + home)}\nRestart=on-failure\nRestartSec=2\nTimeoutStopSec=30\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
+  let lfile: string, lpid: number, lingerMode: "yes" | "no" | "fail", lingerOn: boolean;
+  let lcalls: string[][];
+  const exists = async (path: string): Promise<boolean> => access(path).then(() => true).catch(() => false);
+  const lrun = async (command: string, args: string[]): Promise<string> => {
+    lcalls.push([command, ...args]);
+    if (command === "/usr/bin/loginctl") {
+      if (lingerMode === "fail") throw new Error("loginctl unavailable");
+      if (args[0] === "enable-linger") { lingerOn = true; return ""; }
+      if (args[0] === "show-user") return `Linger=${lingerOn || lingerMode === "yes" ? "yes" : "no"}\n`;
+      throw new Error(`unexpected loginctl ${args[0]}`);
+    }
+    if (command !== "/usr/bin/systemctl") throw new Error(`unexpected ${command}`);
+    const op = args[1];
+    if (op === "show") {
+      if (!await exists(lfile)) return "LoadState=not-found\nMainPID=0\n";
+      return `LoadState=loaded\nMainPID=${lpid}\nFragmentPath=${lfile}\nExecStart={ path=${node()} ; argv[]=${entry()} }\n`;
+    }
+    if (op === "daemon-reload" || op === "enable" || op === "disable") return "";
+    if (op === "start") {
+      if (!await exists(lfile)) throw new Error("Unit file not found");
+      lpid = 71; return "";
+    }
+    if (op === "stop") { lpid = 0; return ""; }
+    throw new Error(`unexpected systemctl ${op}`);
+  };
+  const service = () => linuxMachineService(root, home, label, lrun);
+  beforeEach(() => {
+    lfile = join(account.home, ".config/systemd/user", label + ".service");
+    lpid = 0; lingerMode = "no"; lingerOn = false; lcalls = [];
+  });
+
+  it("writes a unit that never hits the start limit and restarts slowly", async () => {
+    const s = await service();
+    await s.start();
+    const body = await readFile(lfile, "utf8");
+    expect(body).toContain("StartLimitIntervalSec=0");
+    expect(body).toContain("Restart=on-failure\nRestartSec=10\n");
+    expect(body).not.toContain("RestartSec=2");
+    expect(lcalls).toEqual([
+      ["/usr/bin/systemctl", "--user", "daemon-reload"],
+      ["/usr/bin/systemctl", "--user", "enable", label + ".service"],
+      ["/usr/bin/systemctl", "--user", "start", label + ".service"],
+    ]);
+    expect(await s.observe()).toEqual({ loaded: true, pid: 71, matchesDesiredPlacement: true });
+  });
+
+  it("admits the legacy unit body and rewrites it on start", async () => {
+    const s = await service();
+    await writeFile(lfile, legacyUnit(), { mode: 0o600 });
+    await s.start();
+    const body = await readFile(lfile, "utf8");
+    expect(body).toContain("StartLimitIntervalSec=0");
+    expect(body).toContain("RestartSec=10");
+    expect(lcalls).toContainEqual(["/usr/bin/systemctl", "--user", "start", label + ".service"]);
+  });
+
+  it("removes a legacy unit definition without rewriting it", async () => {
+    const s = await service();
+    await writeFile(lfile, legacyUnit(), { mode: 0o600 });
+    await s.removeDefinition();
+    await expect(readFile(lfile)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(lcalls).toEqual([
+      ["/usr/bin/systemctl", "--user", "disable", label + ".service"],
+      ["/usr/bin/systemctl", "--user", "daemon-reload"],
+    ]);
+  });
+
+  it("refuses a foreign unit body without modifying it", async () => {
+    await service();
+    await writeFile(lfile, "foreign", { mode: 0o600 });
+    await expect(service()).rejects.toMatchObject({ _tag: "MachineServiceRefused", check: "service-foreign" });
+    expect(await readFile(lfile, "utf8")).toBe("foreign");
+  });
+
+  it("enables linger once for the own uid and reports no notice", async () => {
+    const s = await service();
+    expect(await s.reconcile()).toEqual([]);
+    expect(await s.reconcile()).toEqual([]);
+    expect(lcalls.filter(call => call[0] === "/usr/bin/loginctl")).toEqual([
+      ["/usr/bin/loginctl", "show-user", String(process.getuid!()), "-p", "Linger"],
+      ["/usr/bin/loginctl", "enable-linger", String(process.getuid!())],
+      ["/usr/bin/loginctl", "show-user", String(process.getuid!()), "-p", "Linger"],
+    ]);
+  });
+
+  it("skips enable-linger when the manager already confirms it", async () => {
+    lingerMode = "yes";
+    const s = await service();
+    expect(await s.reconcile()).toEqual([]);
+    expect(lcalls.filter(call => call[1] === "enable-linger")).toEqual([]);
+  });
+
+  it("reports linger-not-enabled without failing the install", async () => {
+    lingerMode = "fail";
+    const s = await service();
+    expect(await s.reconcile()).toEqual(["linger-not-enabled"]);
+    await s.start();
+    expect(await s.observe()).toMatchObject({ loaded: true, pid: 71 });
   });
 });
 

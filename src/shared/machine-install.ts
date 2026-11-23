@@ -48,6 +48,9 @@ export const MachineInstallTransition = Schema.Struct({
   service: Schema.optionalKey(Schema.Literals(["absent", "unloaded", "inactive"])),
 });
 export type MachineInstallTransition = typeof MachineInstallTransition.Type;
+/** Closed literals; the window owns the words. */
+export const MachineInstallNotice = Schema.Literals(["linger-not-enabled"]);
+export type MachineInstallNotice = typeof MachineInstallNotice.Type;
 export const MachineInstallEvent = Schema.Struct({
   event: Schema.Literal("machine-install"), juntoHome: MachineAbsolutePath, installRoot: MachineAbsolutePath,
   ...MachineInstallTransition.fields,
@@ -67,6 +70,7 @@ export const MachineInstallResult = Schema.Struct({
   machineName: Schema.String,
   pid: Schema.Number,
   transitions: Schema.Array(MachineInstallTransition).pipe(Schema.check(Schema.isMaxLength(5))),
+  notices: Schema.optionalKey(Schema.Array(MachineInstallNotice).pipe(Schema.check(Schema.isMaxLength(8)))),
 });
 export type MachineInstallResult = typeof MachineInstallResult.Type;
 
