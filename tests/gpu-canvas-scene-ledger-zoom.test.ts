@@ -5,7 +5,7 @@
 // lines and portraits as it goes and rasters landing in a random order. A
 // ledger wraps the atlas interface and holds the scene to the contract on
 // every call; every frame, the cells the scene's records hold are matched
-// against it and handed to the atlas's own audit.
+// against it and handed to the atlas's own audit, which must find nothing.
 
 import { describe, expect, it } from "vitest";
 import { asCanvasName } from "@shared/model";
@@ -17,9 +17,6 @@ import { createGpuAtlas, type AtlasPixels } from "../src/window/canvas/engine/gp
 import { NO_ATLAS_CELL, QUAD_FLOATS } from "../src/window/canvas/engine/quad";
 import { paintCard } from "../src/window/canvas/paint";
 import { fakeEnv } from "./canvas-paint-fixtures";
-
-/** The audit kinds that name the scene's side: a held cell the atlas freed, or counts fewer holders than hold it. */
-const SCENE_KINDS = ["held-cell-freed", "held-cell-underreferenced"] as const;
 
 const fakeDevice = (bindLimit: number) =>
   ({
@@ -93,7 +90,7 @@ type Run = {
   readonly evictions: number;
   readonly contract: ReadonlyArray<string>;
   readonly ledger: ReadonlyArray<string>;
-  readonly scene: ReadonlyArray<string>;
+  readonly audit: ReadonlyArray<string>;
   readonly lostImage: ReadonlyArray<string>;
 };
 
@@ -200,7 +197,7 @@ const zoomRun = async (page: number, bindLimit: number, rounds: number): Promise
   const viewAt = (): Rect => ({ x: centre.x - screen.width / 2 / zoom, y: centre.y - screen.height / 2 / zoom, width: screen.width / zoom, height: screen.height / zoom });
 
   const ledger: string[] = [];
-  const sceneSide: string[] = [];
+  const audited: string[] = [];
   const lostImage: string[] = [];
   const lastImage = new Map<number, number>();
   const tiers = new Set<CanvasTier>();
@@ -223,9 +220,11 @@ const zoomRun = async (page: number, bindLimit: number, rounds: number): Promise
     const words = scene.heldCells();
     for (const [cell, count] of words) if ((held.get(cell) ?? 0) !== count) ledger.push(`${at()}: ${String(cell)} held by ${String(count)} records, ${String(held.get(cell) ?? 0)} by the ledger`);
     for (const [cell, count] of held) if (!words.has(cell)) ledger.push(`${at()}: ${String(cell)} held ${String(count)} times by the ledger, by no record`);
-    // The atlas agrees it holds what they hold.
+    // The atlas holds what they hold, and its table, plots and pages are whole.
     const audit = atlas.audit(words);
-    for (const kind of SCENE_KINDS) if ((audit.counts[kind] ?? 0) > 0) sceneSide.push(`${at()}: ${kind} x${String(audit.counts[kind])} ${JSON.stringify(audit.samples.find((sample) => sample.kind === kind))}`);
+    for (const [kind, count] of Object.entries(audit.counts)) {
+      if (count > 0) audited.push(`${at()} at ${zoom.toFixed(3)} ${tier}: ${kind} x${String(count)} ${JSON.stringify(audit.samples.find((sample) => sample.kind === kind))}`);
+    }
     // A drawn record that had its image last frame keeps it while it keeps the cell.
     const u32 = scene.quadBuffer.u32;
     const order = scene.orderBuffer;
@@ -266,7 +265,7 @@ const zoomRun = async (page: number, bindLimit: number, rounds: number): Promise
     for (const resolve of pending.splice(0)) resolve();
     await frame();
   }
-  return { acquires, releases, tiers, evictions: atlas.stats().evictions, contract, ledger, scene: sceneSide, lostImage };
+  return { acquires, releases, tiers, evictions: atlas.stats().evictions, contract, ledger, audit: audited, lostImage };
 };
 
 describe("the scene's side of the atlas reference contract, through a zoom out and in", () => {
@@ -285,8 +284,9 @@ describe("the scene's side of the atlas reference contract, through a zoom out a
     expect(run.contract.slice(0, 5)).toEqual([]);
     // Its records hold exactly what it asked for.
     expect(run.ledger.slice(0, 5)).toEqual([]);
-    // The atlas holds every cell they hold, with as many references.
-    expect(run.scene.slice(0, 5)).toEqual([]);
+    // The atlas holds every cell they hold, with as many references, and
+    // finds no broken row, stand-in, plot or page.
+    expect(run.audit.slice(0, 5)).toEqual([]);
     // No drawn record loses an image it had while it keeps the cell.
     expect(run.lostImage.slice(0, 5)).toEqual([]);
   }, 120_000);
