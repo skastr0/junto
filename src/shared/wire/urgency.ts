@@ -162,6 +162,19 @@ export const wantsLook = (level: UrgencyLevel): boolean => atMost(level, Level.r
 export const needsOperator = (level: UrgencyLevel): boolean => waitsOnOperator(level) || wantsLook(level);
 
 /**
+ * What a seat is doing, read apart from what it needs from the operator, so a
+ * seat at work with an open signal is both working and waiting (Broadcast's
+ * limits, src/shared/broadcast.ts). Read from the seat's activity alone: work
+ * in flight, a turn paused on a dialog among it, is working; a settled seat
+ * is idle; one that has exited or failed to start is off.
+ */
+export const SEAT_DOING = ["working", "idle", "off"] as const;
+export type SeatDoing = (typeof SEAT_DOING)[number];
+
+export const doingOf = (level: UrgencyLevel): SeatDoing =>
+  level === Level.offline || level === Level.stopped ? "off" : level === Level.resting || level === Level.done ? "idle" : "working";
+
+/**
  * The ring keeps its seat out of a cluster: halt, call and wait, the forms
  * whose level waits on the operator. The desktop cluster layer and the phone
  * read it; it is the phone's "needs you".
