@@ -36,6 +36,7 @@ describe("a signal raised in a thread", () => {
       [row(ROOT, PEER, undefined, { fromSeat: OPERATOR_SEAT_ID, senderName: "operator" })],
       "no_operator_row",
     ],
+    ["its one row has no metadata, so no stamped author", [{ messageId: ROOT, actorSeatId: undefined }], "no_operator_row"],
     [
       "the operator wrote in it, and it is a task's thread",
       [row(ROOT, OPERATOR_SEAT_ID, undefined, threadSubjectMetadata({ kind: "task", nodeId: "board", taskId: "01M5ESR42S7P9YNR8FEH0TD2QC" } as never))],

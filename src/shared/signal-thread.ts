@@ -23,7 +23,8 @@ export const SIGNAL_THREAD_REFUSAL = "a signal names a thread in which the opera
  */
 export type SignalThreadRow = {
   readonly messageId: string;
-  readonly actorSeatId: string;
+  /** Absent on a row with no metadata, the one row no admit path stamps: never the operator's. */
+  readonly actorSeatId?: string | undefined;
   readonly metadata?: Readonly<Record<string, unknown>> | undefined;
 };
 
