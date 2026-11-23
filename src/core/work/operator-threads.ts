@@ -27,7 +27,6 @@ import { titleOf } from "@shared/model/title";
 import { makeUserMessage } from "@shared/task";
 import {
   mailAfter,
-  mailWaiting,
   seatMailThreadMessages,
   seatMailThreadMessagesPage,
   seatMailThreads,
@@ -50,6 +49,8 @@ import { messageDelivery } from "./message-delivery";
 import { writeMailCarryingText } from "../content/mail-text-file";
 import { claimOperatorAttachments, operatorMailOwner } from "../content/operator-attachments";
 import { ContentService } from "../content/service";
+import { answerThreadSignals } from "../signals/operator";
+import { AgentSignalRepository } from "../signals/repository";
 import { heldMailbox } from "./mailbox-cache";
 import type { WorkRepositoryShape } from "./repository";
 import { WorkRepository } from "./repository";
@@ -167,19 +168,9 @@ const settle = (index: CanvasThreads, threadId: string, mail: ThreadMail): void 
 };
 
 /** The same messages in the same order: a receipt restamped the rows, and no thread mail moved. */
-/**
- * The same mail, restamped at most: the same rows in the same order, none of
- * them come to its seat or gone from it. A receipt that brings the operator's
- * mail to its seat ends its waiting mark, so that mailbox is derived again.
- */
 const sameMail = (a: ReadonlyArray<Message>, b: ReadonlyArray<Message>): boolean => {
   if (a.length !== b.length) return false;
-  for (let index = 0; index < a.length; index += 1) {
-    const was = a[index]!;
-    const now = b[index]!;
-    if (was.messageId !== now.messageId) return false;
-    if (was !== now && mailWaiting(was) !== mailWaiting(now)) return false;
-  }
+  for (let index = 0; index < a.length; index += 1) if (a[index]!.messageId !== b[index]!.messageId) return false;
   return true;
 };
 
@@ -516,6 +507,23 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
         if (!wired.some((peer) => peer.nodeId === id)) {
           return refused("invalid", `${nameOf(id)} is not connected to ${titleOf(seat)}, so it cannot be mentioned here.`);
         }
+      }
+    }
+
+    // A reply in a thread with an open signal that asks only for words is the
+    // answer to it: written by the one answer path, so its feed card closes.
+    // One that asks for work stays open, and the reply goes as plain mail.
+    const signals = yield* Effect.serviceOption(AgentSignalRepository);
+    if (threadId !== undefined && review === undefined && Option.isSome(signals)) {
+      const answered = yield* answerThreadSignals(
+        { canvasName, nodeId, threadId, ...(send.inReplyTo === undefined ? {} : { inReplyTo: send.inReplyTo }) },
+        text,
+        files,
+      ).pipe(Effect.provideService(AgentSignalRepository, signals.value));
+      if (answered !== undefined) {
+        // Fixed words, as a plain mail's failure: the store's message is not the operator's to read.
+        if (!answered.ok || answered.messageId === undefined) return refused("failed", "The mail could not be written.");
+        return { messageId: answered.messageId, threadId };
       }
     }
 

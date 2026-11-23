@@ -40,6 +40,14 @@ import { AgentSignalRepository } from "./repository";
  * which delivery lists one line each with a path; with files the text may be
  * empty.
  *
+ * A signal is answered in its thread. One raised in a thread is answered as
+ * the operator's next mail there, in reply to the seat's mail that is the
+ * signal; one with no thread starts one, and the signal records that thread
+ * as its head. A reply the operator types in a thread answers every open
+ * signal there that asks only for words (answerThreadSignals); one that asks
+ * for work (a document, proof, a secret) stays open until the work is in.
+ * Either way the answer is written here, by answerOpenSignals.
+ *
  * An automation's signal has no seat to mail: its answer is recorded as a
  * silent one is, and the automation's machine hears the answered row through
  * the store's own change, to fire its answered watches and deliver the answer
@@ -55,40 +63,62 @@ const refused = (message: string): SignalOperatorResult => ({ ok: false, message
 
 const repositoryMessage = (error: { readonly message: string }) => error.message;
 
-export const answerAgentSignal = (
-  signalId: string,
+type AnswerOptions = {
+  readonly silent?: boolean;
+  readonly attachments?: ReadonlyArray<ContentRef>;
+  /** What a work form's reply left, recorded on the answer. */
+  readonly reply?: SignalReplyRecord;
+  /**
+   * The words the seat's mail carries, when they say more than the recorded
+   * answer does: proof's addresses ride with its words in the mail, and the
+   * record keeps them structured instead of repeating them in its text.
+   */
+  readonly mailText?: string;
+};
+
+/** Typed in a thread: the mail it replies to, and no copies, as the thread input promises. */
+type InThread = {
+  readonly inReplyTo?: string;
+};
+
+/**
+ * A signal that asks only for words: no form, or a text form. An answer in
+ * its thread closes it. One that asks for work (a document, proof, a secret)
+ * waits for the work to be handed in.
+ */
+export const asksOnlyForWords = (signal: Pick<AgentSignal, "form">): boolean =>
+  signal.form === undefined || signal.form.kind === "text";
+
+/**
+ * Answer open signals of one seat with one mail. The first is the one the
+ * mail names (`agentSignalId`) and the thread it goes in: its thread, in
+ * reply to the seat's mail that is the signal, or a new thread it heads.
+ * Every one is recorded answered with the same words. Each must be open.
+ */
+const answerOpenSignals = (
+  signals: readonly [AgentSignal, ...ReadonlyArray<AgentSignal>],
   response: string,
-  options?: {
-    readonly silent?: boolean;
-    readonly attachments?: ReadonlyArray<ContentRef>;
-    /** What a work form's reply left, recorded on the answer. */
-    readonly reply?: SignalReplyRecord;
-    /**
-     * The words the seat's mail carries, when they say more than the recorded
-     * answer does: proof's addresses ride with its words in the mail, and the
-     * record keeps them structured instead of repeating them in its text.
-     */
-    readonly mailText?: string;
-  },
+  options: AnswerOptions = {},
+  inThread?: InThread,
 ) =>
   Effect.gen(function* () {
-    const silent = options?.silent === true;
-    const files = options?.attachments ?? [];
+    const [signal] = signals;
+    const silent = options.silent === true;
+    const files = options.attachments ?? [];
     const typed = response.trim();
     if (!typed && !silent && files.length === 0) return refused("an answer needs some text");
     if (typed.length > AGENT_SIGNAL_MAX_RESPONSE_LENGTH) {
       return refused(`an answer is at most ${AGENT_SIGNAL_MAX_RESPONSE_LENGTH} characters`);
     }
-    const signals = yield* AgentSignalRepository;
-    const current = yield* Effect.result(signals.get(signalId));
-    if (current._tag === "Failure") return refused(repositoryMessage(current.failure));
-    const signal = current.success;
-    if (signal.state !== "open") return refused(`this signal is already ${signal.state}`);
+    const repository = yield* AgentSignalRepository;
     // Who hears it: the seat the signal belongs to. A quiet answer mails no
     // one, and an automation's signal has no seat to mail at all.
     const mails = !silent && signal.source?.kind !== "automation";
-    // Seats the answer copies, judged before anything is written. A quiet answer mails no one.
-    const copies = mails ? yield* planAnswerCopies(signal, typed) : { ok: true as const, seats: [], seatName: undefined };
+    // Seats the answer copies, judged before anything is written. A quiet
+    // answer mails no one; typed in a thread, a mention copies no one.
+    const copies = mails && inThread === undefined
+      ? yield* planAnswerCopies(signal, typed)
+      : { ok: true as const, seats: [], seatName: undefined };
     if (!copies.ok) return refused(copies.message);
 
     // The mail's id names where its files are held, mailed or not.
@@ -105,7 +135,11 @@ export const answerAgentSignal = (
       refs = claimed.success;
     }
     const text = typed || (refs.length > 0 ? AGENT_SIGNAL_FILES_RESPONSE : AGENT_SIGNAL_ACKNOWLEDGED_RESPONSE);
-    const mailed = options?.mailText ?? text;
+    const mailed = options.mailText ?? text;
+    // The thread it goes in: the signal's own, in reply to what the operator
+    // answered there, else to the seat's mail that is the signal.
+    const thread = signal.threadId;
+    const inReplyTo = inThread?.inReplyTo ?? signal.messageId;
 
     let messageId: string | undefined;
     if (mails) {
@@ -132,6 +166,9 @@ export const answerAgentSignal = (
               senderGeneration: "operator",
               senderHarness: "unknown",
             }),
+            // In its thread; with none, this mail is the root and its id the thread.
+            ...(thread === undefined ? {} : { threadId: thread }),
+            ...(thread === undefined || inReplyTo === undefined ? {} : { inReplyTo }),
           },
         }),
       );
@@ -146,13 +183,20 @@ export const answerAgentSignal = (
       messageId = appended.data.messageId;
     }
 
-    const answered = yield* Effect.result(signals.answer(signalId, text, refs, options?.reply));
+    const answered = yield* Effect.result(repository.answer(signal.signalId, text, refs, options.reply));
     if (answered._tag === "Failure") {
       // Mailed, the files stay with the mail; recorded only, they go with the answer.
       if (messageId === undefined) yield* releaseFiles;
       return refused(repositoryMessage(answered.failure));
     }
     yield* releaseSignalAttachments(answered.success);
+    // The others the same mail answers: recorded with its words. One closed
+    // meanwhile (withdrawn, dismissed, answered elsewhere) is left as it is.
+    for (const other of signals.slice(1)) {
+      const also = yield* Effect.result(repository.answer(other.signalId, text, refs));
+      if (also._tag === "Success") yield* releaseSignalAttachments(also.success);
+      else yield* Effect.logWarning("a signal the thread reply answers was not recorded", { signalId: other.signalId });
+    }
     // Copies go only once the answer stands: a refused answer told no one.
     if (messageId !== undefined) yield* sendAnswerCopies(signal, copies.seatName ?? signal.nodeId, mailed, messageId, copies.seats);
     return {
@@ -160,6 +204,53 @@ export const answerAgentSignal = (
       signal: answered.success,
       ...(messageId === undefined ? {} : { messageId }),
     };
+  });
+
+export const answerAgentSignal = (signalId: string, response: string, options?: AnswerOptions) =>
+  Effect.gen(function* () {
+    const signals = yield* AgentSignalRepository;
+    const current = yield* Effect.result(signals.get(signalId));
+    if (current._tag === "Failure") return refused(repositoryMessage(current.failure));
+    const signal = current.success;
+    if (signal.state !== "open") return refused(`this signal is already ${signal.state}`);
+    return yield* answerOpenSignals([signal], response, options);
+  });
+
+/**
+ * The open signals of a seat's thread that a reply there answers: those that
+ * ask only for words, newest first. Empty when there are none, and the reply
+ * is plain mail.
+ */
+export const openThreadSignals = (canvasName: string, nodeId: string, threadId: string) =>
+  Effect.gen(function* () {
+    const signals = yield* AgentSignalRepository;
+    const listed = yield* signals.listSeat({ canvasName, nodeId });
+    return listed
+      .filter((signal) => signal.state === "open" && signal.threadId === threadId && asksOnlyForWords(signal))
+      .sort((a, b) => b.createdAt - a.createdAt || b.signalId.localeCompare(a.signalId));
+  });
+
+/**
+ * A reply the operator typed in a seat's thread, as the answer to the open
+ * signals there that ask only for words: one mail in the thread, which names
+ * the newest, and every one recorded answered. Undefined when the thread has
+ * none, so the reply goes as plain mail.
+ */
+export const answerThreadSignals = (
+  thread: { readonly canvasName: string; readonly nodeId: string; readonly threadId: string; readonly inReplyTo?: string },
+  text: string,
+  attachments: ReadonlyArray<ContentRef>,
+) =>
+  Effect.gen(function* () {
+    const open = yield* openThreadSignals(thread.canvasName, thread.nodeId, thread.threadId);
+    const [newest, ...rest] = open;
+    if (newest === undefined) return undefined;
+    return yield* answerOpenSignals(
+      [newest, ...rest],
+      text,
+      attachments.length === 0 ? {} : { attachments },
+      thread.inReplyTo === undefined ? {} : { inReplyTo: thread.inReplyTo },
+    );
   });
 
 /**
