@@ -193,7 +193,7 @@ JSON-in/JSON-out — every command takes one JSON argument (inline, \`@file\`, o
 ${TASKS_ENABLED ? `| pinned rulings for your regions | \`junto rulings\` — add \`'{"target":"<id>"}'\` for a connected target's stack |
 ` : ""}| thought bubble | \`junto preamble '{"text":"..."}'\` |
 | your threads | \`junto thread list [--limit <n>] [--after <cursor>]\` - \`junto thread show <threadId> [--limit <n>] [--before <cursor>]\` (see Threads below) |
-| raise your hand to the operator | \`junto escalate "..."\` - \`junto blocked "..."\` - \`junto feedback "..."\` (see below) |
+| raise your hand to the operator | \`junto escalate "..."\` - \`junto blocked "..."\` - \`junto feedback "..."\` - several in order: \`junto signal batch '[...]'\` (see below) |
 | end this session | \`junto offboard "<notes>"\` at a stopping point, add \`--continue "<note>"\` mid-work (see Sessions below) |
 | schemas / examples | \`junto schema show <command>\` - \`junto examples show <command>\` |
 | full documentation | \`junto docs\` - \`junto docs node <kind>\` — the complete doctrine and per-node-kind docs (ports, data models, events) |
@@ -225,13 +225,19 @@ To show the operator a file, attach it; do not write its path in the text. Repea
 
 When your question has two likely answers, offer them with \`--suggest\`: \`junto blocked "Which store?" --suggest "Use sqlite" --suggest "Keep JSON"\`. At most two, each a short line. They show as the operator's first one-click replies, and whichever is picked is sent as the answer like any other reply.
 
+**In a thread.** \`--thread <id>\`, the thread's id or the id of any mail in it, raises the signal in that thread: the signal and your next mail there are written together or not at all. The mail answers the operator's newest mail in the thread with your sentence, and the signal records the one it follows, your newest signal in that thread, else the signal whose answer started it. The thread must hold mail the operator wrote to you and be no task's or resource's thread. A plain \`junto msg reply\` stays a reply and puts nothing in the feed; when the reply is a question, a decision or a stop the operator must see, raise it with \`--thread\`: \`junto escalate "Your answer opens a second question: keep the old export or drop it?" --thread <threadId>\`.
+
+**In the order to act.** \`--depends-on <signalId>\`, repeated for each, says the signal comes after those; \`--depends-on-last\` says it comes after the last signal you raised on this canvas, or after nothing when you raised none. At most 8, and only signals you raised yourself. A signal is ready once every one it comes after is closed, answered, dismissed or withdrawn, and waiting until then; the operator can still open, answer or dismiss a waiting one. Several at once go up with \`junto signal batch\`: a JSON list (inline, \`@file\`, or \`-\` for stdin) of 1 to 50 raises, each with its \`kind\` and \`text\` and any of a raise's other fields, raised first to last and all or none. Each comes after the one before unless its \`dependsOn\` says otherwise: earlier items by position from 1, your own signal ids, or \`[]\` for none. \`junto examples show signal batch\` has one. \`junto signal list\` shows each signal's thread and the signal it follows there, what it comes after, and whether it is ready or what it waits on.
+
+A seat whose canvas another machine edits is refused \`--thread\`, \`--depends-on\`, \`--depends-on-last\` and \`junto signal batch\` for now; a plain signal works there as before.
+
 The answer arrives in this seat as operator mail: answer in its thread, with the \`junto msg reply\` its header gives. \`junto signal list\` shows your signals and their answers, and \`junto signal list --since <ISO time or signal id>\` lists every closed one from there on. When one no longer applies, withdraw it: \`junto signal clear <id>\` (no id clears all yours). A signal is for what the operator should know: a result, a review, a question, a decision, a stop. Narration of what you are doing goes in \`preamble\`.
 
 ### Threads
 
 ${THREADS_LINE} ${TURN_END_LINE}
 
-A thread is the mail that hangs off one root message, and its id is that message's id. \`junto thread list\` answers a page of your threads, newest activity first, and \`next\` when there are more: pass it as \`--after\`; \`--group with-you\` lists only the threads with the operator, \`--group between\` only those between seats. \`junto thread show <threadId>\` answers a page of its messages, oldest first, and \`older\` when there are earlier ones: pass it as \`--before\`; a thread the seat is not in is refused \`UnknownTarget\`. A page is 50 by default, at most 200. Neither marks anything read, yours or the operator's. With \`--seat <seat>\`, a name or node id as mail takes, both read a connected seat's threads instead, over the \`threads.read\` port its edge grants; a seat on another machine is refused \`other_machine\`.
+A thread is the mail that hangs off one root message, and its id is that message's id. \`junto thread list\` answers a page of your threads, newest activity first, and \`next\` when there are more: pass it as \`--after\`; \`--group with-you\` lists only the threads with the operator, \`--group between\` only those between seats. \`junto thread show <threadId>\` answers a page of its messages, oldest first, and \`older\` when there are earlier ones: pass it as \`--before\`; a thread the seat is not in is refused \`UnknownTarget\`. A page is 50 by default, at most 200. Neither marks anything read, yours or the operator's. A question or a decision for the operator inside their thread is a signal there, with \`--thread\` (see Raising your hand). With \`--seat <seat>\`, a name or node id as mail takes, both read a connected seat's threads instead, over the \`threads.read\` port its edge grants; a seat on another machine is refused \`other_machine\`.
 
 ### Sessions
 

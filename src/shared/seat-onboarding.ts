@@ -454,14 +454,22 @@ export const THREADS_LINE_UNEDITED =
 export const SIGNALS_LINE =
   "Raise a signal whenever the operator should know something, without waiting to be asked: `junto feedback \"...\"` for a review or a result, `junto escalate \"...\"` for a question or a decision while you keep working, `junto blocked \"...\"` when you cannot continue. Keep the operator in the loop; a signal is cheap.";
 
+/**
+ * What line 4 adds for a seat whose canvas this machine edits: a signal in
+ * the operator's thread, and several in the order to act. A seat on another
+ * machine is refused both until Remote carries them, so it is not taught them.
+ */
+export const SIGNALS_IN_ORDER_CLAUSES =
+  "A question or a decision inside the operator's thread is raised there, with `--thread <threadId>`. Several signals at once go up in the order to act: `junto signal batch`, or `--depends-on-last` on each after the first.";
+
 export const TURN_END_LINE =
   "Never end a turn with your report only in the terminal. Put it where the work came from first: the operator's thread, mail to the seat that asked, or a signal.";
 
-const guidanceWith = (threadsLine: string): ReadonlyArray<string> => [
+const guidanceWith = (threadsLine: string, signalsLine: string): ReadonlyArray<string> => [
   "You are a seat on a Junto canvas, a workspace the operator draws. Your region is your reach: the resources under `reach` are there for you to use, and edges join you to the seats under `connected`. Run only the commands under `commands`. Mail a seat by name or node id. Every seat under `connected` is always reachable: never ask the operator to relaunch one.",
   WORK_SOURCE_LINE,
   threadsLine,
-  SIGNALS_LINE,
+  signalsLine,
   TURN_END_LINE,
   "Errors are ground truth: read `type` and `next_step`, and retry only when `retryable` is true.",
   "End a session with `junto offboard \"<notes>\"`, run last: the moment it returns your seat has moved on to a fresh session, and this one receives nothing more. Reference for everything else: `junto docs`, `junto schema show <command>`, `junto examples show <command>`.",
@@ -472,10 +480,10 @@ const guidanceWith = (threadsLine: string): ReadonlyArray<string> => [
  * seat is, where work comes from, and how to reach the operator. Everything
  * else is one `junto docs` away.
  */
-export const ONBOARD_GUIDANCE: ReadonlyArray<string> = guidanceWith(THREADS_LINE);
+export const ONBOARD_GUIDANCE: ReadonlyArray<string> = guidanceWith(THREADS_LINE, `${SIGNALS_LINE} ${SIGNALS_IN_ORDER_CLAUSES}`);
 
 /** The guidance for a seat on a machine that does not edit its canvas. */
-export const ONBOARD_GUIDANCE_UNEDITED: ReadonlyArray<string> = guidanceWith(THREADS_LINE_UNEDITED);
+export const ONBOARD_GUIDANCE_UNEDITED: ReadonlyArray<string> = guidanceWith(THREADS_LINE_UNEDITED, SIGNALS_LINE);
 
 /** Present only when the operator wrote a soul or standing instructions. */
 export const SEAT_GUIDANCE_LINE =

@@ -37,7 +37,7 @@ describe("onboard guidance", () => {
 
   it("is a few lines: what a seat is, where work comes from, how to report", () => {
     expect(ONBOARD_GUIDANCE.length).toBeLessThanOrEqual(7);
-    expect(text.length).toBeLessThan(1650);
+    expect(text.length).toBeLessThan(1850);
     expect(text).toContain("seat on a Junto canvas");
     expect(text).toContain("Work comes from the operator");
     expect(text).toContain("mail addressed to this seat");
@@ -55,6 +55,8 @@ describe("onboard guidance", () => {
     expect(text).toContain("junto blocked");
     expect(text).toContain("junto escalate");
     expect(text).toContain("Never end a turn with your report only in the terminal.");
+    expect(text).toContain("inside the operator's thread is raised there, with `--thread <threadId>`");
+    expect(text).toContain("in the order to act: `junto signal batch`, or `--depends-on-last`");
   });
 
   it("a seat on a machine that does not edit its canvas answers the operator with a signal", () => {
@@ -63,7 +65,10 @@ describe("onboard guidance", () => {
     expect(remote.length).toBe(ONBOARD_GUIDANCE.length);
     expect(remote.join("\n")).toContain("Answer the operator with a signal.");
     expect(remote.join("\n")).not.toContain("answer in that thread");
-    expect(remote.join("\n").length).toBeLessThan(1650);
+    expect(remote.join("\n")).not.toContain("--thread");
+    expect(remote.join("\n")).not.toContain("junto signal batch");
+    expect(remote.join("\n")).not.toContain("--depends-on");
+    expect(remote.join("\n").length).toBeLessThan(1850);
     expect(onboardGuidanceFor({ soul: "A careful reviewer." }, false).at(-1)).toBe(SEAT_GUIDANCE_LINE);
   });
 
