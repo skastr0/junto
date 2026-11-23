@@ -1023,6 +1023,12 @@ test.describe("#913 GPU canvas proof", () => {
         const tiers: Report[] = [];
         const freshPortraits = new Map<string, Set<string>>();
         const tierCameras = new Map<string, { x: number; y: number; zoom: number }>();
+        // The tiers where the GPU cull arm culled in its compute pass. A tier
+        // that ran it as standalone only passes, but it never ran the GPU
+        // cull (renderer.ts returns before createGpuCull), so a scale needs
+        // one tier that ran as gpu for the GPU cull to be proven at all.
+        const gpuCulledTiers: string[] = [];
+        let cullArmChecked = false;
         await timed("tiers", async () => {
         for (const [index, tier] of tierPlan.entries()) {
           const anchor = index % 2 === 0 ? centre : focus;
@@ -1120,6 +1126,7 @@ test.describe("#913 GPU canvas proof", () => {
           let gpuCullFrames = 0;
           let standaloneCullFrames = 0;
           let cullArm: "gpu" | "standalone" | "gpu and standalone" | "none" | null = null;
+          let parityFrameArm: "cpu" | "gpu" | "standalone" | "gpu and standalone" | "none" | null = null;
           if (shippedCull !== null) {
             const other = shippedCull === "gpu" ? "cpu" : "gpu";
             const before = (await readProofState(page)).cullFrames;
@@ -1141,7 +1148,17 @@ test.describe("#913 GPU canvas proof", () => {
                 otherState = await settleAtlas(page);
               }
             }
+            // The parity frame's own arm: the cullFrames delta across this one screenshot.
+            const parityBefore = (await readProofState(page)).cullFrames;
             const otherImage = await forceFull(other as "cpu" | "gpu", `${tier.name}-cull-${other}.png`);
+            const parityAfter = (await readProofState(page)).cullFrames;
+            if (other === "gpu") {
+              const gpuDrew = (parityAfter?.gpu ?? 0) - (parityBefore?.gpu ?? 0) > 0;
+              const standaloneDrew = (parityAfter?.standalone ?? 0) - (parityBefore?.standalone ?? 0) > 0;
+              parityFrameArm = gpuDrew && standaloneDrew ? "gpu and standalone" : gpuDrew ? "gpu" : standaloneDrew ? "standalone" : "none";
+            } else {
+              parityFrameArm = "cpu";
+            }
             cullParity = mismatch(shippedFull, otherImage);
             const after = (await readProofState(page)).cullFrames;
             gpuCullFrames = other === "gpu" ? Math.max(0, (after?.gpu ?? 0) - (before?.gpu ?? 0)) : 0;
@@ -1155,8 +1172,11 @@ test.describe("#913 GPU canvas proof", () => {
                     : standaloneCullFrames > 0
                       ? "standalone"
                       : "none";
+              cullArmChecked = true;
+              if (gpuCullFrames > 0) gpuCulledTiers.push(tier.name);
+              const gap = gpuCullFrames > 0 ? "" : cullArm === "standalone" ? "; the GPU cull did not run here, the atlas holds a standalone texture" : "";
               console.log(
-                `${String(scale)}x ${tier.name}: the GPU cull arm ran as ${cullArm} (gpu ${String(gpuCullFrames)}, standalone ${String(standaloneCullFrames)} frames)`,
+                `${String(scale)}x ${tier.name}: the GPU cull arm ran as ${cullArm} (gpu ${String(gpuCullFrames)}, standalone ${String(standaloneCullFrames)} frames), parity frame drawn as ${String(parityFrameArm)}${gap}`,
               );
             }
             await page.evaluate((mode) => {
@@ -1347,6 +1367,7 @@ test.describe("#913 GPU canvas proof", () => {
             gpuCullFrames,
             standaloneCullFrames,
             cullArm,
+            parityFrameArm,
             clusterPicks,
             chromeClicks,
             chromeCovered,
@@ -1377,6 +1398,10 @@ test.describe("#913 GPU canvas proof", () => {
         }
         });
         report["tiers"] = tiers;
+        report["gpuCulledTiers"] = gpuCulledTiers;
+        if (process.env["JUNTO_GPU_PROOF_CULL_PARITY"] !== "0" && cullArmChecked && gpuCulledTiers.length === 0) {
+          fail(`${String(scale)}x: no tier ran the GPU cull as gpu (standalone at every tier checked); the GPU cull is unproven at this scale`);
+        }
 
         // Addressability, per tier. 1x clicks every seat on the pane; 10x and
         // 100x click every seat on the pane in each tile they visit (or up to
