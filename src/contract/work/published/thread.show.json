@@ -558,6 +558,86 @@
                     "additionalProperties": false
                   }
                 ]
+              },
+              "waiting": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "signal": {
+                "type": "object",
+                "properties": {
+                  "signalId": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "escalate",
+                      "blocked",
+                      "feedback"
+                    ]
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "open",
+                      "answered",
+                      "dismissed",
+                      "withdrawn"
+                    ]
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "asks": {
+                    "type": "string",
+                    "enum": [
+                      "document",
+                      "proof",
+                      "secret"
+                    ]
+                  },
+                  "crossed": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
+                  }
+                },
+                "required": [
+                  "signalId",
+                  "kind",
+                  "state",
+                  "text"
+                ],
+                "additionalProperties": false
+              },
+              "answers": {
+                "type": "object",
+                "properties": {
+                  "signalId": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "escalate",
+                      "blocked",
+                      "feedback"
+                    ]
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "signalId",
+                  "kind",
+                  "text"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
