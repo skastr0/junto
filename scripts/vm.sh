@@ -63,7 +63,20 @@ may_start() {
   fi
 }
 awake() { # awake <id>: resume a stopped VM, only within the included starts
-  case "$("$BOAT" info "$1" --json | jq -r '.sandbox.state')" in
+  local info
+  info=$("$BOAT" info "$1" --json)
+  # A shared VM is used through a clone of one's own. Without VM_SEAT a sync
+  # or a run lands in the snapshot's clone, hundreds of commits behind main,
+  # and a check there passes on old code.
+  if [ -z "${VM_SEAT:-}" ]; then
+    case "$(jq -r '.sandbox.name' <<<"$info")" in
+      *-pool-[12])
+        echo "vm.sh: $1 is a shared VM: set VM_SEAT=<your seat name> on sync and run. Without it the command runs in the snapshot's clone, far behind main." >&2
+        exit 2
+        ;;
+    esac
+  fi
+  case "$(jq -r '.sandbox.state' <<<"$info")" in
     stopped | stopping)
       may_start
       "$BOAT" resume "$1" --json >/dev/null
@@ -124,7 +137,9 @@ case "${1:-}" in
     shift $(($# < 3 ? $# : 3))
     target=$(git -C "$ROOT" rev-parse --verify "$ref^{commit}")
     # A seat's own clone is made on its first sync, from the snapshot's clone
-    # and its node_modules (hard links, so no second copy on disk).
+    # and its node_modules. Those are hard links: no second copy on disk, and
+    # not private. bun install replaces files, which is safe; a tool that
+    # rewrites a file in place there would change it for every seat.
     if [ "$VM_DIR" != "$VM_HOME" ]; then
       remote "$id" "test -d ~/$VM_DIR/.git || { git clone -q ~/$VM_HOME ~/$VM_DIR && cp -al ~/$VM_HOME/node_modules ~/$VM_DIR/node_modules; }"
     fi
@@ -186,7 +201,7 @@ case "${1:-}" in
     "$BOAT" stop "${2:?VM id}"
     ;;
   *)
-    sed -n '2,21p' "$0"
+    awk 'NR == 1 { next } /^#/ { print; next } { exit }' "$0"
     exit 2
     ;;
 esac
