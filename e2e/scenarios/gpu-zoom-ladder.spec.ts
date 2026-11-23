@@ -469,6 +469,14 @@ const overlayMask = async (page: Page, pane: Rect, dpr: number): Promise<{ mask:
   return { mask, share: over / mask.length };
 };
 
+/**
+ * A gesture block is hot when one channel of its mean colour differs from
+ * the mapped reference's by more than this (of 255): looser than a stop,
+ * which compares pixel by pixel, because the frame is unsettled and may draw
+ * a scaled stand-in.
+ */
+const GESTURE_BLOCK_TOLERANCE = 40;
+
 const compareGesture = (
   ref: { image: PngImage; mask: Uint8Array; camera: Camera },
   frame: PngImage,
@@ -491,7 +499,11 @@ const compareGesture = (
   let hotCount = 0;
   for (let by = 0; by < bh; by += 1) {
     for (let bx = 0; bx < bw; bx += 1) {
-      let sum = 0;
+      // Downsampled: the block's mean colour in the frame against the mean of
+      // the reference pixels it maps to. A scaled stand-in (softer, shifted
+      // by a subpixel) keeps its block means; another drawing does not.
+      const fm = [0, 0, 0];
+      const rm = [0, 0, 0];
       let n = 0;
       let skip = false;
       for (let y = by * B; y < by * B + B && !skip; y += 1) {
@@ -511,11 +523,18 @@ const compareGesture = (
             skip = true;
             break;
           }
-          sum += delta(frame, (y * frame.width + x) * 4, ref.image, (ry * ref.image.width + rx) * 4);
+          const fi = (y * frame.width + x) * 4;
+          const ri = (ry * ref.image.width + rx) * 4;
+          for (let c = 0; c < 3; c += 1) {
+            fm[c] += frame.data[fi + c]!;
+            rm[c] += ref.image.data[ri + c]!;
+          }
           n += 1;
         }
       }
-      if (skip || n === 0 || sum / n <= 56) continue;
+      if (skip || n === 0) continue;
+      const meanDelta = Math.max(Math.abs(fm[0]! - rm[0]!), Math.abs(fm[1]! - rm[1]!), Math.abs(fm[2]! - rm[2]!)) / n;
+      if (meanDelta <= GESTURE_BLOCK_TOLERANCE) continue;
       hot[by * bw + bx] = 1;
       hotCount += 1;
       for (let y = by * B; y < by * B + B; y += 1) {
@@ -623,16 +642,43 @@ const pinch = async (page: Page, at: { x: number; y: number }, from: number, to:
   const total = -Math.log2(to / from) / 0.02;
   const steps = Math.max(2, Math.ceil(Math.abs(total) / 3));
   const started = Date.now();
+  const sent: Array<Promise<unknown>> = [];
   try {
     for (let step = 0; step < steps; step += 1) {
       const wait = started + step * 16 - Date.now();
       if (wait > 0) await page.waitForTimeout(wait);
-      void cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: at.x, y: at.y, deltaX: 0, deltaY: total / steps, modifiers: 2 }).catch(() => undefined);
+      sent.push(cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: at.x, y: at.y, deltaX: 0, deltaY: total / steps, modifiers: 2 }));
     }
+    // Every wheel event delivered before the gesture counts as over.
+    await Promise.all(sent);
   } finally {
     await cdp.detach().catch(() => undefined);
   }
 };
+
+/** The camera once it has held still for three display frames (the gesture is over; the atlas need not be). */
+const stillCamera = async (page: Page): Promise<Camera> => {
+  const read = () =>
+    page.evaluate(
+      () =>
+        new Promise<{ x: number; y: number; zoom: number }>((resolve) => {
+          requestAnimationFrame(() => {
+            const hook = (window as unknown as { __juntoCanvas?: { camera?: () => { x: number; y: number; zoom: number } } }).__juntoCanvas;
+            resolve(hook?.camera?.() ?? { x: 0, y: 0, zoom: 1 });
+          });
+        }),
+    );
+  let last = await read();
+  let held = 0;
+  for (let i = 0; i < 120 && held < 3; i += 1) {
+    const at = await read();
+    held = at.x === last.x && at.y === last.y && at.zoom === last.zoom ? held + 1 : 0;
+    last = at;
+  }
+  return last;
+};
+
+const sameCamera = (a: Camera, b: Camera): boolean => a.x === b.x && a.y === b.y && a.zoom === b.zoom;
 
 // --- the run -------------------------------------------------------------------
 
@@ -750,8 +796,22 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
         await page.waitForTimeout(1_500);
         await settleAtlas(page);
         await pinch(page, centre, from, mid);
-        const frame = await shot(page, pane);
-        const state = await readProofState(page);
+        let camera = await stillCamera(page);
+        // A tier leg's frame is past the crossing, hysteresis included: nudge a short landing over it.
+        const crossing = mid !== Math.sqrt(from * to);
+        for (let nudge = 0; crossing && nudge < 6 && (to > from ? camera.zoom < mid : camera.zoom > mid); nudge += 1) {
+          await pinch(page, centre, camera.zoom, to > from ? mid * 1.01 : mid / 1.01);
+          camera = await stillCamera(page);
+        }
+        // The frame and the camera it is mapped with are one moment: the camera holds across the shot.
+        let frame = await shot(page, pane);
+        for (let retry = 0; retry < 4; retry += 1) {
+          const after = await stillCamera(page);
+          if (sameCamera(after, camera)) break;
+          camera = after;
+          frame = await shot(page, pane);
+        }
+        const state = { ...(await readProofState(page)), camera };
         await pinch(page, centre, state.camera.zoom, to);
         // The nearest stop of the frame's own tier, in log zoom.
         const candidates = [from, to].filter((z) => tierOf(z) === state.tier);
