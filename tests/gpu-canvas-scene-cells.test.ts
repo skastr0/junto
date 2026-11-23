@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { asCanvasName } from "@shared/model";
+import { TIER_NEAR_MIN } from "@shared/canvas-tier";
 import type { MotionPeaks, CardFact, Quad } from "../src/window/canvas/contract";
 import { TIER_BIT } from "../src/window/canvas/contract";
 import { createScene } from "../src/window/canvas/engine/scene";
@@ -69,6 +70,8 @@ const fakeAtlas = () => {
       for (const cell of cells.values()) landed.add(cell);
     },
     held: (): number => [...refs.values()].reduce((sum, count) => sum + count, 0),
+    /** Whether some cell for these words, at any scale, is held. */
+    holds: (words: string): boolean => [...cells].some(([key, cell]) => key.startsWith(`${words}@`) && (refs.get(cell) ?? 0) > 0),
     ensured,
     counts: () => ({ acquires, releases }),
   };
@@ -232,7 +235,8 @@ describe("cells a record holds", () => {
 
   it("are taken for the zoom-in tier only where a zoom in about the pointer can reach (issue 912)", () => {
     // A whole board in view at far, a window of 2 octaves (0.3 to 1.2 is near):
-    // a zoom in that far shows a quarter of the view's side about the pointer.
+    // a zoom in crosses into near at 0.62, where it shows 0.3 / 0.62 of the
+    // view's side about the pointer, and deeper in the window less.
     const atlas = fakeAtlas();
     let pointer: { x: number; y: number } | undefined;
     const cards: CardFact[] = [];
@@ -266,9 +270,9 @@ describe("cells a record holds", () => {
     scene.prepare(view, "far");
     expect(scene.inward()?.tier).toBe("near");
     // About the view's centre with no pointer: every card's far run, and a near run only within reach.
-    expect(scene.inward()!.rect.width).toBeCloseTo(view.width / 4, 6);
+    expect(scene.inward()!.rect.width).toBeCloseTo((view.width * 0.3) / TIER_NEAR_MIN, 6);
     expect(reached()).toBeGreaterThan(0);
-    expect(reached()).toBeLessThan(cards.length / 4);
+    expect(reached()).toBeLessThan(cards.length / 2);
     expect(atlas.held()).toBe(cards.length + reached());
     // The pointer moves to a corner: the reach follows it with no frame.
     pointer = { x: 0, y: 0 };
@@ -280,6 +284,51 @@ describe("cells a record holds", () => {
     scene.anchorMoved();
     scene.prepare(view, "far");
     expect(atlas.held()).toBe(cards.length + reached());
+  });
+
+  it("are taken for the zoom-in tier across the whole view at the zoom that crosses into it", () => {
+    // Far at 0.3 with a window of 2 octaves: the zoom in about the centre
+    // crosses into near at 0.62 and draws, on that frame, every card in the
+    // view shrunk by 0.62 / 0.3. Each of them must hold its near cell already;
+    // a reach taken at the window's end (1.2, a quarter of the side) left the
+    // ring between the two to rasterize on the crossing frame.
+    const atlas = fakeAtlas();
+    const cards: CardFact[] = [];
+    for (let column = 0; column < 20; column += 1) {
+      for (let row = 0; row < 15; row += 1) {
+        const id = `n${String(column)}.${String(row)}`;
+        cards.push({ id, row: note(id, id, { x: column * 400, y: row * 400 }), derived: { regionDepth: 0, blocked: false, z: 0 } });
+      }
+    }
+    const scene = createScene({
+      painter: (fact) => ({ quads: [text(`${fact.id}.near`, TIER_BIT.near), text(`${fact.id}.far`, TIER_BIT.far)], dim: { opacity: 1, saturate: 1 }, lift: 0 }),
+      acquire: atlas.acquire,
+      release: atlas.release,
+      hasImage: atlas.hasImage,
+      ensureNow: atlas.ensureNow,
+      zoom: () => 0.3,
+      peaks: { marginPx: 0, octaves: 2, latencyMs: 0 },
+    });
+    scene.apply({ kind: "load", canvas: asCanvasName("factory"), cards, wires: [] });
+    const view = { x: -200, y: -200, width: 8400, height: 6400 };
+    scene.prepare(view, "far");
+    const shrink = TIER_NEAR_MIN / 0.3;
+    const cx = view.x + view.width / 2;
+    const cy = view.y + view.height / 2;
+    const crossing = { x: cx - view.width / 2 / shrink, y: cy - view.height / 2 / shrink, width: view.width / shrink, height: view.height / shrink };
+    const meets = (card: CardFact, r: typeof crossing): boolean => {
+      const { x, y, width, height } = card.row;
+      return x <= r.x + r.width && x + width >= r.x && y <= r.y + r.height && y + height >= r.y;
+    };
+    const shown = cards.filter((card) => meets(card, crossing));
+    const quarter = { x: cx - view.width / 8, y: cy - view.height / 8, width: view.width / 4, height: view.height / 4 };
+    // The case is the ring between the window's end and the crossing.
+    expect(shown.filter((card) => !meets(card, quarter)).length).toBeGreaterThan(0);
+    expect(shown.filter((card) => !atlas.holds(`${card.id}.near`)).map((card) => card.id)).toEqual([]);
+    // Still only there: a corner card the zoom in cannot reach takes none.
+    expect(meets(cards[0]!, crossing)).toBe(false);
+    expect(atlas.holds(`${cards[0]!.id}.near`)).toBe(false);
+    expect(atlas.held()).toBe(cards.length + shown.length);
   });
 
   it("are taken for a camera jump's destination before the camera lands, and let go once cleared", () => {

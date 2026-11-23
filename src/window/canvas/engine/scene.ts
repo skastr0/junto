@@ -26,7 +26,17 @@
  * it the view rectangle, the tier and the theme.
  */
 
-import { farSeatScale, hoverCardScale, nodeScale, SEAT_SCALE_MAX, seatFloorScale, tierForZoom } from "@shared/canvas-tier";
+import {
+  farSeatScale,
+  hoverCardScale,
+  nodeScale,
+  SEAT_SCALE_MAX,
+  seatFloorScale,
+  TIER_FAR_MIN,
+  TIER_MID_MIN,
+  TIER_NEAR_MIN,
+  tierForZoom,
+} from "@shared/canvas-tier";
 import { ringKeepsApart } from "@shared/wire/urgency";
 import { AGENT_NODE_SIZE, holdsSeatRing, renderedNodeSize } from "@shared/node-geometry";
 import { SEAT_CONTENT_CENTRE_DX } from "../paint/card-spec";
@@ -139,6 +149,13 @@ type QuadRef = {
 /** A card's quads split by band, in paint order: the draw list concatenates them. */
 type Banded = readonly [ReadonlyArray<QuadRef>, ReadonlyArray<QuadRef>, ReadonlyArray<QuadRef>];
 const NO_BANDS: Banded = [[], [], []];
+
+/**
+ * The least zoom each tier draws at. A zoom in crosses into a tier there,
+ * and there the view is at its largest inside that tier: every card it then
+ * shows needs the tier's cell on that frame.
+ */
+const TIER_FLOOR: Readonly<Record<CanvasTier, number>> = { near: TIER_NEAR_MIN, mid: TIER_MID_MIN, far: TIER_FAR_MIN, overview: 0 };
 
 /**
  * What a card's records are wanted for at the last draw-list rebuild: the
@@ -898,10 +915,13 @@ export const createScene = (options: {
   let aheadTiers: ReadonlyArray<CanvasTier> = [];
   /**
    * The zoom-in tier inside the measured window, and the only board a zoom
-   * in that far can show: the view shrunk by 2^window about the pointer (the
-   * wheel and the pinch zoom about it), or about the view's centre with no
-   * pointer, grown by the pan margin at that zoom. A cell for the zoom-in
-   * tier outside it cannot be seen there inside the window, so none is taken.
+   * in can show in it: the view at the tier's floor zoom, where a zoom in
+   * crosses into it and its view is largest, so the view shrunk by
+   * floor / zoom about the pointer (the wheel and the pinch zoom about it),
+   * or about the view's centre with no pointer, grown by the pan margin at
+   * that zoom. Deeper in the window the view is smaller and inside it. A cell
+   * for the zoom-in tier outside it cannot be seen inside the window, so none
+   * is taken.
    */
   let inwardTier: CanvasTier | undefined;
   let inwardRect: Rect | undefined;
@@ -2649,9 +2669,12 @@ export const createScene = (options: {
     const anchor = options.anchor?.() ?? { x: view.x + view.width / 2, y: view.y + view.height / 2 };
     const ax = Math.min(Math.max(anchor.x, view.x), view.x + view.width);
     const ay = Math.min(Math.max(anchor.y, view.y), view.y + view.height);
-    const reach = { x: ax - (ax - view.x) / step, y: ay - (ay - view.y) / step, width: view.width / step, height: view.height / step };
+    // Shrunk to the crossing, not by the whole window: the window's end is
+    // the tier's smallest view, and the frame that crosses draws its largest.
+    const shrink = Math.max(1, TIER_FLOOR[up] / zoom);
+    const reach = { x: ax - (ax - view.x) / shrink, y: ay - (ay - view.y) / shrink, width: view.width / shrink, height: view.height / shrink };
     inwardTier = up;
-    inwardRect = insetBy(reach, marginAt(zoom * step));
+    inwardRect = insetBy(reach, marginAt(zoom * shrink));
   };
 
   /** Move the zoom-in cells with the reachable board: only the cards it left or entered settle again. */
