@@ -57,11 +57,22 @@ import { AgentSignalRepository } from "./repository";
 
 export type SignalOperatorResult =
   | { readonly ok: true; readonly signal: AgentSignal; readonly messageId?: string }
-  | { readonly ok: false; readonly message: string };
+  | {
+      readonly ok: false;
+      readonly message: string;
+      /** In a thread: the mail written before its signal could not be recorded, which stands and is delivered. */
+      readonly messageId?: string;
+    };
 
 const refused = (message: string): SignalOperatorResult => ({ ok: false, message });
 
 const repositoryMessage = (error: { readonly message: string }) => error.message;
+
+/** The answer's mail: each signal it answers named, the one it names first, then the words once. */
+const composeAnswerMail = (signals: ReadonlyArray<AgentSignal>, said: string): string =>
+  signals.length === 1
+    ? composeSignalAnswerMail(signals[0]!, said)
+    : [...signals.map((one) => composeSignalAnswerMail(one, "").trimEnd()), "", said.trim()].join("\n");
 
 type AnswerOptions = {
   readonly silent?: boolean;
@@ -150,7 +161,7 @@ const answerOpenSignals = (
         signal.nodeId,
         makeUserMessage({
           messageId: id,
-          text: composeSignalAnswerMail(signal, said),
+          text: composeAnswerMail(signals, said),
           contextId: signal.canvasName,
           metadata: {
             factoryMail: true,
@@ -187,9 +198,26 @@ const answerOpenSignals = (
     if (answered._tag === "Failure") {
       // Mailed, the files stay with the mail; recorded only, they go with the answer.
       if (messageId === undefined) yield* releaseFiles;
+      // In a thread the mail stands: the seat closed its signal meanwhile, and
+      // the reply is still the operator's, delivered as written.
+      if (inThread !== undefined && messageId !== undefined) {
+        for (const other of signals.slice(1)) {
+          const also = yield* Effect.result(repository.answer(other.signalId, text, refs));
+          if (also._tag === "Success") yield* releaseSignalAttachments(also.success);
+        }
+        return { ok: false as const, message: repositoryMessage(answered.failure), messageId };
+      }
       return refused(repositoryMessage(answered.failure));
     }
     yield* releaseSignalAttachments(answered.success);
+    // An answer that started a thread makes its signal that thread's head. The
+    // answer stands either way: a signal the store will not place is said in the log.
+    let closed = answered.success;
+    if (thread === undefined && messageId !== undefined) {
+      const placed = yield* Effect.result(repository.setThread(signal.signalId, messageId));
+      if (placed._tag === "Success") closed = placed.success;
+      else yield* Effect.logWarning("the answer started a thread its signal was not put in", { signalId: signal.signalId });
+    }
     // The others the same mail answers: recorded with its words. One closed
     // meanwhile (withdrawn, dismissed, answered elsewhere) is left as it is.
     for (const other of signals.slice(1)) {
@@ -201,7 +229,7 @@ const answerOpenSignals = (
     if (messageId !== undefined) yield* sendAnswerCopies(signal, copies.seatName ?? signal.nodeId, mailed, messageId, copies.seats);
     return {
       ok: true as const,
-      signal: answered.success,
+      signal: closed,
       ...(messageId === undefined ? {} : { messageId }),
     };
   });
@@ -233,8 +261,9 @@ export const openThreadSignals = (canvasName: string, nodeId: string, threadId: 
 /**
  * A reply the operator typed in a seat's thread, as the answer to the open
  * signals there that ask only for words: one mail in the thread, which names
- * the newest, and every one recorded answered. Undefined when the thread has
- * none, so the reply goes as plain mail.
+ * the one replied to (else the newest), and every one recorded answered. A
+ * signal the seat closed meanwhile leaves the mail standing, with its id.
+ * Undefined when the thread has none, so the reply goes as plain mail.
  */
 export const answerThreadSignals = (
   thread: { readonly canvasName: string; readonly nodeId: string; readonly threadId: string; readonly inReplyTo?: string },
@@ -243,10 +272,12 @@ export const answerThreadSignals = (
 ) =>
   Effect.gen(function* () {
     const open = yield* openThreadSignals(thread.canvasName, thread.nodeId, thread.threadId);
-    const [newest, ...rest] = open;
-    if (newest === undefined) return undefined;
+    // The signal whose mail the operator replied to is the one the mail names; else the newest.
+    const replied = open.find((signal) => thread.inReplyTo !== undefined && signal.messageId === thread.inReplyTo);
+    const [head, ...rest] = replied === undefined ? open : [replied, ...open.filter((signal) => signal !== replied)];
+    if (head === undefined) return undefined;
     return yield* answerOpenSignals(
-      [newest, ...rest],
+      [head, ...rest],
       text,
       attachments.length === 0 ? {} : { attachments },
       thread.inReplyTo === undefined ? {} : { inReplyTo: thread.inReplyTo },

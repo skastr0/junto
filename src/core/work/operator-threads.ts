@@ -578,7 +578,8 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
       ).pipe(Effect.provideService(AgentSignalRepository, signals.value));
       if (answered !== undefined) {
         // Fixed words, as a plain mail's failure: the store's message is not the operator's to read.
-        if (!answered.ok || answered.messageId === undefined) return refused("failed", "The mail could not be written.");
+        // A mail written stands even when its signal closed meanwhile: it is delivered as written.
+        if (answered.messageId === undefined) return refused("failed", "The mail could not be written.");
         return { messageId: answered.messageId, threadId };
       }
     }

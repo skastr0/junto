@@ -6,9 +6,7 @@
  * types in a thread answers every open signal there that asks only for words,
  * through the same answer path, so the feed card closes; a signal that asks
  * for work stays open; a dismissed or withdrawn signal is left as it is.
- * The mail store is real, under a temp root. The signals are held in memory
- * until the store keeps a signal's thread (migration 75 to 76, cli-performance):
- * the answer path reads them through the same repository service.
+ * Real stores under a temp root, the signals' thread included (step 76).
  */
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -27,12 +25,11 @@ import { makeInstallOpsLive } from "../src/core/install-ops/engine";
 import { MachineRepositoryLive } from "../src/core/machines/repository";
 import { SettingsLive } from "../src/core/settings/service";
 import { PausePlaneAllPlaying } from "../src/core/pause-plane";
-import { AgentSignalNotFound, AgentSignalRepository } from "../src/core/signals/repository";
+import { AgentSignalRepository, AgentSignalRepositoryLive } from "../src/core/signals/repository";
 import { answerAgentSignal, dismissAgentSignal } from "../src/core/signals/operator";
 import { sendOperatorThreadMail } from "../src/core/work/operator-threads";
 import { OperatorThreadSend as OperatorThreadSendSchema, type OperatorThreadSend } from "../src/shared/mail-threads";
-import type { AgentSignal } from "../src/shared/agent-signals";
-import { ulid } from "ulid";
+import { AGENT_SIGNAL_MAX_RESPONSE_LENGTH, type AgentSignal } from "../src/shared/agent-signals";
 import type { Message } from "../src/shared/work-model";
 import { nameThisMachine } from "./support/name-this-machine";
 import { makeTestLog } from "./support/test-log";
@@ -41,29 +38,6 @@ const testLog = makeTestLog();
 const CANVAS = "threads";
 const SEAT = "agent";
 
-/** The signals, as the repository holds them: open until answered, dismissed or withdrawn. */
-const held = new Map<string, AgentSignal>();
-const missing = (signalId: string) => new AgentSignalNotFound({ signalId, message: `no signal ${signalId}` });
-const close = (signalId: string, closed: Partial<AgentSignal>) =>
-  Effect.suspend(() => {
-    const signal = held.get(signalId);
-    if (signal === undefined || signal.state !== "open") return Effect.fail(missing(signalId));
-    const next = { ...signal, ...closed, closedAt: Date.now() } as AgentSignal;
-    held.set(signalId, next);
-    return Effect.succeed(next);
-  });
-const memorySignals = Layer.mock(AgentSignalRepository, {
-  get: (signalId) => Effect.suspend(() => {
-    const signal = held.get(signalId);
-    return signal === undefined ? Effect.fail(missing(signalId)) : Effect.succeed(signal);
-  }),
-  listSeat: (seat) =>
-    Effect.sync(() => [...held.values()].filter((signal) => signal.canvasName === seat.canvasName && signal.nodeId === seat.nodeId)),
-  answer: (signalId, text) => close(signalId, { state: "answered", response: { text, at: Date.now() } }),
-  dismiss: (signalId) => close(signalId, { state: "dismissed" }),
-  withdraw: (_seat, signalId) => Effect.map(close(signalId!, { state: "withdrawn" }), (signal) => [signal]),
-});
-
 const makeRuntime = (root: string) => {
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
@@ -71,7 +45,7 @@ const makeRuntime = (root: string) => {
       CrewRepositoryLive,
       MachineRepositoryLive,
       SettingsLive,
-      memorySignals,
+      AgentSignalRepositoryLive,
       makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
     ),
     Layer.mergeAll(
@@ -109,7 +83,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  held.clear();
   await runtime.dispose();
   await rm(root, { recursive: true, force: true });
   delete process.env.JUNTO_WORK_HOME;
@@ -132,11 +105,20 @@ const signal = (signalId: string): Promise<AgentSignal> => run(Effect.flatMap(Ag
 const answer = (signalId: string, text: string): Promise<any> => run(answerAgentSignal(signalId, text));
 
 type Raise = Pick<AgentSignal, "kind" | "text"> & Partial<Pick<AgentSignal, "form" | "threadId" | "messageId">>;
-let clock = 1;
-const raise = async (input: Raise): Promise<AgentSignal> => {
-  const signal: AgentSignal = { signalId: ulid(), canvasName: CANVAS, nodeId: SEAT, createdAt: (clock += 1), state: "open", ...input };
-  held.set(signal.signalId, signal);
-  return signal;
+const raise = (input: Raise): Promise<AgentSignal> =>
+  run(Effect.flatMap(AgentSignalRepository, (signals) => signals.raise({ canvasName: CANVAS, nodeId: SEAT, ...input })));
+
+/**
+ * A thread with more mail in it, each standing in for a later signal's own
+ * mail. Written before any signal is raised: a reply in the thread after one
+ * is raised would answer it.
+ */
+const threadOf = async (more: number) => {
+  const started = await send({ text: "Ship it today?" });
+  const threadId = started.threadId as string;
+  const mails: string[] = [];
+  for (let n = 0; n < more; n += 1) mails.push((await send({ threadId, text: `And ${n}?` })).messageId as string);
+  return { threadId, rootId: started.messageId as string, mails };
 };
 
 /**
@@ -172,7 +154,7 @@ describe("the answer to a signal in a thread", () => {
     expect((await signal(raised.signalId)).threadId).toBe(threadId);
   });
 
-  it("starts a thread when the signal has none", async () => {
+  it("starts a thread when the signal has none, and the signal heads it", async () => {
     const raised = await raise({ kind: "blocked", text: "Need the token." });
     const answered = await answer(raised.signalId, "Set it.");
     expect(answered.ok).toBe(true);
@@ -180,8 +162,10 @@ describe("the answer to a signal in a thread", () => {
     expect(metadata).toMatchObject({ agentSignalId: raised.signalId });
     expect("threadId" in metadata).toBe(false);
     expect("inReplyTo" in metadata).toBe(false);
-    // The answer is the thread's root: the thread's id is its own.
-    expect((await signal(raised.signalId)).state).toBe("answered");
+    // The answer is the thread's root, and the signal heads that thread.
+    const head = await signal(raised.signalId);
+    expect(head.state).toBe("answered");
+    expect(head.threadId).toBe(answered.messageId);
   });
 });
 
@@ -203,16 +187,66 @@ describe("a reply the operator types in a thread", () => {
   });
 
   it("answers every open plain signal in the thread with one mail", async () => {
-    const { threadId, rootId, raised } = await threadWithSignal();
-    const second = await raise({ kind: "feedback", text: "Ready for review.", threadId, messageId: rootId });
+    const { threadId, rootId, mails } = await threadOf(1);
+    const raised = await raise({ kind: "escalate", text: "Which region first?", threadId, messageId: rootId });
+    const second = await raise({ kind: "feedback", text: "Ready for review.", threadId, messageId: mails[0]! });
     const before = (await mailbox()).length;
     const replied = await send({ threadId, text: "Both fine." });
     expect((await mailbox()).length).toBe(before + 1);
     expect((await signal(raised.signalId)).state).toBe("answered");
     expect((await signal(second.signalId)).state).toBe("answered");
-    // The mail names the newest; each signal records the same words.
-    expect((await stored(replied.messageId)).metadata).toMatchObject({ agentSignalId: second.signalId });
+    // The mail names the newest; each signal records the same words, and the mail says both were answered.
+    const sent = await stored(replied.messageId);
+    expect(sent.metadata).toMatchObject({ agentSignalId: second.signalId });
     expect((await signal(raised.signalId)).response?.text).toBe("Both fine.");
+    const words = sent.parts.map((part) => (part.kind === "text" ? part.text : "")).join("");
+    expect(words).toContain(raised.signalId);
+    expect(words).toContain(second.signalId);
+    expect(words.trimEnd().endsWith("Both fine.")).toBe(true);
+  });
+
+  it("names the signal whose mail the operator replied to, not the newest", async () => {
+    const { threadId, rootId, mails } = await threadOf(1);
+    const older = await raise({ kind: "escalate", text: "Which region?", threadId, messageId: rootId });
+    await raise({ kind: "feedback", text: "Draft up.", threadId, messageId: mails[0]! });
+    const replied = await send({ threadId, inReplyTo: rootId, text: "Europe." });
+    expect((await stored(replied.messageId)).metadata).toMatchObject({ agentSignalId: older.signalId, inReplyTo: rootId });
+  });
+
+  it("keeps the mail and its id when the seat withdrew the signal between the read and the answer", async () => {
+    const { threadId, raised } = await threadWithSignal();
+    const before = (await mailbox()).length;
+    // The seat withdraws as the answer is recorded: the read saw it open, the store has it closed.
+    const withdrawing = Layer.effect(
+      AgentSignalRepository,
+      Effect.map(AgentSignalRepository, (live) =>
+        AgentSignalRepository.of({
+          ...live,
+          answer: (signalId, ...rest) =>
+            live.withdraw({ canvasName: CANVAS, nodeId: SEAT }, signalId).pipe(Effect.andThen(live.answer(signalId, ...rest))),
+        }),
+      ),
+    );
+    const replied: any = await run(
+      sendOperatorThreadMail(decodeSend({ canvasName: CANVAS, nodeId: SEAT, threadId, text: "Asia first." })).pipe(
+        Effect.provide(withdrawing),
+      ),
+    );
+    expect(replied.ok).not.toBe(false);
+    expect(replied).toMatchObject({ threadId });
+    expect((await mailbox()).length).toBe(before + 1);
+    expect((await stored(replied.messageId)).metadata).toMatchObject({ threadId });
+    expect((await signal(raised.signalId)).state).toBe("withdrawn");
+  });
+
+  it("answers with a reply at the thread's full length, which is the answer's limit too", async () => {
+    const { threadId, raised } = await threadWithSignal();
+    const long = "a".repeat(AGENT_SIGNAL_MAX_RESPONSE_LENGTH);
+    const replied = await send({ threadId, text: long });
+    expect(replied.messageId).toEqual(expect.any(String));
+    const after = await signal(raised.signalId);
+    expect(after.state).toBe("answered");
+    expect(after.response?.text).toBe(long);
   });
 
   it("leaves a signal that asks for work open, and goes as plain mail", async () => {
@@ -225,10 +259,11 @@ describe("a reply the operator types in a thread", () => {
   });
 
   it("leaves a dismissed or withdrawn signal as it reads, and goes as plain mail", async () => {
-    const { threadId, rootId, raised } = await threadWithSignal();
+    const { threadId, rootId, mails } = await threadOf(1);
+    const raised = await raise({ kind: "escalate", text: "Which region first?", threadId, messageId: rootId });
+    const withdrawn = await raise({ kind: "feedback", text: "Draft up.", threadId, messageId: mails[0]! });
     const before = (await mailbox()).length;
     await run(dismissAgentSignal(raised.signalId));
-    const withdrawn = await raise({ kind: "feedback", text: "Draft up.", threadId, messageId: rootId });
     await run(Effect.flatMap(AgentSignalRepository, (signals) => signals.withdraw({ canvasName: CANVAS, nodeId: SEAT }, withdrawn.signalId)));
 
     // Dismissing and withdrawing wrote nothing into the thread.
