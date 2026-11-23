@@ -902,6 +902,15 @@ const subtractRect = (rect: ScreenRect, box: ScreenRect): ScreenRect[] => {
   return out;
 };
 
+/** The window outside the pane, as boxes: a card there is under the app's own bars, not on the canvas. */
+const outsidePane = (pane: ScreenRect, viewport: ScreenRect): ScreenRect[] =>
+  [
+    { x: viewport.x, y: viewport.y, width: viewport.width, height: pane.y - viewport.y },
+    { x: viewport.x, y: pane.y + pane.height, width: viewport.width, height: viewport.y + viewport.height - (pane.y + pane.height) },
+    { x: viewport.x, y: viewport.y, width: pane.x - viewport.x, height: viewport.height },
+    { x: pane.x + pane.width, y: viewport.y, width: viewport.x + viewport.width - (pane.x + pane.width), height: viewport.height },
+  ].filter((box) => box.width > 0 && box.height > 0);
+
 const largestUncovered = (rect: ScreenRect, chrome: ReadonlyArray<ScreenRect>): ScreenRect | null => {
   let pieces: ScreenRect[] = [rect];
   for (const box of chrome) pieces = pieces.flatMap((piece) => subtractRect(piece, box));
@@ -1100,12 +1109,17 @@ test.describe("#913 GPU canvas proof", () => {
             fail(`${String(scale)}x ${tier.name}: the damaged frame differs from a full redraw on ${(fullRedrawDelta * 100).toFixed(2)}% of pixels`);
           }
           // The shipped arm is the picture above. Prove the GPU cull arm draws
-          // the same picture at this camera, and that it actually culled on
-          // the GPU (cullFrames.gpu moved), then restore the shipped arm.
+          // the same picture at this camera, and that it actually ran, then
+          // restore the shipped arm. It runs as one of two arms by design:
+          // "gpu" culls in a compute pass (cullFrames.gpu), and while the
+          // atlas holds a standalone texture the band needs its list on the
+          // CPU, so the frame counts as "standalone" (renderer.ts cull()).
           const shippedCull = at.cull;
           const shippedCullFrames = at.cullFrames;
           let cullParity: number | null = null;
           let gpuCullFrames = 0;
+          let standaloneCullFrames = 0;
+          let cullArm: "gpu" | "standalone" | "gpu and standalone" | "none" | null = null;
           if (shippedCull !== null) {
             const other = shippedCull === "gpu" ? "cpu" : "gpu";
             const before = (await readProofState(page)).cullFrames;
@@ -1120,7 +1134,9 @@ test.describe("#913 GPU canvas proof", () => {
               // the GPU arm frames to actually cull before calling it dead.
               await forceFull("gpu", `${tier.name}-cull-warm.png`);
               const deadline = Date.now() + 4_000;
-              while (Date.now() < deadline && (otherState.cullFrames?.gpu ?? 0) - (before?.gpu ?? 0) === 0) {
+              const moved = (state: typeof otherState): number =>
+                (state.cullFrames?.gpu ?? 0) - (before?.gpu ?? 0) + (state.cullFrames?.standalone ?? 0) - (before?.standalone ?? 0);
+              while (Date.now() < deadline && moved(otherState) === 0) {
                 await page.waitForTimeout(250);
                 otherState = await settleAtlas(page);
               }
@@ -1129,6 +1145,20 @@ test.describe("#913 GPU canvas proof", () => {
             cullParity = mismatch(shippedFull, otherImage);
             const after = (await readProofState(page)).cullFrames;
             gpuCullFrames = other === "gpu" ? Math.max(0, (after?.gpu ?? 0) - (before?.gpu ?? 0)) : 0;
+            standaloneCullFrames = other === "gpu" ? Math.max(0, (after?.standalone ?? 0) - (before?.standalone ?? 0)) : 0;
+            if (other === "gpu") {
+              cullArm =
+                gpuCullFrames > 0 && standaloneCullFrames > 0
+                  ? "gpu and standalone"
+                  : gpuCullFrames > 0
+                    ? "gpu"
+                    : standaloneCullFrames > 0
+                      ? "standalone"
+                      : "none";
+              console.log(
+                `${String(scale)}x ${tier.name}: the GPU cull arm ran as ${cullArm} (gpu ${String(gpuCullFrames)}, standalone ${String(standaloneCullFrames)} frames)`,
+              );
+            }
             await page.evaluate((mode) => {
               const hook = (window as unknown as { __juntoCanvas?: Record<string, any> }).__juntoCanvas;
               hook?.["setCull"]?.(mode);
@@ -1139,7 +1169,9 @@ test.describe("#913 GPU canvas proof", () => {
           if (shippedCull === null) fail(`${String(scale)}x ${tier.name}: the canvas reports no cull mode`);
           if (process.env["JUNTO_GPU_PROOF_CULL_PARITY"] !== "0" && cullParity !== null) {
             if (cullParity > 0.05) fail(`${String(scale)}x ${tier.name}: cull arms differ by ${(cullParity * 100).toFixed(2)}% of pixels`);
-            if (shippedCull === "cpu" && gpuCullFrames === 0) fail(`${String(scale)}x ${tier.name}: the GPU cull arm drew no frames`);
+            if (shippedCull === "cpu" && cullArm === "none") {
+              fail(`${String(scale)}x ${tier.name}: the GPU cull arm drew no frames, neither gpu nor standalone`);
+            }
           }
           // Are cluster badges pickable at all? A drawn badge that answers
           // the pane is an unreachable seat, whatever the counters say.
@@ -1235,11 +1267,14 @@ test.describe("#913 GPU canvas proof", () => {
               return [{ id, rect, drawn }];
             });
           }, board.model.nodes.map((node) => node.id));
+          // A card is checked only where the pane shows it: the window
+          // outside the pane is the app's own bars, which cover the canvas.
+          const covers = [...chrome, ...outsidePane(pane, viewport)];
           const inkless = cardRects
             .slice(0, 300)
             .flatMap((card) => {
               if (!card.drawn && heldByBadge.has(card.id)) return [];
-              const visible = largestUncovered(card.rect, chrome);
+              const visible = largestUncovered(card.rect, covers);
               if (visible === null) return [];
               const ink = partInk(image, viewport, visible);
               return ink < 0.004 ? [{ id: card.id, rect: visible, ink: round(ink, 4) }] : [];
@@ -1310,6 +1345,8 @@ test.describe("#913 GPU canvas proof", () => {
             shippedCullFrames: shippedCullFrames ?? null,
             cullParity: cullParity === null ? null : round(cullParity, 4),
             gpuCullFrames,
+            standaloneCullFrames,
+            cullArm,
             clusterPicks,
             chromeClicks,
             chromeCovered,
