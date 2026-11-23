@@ -27,6 +27,7 @@ import {
   SeatThreadsQuery,
 } from "../../shared/mail-threads";
 import { MailWaitingFact } from "../../shared/mail-waiting";
+import { OperatorThreadsFilter, OperatorThreadsPage, OperatorThreadsPageQuery, OperatorThreadsWatched } from "../../shared/operator-threads";
 import { SeatCollaborationAskResult, SeatCollaborationDraft } from "../../shared/seat-collaboration";
 import { SeatOnboardingEvent } from "../../shared/seat-onboarding-status";
 import { MailThreadMessage, MailThreadSummary } from "../../shared/wire/mail-threads";
@@ -104,6 +105,18 @@ export const ThreadsRpcs = RpcGroup.make(
   Rpc.make("ThreadsMailWaiting", { success: Schema.Array(MailWaitingFact) }),
   /** Starts the pushes of read points and waiting mail; asking again of the same core changes nothing. */
   Rpc.make("ThreadsWatch"),
+  /** Global threads: one page of the operator's threads across every seat of a canvas (work/thread-rows.ts). */
+  Rpc.make("ThreadsAcross", { payload: OperatorThreadsPageQuery, success: OperatorThreadsPage, error: ThreadsUnavailable }),
+  /** Start pushes of what changes under a filter, for one window (`subscriber`, its webContents id), on `OPERATOR_THREADS_CHANGED`. */
+  Rpc.make("ThreadsAcrossWatch", {
+    payload: { subscriber: Schema.Number, filter: OperatorThreadsFilter },
+    success: OperatorThreadsWatched,
+    error: ThreadsUnavailable,
+  }),
+  /** Never fails: a watch that is gone is gone. */
+  Rpc.make("ThreadsAcrossUnwatch", { payload: { watchId: Schema.String } }),
+  /** A window closed: its watches end. */
+  Rpc.make("ThreadsAcrossWindowGone", { payload: { subscriber: Schema.Number } }),
 ).annotateRpcs(Rpc.ParseOptions, { onExcessProperty: "error" });
 
 /** Main's client of the threads group. A call fails with `RpcClientError` when the core it asked left before it answered. */

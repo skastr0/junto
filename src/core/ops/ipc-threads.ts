@@ -6,13 +6,14 @@
  * in main. Read points that move and mail held past its wait go out as pushes
  * once the window's watch started them, once per core.
  */
-import { Effect, Predicate, Ref, Scope } from "effect";
+import { Context, Effect, Predicate, Ref, Scope } from "effect";
+import { SqlClient } from "effect/sql";
 import { ulid } from "ulid";
 import { asNodeId } from "@shared/model";
 import { makeUserMessage } from "@shared/task";
 import type { MailReadChanged } from "@shared/mail-threads";
 import { collaborationRequestMetadata, composeCollaborationRequestText } from "@shared/seat-collaboration";
-import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../../contract/core/channels";
+import { MAIL_WAITING, OPERATOR_THREADS_CHANGED, SEAT_THREAD_READ_CHANGED } from "../../contract/core/channels";
 import { ThreadsRpcs, ThreadsUnavailable } from "../../contract/core/threads";
 import { ModelService } from "../model/service";
 import { CorePushes } from "../push";
@@ -30,6 +31,8 @@ import {
   sendOperatorThreadMail,
 } from "../work/operator-threads";
 import { WorkService } from "../work/service";
+import { WorkRepository } from "../work/repository";
+import { makeThreadRowsWatches, operatorThreadsPage, operatorThreadsView } from "../work/thread-rows";
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : Predicate.hasProperty(error, "message") ? String(error.message) : String(error);
@@ -46,6 +49,34 @@ export const ThreadsHandlers = ThreadsRpcs.toLayer(
     const scope = yield* Effect.scope;
     // Whether this core already told its pushes to start: asking again changes nothing.
     const watching = yield* Ref.make(false);
+
+    // Global threads' watches. The core hears mail, read points and canvas
+    // changes once the first watch starts, and lets go of them with the core.
+    let runAcross: ((effect: Effect.Effect<void>) => void) | undefined;
+    const across = makeThreadRowsWatches({
+      run: (effect) => runAcross?.(effect),
+      send: (subscriber, change) => publishing(pushes.publish(OPERATOR_THREADS_CHANGED, { subscriber, change })),
+      read: (canvasName) => operatorThreadsView(canvasName).pipe(Effect.provide(acrossContext!)),
+    });
+    let acrossContext: Context.Context<ModelService | WorkRepository | SqlClient.SqlClient | WorkService> | undefined;
+    const hearAcross = Effect.gen(function* () {
+      if (acrossContext !== undefined) return;
+      acrossContext = yield* Effect.context<ModelService | WorkRepository | SqlClient.SqlClient | WorkService>();
+      runAcross = Effect.runForkWith(acrossContext);
+      const stopMail = (yield* WorkRepository).subscribeChanges((canvasName, _nodeId, kind) => {
+        if (kind !== "work") across.changed(canvasName);
+      });
+      const stopModel = (yield* ModelService).subscribeChanges((event) => across.changed(event.canvas));
+      const stopReads = onReadChanged((change) => across.changed(change.canvasName));
+      yield* Scope.addFinalizer(
+        scope,
+        Effect.sync(() => {
+          stopMail();
+          stopModel();
+          stopReads();
+        }),
+      );
+    });
 
     return {
       ThreadsList: ({ canvasName, nodeId, limit, after, group }) =>
@@ -123,6 +154,16 @@ export const ThreadsHandlers = ThreadsRpcs.toLayer(
         );
       },
       ThreadsMailWaiting: () => Effect.sync(() => messageDelivery.mailWaiting()),
+      ThreadsAcross: (query) => unavailable(operatorThreadsPage(query)),
+      ThreadsAcrossWatch: ({ subscriber, filter }) =>
+        unavailable(
+          Effect.gen(function* () {
+            yield* hearAcross;
+            return yield* across.watch(subscriber, filter);
+          }),
+        ),
+      ThreadsAcrossUnwatch: ({ watchId }) => Effect.sync(() => across.unwatch(watchId)),
+      ThreadsAcrossWindowGone: ({ subscriber }) => Effect.sync(() => across.windowGone(subscriber)),
       // Subscribed once per core, and let go with it.
       ThreadsWatch: () =>
         Effect.gen(function* () {

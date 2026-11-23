@@ -24,7 +24,14 @@ import {
   type OperatorThreadSent,
 } from "@shared/mail-threads";
 import type { SeatCollaborationAskResult, SeatCollaborationDraft } from "@shared/seat-collaboration";
-import { MAIL_WAITING, SEAT_THREAD_READ_CHANGED } from "../../contract/core/channels";
+import { MAIL_WAITING, OPERATOR_THREADS_CHANGED, SEAT_THREAD_READ_CHANGED } from "../../contract/core/channels";
+import { OPERATOR_THREADS_IPC_CHANNELS } from "@shared/operator-threads-channels";
+import {
+  decodeOperatorThreadsFilter,
+  decodeOperatorThreadsPageQuery,
+  decodeOperatorThreadsUnwatch,
+  type OperatorThreadsWatched,
+} from "@shared/operator-threads";
 import { ThreadsCore } from "../../contract/core/threads";
 import { askOnEveryCore } from "../core-process/every-core";
 import { CorePushesMain } from "../core-process/main-side/core-pushes";
@@ -111,6 +118,37 @@ export const registerThreadsIpc = (
       return { ok: false, reason: "failed", message: "The mail could not be sent." };
     }
   });
+
+  // Global threads: the operator's threads across every seat. A watch is the
+  // window's: its pushes go to that window alone, and end when it closes.
+  ipc.handle(OPERATOR_THREADS_IPC_CHANNELS.list, (_event, input: unknown) => {
+    const query = decodeOperatorThreadsPageQuery(input);
+    return Result.isFailure(query)
+      ? Promise.reject(new Error(query.failure.message))
+      : AppRuntime.runPromise(threads.ThreadsAcross(query.success));
+  });
+  const watchingWindows = new Set<number>();
+  ipc.handle(OPERATOR_THREADS_IPC_CHANNELS.watch, async (event, input: unknown): Promise<OperatorThreadsWatched> => {
+    const filter = decodeOperatorThreadsFilter(input);
+    if (Result.isFailure(filter)) throw new Error(filter.failure.message);
+    const sender = event.sender;
+    const subscriber = sender.id;
+    if (!watchingWindows.has(subscriber)) {
+      watchingWindows.add(subscriber);
+      sender.once("destroyed", () => {
+        watchingWindows.delete(subscriber);
+        void AppRuntime.runPromise(threads.ThreadsAcrossWindowGone({ subscriber })).catch(() => undefined);
+      });
+    }
+    return AppRuntime.runPromise(threads.ThreadsAcrossWatch({ subscriber, filter: filter.success }));
+  });
+  ipc.handle(OPERATOR_THREADS_IPC_CHANNELS.unwatch, async (_event, input: unknown): Promise<void> => {
+    const unwatch = decodeOperatorThreadsUnwatch(input);
+    if (Result.isFailure(unwatch)) return;
+    await AppRuntime.runPromise(threads.ThreadsAcrossUnwatch(unwatch.success)).catch(() => undefined);
+  });
+  // Every window hears it; a window lays only its own watch's (the store matches the watch id).
+  pushes.subscribe(OPERATOR_THREADS_CHANGED, (pushed) => broadcast(OPERATOR_THREADS_IPC_CHANNELS.changed, pushed.change));
 
   ipc.handle(IPC_CHANNELS.mailWaitingRead, () => AppRuntime.runPromise(threads.ThreadsMailWaiting()));
   ipc.handle(IPC_CHANNELS.seatOnboardingSnapshot, () => AppRuntime.runPromise(threads.ThreadsOnboarding()));

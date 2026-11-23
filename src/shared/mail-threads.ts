@@ -198,7 +198,7 @@ export const readPointKey = (point: MailReadPoint): Pick<Entry, "at" | "messageI
 type UnreadEntry = Pick<Entry, "at" | "messageId" | "mine" | "to">;
 
 /** The operator is in the thread: they wrote in it, or a seat wrote to them. Only such a thread counts unread or may be replied in. */
-const operatorIn = (messages: ReadonlyArray<Pick<Entry, "mine" | "to">>): boolean =>
+export const operatorIn = (messages: ReadonlyArray<Pick<Entry, "mine" | "to">>): boolean =>
   messages.some((message) => message.mine || message.to.some((party) => party.kind === "operator"));
 
 /**
@@ -251,7 +251,8 @@ const titleText = (text: string): string => {
   return out + text.slice(at);
 };
 
-const summaryOf = (input: MailThreadsInput, threadId: string, entries: ReadonlyArray<Entry>): MailThreadSummary => {
+/** One thread summarised as every list does, from its mail oldest first (the read across seats, work/thread-rows.ts). */
+export const summaryOf = (input: MailThreadsInput, threadId: string, entries: ReadonlyArray<Entry>): MailThreadSummary => {
   const first = entries[0]!;
   const last = entries[entries.length - 1]!;
   const root = entries.find((entry) => entry.messageId === threadId) ?? first;

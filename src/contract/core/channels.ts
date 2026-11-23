@@ -17,6 +17,7 @@ import { CompanionDeviceRecord } from "@shared/companion-devices";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { MailWaitingFact } from "@shared/mail-waiting";
 import { MailReadChanged } from "@shared/mail-threads";
+import { OperatorThreadsChanged } from "@shared/operator-threads";
 import { MachineCommandProgress } from "@shared/machine-progress";
 import { ShellEnvironmentChange } from "@shared/shell-environment";
 import { MENTION_IPC_CHANNELS } from "@shared/mention-ipc-channels";
@@ -56,6 +57,11 @@ export const SEAT_THREAD_READ_CHANGED = "threads.readChanged";
 export const MAIL_WAITING = "mail.waiting";
 /** A canvas changed, with the document as it is now, or was removed; once `model.watchCanvases` started it. */
 export const CANVAS_CHANGED = "model.canvasChanged";
+/** What changed under one window's Global threads watch (`ThreadsAcrossWatch`): the window it goes to, and the change. */
+export const OPERATOR_THREADS_CHANGED = "threads.acrossChanged";
+
+export const OperatorThreadsChangedPush = Schema.Struct({ subscriber: Schema.Number, change: OperatorThreadsChanged });
+export type OperatorThreadsChangedPush = typeof OperatorThreadsChangedPush.Type;
 
 /** What the canvas notice carries: the canvas, and the document as it is now or `undefined` once removed. */
 export const CanvasChangedPush = Schema.Struct({ canvas: Schema.String, next: Schema.UndefinedOr(CanvasSchema) });
@@ -150,6 +156,7 @@ export const CORE_PUSHES = {
   [LIVE_CHANGED]: LiveSnapshot,
   [SEAT_THREAD_READ_CHANGED]: MailReadChanged,
   [MAIL_WAITING]: MailWaitingFact,
+  [OPERATOR_THREADS_CHANGED]: OperatorThreadsChangedPush,
   [CANVAS_CHANGED]: CanvasChangedPush,
   [RESOURCE_CHANGED]: ResourceChangedPush,
   [RESOURCE_THREAD_CHANGED]: ResourceThreadChangedPush,

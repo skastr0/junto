@@ -311,8 +311,25 @@ const threadsInput = (canvasName: string) =>
       subjectNameOf: (subject) => subjectNames.get(subjectKey(subject)),
       derivedFor: (nodeId) => viewOf(index, nodeId),
     };
-    return { canvas, input };
+    return { canvas, input, index };
   });
+
+/**
+ * Every thread of a canvas as the index holds it, brought current: by id, its
+ * mail oldest first, with the canvas and the input its rows are read with. A
+ * thread's array is replaced whenever its mail moves, so a reader that keeps
+ * one knows the thread did not change while the array is the same. The read
+ * across every seat (work/thread-rows.ts) and its watches take it.
+ */
+export const canvasThreads = (canvasName: string) =>
+  Effect.map(threadsInput(canvasName), ({ canvas, input, index }) => ({
+    canvas,
+    input,
+    threads: (): IterableIterator<readonly [string, ReadonlyArray<MailThreadMessage>]> =>
+      (function* () {
+        for (const [threadId, mail] of index.threads) yield [threadId, mail.entries] as const;
+      })(),
+  }));
 
 /** What the thread reads take for a canvas, for a reader that pages them itself (the phone's). */
 export const seatThreadsInput = (canvasName: string) => Effect.map(threadsInput(canvasName), ({ input }) => input);
