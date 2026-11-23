@@ -15,7 +15,7 @@ import { Layer, ManagedRuntime } from "effect";
 import { CompanionWindow } from "../src/contract/window/companion";
 import { SignalsWindow } from "../src/contract/window/signals";
 import { WindowRuntimeContext } from "../src/window/rpc/runtime";
-import { clearFeedFilters, feedView$ } from "../src/window/lib/operator-feed";
+import { clearFeedFilters, feedAsked$, feedView$, openNeedsYouOn } from "../src/window/lib/operator-feed";
 import { state$ } from "../src/window/lib/state";
 
 /** The feed under a window runtime: its signal and companion calls are not under test. */
@@ -345,4 +345,18 @@ it("clears everything the operator narrowed, and only then", async () => {
   expect(cards()).toEqual(["b", "a", "c"]);
   expect(feedView$.query.peek()).toBe("");
   expect(feedView$.seat.peek()).toBeUndefined();
+});
+
+it("opens on a signal asked for by id, clearing a filter that hides it, and lets go of one it does not hold", async () => {
+  await open();
+  await type("rates");
+  expect(cards()).toEqual(["a"]);
+  await act(async () => openNeedsYouOn("b"));
+  expect(search().value).toBe("");
+  const selected = document.body.querySelector<HTMLElement>("[data-testid='operator-feed-card'][aria-current='true']");
+  expect(selected?.dataset.itemId).toBe("signal:b");
+  expect(feedAsked$.itemId.peek()).toBeNull();
+  await act(async () => openNeedsYouOn("closed-long-ago"));
+  expect(feedAsked$.itemId.peek()).toBeNull();
+  expect(document.body.querySelector<HTMLElement>("[data-testid='operator-feed-card'][aria-current='true']")?.dataset.itemId).toBe("signal:b");
 });

@@ -28,8 +28,11 @@ import "./operator-feed.css";
 
 export const NO_NOTES: ReadonlyArray<string> = [];
 
-/** How each need reads: a glyph on the portrait; its word is FEED_KIND_LABEL. */
-const KIND_ICON: Readonly<Record<FeedItemKind, LucideIcon>> = {
+/**
+ * How each need reads: a glyph on the portrait; its word is FEED_KIND_LABEL.
+ * ThreadChat's signal frame draws the same glyphs.
+ */
+export const KIND_ICON: Readonly<Record<FeedItemKind, LucideIcon>> = {
   blocked: OctagonAlert,
   attention: MessageCircleQuestion,
   stopped: CirclePause,

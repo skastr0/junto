@@ -32,6 +32,7 @@ import type { ThreadHealthReading } from "@shared/thread-health";
 import { deriveNeeds, type SeatSnapshot } from "@shared/harness-domain";
 import { agentSeatStatusOf, type AgentSeatStateEvent } from "@shared/agent-seat-state";
 import { Level } from "@shared/wire/urgency";
+import { isOperatorModalOpen, openOperatorModal } from "./operator-modal";
 import { agentSeat$, seatEventForBinding, seatStatusForBinding } from "./agent-seat-state";
 import { agentSignals$ } from "./agent-signals-state";
 import { executionGraphForImpact } from "./impact-mode";
@@ -561,6 +562,22 @@ export const toggleFeedKind = (kind: FeedItemKind): void => {
  */
 export const toggleFeedSeat = (seatId: string): void => {
   feedView$.seat.set(feedView$.seat.peek() === seatId ? undefined : seatId);
+};
+
+/**
+ * A card Needs you is asked to show, selected and in view: the feed takes it
+ * as soon as it holds that card, clearing its filters first if they hide it,
+ * and lets go of an ask for a card it does not hold (one already closed).
+ */
+export const feedAsked$ = observable<{ itemId: string | null }>({ itemId: null });
+
+/**
+ * Open Needs you selected on a signal, by its id: from a thread's Hand in, or
+ * anywhere a signal is named. Already open, it moves to the signal.
+ */
+export const openNeedsYouOn = (signalId: string): void => {
+  feedAsked$.itemId.set(`signal:${signalId}`);
+  if (!isOperatorModalOpen("feed")) openOperatorModal("feed");
 };
 
 /** Clear everything the operator narrowed: the region pick and the three axes. */

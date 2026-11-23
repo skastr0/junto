@@ -53,6 +53,7 @@ import { SIGNALS_SECTION, useSignalActions } from "../../lib/agent-signals-view"
 import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 import {
   clearFeedFilters,
+  feedAsked$,
   feedFilterOf,
   feedItemsInOrder,
   feedRegionChips,
@@ -628,6 +629,25 @@ const feed = useOperatorFeed();
     );
   }, [items, selected]);
   const selectedItem = items.find((item) => item.itemId === selected);
+  // A card asked for by openNeedsYouOn: selected and brought into view once
+  // the list holds it. A filter hiding it is cleared first; an ask for a card
+  // the feed does not hold (closed already) is let go.
+  const asked = use$(feedAsked$.itemId);
+  useEffect(() => {
+    if (asked === null) return;
+    if (items.some((item) => item.itemId === asked)) {
+      feedAsked$.itemId.set(null);
+      setSelected(asked);
+      setRevealId(asked);
+      return;
+    }
+    const held = feed.sections.some((section) => section.items.some((item) => item.itemId === asked));
+    if (held && (filtering || activeRegion !== undefined)) {
+      clearFeedFilters();
+      return;
+    }
+    if (!held) feedAsked$.itemId.set(null);
+  }, [asked, items, feed.sections, filtering, activeRegion]);
 
   const answer = async (item: FeedItem, chosen: SignalAnswer): Promise<void> => {
     if (!item.signalId || sendingRef.current.has(item.itemId)) return;
