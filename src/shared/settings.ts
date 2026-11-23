@@ -361,6 +361,10 @@ export type TerminalCursorStyle = typeof TerminalCursorStyle.Type;
 export const TerminalBell = Schema.Literals(["off", "visual", "sound"]);
 export type TerminalBell = typeof TerminalBell.Type;
 
+/** The view a seat modal opens on: its terminal, or its threads. */
+export const SeatOpenView = Schema.Literals(["terminal", "threads"]);
+export type SeatOpenView = typeof SeatOpenView.Type;
+
 /**
  * Fractional-friendly bound. isBetween alone also rejects NaN and Infinity
  * (both comparisons are false), so no separate finiteness check is needed.
@@ -445,6 +449,11 @@ export const TerminalSettings = Schema.Struct({
   bell: TerminalBell,
   /** Optional so installed settings rows keep decoding; absent means off. */
   copyOnSelect: Schema.optionalKey(Schema.Boolean),
+  /**
+   * The view a seat modal opens on. Optional so installed settings rows keep
+   * decoding; absent means "terminal". Read it through seatOpenView().
+   */
+  seatOpenView: Schema.optionalKey(SeatOpenView),
 });
 export type TerminalSettings = typeof TerminalSettings.Type;
 
@@ -1005,6 +1014,7 @@ export const TerminalPatch = Schema.Struct({
   screenReaderMode: Schema.optionalKey(Schema.Boolean),
   bell: Schema.optionalKey(TerminalBell),
   copyOnSelect: Schema.optionalKey(Schema.Boolean),
+  seatOpenView: Schema.optionalKey(SeatOpenView),
 });
 export type TerminalPatch = typeof TerminalPatch.Type;
 
@@ -1471,6 +1481,13 @@ export const harnessUserEnabled = (
 export const terminalSettings = (
   settings: Settings | undefined,
 ): TerminalSettings => settings?.terminal ?? defaultTerminal();
+
+/**
+ * The view a seat modal opens on. A row without the key, or without the
+ * terminal fragment at all, opens on the terminal.
+ */
+export const seatOpenView = (settings: Settings | undefined): SeatOpenView =>
+  settings?.terminal?.seatOpenView ?? "terminal";
 
 /** Shallow field merge: defined patch keys overwrite current. */
 export const mergeSection = <S extends Record<string, unknown>>(

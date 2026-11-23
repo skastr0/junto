@@ -15,6 +15,7 @@ import {
   applySettingsPatch,
   defaultSettings,
   defaultTerminal,
+  seatOpenView,
   terminalSettings,
 } from "../src/shared/settings";
 import { MONO_CELL } from "../src/window/lib/focus-measure";
@@ -511,6 +512,21 @@ describe("SQLite settings service", () => {
     });
   });
 
+  it("round-trips the view a seat opens on through the real service", async () => {
+    const first = await openService();
+    expect(seatOpenView(await run(first.service.get))).toBe("terminal");
+
+    const patched = await run(first.service.patch({ terminal: { seatOpenView: "threads" } }));
+    expect(seatOpenView(patched)).toBe("threads");
+    // Only the named key moved.
+    expect(patched.terminal).toEqual({ ...defaultTerminal(), seatOpenView: "threads" });
+
+    const second = await openService();
+    expect(seatOpenView(await run(second.service.get))).toBe("threads");
+    const back = await run(second.service.patch({ terminal: { seatOpenView: "terminal" } }));
+    expect(seatOpenView(back)).toBe("terminal");
+  });
+
   it("refuses an out-of-range terminal value at the service boundary", async () => {
     const { service } = await openService();
     const result = await runEither(
@@ -670,6 +686,28 @@ describe("terminal settings fragment", () => {
     ).toEqual(defaultTerminal());
     expect(terminalSettings(undefined)).toEqual(defaultTerminal());
     expect(terminalSettings(defaultSettings())).toEqual(defaultTerminal());
+  });
+
+  it("reads terminal as the view a seat opens on when the key is absent", () => {
+    // An installed row written before the key: its fragment has no seatOpenView.
+    const { seatOpenView: _absent, ...installed } = {
+      ...defaultTerminal(),
+      seatOpenView: "threads" as const,
+    };
+    const decoded = decodeTerminal(installed);
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isSuccess(decoded)) {
+      expect(seatOpenView({ ...defaultSettings(), terminal: decoded.success })).toBe("terminal");
+    }
+    expect(seatOpenView({ ...defaultSettings(), terminal: undefined })).toBe("terminal");
+    expect(seatOpenView(undefined)).toBe("terminal");
+    expect(
+      Result.isSuccess(decodeTerminal({ ...defaultTerminal(), seatOpenView: "threads" })),
+    ).toBe(true);
+    expect(
+      Result.isSuccess(decodeTerminal({ ...defaultTerminal(), seatOpenView: "browser" })),
+    ).toBe(false);
+    expect(Result.isFailure(decodePatchInput({ terminal: { seatOpenView: "feed" } }))).toBe(true);
   });
 
   it("merges a partial terminal patch field by field", () => {
