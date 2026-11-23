@@ -1,18 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { SeatUrgency } from "../src/shared/wire/urgency";
 import type { FeedRegion } from "../src/shared/operator-feed";
+import type { Seat } from "../src/shared/model";
 import {
-  keepUnread,
-  orderThreadRows,
+  keepSeat,
   reconcileThreadSelection,
   seatSummaryOf,
-  seatsByUrgency,
   threadRegionChips,
-  threadRowKey,
   threadSeatChips,
   threadsFilterOn,
-  threadsReadFilter,
   threadsStatusLine,
+  threadsStoreView,
+  urgentSeatsFirst,
   type ThreadRow,
 } from "../src/window/lib/threads-view";
 
@@ -38,76 +37,83 @@ const row = (seatId: string, seatName: string, region: FeedRegion, threadId: str
 });
 
 const rows: ReadonlyArray<ThreadRow> = [
-  row("a", "alpha", PRODUCT, "t1", 100, 2),
   row("b", "bravo", CANVAS, "t2", 300),
   row("c", "charlie", OPEN, "t3", 200, 1),
+  row("a", "alpha", PRODUCT, "t1", 100, 2),
   row("a", "alpha", PRODUCT, "t4", 50, 0, true),
 ];
 
-const urgencyNone = (): undefined => undefined;
+const seat = (id: string, title: string): Seat => ({ id, kind: "agent", title }) as unknown as Seat;
 
 describe("threads view", () => {
-  it("orders newest first by default, whatever the seats' states", () => {
-    expect(orderThreadRows(rows, "newest", urgencyNone).map((one) => one.threadId)).toEqual(["t2", "t3", "t1", "t4"]);
-  });
-
-  it("orders by the seat's urgency in the rail's view first, then recency", () => {
+  it("puts the urgent seats first in the rail's order and leaves the calm out", () => {
     const groups: Record<string, ReturnType<typeof SeatUrgency.groupOf>> = {
-      a: SeatUrgency.group.blocked,
+      a: SeatUrgency.group.waiting,
       b: SeatUrgency.group.working,
-      c: SeatUrgency.group.waiting,
+      c: SeatUrgency.group.blocked,
+      d: SeatUrgency.group.resting,
+      e: SeatUrgency.group.review,
     };
-    // alpha blocked (its newer thread first), charlie waiting, bravo working.
-    expect(orderThreadRows(rows, "urgency", (seatId) => groups[seatId]).map((one) => one.threadId)).toEqual(["t1", "t4", "t3", "t2"]);
-    expect(seatsByUrgency(["b", "a", "c", "d"], (seatId) => groups[seatId])).toEqual([["a"], ["c"], ["b"], ["d"]]);
+    const seats = ["a", "b", "c", "d", "e"].map((id) => seat(id, id));
+    expect(urgentSeatsFirst(seats, (one) => groups[one.id]!)).toEqual(["c", "a", "e"]);
   });
 
-  it("puts a seat whose urgency is unknown with the offline seats, after the rest", () => {
-    const keys = orderThreadRows(rows, "urgency", (seatId) => (seatId === "b" ? SeatUrgency.group.resting : undefined)).map(
-      (one) => one.threadId,
-    );
-    expect(keys[0]).toBe("t2");
-  });
-
-  it("asks the core read for the region, the words and the seat, and only on this canvas", () => {
-    expect(threadsReadFilter({ region: undefined, query: "  ", seat: undefined }, "factory")).toEqual({ canvasName: "factory" });
+  it("asks the store for the region, the words, Unread and the urgent seats, only on this canvas", () => {
+    const base = { region: undefined, query: "  ", unread: false, order: "newest" as const };
+    expect(threadsStoreView(base, "factory", ["a"])).toEqual({ canvasName: "factory" });
     expect(
-      threadsReadFilter({ region: { canvasName: "factory", path: ["Junto"] }, query: " fix tabs ", seat: "a" }, "factory"),
-    ).toEqual({ canvasName: "factory", region: ["Junto"], search: "fix tabs", seats: ["a"] });
-    expect(threadsReadFilter({ region: { canvasName: "other", path: ["Junto"] }, query: "", seat: undefined }, "factory")).toEqual({
+      threadsStoreView(
+        { region: { canvasName: "factory", path: ["Junto"] }, query: " fix tabs ", unread: true, order: "urgency" },
+        "factory",
+        ["c", "a"],
+      ),
+    ).toEqual({ canvasName: "factory", region: ["Junto"], search: "fix tabs", unread: true, urgentFirst: ["c", "a"] });
+    expect(threadsStoreView({ ...base, region: { canvasName: "other", path: ["Junto"] } }, "factory", [])).toEqual({
       canvasName: "factory",
     });
+    // Most urgent first with no urgent seat is newest first: the store is not asked for an empty order.
+    expect(threadsStoreView({ ...base, order: "urgency" }, "factory", [])).toEqual({ canvasName: "factory" });
   });
 
-  it("keeps only unread threads with Unread, and counts the words as a filter", () => {
-    expect(keepUnread(rows, true).map((one) => one.threadId)).toEqual(["t1", "t3"]);
-    expect(keepUnread(rows, false)).toHaveLength(4);
+  it("keeps one seat, a seat a review copied in included", () => {
+    expect(keepSeat(rows, "a").map((one) => one.threadId)).toEqual(["t1", "t4"]);
+    const copied = { ...rows[0]!, alsoSeats: [{ nodeId: "c", name: "charlie", portraitIdentity: "c" }] };
+    expect(keepSeat([copied], "c")).toHaveLength(1);
+    expect(keepSeat(rows, undefined)).toHaveLength(4);
+  });
+
+  it("counts the words, Unread and a seat as filters, a blank search not", () => {
     expect(threadsFilterOn({ query: " fix ", unread: false, seat: undefined })).toBe(true);
     expect(threadsFilterOn({ query: "  ", unread: false, seat: undefined })).toBe(false);
     expect(threadsFilterOn({ query: "", unread: true, seat: undefined })).toBe(true);
+    expect(threadsFilterOn({ query: "", unread: false, seat: "a" })).toBe(true);
   });
 
   it("hands the chat a summary it can answer, with the operator as you", () => {
     const mine = seatSummaryOf(rows[3]!);
     expect(mine.last).toMatchObject({ author: "you", mine: true });
     expect(mine.canReply).toBe(true);
-    const theirs = seatSummaryOf(rows[0]!);
+    const theirs = seatSummaryOf(rows[2]!);
     expect(theirs.last).toMatchObject({ author: "alpha", mine: false });
     expect(theirs.unread).toBe(2);
   });
 
-  it("draws region chips with a parent before its first child, counting unread threads", () => {
-    const chips = threadRegionChips(rows);
-    expect(chips.map((chip) => chip.label)).toEqual(["Junto", "Canvas", "open field", "Product"]);
-    expect(chips.find((chip) => chip.label === "Junto")?.count).toBe(1);
-    expect(chips.find((chip) => chip.label === "Product")?.count).toBe(1);
+  it("draws region chips from the store's innermost regions, a parent adding its children up", () => {
+    const chips = threadRegionChips([
+      { region: PRODUCT, total: 2, unread: 2 },
+      { region: CANVAS, total: 1, unread: 0 },
+      { region: OPEN, total: 1, unread: 1 },
+    ]);
+    expect(chips.map((chip) => chip.label)).toEqual(["Junto", "Product", "Canvas", "open field"]);
+    expect(chips.find((chip) => chip.label === "Junto")?.count).toBe(2);
     expect(chips.find((chip) => chip.label === "Product")?.color).toBe("2");
     expect(chips.find((chip) => chip.label === "Canvas")?.count).toBe(0);
+    // A pick with nothing left in it stays on the strip.
+    expect(threadRegionChips([], ["Junto", "Gone"]).map((chip) => chip.label)).toEqual(["Gone"]);
   });
 
   it("draws one seat chip per seat, the most threads first", () => {
-    const chips = threadSeatChips(rows);
-    expect(chips.map((chip) => [chip.name, chip.count])).toEqual([
+    expect(threadSeatChips(rows).map((chip) => [chip.name, chip.count])).toEqual([
       ["alpha", 2],
       ["bravo", 1],
       ["charlie", 1],
@@ -123,10 +129,6 @@ describe("threads view", () => {
     );
     expect(threadsStatusLine({ total: 24, unread: 3, shown: 2, region: [], filtering: true })).toBe("2 of 24 shown in the open field");
     expect(threadsStatusLine({ total: 0, unread: 0, shown: 0, filtering: false })).toBe("no threads yet");
-  });
-
-  it("keys a row by its seat and its thread", () => {
-    expect(threadRowKey(rows[0]!)).not.toBe(threadRowKey({ ...rows[0]!, seat: { ...rows[0]!.seat, nodeId: "b" } }));
   });
 
   it("hands a selection that left to its next neighbour, else the one before, else the first", () => {
