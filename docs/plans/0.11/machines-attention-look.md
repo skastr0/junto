@@ -29,7 +29,7 @@ The Radar button at `src/window/components/TopBar.tsx:315` keeps its box
 | State | Icon colour | Mark at top right | `aria-label` | `title` |
 |---|---|---|---|---|
 | Quiet | `--color-steel` | none | `Machines` | `Machines` |
-| Working | `--color-steel` | 7px dot, `--color-cyan-fg`, static | `Machines, Junto is being sent` (or `updated`, `woken`; `2 machines are busy` for more) | same |
+| Working | `--color-steel` | 7px dot, `--color-cyan-fg`, static | `Machines, sending Junto to Mac mini` (`updating Junto on Mac mini`, `waking Mac mini`); `Machines, 2 are busy` for more | same |
 | Needs you | `--color-amber-fg` | count pill, fill `--color-amber-fg` | `Machines, 2 need you` | same |
 | Broken | `--color-crimson-fg` | count pill, fill `--color-crimson-fg` | `Machines, 1 cannot work, 2 need you` | same |
 
@@ -43,13 +43,16 @@ The Radar button at `src/window/components/TopBar.tsx:315` keeps its box
   -1px), 7px, `--radius-pill`, with a 2px ring in `--color-ground` so it
   stays round over the button's border. It is `StatusDot` with `pulse` off;
   a moving dot needs the operator's word.
-- `aria-haspopup="dialog"` and `aria-expanded` when the popover can open;
-  quiet has neither, since it opens the window.
+- `aria-haspopup="dialog"` and `aria-expanded` in every state: the button
+  always opens the popover (below).
 
 ## 2. The popover
 
-Opens under the button through `Popover`, as the help popover does, when
-the badge is not quiet. Quiet opens the Machines window directly.
+Opens under the button through `Popover`, as the help popover does, in
+every state, quiet included. One press does one thing whatever the state,
+since the state can change under the pointer, and the Needs you button
+beside it also always opens the same place. Quiet shows `Every machine is
+ready.` and the footer.
 
 - `width={360}`. `role="dialog"`, label `Machines`.
 - Header: `Eyebrow` `Machines`, 10px 12px padding. No summary line; the
@@ -69,15 +72,23 @@ the badge is not quiet. Quiet opens the Machines window directly.
      - `variant="chrome"` for a fix (`Send Junto`, `Reconnect`, `Update
        Junto`, `Update now`, `Check for updates`, `Try update again`,
        `Reinstall Junto`, `Check again`, `Add machine`).
-     - `variant="danger"` for `Delete on Boat` and `Remove`.
+     - `variant="danger"` for `Delete on Boat` and `Remove`, in both
+       states. They arm first, with the seat Kill's two-press pattern
+       (`src/window/lib/terminal-kill-ux.ts`, `KILL_ARM_MS`, TerminalSurface
+       `fireKill`). The first press arms, and the label says what the
+       second press does: `Delete Mac mini on Boat`, `Remove Mac mini`. It
+       disarms on its own after `KILL_ARM_MS`, or when focus leaves the row.
+       The second press on `Delete on Boat` fires. The second press on
+       `Remove` opens remote-seats' remove dialog, which names the seats
+       placed on that machine.
      - A working row has no button: its sentence says what runs (`Sending
        Junto, step 2 of 5`).
      Rows use chrome, not primary, so a list of five is not five amber
      buttons; the one primary is `Update all`.
 - While a row's action runs, its button shows the pending label (`Updating…`)
   disabled, and the row moves to working when the badge does.
-- When the last row leaves, the list is replaced by one line, `Every
-  machine is ready.`, `--text-body` dim, 12px padding, and the popover
+- With no rows, quiet or after the last one leaves, the list is one line,
+  `Every machine is ready.`, `--text-body` dim, 12px padding. The popover
   stays open until dismissed.
 - Footer: 1px `--color-stroke` top line, 8px 12px padding, flex, space
   between. Left: `Open Machines`, `Button variant="subtle" size="sm"`.
@@ -97,14 +108,15 @@ today's card. Same overlay, same place, same `role="status"`.
   needs you is `--color-amber` 35% with `--color-stroke`; asleep, which is
   not a fault, is `--color-stroke`.
 - Parts, top to bottom:
-  1. Eyebrow: the machine's label, `Eyebrow` tone `amber` for broken and
-     needs you, `steel` for asleep. `Eyebrow` has no crimson tone, and the
-     frame already says broken, so none is added.
+  1. Eyebrow: the seat's state word as today, `stopped` in amber, `asleep`
+     in steel. Not the machine's label.
   2. Headline: `.native-terminal-surface__dead-title` as it is
-     (`--text-title`, display, 600, ink). `Mac mini needs an update`.
+     (`--text-title`, display, 600, ink). It carries the machine's label,
+     once: `Mac mini needs an update`.
   3. Detail: one sentence, `.native-terminal-surface__dead-detail` as it is
-     (`--text-body`, `--leading-body`, dim). No line from the harness; the
-     machine's reason replaces it.
+     (`--text-body`, `--leading-body`, dim). It does not name the machine
+     again; it says `there` or `its screen` where the sentence allows. No
+     line from the harness; the machine's reason replaces it.
   4. Steps, only while the fix runs in place: `MachineSteps` with a
      compact modifier, `.machine-steps--inline`: no bottom line, padding 0,
      gap 6px, `--text-body`. Its phase marks stay as they are, static.
@@ -120,10 +132,10 @@ today's card. Same overlay, same place, same `role="status"`.
 
 Sample at the longest:
 
-    MAC MINI
+    STOPPED
     Sign-in blocked on Mac mini
-    Claude Code uses Mac mini's Mac keychain, which is locked without a
-    desktop login. Sign in on Mac mini's screen, then restart Junto there.
+    Claude Code uses its Mac keychain, which stays locked until someone
+    signs in at its screen. Sign in there, then restart Junto.
     [Check again] [Open Machines] [Close view]
 
 ## Contrast
@@ -143,5 +155,7 @@ text and 3 for a mark.
 
 In dark, `amber-fg` is the same colour as amber, so nothing changes there.
 In bright, the bare-hue pill fails, so the badge uses the `-fg` fills.
-`NeedsYouButton`'s own pill has the same bright failure today; moving it to
-the `-fg` fills is a one-line change outside this slice.
+`NeedsYouButton`'s own pill has the same bright failure today, and its icon
+tints bare amber. product-design has sent its owner the move of both, the
+pill fills and the icon, to the `-fg` tokens, so the pair matches in
+bright.
