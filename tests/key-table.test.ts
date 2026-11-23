@@ -400,6 +400,26 @@ describe("threads", () => {
   });
 });
 
+describe("the needs-you feed", () => {
+  it("goes to what the selected signal waits on with W, apart from every other feed key", () => {
+    const row = (id: string) => KEY_TABLE.find((def) => def.id === id)!;
+    const waits = row("inFeed.waitsOn");
+    expect(chordsFor(waits, true)).toEqual(["W"]);
+    expect(chordsFor(waits, false)).toEqual(["W"]);
+    expect(waits.surface).toBe(true);
+    expect(waits.area).toBe("Inside the needs-you feed");
+    expect(waits.where).toEqual(["operator"]);
+    // The feed's own keys, and the list keys it shares, never say W.
+    const feedKeys = KEY_TABLE.filter(
+      (def) => def.id !== "inFeed.waitsOn" && (def.id.startsWith("inFeed.") || def.id.startsWith("inList.")),
+    ).flatMap((def) => chordsFor(def, true));
+    expect(feedKeys).toEqual(expect.arrayContaining(["J", "K", "O", "A", "D", "Enter", "Digit", "Shift+Digit"]));
+    expect(feedKeys).not.toContain("W");
+    // No app shortcut answers W over an operator modal.
+    expect(resolveKey(key({ key: "w" }), at("operator"))).toBeNull();
+  });
+});
+
 describe("the key table off macOS", () => {
   it("keeps Ctrl+K and Ctrl+I, anywhere but a terminal", () => {
     for (const context of ["canvas", "field", "working", "operator"] as const) {

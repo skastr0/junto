@@ -184,6 +184,7 @@ export type SurfaceKeyId =
   | "inFeed.dismiss"
   | "inFeed.acknowledge"
   | "inFeed.quietNote"
+  | "inFeed.waitsOn"
   | "inQuickThread.move"
   | "inQuickThread.pick"
   | "inQuickThread.another"
@@ -959,6 +960,16 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     does: "Put the seat list away and go back to the message, when it was brought back to add a seat; otherwise close",
     keys: ["Escape"],
     where: ["field"],
+  }),
+  // A waiting card's way to what comes first. W for waits: J and K move, O,
+  // A and D answer, and the digits send.
+  surfaceKey({
+    id: "inFeed.waitsOn",
+    area: "Inside the needs-you feed",
+    name: "Go to what it waits on",
+    does: "Go to the signal the selected one waits on; press again to go further back in the order",
+    keys: ["W"],
+    where: ["operator"],
   }),
   surfaceKey({
     id: "inPreview.step",
