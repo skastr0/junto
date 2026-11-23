@@ -176,6 +176,13 @@
 }
 
 /* What the operator has not read: the needs-you pill, in the lit amber. */
+/* A thread with an open signal: the kind's glyph in its ink, before the count. */
+.seat-threads__row-signal {
+  display: inline-flex;
+  flex: none;
+  color: var(--feed-kind-ink);
+}
+
 .seat-threads__row-unread {
   flex: none;
   min-width: 15px;
@@ -355,6 +362,92 @@ html[data-theme="bright"] .seat-threads__block {
 
 .seat-threads__block .seat-threads__prose {
   max-width: none;
+}
+
+/* A signal in a thread: the seat's message in a frame that says its kind and
+   where it stands. The hue of a kind is the feed's own, read off the kind
+   wherever a thread names one. A full border, never an edge on one side; an
+   open signal alone is tinted, and the words say the state either way. */
+[data-signal-kind] {
+  --feed-kind: var(--color-steel);
+  --feed-kind-ink: color-mix(in oklab, var(--feed-kind) 80%, var(--color-ink));
+}
+
+[data-signal-kind="blocked"] { --feed-kind: var(--color-crimson); }
+[data-signal-kind="escalate"] { --feed-kind: var(--color-orange); }
+[data-signal-kind="feedback"] { --feed-kind: var(--color-cyan); }
+
+.seat-threads__signal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  max-width: calc(var(--prose-size) * 34 + 32px);
+  min-width: 0;
+  padding: 0.75em 1.05em;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-xl);
+}
+
+.seat-threads__signal[data-state="open"] {
+  border-color: color-mix(in oklab, var(--feed-kind) 35%, var(--color-stroke));
+  background: color-mix(in oklab, var(--feed-kind) 6%, transparent);
+}
+
+/* Kind, then state: the glyph and the word in the kind's ink, the state in
+   ink while it is open and dim once it is closed. */
+.seat-threads__signal-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+
+.seat-threads__signal-line > svg {
+  flex: none;
+  color: var(--feed-kind-ink);
+}
+
+.seat-threads__signal-kind {
+  font-weight: 600;
+  color: var(--feed-kind-ink);
+}
+
+.seat-threads__signal-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-dim);
+}
+
+.seat-threads__signal[data-state="open"] .seat-threads__signal-state {
+  color: var(--color-ink);
+}
+
+.seat-threads__signal-hand-in {
+  margin-top: 10px;
+}
+
+/* What the operator's message answered, above its block; and under it, that
+   it has not reached its seat yet. Both sit on the block's side. */
+.seat-threads__answer-to,
+.seat-threads__waiting {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+
+.seat-threads__answer-to {
+  margin-bottom: 4px;
+}
+
+.seat-threads__waiting {
+  margin-top: 6px;
 }
 
 /* The message's markdown, drawn as prose: the reading face at the reading
@@ -556,6 +649,52 @@ html[data-theme="bright"] .seat-threads__block {
 .thread-composer__field:focus-within {
   border-color: var(--color-cyan-fg);
   box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+/* What a reply will answer, in the field's frame above the field. The plain
+   line is a button that brings the signal into view. */
+.thread-composer__answers {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.thread-composer__answers-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: var(--text-label);
+  color: var(--color-ink-2);
+  text-align: left;
+}
+
+.thread-composer__answers-line > svg {
+  flex: none;
+}
+
+.thread-composer__answers-line--show {
+  align-self: flex-start;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.thread-composer__answers-line--show:hover {
+  color: var(--color-ink);
+}
+
+.thread-composer__answers-line--show:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-cyan);
+}
+
+.thread-composer__answers-hand-in {
+  margin-left: auto;
 }
 
 .thread-composer__bar {
