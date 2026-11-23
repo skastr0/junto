@@ -3,7 +3,6 @@ import { provideThreadKey, runThreadKey } from "../src/window/lib/thread-keys";
 
 describe("thread keys", () => {
   it("passes the key while no surface answers it", () => {
-    expect(runThreadKey("threads.open")).toBe(false);
     expect(runThreadKey("threads.quick")).toBe(false);
   });
 
@@ -23,12 +22,11 @@ describe("thread keys", () => {
     expect(calls).toEqual(["threads", "canvas"]);
   });
 
-  it("passes the key when the run had nothing to do, and keeps the two keys apart", () => {
-    const stop = provideThreadKey("threads.open", () => false);
-    expect(runThreadKey("threads.open")).toBe(false);
+  it("passes the key when the run had nothing to do, and lets go once", () => {
+    const stop = provideThreadKey("threads.quick", () => false);
     expect(runThreadKey("threads.quick")).toBe(false);
     stop();
     stop();
-    expect(runThreadKey("threads.open")).toBe(false);
+    expect(runThreadKey("threads.quick")).toBe(false);
   });
 });

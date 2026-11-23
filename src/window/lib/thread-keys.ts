@@ -1,26 +1,24 @@
 /**
- * Where the two thread keys land: Open threads and Quick thread (key table,
- * "Threads"). The key table says which chords; the surfaces that answer
- * them say what happens, by providing a run here.
+ * Where the Quick thread key lands (key table, "Threads"). The key table
+ * says which chords; the surfaces that answer it say what happens, by
+ * providing a run here. Open threads needs none: it is an operator modal.
  *
- * - Open threads: Global threads provides the open, from wherever it is
- *   mounted to listen.
- * - Quick thread: its canvas home provides it, and Global threads provides
- *   its own while it is open, so the key starts the new thread inside it.
+ * Quick thread's canvas home provides it, and Threads provides its own while
+ * it is open, so the key starts the new thread inside it.
  *
  * The last provider answers until it lets go, so the surface in front wins
  * and the one under it answers again when it closes. With no provider, or a
  * run that returns false, the key passes.
  */
 
-export type ThreadKeyId = "threads.open" | "threads.quick";
+export type ThreadKeyId = "threads.quick";
 
 /** Does what the key asks. Return false when there was nothing to do. */
 export type ThreadKeyRun = () => boolean | void;
 
 type Provider = { readonly run: ThreadKeyRun };
 
-const providers: Record<ThreadKeyId, Provider[]> = { "threads.open": [], "threads.quick": [] };
+const providers: Record<ThreadKeyId, Provider[]> = { "threads.quick": [] };
 
 /** Answer a thread key until the returned function is called. */
 export const provideThreadKey = (id: ThreadKeyId, run: ThreadKeyRun): (() => void) => {
