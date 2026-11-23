@@ -27,6 +27,7 @@ import { titleOf } from "@shared/model/title";
 import { makeUserMessage } from "@shared/task";
 import {
   mailAfter,
+  mailWaiting,
   seatMailThreadMessages,
   seatMailThreadMessagesPage,
   seatMailThreads,
@@ -168,9 +169,19 @@ const settle = (index: CanvasThreads, threadId: string, mail: ThreadMail): void 
 };
 
 /** The same messages in the same order: a receipt restamped the rows, and no thread mail moved. */
+/**
+ * The same mail, restamped at most: the same rows in the same order, none of
+ * them come to its seat or gone from it. A receipt that brings the operator's
+ * mail to its seat ends its waiting mark, so that mailbox is derived again.
+ */
 const sameMail = (a: ReadonlyArray<Message>, b: ReadonlyArray<Message>): boolean => {
   if (a.length !== b.length) return false;
-  for (let index = 0; index < a.length; index += 1) if (a[index]!.messageId !== b[index]!.messageId) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    const was = a[index]!;
+    const now = b[index]!;
+    if (was.messageId !== now.messageId) return false;
+    if (was !== now && mailWaiting(was) !== mailWaiting(now)) return false;
+  }
   return true;
 };
 
