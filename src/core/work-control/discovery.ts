@@ -69,6 +69,7 @@ import {
 import { onboardSinceSection } from "../work/seat-since-read";
 import { filesNodeName } from "../work/subject-people";
 import { MachineRepository } from "../machines/repository";
+import { ModelRecords } from "../model/records";
 import { onboardReferenceFields } from "../references/seat-reads";
 import { briefingMentionsOn, mentionsField } from "../references/briefing-mentions";
 import { SeatGuidanceRepository } from "../seat-guidance/repository";
@@ -88,11 +89,11 @@ import { lookForSeatSession } from "./session-lookup";
 /** What a seat does next once its signal is raised, by the signal's kind. */
 const SIGNAL_NEXT_STEP = {
   blocked:
-    "stop and wait: the operator's answer arrives in this seat as operator mail; junto signal list shows it",
+    "stop and wait: the operator's answer arrives in this seat as operator mail; answer in its thread, with the junto msg reply its header gives",
   escalate:
-    "keep working: the operator's answer arrives in this seat as operator mail; junto signal list shows it",
+    "keep working: the operator's answer arrives in this seat as operator mail; answer in its thread, with the junto msg reply its header gives",
   feedback:
-    "keep going or wrap up: any review arrives as operator mail; junto signal clear withdraws this if it no longer applies",
+    "keep going or wrap up: any review arrives as operator mail; answer in its thread, and junto signal clear withdraws this if it no longer applies",
   notice:
     "read and clear it: junto signal clear withdraws it; the operator sees it in the feed, not this seat",
   work:
@@ -868,7 +869,16 @@ export const DiscoveryHandlers = DiscoveryServed.toLayer(
             : [],
         );
         const overseer = self.kind === "agent" && self.overseer === true;
-        const guidance = onboardGuidanceFor(seat);
+        // A seat on a machine that does not edit its canvas answers the operator
+        // with a signal until Remote carries the reply there; unknown is this machine.
+        const records = yield* Effect.serviceOption(ModelRecords);
+        const editor = Option.isSome(records)
+          ? yield* records.value.canvasEditor(caller.canvasName).pipe(Effect.orElseSucceed(() => undefined))
+          : undefined;
+        const installation = editor === undefined || Option.isNone(machines)
+          ? undefined
+          : yield* machines.value.installationId.pipe(Effect.orElseSucceed(() => undefined));
+        const guidance = onboardGuidanceFor(seat, installation === undefined || editor === installation);
         const tools = toolsBeyondGuidance(
           overseer ? [PREAMBLE_TOOL, ...SIGNAL_TOOLS, OVERSEER_TOOL] : [PREAMBLE_TOOL, ...SIGNAL_TOOLS],
           guidance,

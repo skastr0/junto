@@ -35,7 +35,8 @@ import {
   SeatGuidanceRepository,
   SeatGuidanceRepositoryLive,
 } from "../src/core/seat-guidance/repository";
-import { FILES_REACH_NOTE, ONBOARD_GUIDANCE, SEAT_GUIDANCE_LINE } from "../src/shared/seat-onboarding";
+import { FILES_REACH_NOTE, ONBOARD_GUIDANCE, ONBOARD_GUIDANCE_UNEDITED, SEAT_GUIDANCE_LINE } from "../src/shared/seat-onboarding";
+import { ModelRecords } from "../src/core/model/records";
 import { ARTIFACTS_ENABLED, productNodeKindEnabled, TASKS_ENABLED } from "../src/shared/features";
 import { AgentSignalRepository } from "../src/core/signals/repository";
 import { SINCE_UNAVAILABLE } from "../src/core/work/seat-since-read";
@@ -214,6 +215,25 @@ describe("junto onboard output", () => {
     } finally {
       console.error = error;
     }
+  });
+
+  it("a seat on a machine that does not edit its canvas is told to answer the operator with a signal", async () => {
+    await write(PEERS);
+    expect((await onboard()).guidance).toEqual([...ONBOARD_GUIDANCE]);
+    await server.close();
+    server = await startWorkControlServer({
+      version: "test",
+      workHome: process.env.JUNTO_WORK_HOME!,
+      home: root,
+      run: (effect) => runtime.runPromise(Effect.gen(function* () {
+        const records = yield* ModelRecords;
+        const elsewhere = { ...records, canvasEditor: () => Effect.succeed("installation-of-another-machine") };
+        return yield* effect.pipe(Effect.provideService(ModelRecords, elsewhere));
+      })),
+      authoringGate: createMainAuthoringGate(),
+    });
+    seatCredential = publishSeatCredential(server.credentials, { agentKey: "local:agent" });
+    expect((await onboard()).guidance).toEqual([...ONBOARD_GUIDANCE_UNEDITED]);
   });
 
   it("reads most stable first: the operator's words, then who and what, then since the last session", async () => {

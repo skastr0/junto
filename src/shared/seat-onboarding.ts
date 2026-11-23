@@ -437,28 +437,58 @@ const WORK_SOURCE_LINE = TASKS_ENABLED
   : "Work comes from the operator and from mail addressed to this seat. Do not invent work; when nothing is addressed to you, wait.";
 
 /**
- * The guidance `junto onboard` leads with. A few lines, on purpose: what a
- * seat is, where work comes from, and how to report. Everything else is one
- * `junto docs` away.
+ * Where the operator reads a seat, and how a seat answers them. The operator
+ * lives in threads and signals; these lines are the one place that says so,
+ * and the doctrine and signal answers quote them.
  */
-export const ONBOARD_GUIDANCE: ReadonlyArray<string> = [
+export const THREADS_LINE =
+  "The operator reads threads and signals, never your terminal. When the operator writes to you, answer in that thread, with the `junto msg reply` its header gives. `junto thread list` lists your threads; `junto thread show <threadId>` reads one.";
+
+/**
+ * Line 3 for a seat on a machine that does not edit its canvas: until Remote
+ * carries the reply there, such a seat answers the operator with a signal.
+ */
+export const THREADS_LINE_UNEDITED =
+  "The operator reads threads and signals, never your terminal. Answer the operator with a signal. `junto thread list` lists your threads; `junto thread show <threadId>` reads one.";
+
+export const SIGNALS_LINE =
+  "Raise a signal whenever the operator should know something, without waiting to be asked: `junto feedback \"...\"` for a review or a result, `junto escalate \"...\"` for a question or a decision while you keep working, `junto blocked \"...\"` when you cannot continue. Keep the operator in the loop; a signal is cheap.";
+
+export const TURN_END_LINE =
+  "Never end a turn with your report only in the terminal. Put it where the work came from first: the operator's thread, mail to the seat that asked, or a signal.";
+
+const guidanceWith = (threadsLine: string): ReadonlyArray<string> => [
   "You are a seat on a Junto canvas, a workspace the operator draws. Your region is your reach: the resources under `reach` are there for you to use, and edges join you to the seats under `connected`. Run only the commands under `commands`. Mail a seat by name or node id. Every seat under `connected` is always reachable: never ask the operator to relaunch one.",
   WORK_SOURCE_LINE,
-  "Report through `junto feedback \"...\"` (ready for review), `junto blocked \"...\"` (cannot continue; stop and wait) and `junto escalate \"...\"` (needs attention; keep working). The operator reads that feed, not your terminal.",
-  "When findings are ready but work remains, post `junto feedback` and keep working.",
+  threadsLine,
+  SIGNALS_LINE,
+  TURN_END_LINE,
   "Errors are ground truth: read `type` and `next_step`, and retry only when `retryable` is true.",
   "End a session with `junto offboard \"<notes>\"`, run last: the moment it returns your seat has moved on to a fresh session, and this one receives nothing more. Reference for everything else: `junto docs`, `junto schema show <command>`, `junto examples show <command>`.",
 ];
+
+/**
+ * The guidance `junto onboard` leads with. A few lines, on purpose: what a
+ * seat is, where work comes from, and how to reach the operator. Everything
+ * else is one `junto docs` away.
+ */
+export const ONBOARD_GUIDANCE: ReadonlyArray<string> = guidanceWith(THREADS_LINE);
+
+/** The guidance for a seat on a machine that does not edit its canvas. */
+export const ONBOARD_GUIDANCE_UNEDITED: ReadonlyArray<string> = guidanceWith(THREADS_LINE_UNEDITED);
 
 /** Present only when the operator wrote a soul or standing instructions. */
 export const SEAT_GUIDANCE_LINE =
   "`seat.soul` and `seat.instructions` are the operator's words for this seat: who you are here, and your standing instructions. Follow them. If one conflicts with an error or a missing grant, say so with `junto escalate`.";
 
-/** Guidance for one seat: the base lines, plus the seat line when it applies. */
+/**
+ * Guidance for one seat: the base lines, plus the seat line when it applies.
+ * `editsCanvas` false is a seat on a machine that does not edit its canvas.
+ */
 export const onboardGuidanceFor = (seat: {
   readonly soul?: string;
   readonly instructions?: string;
-} | undefined): ReadonlyArray<string> =>
-  seat?.soul?.trim() || seat?.instructions?.trim()
-    ? [...ONBOARD_GUIDANCE, SEAT_GUIDANCE_LINE]
-    : ONBOARD_GUIDANCE;
+} | undefined, editsCanvas = true): ReadonlyArray<string> => {
+  const base = editsCanvas ? ONBOARD_GUIDANCE : ONBOARD_GUIDANCE_UNEDITED;
+  return seat?.soul?.trim() || seat?.instructions?.trim() ? [...base, SEAT_GUIDANCE_LINE] : base;
+};

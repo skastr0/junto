@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   COMMAND_FAMILIES,
   ONBOARD_GUIDANCE,
+  ONBOARD_GUIDANCE_UNEDITED,
   SEAT_GUIDANCE_LINE,
   commandGroupsFor,
   compileConnectionInstructions,
@@ -35,8 +36,8 @@ describe("onboard guidance", () => {
   const text = ONBOARD_GUIDANCE.join("\n");
 
   it("is a few lines: what a seat is, where work comes from, how to report", () => {
-    expect(ONBOARD_GUIDANCE.length).toBeLessThanOrEqual(6);
-    expect(text.length).toBeLessThan(1200);
+    expect(ONBOARD_GUIDANCE.length).toBeLessThanOrEqual(7);
+    expect(text.length).toBeLessThan(1650);
     expect(text).toContain("seat on a Junto canvas");
     expect(text).toContain("Work comes from the operator");
     expect(text).toContain("mail addressed to this seat");
@@ -45,12 +46,25 @@ describe("onboard guidance", () => {
     expect(text).toContain("never ask the operator to relaunch");
   });
 
-  it("names the three signals and why: the operator reads the feed, not terminals", () => {
+  it("names threads and the three signals, and why: the operator reads them, not terminals", () => {
+    expect(text).toContain("The operator reads threads and signals, never your terminal.");
+    expect(text).toContain("answer in that thread, with the `junto msg reply` its header gives");
+    expect(text).toContain("`junto thread list`");
+    expect(text).toContain("`junto thread show <threadId>`");
     expect(text).toContain("junto feedback");
     expect(text).toContain("junto blocked");
     expect(text).toContain("junto escalate");
-    expect(text).toContain("The operator reads that feed, not your terminal.");
-    expect(text).toContain("When findings are ready but work remains, post `junto feedback` and keep working.");
+    expect(text).toContain("Never end a turn with your report only in the terminal.");
+  });
+
+  it("a seat on a machine that does not edit its canvas answers the operator with a signal", () => {
+    const remote = onboardGuidanceFor(undefined, false);
+    expect(remote).toEqual(ONBOARD_GUIDANCE_UNEDITED);
+    expect(remote.length).toBe(ONBOARD_GUIDANCE.length);
+    expect(remote.join("\n")).toContain("Answer the operator with a signal.");
+    expect(remote.join("\n")).not.toContain("answer in that thread");
+    expect(remote.join("\n").length).toBeLessThan(1650);
+    expect(onboardGuidanceFor({ soul: "A careful reviewer." }, false).at(-1)).toBe(SEAT_GUIDANCE_LINE);
   });
 
   it("points at the reference instead of carrying it", () => {
