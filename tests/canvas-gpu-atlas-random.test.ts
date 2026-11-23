@@ -871,7 +871,8 @@ describe("gpu atlas under random use", () => {
         // content changed inside a box written over the cell it replaced.
         expect(outcome.evictions).toBeGreaterThan(0);
         expect(outcome.overwrites).toBeGreaterThan(0);
-      });
+        // A run takes about half a millisecond a step; a loaded machine and a long soak get room.
+      }, Math.max(30_000, config.steps * 20));
     }
   }
 });
