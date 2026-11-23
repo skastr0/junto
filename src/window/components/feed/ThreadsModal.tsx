@@ -29,7 +29,8 @@ import { regionChipStyle } from "../../lib/region-chip-style";
 import { claimFocus, focusPrimaryControl } from "../../lib/focus-ownership";
 import { useListNav } from "../../lib/list-nav";
 import { regionPickKey, regionPickName } from "../../lib/operator-feed";
-import { previewText, threadTime } from "../../lib/seat-threads";
+import { previewText } from "../../lib/seat-threads";
+import { ThreadTime } from "../threads/ThreadTime";
 import { provideThreadKey } from "../../lib/thread-keys";
 import { threadHeadline } from "../../lib/thread-text";
 import type { OperatorThreadsState } from "../../lib/operator-threads";
@@ -156,7 +157,7 @@ function ThreadListRow({
               <span className="sr-only">{row.unread > 99 ? "more than 99 unread" : `${String(row.unread)} unread`}</span>
             </>
           ) : null}
-          <span className="seat-threads__row-time operator-threads__time">{threadTime(row.lastAt)}</span>
+          <ThreadTime className="seat-threads__row-time operator-threads__time" at={row.lastAt} />
         </span>
         <span className="operator-threads__line">
           <Line text={row.title} known={[row.seat.name]} />

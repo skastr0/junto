@@ -10,6 +10,7 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pinThreadToday } from "../src/window/lib/thread-time";
 import type { MailThreadMessage, MailThreadSummary } from "../src/shared/wire/mail-threads";
 import { OPERATOR_MAIL_MAX_TEXT } from "../src/shared/mail-threads";
 import {
@@ -145,6 +146,8 @@ let release: () => void;
 
 beforeEach(() => {
   resetSeatThreads();
+  // The mail here is all of one day; it reads as that day's, so a time is an hour.
+  pinThreadToday(at(12, 0));
   // A press in one test is not the gesture behind the next.
   resetOperatorGesture();
   // The seats and boards a mention link names: its chip reads the canvas for what it is now.

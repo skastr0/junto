@@ -11,7 +11,6 @@ import {
   loadOlderMessages,
   markSeatThreadRead,
   previewText,
-  threadTime,
   useSeatThreadMessages,
   useSeatThreads,
   useSeatUnread,
@@ -33,6 +32,7 @@ import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
 import { ResourceChip, ResourceGlyphMark, mentionMark } from "../ui/ResourceChip";
 import { MessageAttachments } from "./MessageAttachments";
 import { ThreadComposer } from "./ThreadComposer";
+import { ThreadTime } from "./ThreadTime";
 import { rehypeThreadCodeWells, rehypeThreadInlineIds } from "./thread-inline-ids";
 import "./seat-threads.css";
 
@@ -281,7 +281,7 @@ function SeatThreads({
               {item.unread > 99 ? "99+" : item.unread}
             </span>
           ) : null}
-          <span className="seat-threads__row-time">{threadTime(item.lastAt)}</span>
+          <ThreadTime className="seat-threads__row-time" at={item.lastAt} />
         </span>
         {item.subject && item.subject.kind !== "file" ? (
           <span className="seat-threads__row-subject">
@@ -492,7 +492,7 @@ export function ThreadChat({
               </Chip>
             ))}
             <span>
-              {count}, started {threadTime(thread.startedAt)}
+              {count}, started <ThreadTime form="message" at={thread.startedAt} />
             </span>
           </>
         }
@@ -536,9 +536,7 @@ export function ThreadChat({
                     <AgentPortrait identity={portraitOf(message.author)} size={20} frame="round" badge={false} outline={false} />
                   )}
                   <strong>{message.mine ? "You" : message.author}</strong>{" "}
-                  <time className="seat-threads__message-time" dateTime={new Date(message.at).toISOString()}>
-                    {threadTime(message.at)}
-                  </time>
+                  <ThreadTime className="seat-threads__message-time" form="message" at={message.at} />
                 </div>
                 {message.text !== "" || message.attachments === undefined ? (
                   <div className={message.mine ? "seat-threads__block" : "seat-threads__body"}>
