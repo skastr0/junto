@@ -354,3 +354,70 @@ describe("a seat whose canvas another machine edits", () => {
     }
   });
 });
+
+describe("the cases the review added", () => {
+  const store = <A>(use: (signals: typeof AgentSignalRepository.Service) => Effect.Effect<A, unknown>) =>
+    run(Effect.flatMap(Effect.service(AgentSignalRepository), use));
+
+  it("admits a thread between seats once the operator has written into it in this seat's mailbox", async () => {
+    const sent = await call("msg.send", { target: ME, text: "Peer to agent first." }, peers);
+    expect(sent.ok, JSON.stringify(sent)).toBe(true);
+    const peerMail = (await written()).rows.find((row) => row.metadata?.fromSeat !== OPERATOR_SEAT_ID)!;
+    const threadId = peerMail.messageId;
+    await run(sendOperatorThreadMail(decodeSend({ canvasName: CANVAS, nodeId: ME, text: "The operator joins.", threadId })));
+    const answer = await call("signal.raise", { kind: "escalate", text: "Raised where the operator wrote.", thread: threadId });
+    expect(answer.ok, JSON.stringify(answer)).toBe(true);
+    expect(answer.data.signal).toMatchObject({ threadId });
+  });
+
+  it("raises nothing for a plain reply, even in a thread with an open signal", async () => {
+    const threadId = await operatorWrites(ME, "A question.");
+    expect((await call("signal.raise", { kind: "escalate", text: "Open in the thread.", thread: threadId })).ok).toBe(true);
+    const before = await written();
+    const replied = await call("msg.reply", { target: "operator", inReplyTo: threadId, text: "And a plain word." });
+    expect(replied.ok, JSON.stringify(replied)).toBe(true);
+    const after = await written();
+    expect(after.signals).toBe(before.signals);
+    expect(after.mail).toBe(before.mail + 1);
+  });
+
+  it("is ready once every signal it comes after is closed, however each closed", async () => {
+    const raise = async (text: string, dependsOn?: string[]) =>
+      (await call("signal.raise", { kind: "escalate", text, ...(dependsOn === undefined ? {} : { dependsOn }) })).data.signal.signalId as string;
+    const answered = await raise("To be answered.");
+    const dismissed = await raise("To be dismissed.");
+    const withdrawn = await raise("To be withdrawn.");
+    const last = await raise("After all three.", [answered, dismissed, withdrawn]);
+    const state = async () => ((await call("signal.list", {})).data.signals as Array<{ signalId: string; ready: boolean; waitingOn: string[] }>).find((one) => one.signalId === last)!;
+    expect(await state()).toMatchObject({ ready: false, waitingOn: [answered, dismissed, withdrawn] });
+    await store((signals) => signals.answer(answered, "Done."));
+    expect(await state()).toMatchObject({ ready: false, waitingOn: [dismissed, withdrawn] });
+    await store((signals) => signals.dismiss(dismissed));
+    expect(await state()).toMatchObject({ ready: false, waitingOn: [withdrawn] });
+    expect((await call("signal.clear", { signalId: withdrawn })).ok).toBe(true);
+    expect(await state()).toMatchObject({ ready: true, waitingOn: [] });
+  });
+
+  it("keeps a signal named twice once", async () => {
+    const first = (await call("signal.raise", { kind: "escalate", text: "First." })).data.signal.signalId as string;
+    const twice = await call("signal.raise", { kind: "escalate", text: "After it, twice.", dependsOn: [first, first] });
+    expect(twice.ok, JSON.stringify(twice)).toBe(true);
+    expect(twice.data.signal.dependsOn).toEqual([first]);
+  });
+
+  it("with --depends-on-last, passes over an automation's newer signal to the one this seat raised", async () => {
+    const own = (await call("signal.raise", { kind: "escalate", text: "Mine." })).data.signal.signalId as string;
+    await store((signals) =>
+      signals.raise({
+        canvasName: CANVAS,
+        nodeId: ME,
+        kind: "feedback",
+        text: "An automation raised this later.",
+        source: { kind: "automation", automationId: "01M852PM9NWTBBVNYYPSPR0HNV", nodeId: ME },
+      }),
+    );
+    const answer = await call("signal.raise", { kind: "escalate", text: "After my last.", dependsOnLast: true });
+    expect(answer.ok, JSON.stringify(answer)).toBe(true);
+    expect(answer.data.signal.dependsOn).toEqual([own]);
+  });
+});

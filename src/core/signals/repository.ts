@@ -206,7 +206,11 @@ export class AgentSignalRepository extends Context.Service<AgentSignalRepository
       seat: AgentSignalSeat,
       threadId: string,
     ) => Effect.Effect<ReadonlyArray<AgentSignal>, AgentSignalRepositoryError>;
-    /** A seat's newest signal on its canvas, any state; undefined when it has none. */
+    /**
+     * The newest signal a seat raised itself on its canvas, any state: an
+     * automation's signal on the seat is passed over, as a signal can come
+     * after only one its seat raised. Undefined when it has none.
+     */
     readonly latestSeat: (
       seat: AgentSignalSeat,
     ) => Effect.Effect<AgentSignal | undefined, AgentSignalRepositoryError>;
@@ -844,7 +848,7 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       Request: Schema.Tuple([Schema.String, Schema.String]),
       Result: SignalRow,
       execute: ([canvasName, nodeId]) => sql.unsafe(`SELECT ${COLUMNS} FROM agent_signals INDEXED BY agent_signals_by_seat_newest
-        WHERE canvas_name = ? AND node_id = ?
+        WHERE canvas_name = ? AND node_id = ? AND source_json IS NULL
         ORDER BY created_at DESC, signal_id DESC LIMIT 1`, [canvasName, nodeId]),
     });
     const latestSeat = Effect.fn("agent-signals.latest-seat")(function* (seat: AgentSignalSeat) {
