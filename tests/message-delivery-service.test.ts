@@ -71,6 +71,8 @@ const rig = (
     writeMs?: number;
     /** A mail's placed files' lines; undefined while they are not on this machine. */
     files?: (message: Message) => ReadonlyArray<string> | undefined;
+    /** Whether this read of the model, or of one message, throws. */
+    readThrows?: (what: "model" | "message", messageId?: string) => boolean;
   } = {},
 ) => {
   const messages: Message[] = [];
@@ -85,9 +87,13 @@ const rig = (
     readModel: async () => {
       modelReads += 1;
       await new Promise((resolve) => setTimeout(resolve, 1));
+      if (options.readThrows?.("model") === true) throw new Error("the model read failed");
       return options.canvas ?? crew;
     },
-    readMessage: async (_canvas, _nodeId, messageId) => messages.find((message) => message.messageId === messageId),
+    readMessage: async (_canvas, _nodeId, messageId) => {
+      if (options.readThrows?.("message", messageId) === true) throw new Error("the message read failed");
+      return messages.find((message) => message.messageId === messageId);
+    },
     listMail: async () => messages,
     ...(options.files === undefined ? {} : { attachmentLines: async (_canvas, _node, message) => options.files!(message) }),
     acceptMessageDelivery: async (_canvas, _node, messageId, read) => {
@@ -393,6 +399,48 @@ describe("mail delivery", () => {
     expect(seat.writes).toHaveLength(1);
     expect(seat.writes[0]).toMatch(/^2 mails, oldest first\n\nmail from Claude Code, id 01A\b[^]*\n\nmail from Claude Code, id 01B\b/u);
     expect(seat.messages.every((m) => typeof m.metadata?.deliveredAt === "number")).toBe(true);
+  });
+
+  it("tries mail whose first attempt threw again on the seat's next live event", async () => {
+    // The model read throws for the first mail, the message read for the second: both before the mail is indexed.
+    let failing: "model" | "message" | undefined = "model";
+    const seat = rig({ live: false, readThrows: (what) => what === failing });
+    seat.append(mail("01A", "first"));
+    seat.append(mail("01B", "second"));
+
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    failing = "message";
+    expect(await seat.service.deliver(canvas, nodeId, "01B")).toBe("waiting");
+    failing = undefined;
+    expect(seat.writes).toHaveLength(0);
+
+    seat.setLive(true);
+    seat.service.onSeatLive(bindingId);
+    await settle();
+
+    expect(seat.writes).toHaveLength(1);
+    expect(seat.writes[0]).toMatch(/^2 mails, oldest first\n\nmail from Claude Code, id 01A\b[^]*\n\nmail from Claude Code, id 01B\b/u);
+    expect(seat.messages.every((m) => typeof m.metadata?.deliveredAt === "number")).toBe(true);
+  });
+
+  it("keeps mail that throws again for the next live event, and types it once when it reads", async () => {
+    let failing = true;
+    const seat = rig({ live: false, readThrows: (what) => failing && what === "model" });
+    seat.append(mail("01A", "first"));
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+
+    seat.setLive(true);
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    expect(seat.writes).toHaveLength(0);
+
+    failing = false;
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    expect(seat.writes).toHaveLength(1);
+    expect(seat.writes[0]).toMatch(/^mail from Claude Code, id 01A\b/u);
   });
 
   it("starts a down seat once for all the mail waiting on it", async () => {

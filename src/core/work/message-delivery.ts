@@ -310,6 +310,12 @@ export class MessageDeliveryService {
   private lifecycleGeneration = 0;
   /** Mail waiting for its seat, by message. */
   private readonly waiting = new Map<string, PendingMail>();
+  /**
+   * Mail whose attempt failed before it was indexed: the model or the message
+   * could not be read, so its seat is not known. Keyed as `waiting` is; any
+   * seat's next live event tries it again, and it leaves once its mail reads.
+   */
+  private readonly unresolved = new Map<string, { readonly canvas: string; readonly nodeId: string; readonly messageId: string }>();
   /** One flight per message; a second caller shares the first one's result. */
   private readonly flights = new Map<string, Promise<MailDeliveryState>>();
   /** Delivered in this process; the receipt can lag the document it stamps. */
@@ -372,6 +378,7 @@ export class MessageDeliveryService {
     }
     this.batches.clear();
     this.waiting.clear();
+    this.unresolved.clear();
     this.flights.clear();
     this.delivered.clear();
     this.seatChains.clear();
@@ -491,11 +498,13 @@ export class MessageDeliveryService {
     if (this.delivered.has(key)) return Promise.resolve("delivered");
     const flying = this.flights.get(key);
     if (flying !== undefined) return flying;
+    const generation = this.lifecycleGeneration;
     const flight = this.deliverOnce(canvas, nodeId, messageId, key)
-      // An authority read failed: the message stays in the mailbox, where
-      // a later seat-live event (once indexed) or the boot scan finds it.
+      // An authority read failed: the message stays in the mailbox, and the
+      // next seat-live event tries it again (or the boot scan, after a restart).
       .catch((error: unknown): MailDeliveryState => {
         console.error(`[delivery] attempt failed for ${canvas}/${nodeId}/${messageId}: ${String(error)}`);
+        if (this.active(generation)) this.unresolved.set(key, { canvas, nodeId, messageId });
         return "waiting";
       })
       .finally(() => {
@@ -525,6 +534,8 @@ export class MessageDeliveryService {
     if (!doc) return waiting("model unavailable");
     const node = doc?.nodes.get(asNodeId(nodeId));
     const message = await store.readMessage(canvas, nodeId, messageId);
+    // Both reads answered: what follows delivers it, indexes it or finds it not pending.
+    this.unresolved.delete(key);
     const target = node === undefined ? undefined : this.targetHere(node);
     if (target === "elsewhere") {
       this.waiting.delete(key);
@@ -878,6 +889,9 @@ export class MessageDeliveryService {
    */
   onSeatLive(bindingId: string): void {
     if (this.suspended) return;
+    // Mail whose seat could not be read is tried again through `deliver`, which
+    // finds its seat now: here, elsewhere, or gone.
+    for (const pending of [...this.unresolved.values()]) void this.deliver(pending.canvas, pending.nodeId, pending.messageId);
     const mail = [...this.waiting.values()]
       .filter((pending) => pending.bindingId === bindingId)
       .sort((a, b) => a.messageId.localeCompare(b.messageId));
