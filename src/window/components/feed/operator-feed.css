@@ -752,7 +752,8 @@
   height: 15px;
   padding: 0 4px;
   border-radius: var(--radius-pill);
-  background: var(--color-amber);
+  /* The -fg fills: ground on them reads 4.5 or better in both themes. */
+  background: var(--color-amber-fg);
   color: var(--color-ground);
   font-family: var(--font-mono);
   font-size: var(--text-label);
@@ -763,5 +764,5 @@
 }
 
 .operator-feed-trigger__count--blocked {
-  background: var(--color-crimson);
+  background: var(--color-crimson-fg);
 }

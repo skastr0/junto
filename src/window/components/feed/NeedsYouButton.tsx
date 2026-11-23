@@ -24,7 +24,7 @@ export function NeedsYouButton() {
       aria-haspopup="dialog"
       aria-expanded={open}
       title={`Needs you (${modKeyGlyph()}I)`}
-      style={{ borderColor: "var(--color-stroke)", color: count > 0 ? "var(--color-amber)" : "var(--color-steel)" }}
+      style={{ borderColor: "var(--color-stroke)", color: count > 0 ? "var(--color-amber-fg)" : "var(--color-steel)" }}
       onClick={() => toggleOperatorModal("feed")}
     >
       <Inbox size={15} />
