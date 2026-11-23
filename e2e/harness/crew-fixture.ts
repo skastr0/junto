@@ -130,7 +130,9 @@ fs.writeFileSync(
     at: Date.now(),
   }),
 );
-ev("spawn", { argv: process.argv.slice(2) });
+ev("spawn", { argv: process.argv.slice(2), cols: process.stdout.columns, rows: process.stdout.rows });
+// Every size the PTY gives the child, as the child hears it (SIGWINCH).
+process.stdout.on("resize", () => ev("resize", { cols: process.stdout.columns, rows: process.stdout.rows }));
 
 // --- screen state (codex rule-pack literals) --------------------------------
 // The fake models a composer, not a stack of printed screens: "composer"
