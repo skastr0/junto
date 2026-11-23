@@ -264,3 +264,14 @@ it("starts line 3 with the Clock while the operator's own last mail waits for it
   expect(last.querySelector(".sr-only")?.textContent).toBe("Waiting for seat b. It arrives when the seat is back. ");
   expect(q('[data-thread="t1"] [data-testid="operator-threads-row-waiting"]')).toBeNull();
 });
+
+it("marks a thread with an open signal by its kind's glyph, said as open and the feed's word", () => {
+  draw(state([{ ...rows[0]!, openSignal: { signalId: "s1", kind: "escalate", text: "Which rate?" } }, rows[1]!]));
+  const mark = q('[data-thread="t1"] [data-testid="operator-threads-row-signal"]')!;
+  expect(mark.dataset.kind).toBe("escalate");
+  expect(mark.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  expect(mark.querySelector(".sr-only")?.textContent).toBe("open, waiting on you");
+  // Before the unread pill.
+  expect(mark.nextElementSibling?.getAttribute("data-testid")).toBe("operator-threads-row-unread");
+  expect(q('[data-thread="t2"] [data-testid="operator-threads-row-signal"]')).toBeNull();
+});

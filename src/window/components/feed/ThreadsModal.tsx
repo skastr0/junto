@@ -24,7 +24,7 @@ import {
 import { use$ } from "@legendapp/state/react";
 import { Check, Clock, Plus } from "lucide-react";
 import { titleOf, type Node } from "@shared/model";
-import type { FeedRegion } from "@shared/operator-feed";
+import { FEED_KIND_LABEL, type FeedItemKind, type FeedRegion } from "@shared/operator-feed";
 import { regionChipStyle } from "../../lib/region-chip-style";
 import { claimFocus, focusPrimaryControl } from "../../lib/focus-ownership";
 import { useListNav } from "../../lib/list-nav";
@@ -53,6 +53,7 @@ import { SeatRingView, useSeatGlanceOf } from "../SeatRing";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { Button, Dropdown } from "../ui";
 import { FeedRegionStrip } from "./FeedRegionStrip";
+import { KIND_ICON } from "./FeedCardView";
 import { FeedEmpty, FeedSeatChosen, FeedSeatsRow, FeedSeatsToggle } from "./FeedFilterParts";
 import "./operator-feed.css";
 import "../threads/seat-threads.css";
@@ -109,6 +110,12 @@ function RegionMark({ region }: { readonly region: FeedRegion }) {
   );
 }
 
+/** The feed's own glyph for a signal's kind. */
+function OpenSignalIcon({ kind }: { readonly kind: FeedItemKind }) {
+  const Icon = KIND_ICON[kind];
+  return <Icon size={12} strokeWidth={2} aria-hidden />;
+}
+
 /** A row: one button of three lines, the seat and its region, the thread's line, its last mail. */
 function ThreadListRow({
   row,
@@ -149,6 +156,13 @@ function ThreadListRow({
           </span>
           <span className="operator-threads__seat">{row.seat.name}</span>
           <RegionMark region={row.region} />
+          {/* An open signal in the thread: its kind's glyph, in its hue, as the feed draws it. */}
+          {row.openSignal ? (
+            <span className="operator-threads__signal" data-kind={row.openSignal.kind} data-testid="operator-threads-row-signal">
+              <OpenSignalIcon kind={row.openSignal.kind} />
+              <span className="sr-only">{`open, ${FEED_KIND_LABEL[row.openSignal.kind]}`}</span>
+            </span>
+          ) : null}
           {unread ? (
             <>
               <span className="seat-threads__row-unread" data-testid="operator-threads-row-unread" aria-hidden>

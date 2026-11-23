@@ -149,3 +149,11 @@
   vertical-align: -1px;
   color: var(--color-dim);
 }
+
+/* An open signal in the thread: its kind's glyph in the kind's hue (operator-feed.css sets --feed-kind). */
+.operator-threads__signal {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  color: var(--feed-kind, var(--color-dim));
+}

@@ -479,14 +479,21 @@
   transition: background-color 140ms cubic-bezier(0.25, 1, 0.5, 1);
 }
 
-.operator-feed__card[data-kind="blocked"] { --feed-kind: var(--color-crimson); }
-.operator-feed__card[data-kind="attention"] { --feed-kind: var(--color-amber); }
-.operator-feed__card[data-kind="escalate"] { --feed-kind: var(--color-orange); }
-.operator-feed__card[data-kind="feedback"] { --feed-kind: var(--color-cyan); }
-.operator-feed__card[data-kind="health"] { --feed-kind: var(--color-steel); }
-.operator-feed__card[data-kind="work"] { --feed-kind: var(--color-violet); }
+.operator-feed__card[data-kind="blocked"],
+.operator-threads__signal[data-kind="blocked"] { --feed-kind: var(--color-crimson); }
+.operator-feed__card[data-kind="attention"],
+.operator-threads__signal[data-kind="attention"] { --feed-kind: var(--color-amber); }
+.operator-feed__card[data-kind="escalate"],
+.operator-threads__signal[data-kind="escalate"] { --feed-kind: var(--color-orange); }
+.operator-feed__card[data-kind="feedback"],
+.operator-threads__signal[data-kind="feedback"] { --feed-kind: var(--color-cyan); }
+.operator-feed__card[data-kind="health"],
+.operator-threads__signal[data-kind="health"] { --feed-kind: var(--color-steel); }
+.operator-feed__card[data-kind="work"],
+.operator-threads__signal[data-kind="work"] { --feed-kind: var(--color-violet); }
 /* A notice is passive: something happened, to read and clear. Its sentence reads quieter. */
-.operator-feed__card[data-kind="notice"] { --feed-kind: var(--color-steel); }
+.operator-feed__card[data-kind="notice"],
+.operator-threads__signal[data-kind="notice"] { --feed-kind: var(--color-steel); }
 .operator-feed__card[data-kind="notice"] .operator-feed__text { color: var(--color-dim); }
 
 .operator-feed__card:hover {
