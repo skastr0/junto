@@ -644,8 +644,14 @@ browser commands.
 
 ## Later, and not to be blocked
 
-- A signal's file attachments. Its words and detail cross to the editing
-  machine; attached files stay on the machine that raised it.
+- What an answer to a signal carries beyond its words. The files a seat
+  attaches to a raise cross as references, and the editing machine pulls a
+  file from the seat's machine when the operator opens it (`content-pull.ts`,
+  owner kind `signal`). An answer crosses back as its text and time only: its
+  files, proof links, artifact and secret names stay on the machine that
+  edits the canvas until they have their own review. A signal whose shape
+  does not cross is left out of its frame and logged by its id, so it never
+  fails the frame or the link.
 - A briefing or an app-wide reference taken with a copy replaces the taking
   machine's own of the same name. Harmless while a machine that takes copies
   edits no canvas of its own; to be decided before one does both.

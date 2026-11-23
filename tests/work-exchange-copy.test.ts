@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
+import { ContentRef } from "../src/shared/content";
 import { afterEach, describe, expect, it } from "vitest";
 import { deriveActorSeatId } from "../src/core/actor-seat-id";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
@@ -31,7 +32,7 @@ import { CrewRepositoryLive } from "../src/core/work/crew-repository";
 import { WorkLive, WorkService } from "../src/core/work/service";
 import { RowsLink, type RowsChannelContext } from "../src/core/work/exchange/channel";
 import { rowsChannel, rowsWire } from "./support/rows-channel";
-import { followLocalCommits, makeLiveRowExchange } from "../src/core/work/exchange/live";
+import { crossingSignals, followLocalCommits, makeLiveRowExchange } from "../src/core/work/exchange/live";
 import type { RowExchange } from "../src/core/work/exchange/session";
 import { MessageDeliveryService } from "../src/core/work/message-delivery";
 import { makeMessageDeliveryStore } from "../src/core/work/message-delivery-store";
@@ -619,6 +620,66 @@ describe("a seat's signal to the operator", () => {
     } finally {
       stop();
     }
+  });
+
+  it("answered with a file, proof links, an artifact or a secret, crosses as its words and keeps the link open", async () => {
+    const failed: InstallationId[] = [];
+    const macbook = await boot("macbook", MACBOOK, [["mini", MINI]], (peer) => failed.push(peer));
+    const mini = await boot("mini", MINI, [["macbook", MACBOOK]], (peer) => failed.push(peer));
+    await factoryOn(macbook);
+    const stop = await following([macbook, mini]);
+    try {
+      await link(macbook, mini);
+      await settle();
+      const file = Schema.decodeUnknownSync(ContentRef)({ sha256: "a".repeat(64), byteLength: 3, mediaType: "image/png", displayName: "shot.png" });
+      const replies: ReadonlyArray<readonly [string, (signalId: string) => Effect.Effect<unknown, unknown, AgentSignalRepository>]> = [
+        ["With the file.", (signalId) => Effect.flatMap(AgentSignalRepository, (store) => store.answer(signalId, "With the file.", [file]))],
+        ["Proof attached.", (signalId) => Effect.flatMap(AgentSignalRepository, (store) => store.answer(signalId, "Proof attached.", [], { kind: "links", links: ["https://example.com/pr/1"] }))],
+        [
+          "Written up.",
+          (signalId) => Effect.flatMap(AgentSignalRepository, (store) =>
+            store.answer(signalId, "Written up.", [], { kind: "artifact", nodeId: "shelf", artifactId: "01M5ESR42S7P9YNR8FEH0TD2QC", title: "Notes", words: 12 })),
+        ],
+        [
+          "Key set.",
+          (signalId) => Effect.flatMap(AgentSignalRepository, (store) =>
+            store.answer(signalId, "Key set.", [], { kind: "secret", item: "vault-item", name: "API_KEY", regionId: "remote", machine: MINI, setAt: 5 })),
+        ],
+      ];
+      for (const [text, answer] of replies) {
+        const raised = await signals(mini, (store) => store.raise({ canvasName: "factory", nodeId: "peer", kind: "blocked", text: `Need: ${text}` }));
+        await pushed();
+        await settle();
+        await macbook.runtime.runPromise(answer(raised.signalId));
+        await pushed();
+        await settle();
+        expect(failed).toEqual([]);
+        const there = await signals(mini, (store) => store.get(raised.signalId));
+        expect(there).toMatchObject({ state: "answered", response: { text } });
+        // Only its words crossed: the answer's files, links, document and secret name stay where they were made.
+        expect(Object.keys(there.response!).sort()).toEqual(["at", "text"]);
+      }
+      // Stated again on the next link, and that link stays open too.
+      macbook.exchange.closed(MINI);
+      mini.exchange.closed(MACBOOK);
+      await link(macbook, mini);
+      await settle();
+      expect(failed).toEqual([]);
+      expect(macbook.exchange.status().map((held) => held.peer)).toEqual([MINI]);
+    } finally {
+      stop();
+    }
+  });
+
+  it("leaves out of its frame a signal whose shape does not cross, and states the rest", async () => {
+    const good = { signalId: "good", nodeId: "peer", kind: "blocked", text: "Crosses.", createdAt: 1 } as const;
+    // The shape that cut the link before: an answer's files inside the closing.
+    const drifted = {
+      ...good,
+      signalId: "drifted",
+      closing: { state: "answered", closedAt: 2, response: { text: "With a file.", at: 2, attachments: [] } },
+    } as never;
+    expect((await Effect.runPromise(crossingSignals([drifted, good]))).map((signal) => signal.signalId)).toEqual(["good"]);
   });
 
   it("closes the link when stated by a machine that may not: a raise for another machine's seat, an answer from the seat's machine", async () => {

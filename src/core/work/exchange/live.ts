@@ -11,7 +11,7 @@
  * briefing, the references, play or pause. The machine that takes a copy
  * keeps them where its own are kept, so a seat reads them the one way.
  */
-import { Cause, Effect, Option } from "effect";
+import { Cause, Effect, Option, Result, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import {
   CANVAS_COPY_FRAME_BUDGET,
@@ -24,7 +24,7 @@ import type { InstallationId } from "@shared/installation-id";
 import { asCanvasName, type HostId, type Seat } from "@shared/model";
 import { APP_REFERENCE_PLACE, type ReferencePlace, type StoredReference } from "@shared/references";
 import type { AgentSignal } from "@shared/agent-signals";
-import { EXCHANGE_MAX_SIGNAL_ATTACHMENTS, signalAttachmentCrosses, type CanvasPlacement, type ExchangeSignal } from "@shared/work-exchange";
+import { EXCHANGE_MAX_SIGNAL_ATTACHMENTS, ExchangeSignal, signalAttachmentCrosses, type CanvasPlacement } from "@shared/work-exchange";
 import type { Message } from "@shared/work-model";
 import { deriveActorSeatId } from "../../actor-seat-id";
 import { notifyAutomationsChanged } from "../../automation/changes";
@@ -81,9 +81,27 @@ const stated = (signal: AgentSignal): ExchangeSignal => ({
     : signal.state === "answered"
       ? signal.response === undefined
         ? {}
-        : { closing: { state: "answered" as const, closedAt: signal.closedAt, response: signal.response } }
+        // An answer crosses as its words: its files, links, document and secret names stay where it was made.
+        : { closing: { state: "answered" as const, closedAt: signal.closedAt, response: { text: signal.response.text, at: signal.response.at } } }
       : { closing: { state: signal.state, closedAt: signal.closedAt } }),
 });
+
+/**
+ * Does the signal encode as the rows channel encodes it? One that does not is
+ * left out of its frame, so a shape that drifts from ExchangeSignal costs that
+ * signal, never the frame or the link.
+ */
+const encodesStrictly = Schema.encodeUnknownResult(Schema.toCodecJson(ExchangeSignal), { onExcessProperty: "error" });
+/** The signals of a frame that cross; each one left out is logged by its id, in fixed words. */
+export const crossingSignals = (signals: ReadonlyArray<ExchangeSignal>): Effect.Effect<ReadonlyArray<ExchangeSignal>> =>
+  Effect.filter(signals, (signal) =>
+    Result.isSuccess(encodesStrictly(signal))
+      ? Effect.succeed(true)
+      : Effect.logWarning("a signal is not stated: its shape does not cross").pipe(
+          Effect.annotateLogs({ area: "rows", signalId: signal.signalId }),
+          Effect.as(false),
+        ),
+  );
 
 const copied = (reference: StoredReference, regionId?: string): CopiedReference => ({
   ...(regionId === undefined ? {} : { regionId: regionId as NonNullable<CopiedReference["regionId"]> }),
@@ -479,7 +497,10 @@ export const makeLiveRowExchange = (
       copySent,
       departed,
       installCopy,
-      signals: (canvasName) => signals.listCanvas(canvasName).pipe(Effect.map((held) => held.map(stated))),
+      signals: (canvasName) =>
+        signals.listCanvas(canvasName).pipe(
+          Effect.flatMap((held) => crossingSignals(held.map(stated))),
+        ),
       takeSignal: (canvasName, { attachments, ...signal }, raises) =>
         signals.take({
           ...signal,
