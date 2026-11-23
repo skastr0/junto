@@ -25,7 +25,7 @@ import {
   type QuickThreadChange,
 } from "../../lib/quick-thread-keys";
 import { regionChipStyle } from "../../lib/region-chip-style";
-import type { NewThread, NewThreadsOutcome, ThreadRecipient } from "../../lib/seat-threads";
+import { waitingForSeats, type NewThread, type NewThreadsOutcome, type ThreadRecipient } from "../../lib/seat-threads";
 import { state$ } from "../../lib/state";
 import { useCanvas } from "../../lib/use-model";
 import { AgentPortrait } from "../AgentPortrait";
@@ -42,11 +42,7 @@ export type QuickThreadSent = ReadonlyArray<NewThread>;
 /** A seat that has its thread, with the name it had when it was sent. */
 type Settled = NewThread & { readonly name: string };
 
-/** Who the mail has not reached yet, in one sentence about the seat. */
-const waitingLine = (waiting: ReadonlyArray<Settled>): string =>
-  waiting.length === 1
-    ? `Waiting for ${waiting[0]!.name}. It arrives when the seat is back.`
-    : `Waiting for ${waiting.length} seats. Each gets it when it is back.`;
+const waitingLine = (waiting: ReadonlyArray<Settled>): string => waitingForSeats(waiting.map((entry) => entry.name));
 
 const seatCount = (seats: number): string => (seats === 1 ? "1 seat" : `${seats} seats`);
 
@@ -160,6 +156,8 @@ export function QuickThread({
     if (element) claimFocus(element, "open");
   }, []);
   const describedBy = useId();
+  const sentLine = useId();
+  const waitingText = useId();
 
   const say = (text: string): void => setSpoken((last) => ({ text, turn: last.turn + 1 }));
   const speak = (change: QuickThreadChange): void => say(quickThreadSpoken(change));
@@ -512,11 +510,16 @@ export function QuickThread({
     </div>
   );
 
+  // One frame for the input and for the receipt, and the live region first in it: it stays the same element
+  // when the receipt takes the input's place, so the line is said. A region that arrives with its text is not.
   if (receiptOf !== undefined) {
     const waiting = receiptOf.filter((entry) => entry.arrival === "waiting");
     return (
-      <div className="quick-thread quick-thread--receipt" data-testid="quick-thread-receipt">
-        <p className="quick-thread__sent">Sent to {seatCount(receiptOf.length)}</p>
+      <div ref={root} className="quick-thread quick-thread--receipt" data-testid="quick-thread-receipt">
+        {live}
+        <p id={sentLine} className="quick-thread__sent">
+          Sent to {seatCount(receiptOf.length)}
+        </p>
         <ul role="list" aria-label="Sent to" className="quick-thread__seats">
           {receiptOf.map((entry) => (
             <li
@@ -532,19 +535,26 @@ export function QuickThread({
                 <Check size={11} aria-hidden className="quick-thread__arrival" />
               )}
               <ResourceChip kind="seat" seat={entry.seatId} label={entry.name} />
-              <span className="sr-only">{entry.arrival === "waiting" ? "waiting" : "has it"}</span>
+              <span className="sr-only">{entry.arrival === "waiting" ? ", waiting" : ", has it"}</span>
             </li>
           ))}
         </ul>
-        <p className="quick-thread__waiting" data-testid="quick-thread-waiting-line">
+        <p id={waitingText} className="quick-thread__waiting" data-testid="quick-thread-waiting-line">
           {waitingLine(waiting)}
         </p>
         <div className="quick-thread__done">
-          <Button ref={claimFocusOnMount} size="sm" variant="chrome" data-testid="quick-thread-done" onClick={() => handOver(receiptOf)}>
+          {/* It takes the keyboard as the input goes, and is read with the result it closes. */}
+          <Button
+            ref={claimFocusOnMount}
+            size="sm"
+            variant="chrome"
+            data-testid="quick-thread-done"
+            aria-describedby={`${sentLine} ${waitingText}`}
+            onClick={() => handOver(receiptOf)}
+          >
             Done
           </Button>
         </div>
-        {live}
       </div>
     );
   }
@@ -559,6 +569,7 @@ export function QuickThread({
         if (event.target === message.current && chosen.length === 0 && keyIs(event, "inThread.send")) speak({ kind: "noSeat" });
       }}
     >
+      {live}
       <ThreadComposer
         mode="new"
         canvasName={canvasName}
@@ -571,7 +582,6 @@ export function QuickThread({
         // With the picker up the keyboard starts in it; with seats already chosen, in the message.
         yields={() => pickingNow.current}
       />
-      {live}
     </div>
   );
 }

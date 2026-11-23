@@ -855,6 +855,16 @@ export type NewThread = {
   readonly arrival: "arrived" | "waiting";
 };
 
+/**
+ * Who the operator's mail has not reached yet, in one sentence about the
+ * seat. The one wording for every place that says it: under a message in a
+ * thread, and on Quick thread's receipt.
+ */
+export const waitingForSeats = (names: ReadonlyArray<string>): string =>
+  names.length === 1
+    ? `Waiting for ${names[0]}. It arrives when the seat is back.`
+    : `Waiting for ${names.length} seats. Each gets it when it is back.`;
+
 /** What came of one send to several seats: the thread each seat got, and each seat that got none, with main's words. */
 export type NewThreadsOutcome = {
   readonly sent: ReadonlyArray<NewThread>;

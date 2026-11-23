@@ -440,7 +440,23 @@ describe("a send that leaves a seat waiting", () => {
     await open();
     delivery["s-pty"] = "waiting_for_seat";
     await typeIn(messageField(), "status?");
+    const region = q("quick-thread-spoken");
     await press(sendButton());
+    // The live region is the one that was there with the input: a region that arrives with its text is not said.
+    expect(q("quick-thread-spoken")).toBe(region);
+    // Done is read with the result it closes.
+    expect(
+      q("quick-thread-done")!
+        .getAttribute("aria-describedby")!
+        .split(" ")
+        .map((id) => document.getElementById(id)?.textContent)
+        .join(" "),
+    ).toBe("Sent to 3 seats Waiting for pty-lead. It arrives when the seat is back.");
+    expect(all("quick-thread-sent-seat").map((entry) => entry.textContent)).toEqual([
+      "@product-design, Seat, has it",
+      "@pty-lead, Seat, waiting",
+      "@cli-lead, Seat, has it",
+    ]);
     // Sent to all three, once; it does not close without a word, and the input is gone so nothing sends twice.
     expect(sends.length).toBe(3);
     expect(operatorModal$.open.peek()).toBe("quick-thread");
