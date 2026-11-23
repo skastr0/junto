@@ -105,9 +105,9 @@ const compactedWithStandIn = async () => {
   expect(atlas.hasImage(standIn)).toBe(true);
   await drain();
 
-  atlas.acquire(textQuad("big"), 1);
+  const big = atlas.acquire(textQuad("big"), 1);
   await drain();
-  return { atlas, fake, standIn, target: held[0]!, releaseWaiting };
+  return { atlas, fake, standIn, big, target: held[0]!, releaseWaiting };
 };
 
 describe("gpu atlas audit: compaction and stand-ins (zoom corruption)", () => {
@@ -120,14 +120,14 @@ describe("gpu atlas audit: compaction and stand-ins (zoom corruption)", () => {
     expect(atlas.audit().counts).toEqual({});
   });
 
-  it("the scenario compacts a plot (the gate exercised reclaim)", async () => {
-    const { atlas } = await compactedWithStandIn();
-    expect(atlas.stats().compactions).toBe(1);
+  it("a whole-plot cell lands on a fragmented page and the audit stays clean", async () => {
+    const { atlas, big } = await compactedWithStandIn();
+    expect(atlas.hasImage(big)).toBe(true);
+    expect(atlas.audit().counts).toEqual({});
   });
 
-  it("a compaction never copies a page texture onto itself (F1)", async () => {
+  it("the atlas never copies a page texture onto itself (F1)", async () => {
     const { fake } = await compactedWithStandIn();
-    expect(fake.textureCopies.length).toBeGreaterThan(0);
     const selfCopies = fake.textureCopies.filter((copy) => copy.src === copy.dst).length;
     expect(selfCopies).toBe(0);
   });

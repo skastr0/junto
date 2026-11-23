@@ -337,12 +337,12 @@ test("zooming in and out through every tier never draws another item's pixels", 
         await checkAll(page, `cycle ${String(cycle)}, first compaction, settled`, true);
         await compareAll(`after first compaction (cycle ${String(cycle)})`);
       }
-      if (evicted && compacted && cycle >= 3) break;
+      // The atlas no longer compacts (61dbe0378): reclaim is eviction.
+      if (evicted && cycle >= 3) break;
     }
     const final = (await readProofState(page)).atlas as { evictions: number; compactions?: number } | null;
     log("sweep done", { cycles: cycle + 1, evictions: final?.evictions, compactions: final?.compactions });
     if ((final?.evictions ?? 0) === 0) fail(`the sweep never reclaimed a plot in ${String(cycle + 1)} cycles: the gate did not exercise eviction`);
-    if ((final?.compactions ?? 0) === 0) fail(`the sweep never compacted a plot in ${String(cycle + 1)} cycles: the gate did not exercise compaction`);
     await settleAtlas(page);
     await compareAll("after the sweep");
   } finally {
