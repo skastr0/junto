@@ -426,11 +426,53 @@ const motionMask = (shots: ReadonlyArray<PngImage>): Uint8Array => {
  * averaged over 8 px blocks; a block is hot over a mean delta of 56; the frame
  * fails on a connected group of 12 hot blocks.
  */
+/**
+ * The pane's device pixels that lie under DOM (top bar, bottom bar, any
+ * panel): the element hit there is not the one hit across most of the pane,
+ * the canvas. Sampled every 4 CSS px. A gesture frame maps canvas pixels onto
+ * the reference; where either end of that mapping is DOM, the two pixels are
+ * not the same thing and are not compared.
+ */
+const overlayMask = async (page: Page, pane: Rect, dpr: number): Promise<{ mask: Uint8Array; share: number }> => {
+  const step = 4;
+  const cells = await page.evaluate(({ pane, step }) => {
+    const cols = Math.ceil(pane.width / step);
+    const rows = Math.ceil(pane.height / step);
+    const hits: Array<Element | null> = [];
+    const counts = new Map<Element, number>();
+    for (let r = 0; r < rows; r += 1) {
+      for (let c = 0; c < cols; c += 1) {
+        const el = document.elementFromPoint(pane.x + Math.min(pane.width - 1, c * step + step / 2), pane.y + Math.min(pane.height - 1, r * step + step / 2));
+        hits.push(el);
+        if (el) counts.set(el, (counts.get(el) ?? 0) + 1);
+      }
+    }
+    const base = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    return { cols, rows, over: hits.map((el) => (el === base ? 0 : 1)) };
+  }, { pane, step });
+  const width = Math.round(pane.width * dpr);
+  const height = Math.round(pane.height * dpr);
+  const mask = new Uint8Array(width * height);
+  let over = 0;
+  for (let y = 0; y < height; y += 1) {
+    const r = Math.min(cells.rows - 1, Math.floor(y / dpr / step));
+    for (let x = 0; x < width; x += 1) {
+      const c = Math.min(cells.cols - 1, Math.floor(x / dpr / step));
+      if (cells.over[r * cells.cols + c] === 1) {
+        mask[y * width + x] = 1;
+        over += 1;
+      }
+    }
+  }
+  return { mask, share: over / mask.length };
+};
+
 const compareGesture = (
   ref: { image: PngImage; mask: Uint8Array; camera: Camera },
   frame: PngImage,
   camera: Camera,
   dpr: number,
+  overlay: Uint8Array,
 ): { worstGroup: number; hot: number; diff: PngImage } => {
   const B = 8;
   const bw = Math.floor(frame.width / B);
@@ -455,7 +497,15 @@ const compareGesture = (
           // Clip coordinates (pane space, device px) -> reference pixel.
           const rx = Math.round((x / dpr - camera.x) * scale * dpr + ref.camera.x * dpr);
           const ry = Math.round((y / dpr - camera.y) * scale * dpr + ref.camera.y * dpr);
-          if (rx < 0 || ry < 0 || rx >= ref.image.width || ry >= ref.image.height || ref.mask[ry * ref.image.width + rx] === 1) {
+          if (
+            rx < 0 ||
+            ry < 0 ||
+            rx >= ref.image.width ||
+            ry >= ref.image.height ||
+            ref.mask[ry * ref.image.width + rx] === 1 ||
+            overlay[y * frame.width + x] === 1 ||
+            overlay[ry * ref.image.width + rx] === 1
+          ) {
             skip = true;
             break;
           }
@@ -651,6 +701,9 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
       const pane = await paneRect(page);
       const dpr = await page.evaluate(() => window.devicePixelRatio);
       const centre = { x: pane.x + pane.width / 2, y: pane.y + pane.height / 2 };
+      const overlay = await overlayMask(page, pane, dpr);
+      log("overlay", { share: Math.round(overlay.share * 1000) / 1000 });
+      if (overlay.share > 0.5) fail(`the DOM overlay mask covers ${String(Math.round(overlay.share * 100))}% of the pane: it would hide the canvas`);
       const seen = { errors: (await readProofState(page)).gpuErrors?.count ?? 0 };
       if (seen.errors > 0) fail(`ladder launch: ${String(seen.errors)} GPU error(s) before the first stop`);
       let stopIndex = 0;
@@ -704,7 +757,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           (a, b) => Math.abs(Math.log2(a / state.camera.zoom)) - Math.abs(Math.log2(b / state.camera.zoom)),
         )[0]!;
         const ref = references.get(refKey(place.name, nearest))!;
-        const { worstGroup, hot, diff } = compareGesture({ image: ref.unheld, mask: ref.mask, camera: ref.camera }, frame, state.camera, dpr);
+        const { worstGroup, hot, diff } = compareGesture({ image: ref.unheld, mask: ref.mask, camera: ref.camera }, frame, state.camera, dpr, overlay.mask);
         const name = `c${String(cycle)}-${place.name}-gesture-${String(from)}-${String(to)}`;
         log(`gesture ${name}`, { aimed: Math.round(mid * 1000) / 1000, zoom: Math.round(state.camera.zoom * 1000) / 1000, tier: state.tier, against: nearest, hot, worstGroup });
         if (worstGroup >= 12) {
