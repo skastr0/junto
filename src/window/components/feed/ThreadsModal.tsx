@@ -405,17 +405,21 @@ export function ThreadsBody({
       after.want === "landing" && selected !== null && landing === null
         ? [...scope.querySelectorAll<HTMLElement>("[data-list-row]")].find((one) => one.getAttribute("data-list-row") === selected)
         : undefined;
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    const start = scope.querySelector<HTMLElement>('[data-testid="operator-threads-new"], [data-testid="threads-empty-quick"]');
     if (row !== undefined) {
       focusAfter.current = null;
-      claimFocus(row, "gesture", { preventScroll: false });
-      row.scrollIntoView?.({ block: "nearest" });
+      // Only while the keyboard is where the send left it: a chip or row the
+      // operator went to meanwhile keeps it.
+      if (lost || (start !== null && start.contains(document.activeElement))) {
+        claimFocus(row, "gesture", { preventScroll: false });
+        row.scrollIntoView?.({ block: "nearest" });
+      }
       return;
     }
     // The pane that had the keyboard is gone: New thread takes it at once.
     // While the new thread is still on its way it is only put back if lost,
     // so a keyboard the operator moved stays.
-    const lost = document.activeElement === null || document.activeElement === document.body;
-    const start = scope.querySelector<HTMLElement>('[data-testid="operator-threads-new"], [data-testid="threads-empty-quick"]');
     if (start !== null && (!after.claimed || lost)) {
       claimFocus(start, "gesture");
       after.claimed = true;

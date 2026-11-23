@@ -371,3 +371,14 @@ it("watches the column it has, after the empty state gives it back", () => {
     globalThis.ResizeObserver = Real;
   }
 });
+
+it("leaves the keyboard where the operator moved it while the new thread was on its way", () => {
+  draw(state(rows.slice(0, 1)), { quick: true });
+  act(() => q<HTMLButtonElement>('[data-testid="operator-threads-new"]')!.click());
+  act(() => q<HTMLButtonElement>('[data-testid="quick"]')!.click());
+  const elsewhere = q<HTMLElement>('[data-thread="t1"]')!;
+  act(() => elsewhere.focus());
+  draw(state(rows), { quick: true });
+  expect(document.activeElement).toBe(elsewhere);
+  expect(q('[data-thread="t2"]')?.dataset.selected).toBe("true");
+});
