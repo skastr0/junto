@@ -152,6 +152,13 @@ export type MailLineOptions = {
    * seat reads it from, typed under the body. A cut body keeps them.
    */
   readonly attachmentLines?: ReadonlyArray<string>;
+  /**
+   * True: this machine edits the recipient's canvas, so mail the seat answers
+   * to the operator also says how to answer it with a signal in its thread.
+   * Absent: no signal pointer, as for a seat whose canvas another machine
+   * edits until Remote carries a signal raised in a thread.
+   */
+  readonly signalInThread?: boolean;
 };
 
 const withOnboardPointer = (line: string, options: MailLineOptions | undefined): string =>
@@ -229,7 +236,11 @@ const mailHeader = (message: Message, options: MailLineOptions | undefined): str
   const reply = replyTarget === undefined
     ? ""
     : ` — reply: junto msg reply '${JSON.stringify({ target: sanitizeDeliveryLine(replyTarget), inReplyTo: id, text: "..." })}'`;
-  return withOnboardPointer(`${named}${reply}`, options);
+  // The operator's mail can be answered with a signal in its thread as well.
+  const signal = options?.signalInThread === true && replyTarget === "operator"
+    ? `, or a signal in it: junto escalate "..." --thread ${thread ?? id}`
+    : "";
+  return withOnboardPointer(`${named}${reply}${signal}`, options);
 };
 
 /**
@@ -328,14 +339,15 @@ const composeMailPointer = (message: Message, sender: MailSender | undefined): s
  * past that, each further mail is one line with its id, up to
  * MAIL_BATCH_POINTER_MAX, and one last line counts the rest with the
  * `junto msg list` that lists them. Mail past the cap stays unread. The
- * onboard pointer rides the first line. Prompts are never batched: the
+ * onboard pointer rides the first line; the signal pointer, each header. Prompts are never batched: the
  * delivery types each one as its own turn.
  */
 export const composeMailBatch = (
   mails: ReadonlyArray<BatchedMail>,
-  options?: Pick<MailLineOptions, "onboarded">,
+  options?: Pick<MailLineOptions, "onboarded" | "signalInThread">,
 ): MailBatch => {
   const [only] = mails;
+  const signal = options?.signalInThread === true ? { signalInThread: true } : {};
   if (mails.length === 1 && only !== undefined) {
     return {
       text: composeMessageDeliveryPayload(only.message, { ...options, ...optionsOf(only) }),
@@ -359,7 +371,7 @@ export const composeMailBatch = (
       continue;
     }
     room -= length;
-    sections.push(composeMessageDeliveryPayload(message, optionsOf(mail)));
+    sections.push(composeMessageDeliveryPayload(message, { ...optionsOf(mail), ...signal }));
     whole.push(mailTypedWhole(message));
   }
   const counted = past - MAIL_BATCH_POINTER_MAX;

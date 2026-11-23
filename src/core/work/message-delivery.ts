@@ -201,6 +201,11 @@ export type MessageDeliveryStore = {
    */
   readonly attachmentLines?: (canvas: string, nodeId: string, message: Message) => Promise<ReadonlyArray<string> | undefined>;
   /**
+   * Whether this machine edits the canvas: only then does operator mail say
+   * how to answer with a signal in its thread. Absent or false: it does not.
+   */
+  readonly editsCanvas?: (canvas: string) => Promise<boolean>;
+  /**
    * Stamp the durable delivery receipt (`deliveredAt`), and with `read` the
    * read receipt (`readAt`) beside it: mail typed whole is read.
    */
@@ -618,8 +623,10 @@ export class MessageDeliveryService {
       this.batches.delete(target.bindingId);
       void this.typeBatch(open);
     }
+    const signalInThread = (await store.editsCanvas?.(canvas).catch(() => false)) === true;
     const payload = composeImmediatePromptPayload(message, {
       onboarded: onboardedOf(transport, target.bindingId),
+      ...(signalInThread ? { signalInThread } : {}),
       ...(sender === undefined ? {} : { sender }),
       ...(attachmentLines === undefined ? {} : { attachmentLines }),
     });
@@ -732,13 +739,16 @@ export class MessageDeliveryService {
       }
     }
     if (pending.length === 0 || !this.active(batch.generation)) return undefined;
+    // One seat's batch: its mail is all on that seat's canvas.
+    const signalInThread = (await store.editsCanvas?.(pending[0]!.canvas).catch(() => false)) === true;
+    if (!this.active(batch.generation)) return undefined;
     const { text, whole } = composeMailBatch(
       pending.map(({ message, sender, attachmentLines }) => ({
         message,
         ...(sender === undefined ? {} : { sender }),
         ...(attachmentLines === undefined ? {} : { attachmentLines }),
       })),
-      { onboarded: onboardedOf(transport, batch.bindingId) },
+      { onboarded: onboardedOf(transport, batch.bindingId), ...(signalInThread ? { signalInThread } : {}) },
     );
     return { mail: pending, whole, written: await transport.writeMail(batch.bindingId, text) };
   }

@@ -14,6 +14,7 @@ import { WorkRepository, WorkRepositoryLive } from "../src/core/work/repository"
 import { canvasReceiptBasis } from "../src/core/work/delivery-receipts";
 import { makeMessageDeliveryStore } from "../src/core/work/message-delivery-store";
 import { ContentService, type ContentServiceShape } from "../src/core/content/service";
+import { MachineRepositoryLive } from "../src/core/machines/repository";
 import { THIS_MACHINE } from "./support/machines";
 
 it("a delivery that typed the mail whole stamps it read with its receipt; any other leaves it unread", async () => {
@@ -47,7 +48,7 @@ it("a delivery that typed the mail whole stamps it read with its receipt; any ot
     }
     // These mails carry no files, so the content store is never read.
     const store = await runtime.runPromise(
-      makeMessageDeliveryStore().pipe(Effect.provideService(ContentService, {} as ContentServiceShape)),
+      makeMessageDeliveryStore().pipe(Effect.provideService(ContentService, {} as ContentServiceShape), Effect.provide(MachineRepositoryLive)),
     );
     expect(await store.acceptMessageDelivery("factory", "inbox", "whole-mail", true)).toBe(true);
     expect(await store.acceptMessageDelivery("factory", "inbox", "cut-mail", false)).toBe(true);
@@ -60,6 +61,11 @@ it("a delivery that typed the mail whole stamps it read with its receipt; any ot
     const cut = await store.readMessage("factory", "inbox", "cut-mail");
     expect(cut?.metadata?.deliveredAt).toBeTypeOf("number");
     expect(cut?.metadata?.readAt).toBeUndefined();
+
+    // Operator mail says how to answer with a signal only where this machine edits the canvas.
+    expect(await store.editsCanvas?.("factory")).toBe(true);
+    await runtime.runPromise(sql`UPDATE canvases SET editor_installation_id = 'other-home' WHERE canvas_name = 'factory'`);
+    expect(await store.editsCanvas?.("factory")).toBe(false);
   } finally {
     await runtime.dispose();
     await rm(root, { recursive: true, force: true });

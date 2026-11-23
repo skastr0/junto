@@ -10,7 +10,9 @@ import type { Message } from "@shared/work-model";
 import { BodyPuller } from "../content/body-puller";
 import { deliverOperatorAttachmentLines } from "../content/mail-files-pull";
 import { ContentService } from "../content/service";
+import { MachineRepository } from "../machines/repository";
 import { ModelActorRefs } from "../model/actor-refs";
+import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
 import { recordDeliveryReceiptRefusal, stampMailboxDeliveryReceipt } from "./delivery-receipts";
 import type { Log } from "../../node/observability/logger";
@@ -24,12 +26,14 @@ export const makeMessageDeliveryStore = (
 ): Effect.Effect<
   MessageDeliveryStore,
   never,
-  SqlClient.SqlClient | WorkRepository | ModelService | ModelActorRefs | ContentService
+  SqlClient.SqlClient | WorkRepository | ModelService | ModelActorRefs | ContentService | ModelRecords | MachineRepository
 > => Effect.gen(function* () {
   const model = yield* ModelService;
   const repository = yield* WorkRepository;
   const content = yield* ContentService;
   const puller = yield* Effect.serviceOption(BodyPuller);
+  const records = yield* ModelRecords;
+  const machines = yield* MachineRepository;
   const context = yield* Effect.context<SqlClient.SqlClient | WorkRepository | ModelService | ModelActorRefs>();
   const run = Effect.runPromiseWith(context);
   return {
@@ -51,6 +55,15 @@ export const makeMessageDeliveryStore = (
           });
           return yield* Option.isSome(puller) ? read.pipe(Effect.provideService(BodyPuller, puller.value)) : read;
         }).pipe(Effect.orElseSucceed(() => undefined)),
+      ),
+    // This machine edits the canvas when its installation is the canvas's
+    // editor, or the canvas names none; unknown reads as not.
+    editsCanvas: (canvas) =>
+      run(
+        Effect.gen(function* () {
+          const editor = yield* records.canvasEditor(canvas);
+          return editor === undefined || editor === (yield* machines.installationId);
+        }).pipe(Effect.orElseSucceed(() => false)),
       ),
     acceptMessageDelivery: (canvas, nodeId, messageId, read) =>
       run(

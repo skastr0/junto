@@ -72,6 +72,50 @@ describe("message-delivery pure helpers", () => {
     );
   });
 
+  it("says, on the operator's mail where this machine edits the canvas, how to answer with a signal in its thread", () => {
+    const root = userMsg({
+      messageId: "01M5BKZ0000000000000000000",
+      metadata: { factoryMail: true, mailKind: "prompt", senderNodeId: "operator", senderName: "operator" },
+      parts: [{ kind: "text", text: "Which store?" }],
+    });
+    const reply = `junto msg reply '{"target":"operator","inReplyTo":"01M5BKZ0000000000000000000","text":"..."}'`;
+    // The thread a root mail starts is its own id.
+    expect(composeImmediatePromptPayload(root, { signalInThread: true })).toBe(
+      `mail from operator, id 01M5BKZ0000000000000000000 — reply: ${reply}, or a signal in it: junto escalate "..." --thread 01M5BKZ0000000000000000000\nWhich store?`,
+    );
+    // On one line, before the onboard pointer.
+    const first = composeImmediatePromptPayload(root, { signalInThread: true, onboarded: false }).split("\n")[0]!;
+    expect(first).toBe(
+      `mail from operator, id 01M5BKZ0000000000000000000 — reply: ${reply}, or a signal in it: junto escalate "..." --thread 01M5BKZ0000000000000000000 — ${MAIL_ONBOARD_POINTER}`,
+    );
+    // A reply names its thread, sanitized as the header's thread is.
+    const later = userMsg({
+      messageId: "01M5BKZ1111111111111111111",
+      metadata: { ...root.metadata, threadId: "01M5BKZ0000000000000000000\u001b[2J" },
+    });
+    const header = composeImmediatePromptPayload(later, { signalInThread: true }).split("\n")[0]!;
+    expect(header).not.toContain("\u001b");
+    expect(header.endsWith(`--thread ${/, thread (.+?) — /.exec(header)![1]}`)).toBe(true);
+    // No pointer without the option: a seat whose canvas another machine edits.
+    expect(composeImmediatePromptPayload(root)).not.toContain("--thread");
+    // Each batched header carries it.
+    const batch = composeMailBatch(
+      [{ message: { ...root, metadata: { ...root.metadata, mailKind: "notice" } } }, { message: { ...later, metadata: { ...later.metadata, mailKind: "notice" } } }],
+      { signalInThread: true },
+    );
+    expect(batch.text.match(/or a signal in it: junto escalate/g)).toHaveLength(2);
+  });
+
+  it("puts no signal pointer on mail from a seat", () => {
+    const peer = userMsg({
+      messageId: "01KZSM4A84ASFRTZ77YAQ09CVH",
+      metadata: { factoryMail: true, fromSeat: "seat_hash", senderNodeId: "agent-a", senderName: "Reviewer" },
+    });
+    const typed = composeMessageDeliveryPayload(peer, { signalInThread: true });
+    expect(typed).toContain("junto msg reply");
+    expect(typed).not.toContain("--thread");
+  });
+
   it("types a notice whole under one header: who sent it, its id, and the reply that answers it", () => {
     const notice = userMsg({
       messageId: "01KZSM4A84ASFRTZ77YAQ09CVH",
