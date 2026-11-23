@@ -13,7 +13,7 @@
  * Never writes the canvas. Absent bridge degrades to a no-op subscribe.
  */
 
-import { observable } from "@legendapp/state";
+import { batch, observable } from "@legendapp/state";
 import {
   agentSeatStatusOf,
   encodeAgentSeatStatus,
@@ -230,9 +230,14 @@ const rememberNodeJoin = (bindingId: string, nodeId: string | undefined): void =
   agentSeat$.bindingIdByNodeId[nodeId].set(bindingId);
 };
 
-export const applyAgentSeatStateEvent = (event: AgentSeatStateEvent): void => {
+/**
+ * Write one event's fields and tell no one; applyAgentSeatStateEvents does the
+ * telling. Answers whether the store took it: an event older than the one
+ * held is left out.
+ */
+const writeSeatEvent = (event: AgentSeatStateEvent): boolean => {
   const current = agentSeat$.byBindingId[event.bindingId].peek();
-  if (current && event.at < current.at) return;
+  if (current && event.at < current.at) return false;
 
   const prevState = current?.state;
   const epochChanged = current !== undefined && current.epoch !== event.epoch;
@@ -268,11 +273,29 @@ export const applyAgentSeatStateEvent = (event: AgentSeatStateEvent): void => {
   agentSeat$.needsLookByBindingId[event.bindingId].set(needsLook);
   if (!needsLook) agentSeat$.doneAtByBindingId[event.bindingId].set(undefined);
   else if (turnEnded) agentSeat$.doneAtByBindingId[event.bindingId].set(event.at);
-  agentSeat$.rev.set(agentSeat$.rev.peek() + 1);
   // Inventory join when the session is already cached with a canvas pin.
   const session = terminal$.sessionByBindingId[event.bindingId].peek();
   rememberNodeJoin(event.bindingId, session?.nodeId);
+  return true;
 };
+
+/**
+ * Apply seat events, oldest first, as one change.
+ *
+ * Every field of every event is written before any reader is told. A reader
+ * woken by a finished turn finds its needsLook and doneAt already decided,
+ * and a burst wakes each reader once, not once per field of each event.
+ */
+export const applyAgentSeatStateEvents = (events: ReadonlyArray<AgentSeatStateEvent>): void => {
+  batch(() => {
+    let taken = false;
+    for (const event of events) taken = writeSeatEvent(event) || taken;
+    if (taken) agentSeat$.rev.set(agentSeat$.rev.peek() + 1);
+  });
+};
+
+export const applyAgentSeatStateEvent = (event: AgentSeatStateEvent): void =>
+  applyAgentSeatStateEvents([event]);
 
 export const seatEventForBinding = (
   bindingId: string | undefined,
@@ -303,6 +326,61 @@ export const seatNeedsOf = (event: AgentSeatStateEvent | undefined): readonly Ne
   return status ? deriveNeeds(status.snapshot) : undefined;
 };
 
+// --- arrival -------------------------------------------------------------------
+//
+// Main sends one message per seat event, and a board reports in bursts: a
+// pause, a broadcast, a link coming back. Each message is its own task.
+// Applied as it came, each event was its own round of notifications and its
+// own React commit, back to back, with React's scheduler queued behind every
+// message. React counts a commit that leaves an update pending as a nested
+// update and refuses the 51st in a row ("Maximum update depth exceeded"), so
+// one component that set state from an effect on each event made a later
+// event throw from inside the store's notification, and the readers after it,
+// the canvas feed among them, never heard that event.
+//
+// So events wait for the next turn of the event loop and are applied
+// together: a burst is one change and one commit, and the scheduler has had
+// its turn before the next. The turn is a message channel, not a timer: a
+// timer is slowed in a window no one is looking at, and notifications are
+// raised from this state.
+
+const arrived: AgentSeatStateEvent[] = [];
+let turnAsked = false;
+let turnChannel: MessageChannel | undefined;
+let turnTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Apply what has arrived, in the order it came. */
+const applyArrived = (): void => {
+  turnAsked = false;
+  turnTimer = undefined;
+  if (arrived.length === 0) return;
+  applyAgentSeatStateEvents(arrived.splice(0, arrived.length));
+};
+
+const askTurn = (): void => {
+  if (turnAsked) return;
+  turnAsked = true;
+  if (typeof MessageChannel !== "function") {
+    turnTimer = setTimeout(applyArrived, 0);
+    return;
+  }
+  if (turnChannel === undefined) {
+    turnChannel = new MessageChannel();
+    turnChannel.port1.onmessage = applyArrived;
+  }
+  turnChannel.port2.postMessage(undefined);
+};
+
+/** Forget what has arrived and not been applied; a turn already asked for finds nothing. */
+const dropArrived = (): void => {
+  arrived.length = 0;
+  turnAsked = false;
+  if (turnTimer !== undefined) clearTimeout(turnTimer);
+  turnTimer = undefined;
+  turnChannel?.port1.close();
+  turnChannel = undefined;
+};
+
 // Singleton fan-out: main snapshot + onAgentSeatStateChanged → agentSeat$.
 // Safe to call from App boot and every card mount; only the first call
 // actually subscribes. Absent bridge method degrades to a no-op unsubscribe.
@@ -317,27 +395,33 @@ export const subscribeAgentSeatState = (): (() => void) => {
   const unsubscribe = api.onAgentSeatStateChanged((raw) => {
     const event = decodeAgentSeatStateEvent(raw);
     if (!event) return;
-    applyAgentSeatStateEvent(event);
+    arrived.push(event);
+    askTurn();
   });
   let active = true;
   activeUnsubscribe = () => {
     active = false;
     unsubscribe();
+    dropArrived();
     activeUnsubscribe = undefined;
   };
 
   // Subscribe before reading current state. If a transition races the invoke,
-  // applyAgentSeatStateEvent's timestamp guard keeps an older snapshot from
-  // replacing the streamed event.
+  // the timestamp guard keeps an older snapshot from replacing the streamed
+  // event: what streamed in while the snapshot was read arrived first, so it
+  // is applied first.
   if (typeof api.agentSeatStateSnapshot === "function") {
     void api.agentSeatStateSnapshot().then(
       (snapshot) => {
         if (!active) return;
+        applyArrived();
         if (Array.isArray(snapshot)) {
+          const events: AgentSeatStateEvent[] = [];
           for (const raw of snapshot) {
             const event = decodeAgentSeatStateEvent(raw);
-            if (event) applyAgentSeatStateEvent(event);
+            if (event) events.push(event);
           }
+          applyAgentSeatStateEvents(events);
         }
         agentSeat$.hydrated.set(true);
       },
@@ -355,6 +439,7 @@ export const subscribeAgentSeatState = (): (() => void) => {
 
 /** Test / unmount helper — clear store + allow re-subscribe. */
 export const resetAgentSeatState = (): void => {
+  dropArrived();
   agentSeat$.byBindingId.set({});
   agentSeat$.bindingIdByNodeId.set({});
   agentSeat$.needsLookByBindingId.set({});
