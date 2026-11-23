@@ -13,12 +13,15 @@ const REVEAL_INSET = 32;
  * a region; pressing it again, or All, shows everything. The chosen chip
  * scrolls into view with the one before it peeking in. With one region and
  * nothing picked there is nothing to choose, and the strip is not drawn.
+ * Threads draws the same strip over its own rows, with its own words.
  */
 export function FeedRegionStrip({
   chips,
   chosen,
   total,
   onPick,
+  label = "Filter needs by region",
+  countWord = "waiting",
 }: {
   readonly chips: ReadonlyArray<FeedRegionChip>;
   /** The chosen chip's key; undefined is All. */
@@ -26,6 +29,10 @@ export function FeedRegionStrip({
   /** Everything waiting, for All. */
   readonly total: number;
   readonly onPick: (chip: FeedRegionChip | undefined) => void;
+  /** The strip's accessible name. */
+  readonly label?: string;
+  /** What a count counts, as a chip's name says it ("3 waiting", "3 unread"). */
+  readonly countWord?: string;
 }) {
   const strip = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -73,14 +80,14 @@ export function FeedRegionStrip({
       ref={strip}
       className="feed-region-strip"
       role="radiogroup"
-      aria-label="Filter needs by region"
+      aria-label={label}
       data-testid="feed-region-strip"
     >
       <button
         type="button"
         role="radio"
         aria-checked={chosen === undefined}
-        aria-label={`All regions${total > 0 ? `, ${total} waiting` : ""}`}
+        aria-label={`All regions${total > 0 ? `, ${total} ${countWord}` : ""}`}
         className="feed-region-strip__all"
         data-testid="feed-region-chip"
         onClick={() => onPick(undefined)}
@@ -97,7 +104,7 @@ export function FeedRegionStrip({
             type="button"
             role="radio"
             aria-checked={selected}
-            aria-label={`${where}${chip.label}${chip.count > 0 ? `, ${chip.count} waiting` : ""}`}
+            aria-label={`${where}${chip.label}${chip.count > 0 ? `, ${chip.count} ${countWord}` : ""}`}
             className="feed-region-chip"
             data-open-field={chip.open ? "true" : undefined}
             data-testid="feed-region-chip"

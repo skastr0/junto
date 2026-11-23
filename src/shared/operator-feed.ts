@@ -393,34 +393,46 @@ export type FeedSeatChip = {
 };
 
 /**
- * One chip per seat with a need, the busiest first and ties by name, so the
+ * One chip per seat with a row, the busiest first and ties by name, so the
  * strip reads like the list it filters rather than like a roster. A seat is
  * named by the first region it is seen in, so its dot does not change as
- * other needs arrive.
+ * other rows arrive. Rows of any kind: a need, a thread.
  */
-export const feedSeatChips = (sections: ReadonlyArray<FeedSection>): ReadonlyArray<FeedSeatChip> => {
+export const seatChipsOf = (
+  rows: Iterable<{
+    readonly seatId: string;
+    readonly name: string;
+    readonly region: Pick<FeedRegion, "label" | "path" | "color">;
+  }>,
+): ReadonlyArray<FeedSeatChip> => {
   const chips = new Map<string, FeedSeatChip>();
-  for (const section of sections) {
-    for (const item of section.items) {
-      const known = chips.get(item.seat.nodeId);
-      chips.set(
-        item.seat.nodeId,
-        known === undefined
-          ? {
-              seatId: item.seat.nodeId,
-              name: item.seat.name,
-              count: 1,
-              regionLabel: item.region.label,
-              regionPath: item.region.path,
-              open: item.region.path.length === 0,
-              color: item.region.color,
-            }
-          : { ...known, count: known.count + 1 },
-      );
-    }
+  for (const row of rows) {
+    const known = chips.get(row.seatId);
+    chips.set(
+      row.seatId,
+      known === undefined
+        ? {
+            seatId: row.seatId,
+            name: row.name,
+            count: 1,
+            regionLabel: row.region.label,
+            regionPath: row.region.path,
+            open: row.region.path.length === 0,
+            color: row.region.color,
+          }
+        : { ...known, count: known.count + 1 },
+    );
   }
   return [...chips.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 };
+
+/** The feed's seat chips: one per seat with a need. */
+export const feedSeatChips = (sections: ReadonlyArray<FeedSection>): ReadonlyArray<FeedSeatChip> =>
+  seatChipsOf(
+    sections.flatMap((section) =>
+      section.items.map((item) => ({ seatId: item.seat.nodeId, name: item.seat.name, region: item.region })),
+    ),
+  );
 
 export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
   const { canvasName, nowMs } = input;

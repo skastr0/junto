@@ -468,17 +468,20 @@ export type FeedRegionChip = {
 };
 
 /**
- * The strip's chips: every region a need sits in and every region that
- * contains one, in the order the sections give them, a parent just before its
+ * The strip's chips: every region a row sits in and every region that
+ * contains one, in the order the regions are given, a parent just before its
  * first child. A pick with nothing left in it stays, at the end, so the strip
- * still says what is chosen.
+ * still says what is chosen. Each region comes with its own count (what
+ * waits on the operator there); a chip counts its region and its children.
+ * Rows of any kind: the feed's sections and the threads list both give it
+ * regions this way.
  */
-export const feedRegionChips = (
-  sections: ReadonlyArray<FeedSection>,
+export const regionChipsOf = (
+  regions: ReadonlyArray<{ readonly region: Pick<FeedRegion, "path" | "label" | "color">; readonly count: number }>,
   pick?: ReadonlyArray<string>,
 ): ReadonlyArray<FeedRegionChip> => {
   const chips = new Map<string, { path: ReadonlyArray<string>; label: string; color: string | undefined; open: boolean }>();
-  for (const { region } of sections) {
+  for (const { region } of regions) {
     if (region.path.length === 0) {
       if (!chips.has("")) chips.set("", { path: [], label: region.label, color: undefined, open: true });
       continue;
@@ -501,9 +504,19 @@ export const feedRegionChips = (
     outer: chip.path.slice(0, -1),
     color: chip.color,
     open: chip.open,
-    count: needsOperatorCount(sections.filter((section) => regionMatches(chip.path, section.region)).flatMap((section) => section.items)),
+    count: regions.reduce((total, entry) => (regionMatches(chip.path, entry.region) ? total + entry.count : total), 0),
   }));
 };
+
+/** The feed's region chips: each section a region, counting the needs that wait on the operator. */
+export const feedRegionChips = (
+  sections: ReadonlyArray<FeedSection>,
+  pick?: ReadonlyArray<string>,
+): ReadonlyArray<FeedRegionChip> =>
+  regionChipsOf(
+    sections.map((section) => ({ region: section.region, count: needsOperatorCount(section.items) })),
+    pick,
+  );
 
 /**
  * The feed's view: which region is showing, what the operator narrowed it to,

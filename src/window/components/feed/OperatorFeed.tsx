@@ -35,14 +35,7 @@ import {
   type ReactNode,
 } from "react";
 import { use$ } from "@legendapp/state/react";
-import {
-  ArrowUpRight,
-  Check,
-  ChevronDown,
-  Inbox,
-  MonitorSmartphone,
-  X,
-} from "lucide-react";
+import { ArrowUpRight, Check, MonitorSmartphone } from "lucide-react";
 import { titleOf, type Node, type Seat } from "@shared/model";
 import {
   FEED_KIND_LABEL,
@@ -94,7 +87,6 @@ import {
 import { requestSectionReveal } from "../../lib/sidebar-sections";
 import { itemWorkOf, paneAnswerOf, type PaneAnswer } from "../../lib/signal-work";
 import { VAULT_ENABLED } from "@shared/features";
-import { regionChipStyle } from "../../lib/region-chip-style";
 import { state$ } from "../../lib/state";
 import { useCanvasTasks } from "../../lib/tasks-source";
 import { useCanvas } from "../../lib/use-model";
@@ -108,6 +100,7 @@ import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
 import { Button, Dropdown, Kbd } from "../ui";
 import { FeedRegionStrip } from "./FeedRegionStrip";
+import { FeedEmpty, FeedSeatChosen, FeedSeatsRow, FeedSeatsToggle } from "./FeedFilterParts";
 import { feedTasksByNumber, type FeedTaskRef } from "./feed-text";
 import {
   FeedCardView,
@@ -862,82 +855,31 @@ const feed = useOperatorFeed();
             ))}
           </div>
           {seatsToggleShown ? (
-            <button
+            <FeedSeatsToggle
               ref={seatsToggleRef}
-              type="button"
-              className="operator-feed__filter-chip operator-feed__seats-toggle"
-              data-testid="feed-seats-toggle"
-              aria-expanded={seatsOpen}
-              aria-controls={SEATS_ROW_ID}
-              onClick={() => feedView$.seatsOpen.set(!seatsOpen)}
-            >
-              Seats
-              <span className="operator-feed__filter-count" aria-hidden>
-                {seatChips.length}
-              </span>
-              <ChevronDown size={12} strokeWidth={2} aria-hidden className="operator-feed__seats-chevron" />
-            </button>
+              count={seatChips.length}
+              open={seatsOpen}
+              controls={SEATS_ROW_ID}
+              onToggle={() => feedView$.seatsOpen.set(!seatsOpen)}
+            />
           ) : null}
-          {/* The seat kept, whether the row below is folded or open, so a filter
-              the operator set never leaves the bar without a sign. */}
           {activeSeat === undefined ? null : (
-            <span
-              className="feed-region-chip operator-feed__seat-chip operator-feed__seat-chip--chosen"
-              data-testid="feed-seat-chosen"
-              data-seat={activeSeat.seatId}
-              style={regionChipStyle(activeSeat)}
-              title={activeSeat.regionLabel ? `${activeSeat.name} in ${activeSeat.regionLabel}` : activeSeat.name}
-            >
-              <span className="feed-region-chip__swatch" aria-hidden />
-              <span className="feed-region-chip__label">{activeSeat.name}</span>
-              <button
-                type="button"
-                className="operator-feed__seat-clear"
-                aria-label={`Clear seat ${activeSeat.name}`}
-                onClick={() => feedView$.seat.set(undefined)}
-              >
-                <X size={11} strokeWidth={2} aria-hidden />
-              </button>
-            </span>
+            <FeedSeatChosen seat={activeSeat} onClear={() => feedView$.seat.set(undefined)} />
           )}
           {filtering || activeRegion !== undefined ? (
             <Button size="sm" variant="subtle" data-testid="feed-clear-filters" onClick={clearAll}>
               Clear
             </Button>
           ) : null}
-          {/* The seat row: its own line under the chips, at most two chips tall,
-              so a busy canvas costs the list two lines and never five. */}
           {seatsToggleShown ? (
-            <div
-              className="operator-feed__seats"
+            <FeedSeatsRow
               id={SEATS_ROW_ID}
-              role="group"
-              aria-label="Seats"
-              data-testid="feed-seats-row"
-              hidden={!seatsOpen}
-            >
-              {seatChips.map((chip) => (
-                <button
-                  key={chip.seatId}
-                  type="button"
-                  className="feed-region-chip operator-feed__seat-chip"
-                  data-testid="feed-seat-chip"
-                  data-seat={chip.seatId}
-                  aria-pressed={feedSeatId === chip.seatId}
-                  aria-label={`${chip.name}${chip.count > 0 ? `, ${chip.count} waiting` : ""}`}
-                  style={regionChipStyle(chip)}
-                  title={chip.regionLabel ? `${chip.name} in ${chip.regionLabel}` : chip.name}
-                  onClick={() => toggleFeedSeat(chip.seatId)}
-                >
-                  {feedSeatId === chip.seatId ? <Check size={11} strokeWidth={2} aria-hidden /> : null}
-                  <span className="feed-region-chip__swatch" aria-hidden />
-                  <span className="feed-region-chip__label">{chip.name}</span>
-                  <span className="feed-region-chip__count" aria-hidden>
-                    {chip.count > 99 ? "99+" : chip.count}
-                  </span>
-                </button>
-              ))}
-            </div>
+              chips={seatChips}
+              chosen={feedSeatId}
+              open={seatsOpen}
+              countWord="waiting"
+              onPick={toggleFeedSeat}
+            />
           ) : null}
         </div>
       ) : null}
@@ -948,39 +890,32 @@ const feed = useOperatorFeed();
       {sections.length === 0 ? (
         <div className="operator-feed__scroll" data-testid="operator-feed">
           {filtering ? (
-            <div className="operator-feed__empty" data-testid="feed-no-matches">
-              <span className="operator-feed__empty-mark" aria-hidden>
-                <Inbox size={22} strokeWidth={1.4} />
-              </span>
-              <p className="operator-feed__empty-title">Nothing matches these filters</p>
-              <p className="operator-feed__empty-copy">Clear the search or the chips to see what is still waiting.</p>
-              <Button size="sm" variant="subtle" onClick={clearAll}>
-                Clear
-              </Button>
-            </div>
+            <FeedEmpty
+              testId="feed-no-matches"
+              status={false}
+              title="Nothing matches these filters"
+              copy="Clear the search or the chips to see what is still waiting."
+              action={
+                <Button size="sm" variant="subtle" onClick={clearAll}>
+                  Clear
+                </Button>
+              }
+            />
           ) : activeRegion !== undefined ? (
-            <div className="operator-feed__empty" role="status">
-              <span className="operator-feed__empty-mark" aria-hidden>
-                <Inbox size={22} strokeWidth={1.4} />
-              </span>
-              <p className="operator-feed__empty-title">Nothing waiting in {regionName}</p>
-              <p className="operator-feed__empty-copy">
-                This corner is clear. The rest of the feed is still waiting where it was.
-              </p>
-              <Button size="sm" variant="subtle" onClick={() => feedView$.region.set(undefined)}>
-                Show all regions
-              </Button>
-            </div>
+            <FeedEmpty
+              title={<>Nothing waiting in {regionName}</>}
+              copy="This corner is clear. The rest of the feed is still waiting where it was."
+              action={
+                <Button size="sm" variant="subtle" onClick={() => feedView$.region.set(undefined)}>
+                  Show all regions
+                </Button>
+              }
+            />
           ) : (
-            <div className="operator-feed__empty" role="status">
-              <span className="operator-feed__empty-mark" aria-hidden>
-                <Inbox size={22} strokeWidth={1.4} />
-              </span>
-              <p className="operator-feed__empty-title">Your work for today is done</p>
-              <p className="operator-feed__empty-copy">
-                Nothing is waiting on you. Work an automation raises, notices, and agents that need you land here.
-              </p>
-            </div>
+            <FeedEmpty
+              title="Your work for today is done"
+              copy="Nothing is waiting on you. Work an automation raises, notices, and agents that need you land here."
+            />
           )}
         </div>
       ) : (
