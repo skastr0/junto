@@ -877,6 +877,15 @@ export interface Engine {
   readonly heldCells?: () => ReadonlyMap<number, number>;
   /** Test hook only: hold the frame clocks at one epoch instant (undefined lets go), for screenshots two launches can compare. */
   readonly holdClocks?: (wall: number | undefined) => void;
+  /**
+   * Test hook only: the pop check (operator ruling 6). Started, every presented
+   * frame reads the CPU tables of the atlas quads it drew in view: a quad that
+   * draws nothing, or that showed its own pixels and on a later frame at the
+   * same raster scale shows a stand-in's or nothing, is a fault. "start" clears
+   * the record; "read" returns it; "stop" returns it and stops; "seed" is the
+   * control, a real fault: a few in-view quads let go of their own cells.
+   */
+  readonly popWatch?: (what: "start" | "read" | "stop" | "seed") => PopReport | undefined;
   readonly stats: () => EngineStats;
   readonly dispose: () => void;
 }
@@ -901,6 +910,24 @@ export type DrawnPart = {
   readonly hasImage?: boolean;
   /** The ink token a text run or glyph is tinted with, when it names one. */
   readonly ink?: string;
+};
+
+/** What the pop check saw since it started (test hook only). */
+export type PopReport = {
+  readonly frames: number;
+  /** Frames with at least one in-view atlas quad that drew nothing. */
+  readonly blankFrames: number;
+  readonly blankQuads: number;
+  /** A quad that lost its own pixels at an unchanged raster scale. */
+  readonly pops: number;
+  /** Quads scanned over all frames, and the most in one frame. */
+  readonly scanned: number;
+  readonly peakQuads: number;
+  /** Raster scale changes seen (own, stand-in, own across one is the design). */
+  readonly scaleChanges: number;
+  /** Quads the control let go of ("seed"). */
+  readonly seeded: number;
+  readonly samples: ReadonlyArray<{ readonly frame: number; readonly fault: "nothing" | "pop"; readonly key: string; readonly scale: number; readonly was?: string; readonly shows: string; readonly cell: number }>;
 };
 
 /** A cluster badge the last frame planned (test hook only). */

@@ -405,6 +405,8 @@ export const createScene = (options: {
   readonly release?: (cell: number) => void;
   /** The cell's entry points at pixels: its own, a stand-in or a kept previous. */
   readonly hasImage?: (cell: number) => boolean;
+  /** The cell shows its own landed pixels, not a stand-in's (the pop check reads it). */
+  readonly ownImage?: (cell: number) => boolean;
   /** Rasterize the cell now, before the frame is submitted: the last resort for an in-view quad with no image. */
   readonly ensureNow?: (cell: number) => void;
   /**
@@ -667,6 +669,58 @@ export const createScene = (options: {
       waitingSince.delete(slot);
       unholdPlaceholder(slot);
     }
+  };
+
+  /**
+   * Every atlas quad the last prepared frame drew in view, with the raster
+   * scale it asks for and what its cell shows: its own pixels, a stand-in's,
+   * its placeholder shape, or nothing. Read-only; the pop check reads it
+   * every frame of a gesture (operator ruling 6).
+   */
+  const drawnAtlasQuads = (): Array<{ readonly key: string; readonly scale: number; readonly cell: number; readonly shows: "own" | "stand-in" | "placeholder" | "nothing" }> => {
+    const out: Array<{ key: string; scale: number; cell: number; shows: "own" | "stand-in" | "placeholder" | "nothing" }> = [];
+    const view = seatCheckView;
+    if (view === undefined) return out;
+    for (const card of byId.values()) {
+      if (card.stamp !== liveEpoch || !card.role.view || !intersects(card.rect, view)) continue;
+      for (const ref of card.ordered) {
+        if (!ref.atlas || !drawnInView(ref.slot, ref, view)) continue;
+        const cell = cellOf(ref.slot);
+        const shows = placeholding.has(ref.slot)
+          ? "placeholder"
+          : !hasImage(cell)
+            ? "nothing"
+            : options.ownImage === undefined || options.ownImage(cell)
+              ? "own"
+              : "stand-in";
+        out.push({ key: `${card.id}\u0000${ref.key}`, scale: heldScale[ref.slot]!, cell, shows });
+      }
+    }
+    return out;
+  };
+
+  /**
+   * Test hook only, the pop check's control: up to `count` in-view atlas
+   * records showing their own pixels let go of their cell, and nothing asks
+   * again until the card settles anew. The frame really draws nothing there.
+   */
+  const seedPops = (count: number): number => {
+    const view = seatCheckView;
+    if (view === undefined) return 0;
+    let seeded = 0;
+    for (const card of byId.values()) {
+      if (seeded >= count) break;
+      if (card.stamp !== liveEpoch || !card.role.view || !intersects(card.rect, view)) continue;
+      for (const ref of card.ordered) {
+        if (seeded >= count) break;
+        if (!ref.atlas || !drawnInView(ref.slot, ref, view)) continue;
+        const cell = cellOf(ref.slot);
+        if (!hasImage(cell) || (options.ownImage !== undefined && !options.ownImage(cell))) continue;
+        dropCell(ref.slot);
+        seeded += 1;
+      }
+    }
+    return seeded;
   };
 
   /** Every cell a record's source word holds, with how many records hold it (read-only). */
@@ -3154,6 +3208,8 @@ export const createScene = (options: {
     drawnReach,
     seatStats,
     heldCells,
+    drawnAtlasQuads,
+    seedPops,
     badgePartsOf,
     clusters,
     /** Build the draw list for a GPU cull (every tier) or the CPU one (the current tier only). */

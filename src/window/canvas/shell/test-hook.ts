@@ -5,7 +5,7 @@
  * gives. Facts come from the shell's mirror, never from a DOM card.
  */
 
-import type { CanvasTestHook, DrawnCluster, DrawnPart, Hit, NodeId, Part, Point, Rect, SeatStats } from "../contract";
+import type { CanvasTestHook, DrawnCluster, DrawnPart, Hit, NodeId, Part, Point, PopReport, Rect, SeatStats } from "../contract";
 import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
 import type { SeamEngine } from "../engine/engine";
 import type { AtlasAudit, AtlasTexelAudit, AtlasPendingEntry, AtlasStats } from "../engine/types";
@@ -55,6 +55,8 @@ type FullHook = CanvasTestHook & {
   readonly atlasAuditTexels: (limit?: number) => Promise<AtlasTexelAudit> | null;
   /** Hold the canvas's frame clocks at an epoch instant (ring phase, fades), or let go with undefined. */
   readonly holdClocks: (wall: number | undefined) => void;
+  /** The pop check: start, read or stop the per-frame record of in-view quads that draw nothing or lose their own pixels. */
+  readonly popWatch: (what: "start" | "read" | "stop" | "seed") => PopReport | undefined;
   /** The map and placement the minimap last drew, for the SVG parity check (issue 912). */
   readonly minimapDrawn: () => { readonly map: PackedMap; readonly paint: MapPaint } | undefined;
 };
@@ -193,6 +195,7 @@ const build = (
     atlasAudit: () => pageGpuAtlasAudit(engine()?.heldCells?.()),
     atlasAuditTexels: (limit) => pageGpuAtlasAuditTexels(limit),
     holdClocks: (wall) => engine()?.holdClocks?.(wall),
+    popWatch: (what) => engine()?.popWatch?.(what),
     minimapDrawn: drawnMinimap,
     wireStats,
     ...(pulse === undefined ? {} : { pulse }),

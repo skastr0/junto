@@ -149,6 +149,8 @@ export interface EngineHost {
     acquire(quad: Quad, scale: number, previous?: number): number;
     release(cell: number): void;
     hasImage(cell: number): boolean;
+    /** The cell shows its own landed pixels, not a stand-in's (read-only, the pop check). */
+    ownImage?(cell: number): boolean;
     ensureNow(cell: number): unknown;
     recordVisibleBlank?(count: number): void;
     /** Decode a sprite's source ahead, held while any built quad uses it. */
@@ -294,6 +296,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
           acquire: (quad: Quad, scale: number, previous?: number) => host.cells!.acquire(quad, scale, previous),
           release: (cell: number) => host.cells!.release(cell),
           hasImage: (cell: number) => host.cells!.hasImage(cell),
+          ...(host.cells.ownImage === undefined ? {} : { ownImage: (cell: number) => host.cells!.ownImage!(cell) }),
           ensureNow: (cell: number) => {
             host.cells!.ensureNow(cell);
           },
@@ -330,6 +333,48 @@ export const createEngine = (host: EngineHost): SeamEngine => {
    * so holding `wall` at W and `now` at the page time of W fixes it.
    */
   let held: { readonly now: number; readonly wall: number } | undefined;
+  // The pop check's record (test hook only): undefined costs a frame nothing.
+  type PopWatch = {
+    frames: number;
+    blankFrames: number;
+    blankQuads: number;
+    pops: number;
+    scanned: number;
+    peakQuads: number;
+    scaleChanges: number;
+    seeded: number;
+    samples: Array<{ frame: number; fault: "nothing" | "pop"; key: string; scale: number; was?: string; shows: string; cell: number }>;
+    last: Map<string, { scale: number; shows: string }>;
+  };
+  let pop: PopWatch | undefined;
+  const watchPops = (w: PopWatch): void => {
+    const quads = scene.drawnAtlasQuads();
+    w.frames += 1;
+    w.scanned += quads.length;
+    w.peakQuads = Math.max(w.peakQuads, quads.length);
+    let blank = 0;
+    const next = new Map<string, { scale: number; shows: string }>();
+    for (const q of quads) {
+      next.set(q.key, { scale: q.scale, shows: q.shows });
+      if (q.shows === "nothing") {
+        blank += 1;
+        if (w.samples.length < 64) w.samples.push({ frame: w.frames, fault: "nothing", key: q.key, scale: q.scale, shows: q.shows, cell: q.cell });
+      }
+      const was = w.last.get(q.key);
+      if (was === undefined) continue;
+      if (was.scale !== q.scale) {
+        w.scaleChanges += 1;
+        continue;
+      }
+      if (was.shows === "own" && q.shows !== "own") {
+        w.pops += 1;
+        if (w.samples.length < 64) w.samples.push({ frame: w.frames, fault: "pop", key: q.key, scale: q.scale, was: was.shows, shows: q.shows, cell: q.cell });
+      }
+    }
+    w.last = next;
+    w.blankQuads += blank;
+    if (blank > 0) w.blankFrames += 1;
+  };
 
   const sideOf = (handle: string): ConnectionPreview["fromSide"] => {
     if (handle.endsWith("top")) return "top";
@@ -668,6 +713,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     const lensCam = lensCamera();
     scene.setLens(lensCam === undefined ? undefined : { view: viewRect(lensCam, { width: lensTarget!.width, height: lensTarget!.height }), zoom: LENS_ZOOM });
     const prepared = scene.prepare(viewRect(camera, size), tier);
+    if (pop !== undefined) watchPops(pop);
     const blank = scene.blankStats();
     keepPeaks();
     // The atlas's visibleBlank counter reads what this presented frame drew.
@@ -1031,6 +1077,20 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     partsOf: (id) => scene.partsOf(id),
     seatStats: () => scene.seatStats(),
     heldCells: () => scene.heldCells(),
+    popWatch: (what) => {
+      if (what === "start") {
+        pop = { frames: 0, blankFrames: 0, blankQuads: 0, pops: 0, scanned: 0, peakQuads: 0, scaleChanges: 0, seeded: 0, samples: [], last: new Map() };
+        invalidate();
+        return undefined;
+      }
+      if (what === "seed") {
+        if (pop !== undefined) pop.seeded += scene.seedPops(8);
+        invalidate();
+      }
+      const report = pop === undefined ? undefined : (({ last: _last, ...r }) => ({ ...r, samples: r.samples.slice() }))(pop);
+      if (what === "stop") pop = undefined;
+      return report;
+    },
     holdClocks: (wall) => {
       held = wall === undefined ? undefined : { now: clock() + (wall - wallNow()), wall };
       invalidate();

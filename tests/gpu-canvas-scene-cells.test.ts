@@ -552,3 +552,29 @@ describe("a pan's allocations (issue 912)", () => {
     expect(near.every((cx) => cx >= 3_000 - 300 && cx <= 3_000 + 1440 + 300)).toBe(true);
   });
 });
+
+describe("the pop check's CPU read (operator ruling 6)", () => {
+  it("lists each in-view atlas quad with its held scale and what its cell shows", () => {
+    const { scene, atlas } = sceneOf((id) => [text(`${id}.near`, TIER_BIT.near)], [factAt("a", 0), factAt("b", 50_000)]);
+    scene.prepare(VIEW, "near");
+    // In view and drawn, waiting on its raster: it shows nothing, and only "a" is in view.
+    const before = scene.drawnAtlasQuads();
+    expect(before.map((q) => q.key)).toEqual(["a\u0000a.near"]);
+    expect(before[0]!.shows).toBe("nothing");
+    atlas.land();
+    scene.prepare(VIEW, "near");
+    expect(scene.drawnAtlasQuads().map((q) => q.shows)).toEqual(["own"]);
+    expect(scene.drawnAtlasQuads()[0]!.scale).toBeGreaterThan(0);
+  });
+
+  it("its control, a seeded fault, lets go of an own cell so the frame draws nothing there", () => {
+    const { scene, atlas } = sceneOf((id) => [text(`${id}.near`, TIER_BIT.near)], [factAt("a", 0)]);
+    scene.prepare(VIEW, "near");
+    atlas.land();
+    scene.prepare(VIEW, "near");
+    expect(scene.seedPops(8)).toBe(1);
+    expect(atlas.held()).toBe(0);
+    expect(cell(scene, 0)).toBe(NO_ATLAS_CELL);
+    expect(scene.drawnAtlasQuads().map((q) => q.shows)).toEqual(["nothing"]);
+  });
+});
