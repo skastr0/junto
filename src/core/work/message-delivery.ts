@@ -495,13 +495,17 @@ export class MessageDeliveryService {
     messageId: string,
   ): Promise<MailDeliveryState> {
     const key = mailKey(canvas, nodeId, messageId);
-    if (this.delivered.has(key)) return Promise.resolve("delivered");
+    if (this.delivered.has(key)) {
+      this.unresolved.delete(key);
+      return Promise.resolve("delivered");
+    }
     const flying = this.flights.get(key);
     if (flying !== undefined) return flying;
     const generation = this.lifecycleGeneration;
     const flight = this.deliverOnce(canvas, nodeId, messageId, key)
-      // An authority read failed: the message stays in the mailbox, and the
-      // next seat-live event tries it again (or the boot scan, after a restart).
+      // An authority read failed: the message stays in the mailbox, kept in
+      // `unresolved` until its reads answer; any seat's next live event and
+      // its canvas's resume try it again, and the boot scan after a restart.
       .catch((error: unknown): MailDeliveryState => {
         console.error(`[delivery] attempt failed for ${canvas}/${nodeId}/${messageId}: ${String(error)}`);
         if (this.active(generation)) this.unresolved.set(key, { canvas, nodeId, messageId });
@@ -859,6 +863,9 @@ export class MessageDeliveryService {
    */
   onResumed(canvas: string): void {
     if (this.suspended) return;
+    for (const pending of [...this.unresolved.values()]) {
+      if (pending.canvas === canvas) void this.deliver(pending.canvas, pending.nodeId, pending.messageId);
+    }
     const mail = [...this.waiting.values()]
       .filter((pending) => pending.canvas === canvas)
       .sort((a, b) => a.messageId.localeCompare(b.messageId));

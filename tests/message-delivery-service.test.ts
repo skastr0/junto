@@ -443,6 +443,23 @@ describe("mail delivery", () => {
     expect(seat.writes[0]).toMatch(/^mail from Claude Code, id 01A\b/u);
   });
 
+  it("tries mail whose first attempt threw again when its canvas plays, and leaves another canvas's", async () => {
+    let failing = true;
+    const seat = rig({ readThrows: (what) => failing && what === "model" });
+    seat.append(mail("01A", "first"));
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    failing = false;
+
+    seat.service.onResumed("another canvas");
+    await settle();
+    expect(seat.writes).toHaveLength(0);
+
+    seat.service.onResumed(canvas);
+    await settle();
+    expect(seat.writes).toHaveLength(1);
+    expect(seat.writes[0]).toMatch(/^mail from Claude Code, id 01A\b/u);
+  });
+
   it("starts a down seat once for all the mail waiting on it", async () => {
     const seat = rig({ live: false, wake: () => true });
     seat.append(mail("01A", "first"));
