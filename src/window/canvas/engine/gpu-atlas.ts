@@ -404,6 +404,12 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const seenContentKeys = new Set<string>();
 
   const takeDirtyCells = (): AtlasDirtyCells => {
+    // The renderer takes the table inside the frame, before it submits. A
+    // cell landed in this frame has only its level 0 so far: its smaller
+    // levels are made here, or the frame draws it from whatever the last
+    // occupant left in them. The frame is drawn whole for the landing
+    // already, so this needs no revision of its own.
+    generateDirtyMipmaps();
     if (allCellsDirty) {
       allCellsDirty = false;
       dirtyCellSlots.clear();
@@ -434,8 +440,11 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     options.onFailure?.(reason);
   };
 
-  /** Scissored per-cell GPU mipmap generation: updates only the landed cell's rect per mip level. */
-  const generateDirtyMipmaps = (): void => {
+  /**
+   * Scissored per-cell GPU mipmap generation: updates only the landed cell's
+   * rect per mip level. True when it drew any.
+   */
+  const generateDirtyMipmaps = (): boolean => {
     if (
       dirtyMipRects.length === 0 ||
       device === undefined ||
@@ -446,12 +455,12 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       typeof device.createCommandEncoder !== "function"
     ) {
       dirtyMipRects.length = 0;
-      return;
+      return false;
     }
     const encoder = device.createCommandEncoder();
     if (typeof encoder.beginRenderPass !== "function") {
       dirtyMipRects.length = 0;
-      return;
+      return false;
     }
     // Group rects by texture so each mip level creates one render pass per texture
     const byTex = new Map<GPUTexture, DirtyMipRect[]>();
@@ -511,17 +520,17 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       }
     }
     device.queue.submit([encoder.finish()]);
-    // The smaller levels change after the frame that read the last revision
-    // may have drawn from them; a new revision makes the next frame draw
-    // whole, or a frame that redraws only its damage keeps the stale texels.
-    revision += 1;
+    return true;
   };
 
   const flushDirty = (): void => {
     flushScheduled = false;
     if (dirty && !disposed) {
       dirty = false;
-      generateDirtyMipmaps();
+      // Levels drawn here change after the frame that read the last revision
+      // may have drawn from them; a new revision makes the next frame draw
+      // whole, or a frame that redraws only its damage keeps the stale texels.
+      if (generateDirtyMipmaps()) revision += 1;
       options.onDirty?.();
     }
   };

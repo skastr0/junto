@@ -430,6 +430,54 @@ describe("a stand-in names a cell with pixels of its own", () => {
   });
 });
 
+describe("a cell landed inside a frame has its smaller levels before the frame is drawn", () => {
+  it("the levels are made when the renderer takes the cell table, not in a microtask after the submit", async () => {
+    const events: string[] = [];
+    const base = fakeDevice().device as unknown as Record<string, unknown>;
+    // A device that can draw mip levels: the atlas makes four of them.
+    const device = {
+      ...base,
+      createShaderModule: () => ({}),
+      createBindGroupLayout: () => ({}),
+      createPipelineLayout: () => ({}),
+      createRenderPipeline: () => ({}),
+      createBindGroup: () => ({}),
+      createCommandEncoder: () => ({
+        copyTextureToTexture: () => undefined,
+        beginRenderPass: (desc: { colorAttachments: Array<{ loadOp: string }> }) => {
+          if (desc.colorAttachments[0]!.loadOp === "load") events.push("mip pass");
+          return { setPipeline: () => undefined, setBindGroup: () => undefined, setScissorRect: () => undefined, draw: () => undefined, end: () => undefined };
+        },
+        finish: () => ({}),
+      }),
+      queue: {
+        copyExternalImageToTexture: () => events.push("level 0 copy"),
+        writeTexture: () => undefined,
+        submit: () => undefined,
+        writeBuffer: () => undefined,
+      },
+    } as unknown as GPUDevice;
+    const atlas = atlasWith({ size: 64, rasterizeSpriteSync: () => pixels(16, 16) });
+    atlas.attach(device);
+
+    // The frame: the scene takes a cell, finds it blank in view, and rasterizes it before submit.
+    const cell = atlas.acquire(mark(0), 1);
+    expect(atlas.ensureNow(cell)).toBe(true);
+    const landed = atlas.revision();
+    // The renderer's upload takes the cell table, still before the submit.
+    atlas.binding.takeDirtyCells!();
+    events.push("frame submit");
+    // The frame function returns; only now do microtasks run.
+    await settle();
+
+    // 0.11.14: level 0 copy, frame submit, then the three mip passes: the frame
+    // drew the new cell from the last occupant's smaller levels.
+    expect(events).toEqual(["level 0 copy", "mip pass", "mip pass", "mip pass", "frame submit"]);
+    // The frame that landed the cell drew it whole, levels included: nothing asks for another.
+    expect(atlas.revision()).toBe(landed);
+  });
+});
+
 describe("an async sprite raster answers with pixels of its own", () => {
   it("two cells waiting on one decode each land their own picture", async () => {
     const g = globalThis as Record<string, unknown>;
