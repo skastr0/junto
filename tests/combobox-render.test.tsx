@@ -53,6 +53,20 @@ describe("Combobox markup", () => {
     expect(render({ selectedKey: "Projects" })).toContain('role="option" aria-selected="true"');
   });
 
+  it("marks every chosen option in a list that takes several", () => {
+    const html = render({ selectedKeys: new Set(["Projects", "Pictures"]) });
+    expect(html).toContain('aria-multiselectable="true"');
+    expect(html.match(/role="option" aria-selected="true"/g)).toHaveLength(2);
+    // A list that takes one says nothing about several.
+    expect(render({ selectedKey: "Projects" })).not.toContain("aria-multiselectable");
+  });
+
+  it("puts what narrows the list before the field, on its line", () => {
+    const html = render({ leading: <span data-testid="narrowed">in Projects</span> });
+    expect(html.indexOf('data-testid="narrowed"')).toBeGreaterThan(-1);
+    expect(html.indexOf('data-testid="narrowed"')).toBeLessThan(html.indexOf('role="combobox"'));
+  });
+
   it("shows the status in place of the list", () => {
     const html = render({ status: <div role="status">Reading</div> });
     expect(html).not.toContain('role="listbox"');

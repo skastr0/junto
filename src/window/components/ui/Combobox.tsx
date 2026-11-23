@@ -1,10 +1,12 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
+  type Ref,
 } from "react";
 import { comboboxKeyIntent, ghostSuffix } from "../../lib/combobox";
 import { Input } from "./Field";
@@ -30,12 +32,15 @@ export function Combobox<T>({
   activeKey,
   onActiveKeyChange,
   selectedKey,
+  selectedKeys,
   onCommit,
   onOptionClick,
   onOptionDoubleClick,
   "aria-label": ariaLabel,
   listLabel,
   placeholder,
+  fieldRef,
+  leading,
   trailing,
   status,
   empty,
@@ -57,6 +62,12 @@ export function Combobox<T>({
   /** The option the current value already names (aria-selected). */
   readonly selectedKey?: string;
   /**
+   * Several chosen at once (a list to pick more than one from): each is
+   * aria-selected and the list says it takes several. Used in place of
+   * `selectedKey`.
+   */
+  readonly selectedKeys?: ReadonlySet<string>;
+  /**
    * Enter. `option` is the highlighted one, if any; `value` is the typed value
    * with any visible ghost taken, so Enter never discards a shown completion.
    */
@@ -66,6 +77,10 @@ export function Combobox<T>({
   readonly "aria-label": string;
   readonly listLabel: string;
   readonly placeholder?: string;
+  /** The field itself, for a host that moves the keyboard to it. */
+  readonly fieldRef?: Ref<HTMLInputElement>;
+  /** What stands before the field on its line (a filter the list is narrowed to). */
+  readonly leading?: ReactNode;
   /** Controls beside the field (icon buttons). */
   readonly trailing?: ReactNode;
   /** Replaces the list inside its frame (loading, error). */
@@ -77,7 +92,16 @@ export function Combobox<T>({
   const baseId = useId();
   const listId = `${baseId}-list`;
   const optionId = (index: number) => `${baseId}-opt-${index}`;
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  // One ref for the life of the field: a host's ref hears the mount once, not every render.
+  const setInput = useCallback(
+    (element: HTMLInputElement | null): void => {
+      inputRef.current = element;
+      if (typeof fieldRef === "function") fieldRef(element);
+      else if (fieldRef) (fieldRef as { current: HTMLInputElement | null }).current = element;
+    },
+    [fieldRef],
+  );
   const ghostRef = useRef<HTMLSpanElement>(null);
   const [focused, setFocused] = useState(false);
   const [caretAtEnd, setCaretAtEnd] = useState(true);
@@ -130,9 +154,10 @@ export function Combobox<T>({
   return (
     <div className="grid min-h-0 gap-2">
       <div className="flex items-center gap-2">
+        {leading}
         <div className="relative min-w-0 flex-1">
           <Input
-            ref={inputRef}
+            ref={setInput}
             role="combobox"
             aria-label={ariaLabel}
             aria-autocomplete="both"
@@ -241,12 +266,13 @@ export function Combobox<T>({
               id={listId}
               role="listbox"
               aria-label={listLabel}
+              aria-multiselectable={selectedKeys === undefined ? undefined : true}
               className="grid max-h-[220px] gap-px overflow-y-auto p-1 font-mono text-body"
             >
               {options.map((option, index) => {
                 const key = optionKey(option);
                 const active = index === activeIndex;
-                const selected = key === selectedKey;
+                const selected = selectedKeys === undefined ? key === selectedKey : selectedKeys.has(key);
                 return (
                   <li
                     key={key}
