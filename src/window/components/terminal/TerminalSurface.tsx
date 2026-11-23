@@ -834,19 +834,23 @@ export function TerminalSurface({
   const [viewOpenedOn, setViewOpenedOn] = useState<SeatOpenView>(() =>
     seatOpenView(state$.settings.peek()),
   );
-  const [viewDecided, setViewDecided] = useState<SeatOpenView | undefined>(viewAsked);
+  const [viewDecided, setViewDecided] = useState<SeatOpenView | undefined>(
+    viewOffered ? viewAsked : undefined,
+  );
   const [viewOfferedBefore, setViewOfferedBefore] = useState(viewOffered);
   if (viewOfferedBefore !== viewOffered) {
     setViewOfferedBefore(viewOffered);
     if (viewOffered) setViewOpenedOn(seatOpenView(state$.settings.peek()));
     else setViewDecided(undefined);
   }
-  // An ask is taken whenever it is seen, open or not: it is for the open that
-  // follows it, or for the one already on screen.
-  if (viewAsked !== undefined && viewDecided !== viewAsked) setViewDecided(viewAsked);
+  // An ask is taken only where the view is offered. A parked surface or a
+  // grid cell neither takes it nor answers it, so nothing it never showed is
+  // held here for a later open: the ask waits for the view, and ends with it
+  // (see seat-view.ts).
+  if (viewOffered && viewAsked !== undefined && viewDecided !== viewAsked) setViewDecided(viewAsked);
   useEffect(() => {
-    if (viewAsked !== undefined) answerSeatViewAsk(node.id);
-  }, [viewAsked, node.id]);
+    if (viewOffered && viewAsked !== undefined) answerSeatViewAsk(node.id);
+  }, [viewOffered, viewAsked, node.id]);
   const seatView = viewDecided ?? viewOpenedOn;
   const threadsShown = viewOffered && seatView === "threads";
   /**
@@ -2622,7 +2626,13 @@ export function TerminalSurface({
             aria-hidden={showDeadOverlay || showLoadOverlay || threadsShown || undefined}
           />
           {showLoadOverlay && loadPresentation ? (
-            <div className="native-terminal-surface__load">
+            // Under Threads the header's status says the load; this one is
+            // covered, and is not said a second time.
+            <div
+              className="native-terminal-surface__load"
+              inert={threadsShown}
+              aria-hidden={threadsShown || undefined}
+            >
               <SessionLoadSpinner
                 phase={loadPresentation.phase}
               />

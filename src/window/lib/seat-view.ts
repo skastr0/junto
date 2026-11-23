@@ -9,14 +9,25 @@ import { observable } from "@legendapp/state";
 import type { SeatOpenView } from "@shared/settings";
 import { terminalBindingOf } from "@shared/terminal";
 import { openTerminal } from "./terminal-actions";
+import { terminal$ } from "./terminal-state";
 import { nodeAt } from "./use-model";
 
 /**
- * The view asked for, by seat, until the seat's surface has taken it. The
- * surface reads it as it renders and answers it once it has, so an ask never
- * outlives the open it was made for.
+ * The view asked for, by seat, until the seat's surface has taken it. Only a
+ * surface that offers the two views takes an ask: it reads it as it renders
+ * and answers it once it has. A surface that is parked, or a grid cell,
+ * leaves it waiting, and an ask nothing took ends when the seat's view
+ * closes. So an ask never outlives the open it was made for.
  */
 export const seatViewAsked$ = observable<Record<string, SeatOpenView | undefined>>({});
+
+// A view that closes takes its untaken ask with it: the next open of that
+// seat is another open, and starts on the setting.
+terminal$.openByNodeId.onChange(({ value }) => {
+  for (const seatId of Object.keys(seatViewAsked$.peek())) {
+    if (value?.[seatId] === undefined) seatViewAsked$[seatId].delete();
+  }
+});
 
 /** The seat's surface has taken the ask: it is not read again. */
 export const answerSeatViewAsk = (seatId: string): void => {

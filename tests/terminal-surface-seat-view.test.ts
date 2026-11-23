@@ -211,6 +211,17 @@ const rig = (input: { readonly node?: Seat | TerminalNode; readonly grid?: { rea
       props.visible = visible;
       render();
     },
+    /** The grid takes the surface as a cell, or lets it go. */
+    cell: (grid: { readonly fontSize: number } | undefined): void => {
+      if (grid) props.grid = grid;
+      else delete props.grid;
+      render();
+    },
+    /** Everything the surface rendered. */
+    tree: (): unknown => tree,
+    /** The load pill over the stage, while the session is coming up. */
+    load: (): ReactElement | undefined =>
+      elementsIn(tree).find((element) => propsOf(element).className === "native-terminal-surface__load"),
   };
 };
 
@@ -334,6 +345,45 @@ describe("the two views of a seat", () => {
     surface.select("terminal");
     expect(surface.view()).toBe("terminal");
   });
+
+  it("takes an ask only where the view is offered: a parked surface keeps nothing for a later open", () => {
+    const surface = rig();
+    surface.show(false);
+    // Seen while parked: neither taken nor answered.
+    seatViewAsked$[SEAT.id].set("threads");
+    surface.render();
+    expect(seatViewAsked$[SEAT.id].peek()).toBe("threads");
+    // The open it was for never showed this surface, and the ask ended.
+    seatViewAsked$[SEAT.id].delete();
+    surface.render();
+    // The next open is another open: the setting, not the ask.
+    surface.show(true);
+    expect(surface.view()).toBe("terminal");
+    expect(propsOf(surface.found(SeatThreadsStage)).shown).toBe(false);
+  });
+
+  it("takes no ask as a grid cell, and starts on the setting when the grid lets it go", () => {
+    const surface = rig({ grid: { fontSize: 11 } });
+    surface.render();
+    seatViewAsked$[SEAT.id].set("threads");
+    surface.render();
+    // A cell stays the terminal, and the ask is not its to answer.
+    expect(surface.found(SeatViewSwitch)).toBeUndefined();
+    expect(surface.xterm().inert).toBe(false);
+    expect(seatViewAsked$[SEAT.id].peek()).toBe("threads");
+    seatViewAsked$[SEAT.id].delete();
+    surface.render();
+    surface.cell(undefined);
+    expect(surface.view()).toBe("terminal");
+
+    // An ask still waiting when the grid lets the seat go is taken there, once.
+    surface.cell({ fontSize: 11 });
+    seatViewAsked$[SEAT.id].set("threads");
+    surface.render();
+    surface.cell(undefined);
+    expect(surface.view()).toBe("threads");
+    expect(seatViewAsked$[SEAT.id].peek()).toBeUndefined();
+  });
 });
 
 describe("a terminal under Threads", () => {
@@ -449,6 +499,33 @@ describe("the keyboard and a terminal under Threads", () => {
     expect(claims).not.toHaveBeenCalled();
     expect(surface.xterm().inert).toBe(true);
     expect(surface.xterm()["aria-hidden"]).toBe(true);
+  });
+
+  it("coming up, the load is said once: by the pill on Terminal, by the header under Threads", () => {
+    const status = (surface: ReturnType<typeof rig>): Props =>
+      propsOf(
+        elementsIn(surface.tree()).find((element) =>
+          String(propsOf(element).className ?? "").includes("native-terminal-surface__status"),
+        ),
+      );
+    const open = rig({ cold: true });
+    open.render();
+    // On Terminal the pill over the stage speaks, and the header's line does not.
+    expect(open.load()).toBeDefined();
+    expect(propsOf(open.load()).inert).toBe(false);
+    expect(propsOf(open.load())["aria-hidden"]).toBeUndefined();
+    expect(status(open).role).toBeUndefined();
+
+    // Under Threads the pill is covered: out of reach and unsaid, and the header says the load.
+    opensOn("threads");
+    hooks.refs = [];
+    hooks.states = [];
+    const covered = rig({ cold: true });
+    covered.render();
+    expect(covered.load()).toBeDefined();
+    expect(propsOf(covered.load()).inert).toBe(true);
+    expect(propsOf(covered.load())["aria-hidden"]).toBe(true);
+    expect(status(covered).role).toBe("status");
   });
 
   it("covered inside the open-time retries, the retries give the keyboard to nothing", async () => {

@@ -246,6 +246,9 @@ describe("the Threads half of the switch", () => {
     await render();
     expect(q("seat-view-threads")?.textContent).toBe("Threads3");
     expect(q("seat-view-threads")?.getAttribute("title")).toBe("Threads, 3 unread");
+    // Said in words: the half is named with what its pill counts, and the pill is not said.
+    expect(q("seat-view-threads")?.getAttribute("aria-label")).toBe("Threads, 3 unread");
+    expect(q("seat-view-threads")?.querySelector("span")?.getAttribute("aria-hidden")).toBe("true");
 
     await click(q("seat-view-threads"));
     const row = (threadId: string) => document.querySelector(`[data-thread-id="${threadId}"]`);
@@ -460,6 +463,25 @@ describe("the switch", () => {
     expect(tab("threads").getAttribute("aria-selected")).toBe("true");
     expect(threadsShown()).toBe(true);
     expect(all("seat-threads-message")).toHaveLength(2);
+  });
+
+  it("says a count past the pill's cap as more than 99, and a half with nothing unread by its label alone", async () => {
+    const fixture = fake();
+    fixture.state.threads = [thread({ threadId: "banner", title: "Cache banner", unread: 2 })];
+    fixture.state.total = 240;
+    setSeatThreadsSource(fixture.source);
+    await render();
+    expect(tab("threads").textContent).toBe("Threads99+");
+    expect(tab("threads").getAttribute("aria-label")).toBe("Threads, more than 99 unread");
+    expect(tab("terminal").hasAttribute("aria-label")).toBe(false);
+  });
+
+  it("names the Threads half by its label alone when nothing is unread", async () => {
+    setSeatThreadsSource(fake().source);
+    await render();
+    expect(tab("threads").textContent).toBe("Threads");
+    expect(tab("threads").hasAttribute("aria-label")).toBe(false);
+    expect(tab("threads").hasAttribute("title")).toBe(false);
   });
 
   it("keeps the unread count on its Threads half in both views", async () => {

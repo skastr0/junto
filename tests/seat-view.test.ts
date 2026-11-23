@@ -16,6 +16,7 @@ vi.mock("../src/window/lib/terminal-actions", () => ({
 
 import { answerSeatViewAsk, openSeatOn, seatViewAsked$ } from "../src/window/lib/seat-view";
 import { openTerminal } from "../src/window/lib/terminal-actions";
+import { dropTerminalView, terminal$ } from "../src/window/lib/terminal-state";
 
 const opened = vi.mocked(openTerminal);
 const put = (...nodes: Node[]): void => {
@@ -26,9 +27,11 @@ beforeEach(() => {
   world.nodes.clear();
   opened.mockClear();
   seatViewAsked$.set({});
+  terminal$.openByNodeId.set({});
 });
 afterEach(() => {
   seatViewAsked$.set({});
+  terminal$.openByNodeId.set({});
 });
 
 describe("openSeatOn", () => {
@@ -62,5 +65,33 @@ describe("openSeatOn", () => {
     // Answering nothing is nothing.
     answerSeatViewAsk("seat-1");
     expect(seatViewAsked$.peek()).toEqual({});
+  });
+
+  it("ends with the seat's view: an ask nothing took is gone when that view closes, so the next open starts on the setting", async () => {
+    const one = seat("seat-1");
+    const two = seat("seat-2");
+    put(one, two);
+    // Both open, as a grid holds them: no surface offers the two views.
+    terminal$.openByNodeId.set({ "seat-1": one, "seat-2": two });
+    await openSeatOn("factory", "seat-1", "threads");
+    expect(seatViewAsked$["seat-1"].peek()).toBe("threads");
+
+    // Another seat's view closing is not this one's.
+    dropTerminalView("seat-2");
+    expect(seatViewAsked$["seat-1"].peek()).toBe("threads");
+
+    // Its own view closes before any surface took the ask.
+    dropTerminalView("seat-1");
+    expect(seatViewAsked$.peek()).toEqual({});
+  });
+
+  it("waits through the open it was made with: a closed seat's ask is there when its view opens", async () => {
+    const one = seat("seat-1");
+    put(one);
+    opened.mockImplementationOnce(async () => {
+      terminal$.openByNodeId["seat-1"].set(one);
+    });
+    await openSeatOn("factory", "seat-1", "threads");
+    expect(seatViewAsked$["seat-1"].peek()).toBe("threads");
   });
 });

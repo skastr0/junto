@@ -56,6 +56,9 @@ export function SeatViewSwitch({
   readonly controls: string;
 }) {
   const unread = useSeatUnread(seat);
+  // The Threads half is named with what its pill counts, in words: the pill
+  // caps at 99+, and that is said as it is meant.
+  const counted = unread > 99 ? "Threads, more than 99 unread" : `Threads, ${String(unread)} unread`;
   return (
     <InspectorTabs
       frame="chrome"
@@ -66,7 +69,7 @@ export function SeatViewSwitch({
       onSelect={(id) => onSelect(id === "threads" ? "threads" : "terminal")}
       tabs={[
         { id: "terminal", label: "Terminal" },
-        { id: "threads", label: "Threads", badge: unread, ...(unread > 0 ? { title: `Threads, ${String(unread)} unread` } : {}) },
+        { id: "threads", label: "Threads", badge: unread, ...(unread > 0 ? { title: counted } : {}) },
       ]}
     />
   );
