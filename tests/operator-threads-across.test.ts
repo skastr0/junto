@@ -36,6 +36,8 @@ import { SettingsLive } from "../src/core/settings/service";
 import { nameThisMachine } from "./support/name-this-machine";
 import { PausePlaneAllPlaying } from "../src/core/pause-plane";
 import { markRead } from "../src/core/work/mail-reads";
+import { stampMailboxDeliveryReceipt } from "../src/core/work/delivery-receipts";
+import { mailboxMessageDeliveryId } from "../src/core/work/mailbox-receipts";
 import { makeThreadRowsWatches, operatorThreadsPage, operatorThreadsView, threadRowsPage } from "../src/core/work/thread-rows";
 import { createMainAuthoringGate } from "../src/node/main-authoring-gate";
 import { makeTestLog } from "./support/test-log";
@@ -77,6 +79,8 @@ let runtime: ReturnType<typeof makeRuntime>;
 let server: WorkControlServer;
 const tokens: Record<string, string> = {};
 let seeded = 0;
+/** The operator's mail written into each seat, by seat. */
+const operatorMail = new Map<string, string[]>();
 let firstPageMs = 0;
 let warmPageMs = 0;
 
@@ -175,7 +179,8 @@ beforeAll(async () => {
       Effect.gen(function* () {
         for (let k = 0; k < OPERATOR_THREADS_PER_SEAT; k += 1) {
           const root = yield* write(to, `ask ${to} number ${String(k)}${k === 0 ? " about the zebra" : ""}`);
-          yield* write(to, `and more for ${to}`, root);
+          const more = yield* write(to, `and more for ${to}`, root);
+          operatorMail.set(to, [...(operatorMail.get(to) ?? []), root, more]);
         }
       }),
     ),
@@ -251,6 +256,8 @@ describe("the operator's threads across every seat", () => {
     expect(unread.total).toBe(1);
     expect(unread.unread).toBe(2);
     expect(unread.rows[0]).toMatchObject({ threadId: thread.threadId, unread: 2, last: { text: "and one more", from: { kind: "seat", nodeId: seatId(0) } } });
+    // A seat's mail never waits.
+    expect(unread.rows[0]!.last.waiting).toBeUndefined();
     // A read without the operator's points shows none: the CLI's.
     const seatRead = await runtime.runPromise(threadRowsPage(CANVAS, { who: "operator", seats: [seatId(0) as never], search: "zebra" }));
     expect(seatRead.rows[0]!.unread).toBe(0);
@@ -300,6 +307,81 @@ describe("the operator's threads across every seat", () => {
     watches.windowGone(1);
     expect(watches.size()).toBe(0);
   });
+
+  it("marks the operator's mail waiting until its seat has it, and a thousand receipts at once clear it live", async () => {
+    // No seat is running here, so every mail of the operator still waits for its seat.
+    const seats = Array.from({ length: 50 }, (_, n) => seatId(20 + n));
+    const kept = { seats: seats as never[] };
+    const before = await everyRow(kept);
+    expect(before.rows.every((held) => held.last.waiting === true)).toBe(true);
+    const sent: OperatorThreadsChanged[] = [];
+    const watches = makeThreadRowsWatches({
+      run: (effect) => void runtime.runFork(effect as never),
+      send: (_subscriber, change) => sent.push(change),
+      read: (canvasName) => operatorThreadsView(canvasName) as never,
+    });
+    await runtime.runPromise(watches.watch(2, { canvasName: CANVAS as never, ...kept }));
+
+    // Every mail of fifty seats reaches its seat at once.
+    const receipts = seats.flatMap((nodeId) => (operatorMail.get(nodeId) ?? []).map((messageId) => ({ nodeId, messageId })));
+    expect(receipts).toHaveLength(seats.length * OPERATOR_THREADS_PER_SEAT * 2);
+    await runtime.runPromise(
+      Effect.forEach(receipts, ({ nodeId, messageId }) =>
+        stampMailboxDeliveryReceipt({ canvas: CANVAS, nodeId, messageId, deliveryId: mailboxMessageDeliveryId(CANVAS, nodeId, messageId) }),
+      ),
+    );
+    const started = performance.now();
+    const after = await everyRow(kept);
+    const clearedMs = performance.now() - started;
+    process.stderr.write(`[operator-threads-across] ${String(receipts.length)} receipts at once: every row read again in ${clearedMs.toFixed(1)} ms\n`);
+    expect(after.rows).toHaveLength(before.rows.length);
+    expect(after.rows.some((held) => held.last.waiting === true)).toBe(false);
+    // A seat none of it reached still waits.
+    expect((await page({ seats: [seatId(150) as never], limit: 1 })).rows[0]!.last.waiting).toBe(true);
+    // The watch pushed every row of those seats, its mark gone.
+    watches.changed(CANVAS);
+    await expect.poll(() => new Set(sent.flatMap((change) => change.rows.filter((held) => held.last.waiting === undefined).map((held) => held.threadId))).size, { timeout: 10_000 }).toBe(before.rows.length);
+    watches.windowGone(2);
+    expect(clearedMs).toBeLessThan(2_000);
+  }, 120_000);
+
+  it("pages under new mail: a thread that moves is pushed, and the pages repeat nothing and lose nothing", async () => {
+    const kept = { seats: Array.from({ length: 10 }, (_, n) => seatId(180 + n)) as never[] };
+    const all = (await everyRow(kept)).rows.map((held) => held.threadId);
+    expect(all).toHaveLength(10 * OPERATOR_THREADS_PER_SEAT);
+    const sent: OperatorThreadsChanged[] = [];
+    const watches = makeThreadRowsWatches({
+      run: (effect) => void runtime.runFork(effect as never),
+      send: (_subscriber, change) => sent.push(change),
+      read: (canvasName) => operatorThreadsView(canvasName) as never,
+    });
+    await runtime.runPromise(watches.watch(3, { canvasName: CANVAS as never, ...kept }));
+
+    const first = await page({ ...kept, limit: 30 });
+    // New mail in a thread page one holds, and in one page two would hold.
+    const onFirst = first.rows[5]!;
+    const onSecond = all[40]!;
+    const seatOf = (threadId: string) => kept.seats.find((nodeId) => (operatorMail.get(nodeId) ?? []).includes(threadId))!;
+    await runtime.runPromise(write(seatOf(onFirst.threadId), "news on page one", onFirst.threadId));
+    await runtime.runPromise(write(seatOf(onSecond), "news on page two", onSecond));
+    watches.changed(CANVAS);
+
+    const paged = [...first.rows.map((held) => held.threadId)];
+    let after = first.next;
+    while (after !== undefined) {
+      const next = await page({ ...kept, limit: 30, after });
+      paged.push(...next.rows.map((held) => held.threadId));
+      after = next.next;
+    }
+    // Nothing twice; the thread that moved above the cursor is the one the pages lost.
+    expect(new Set(paged).size).toBe(paged.length);
+    expect(paged).not.toContain(onSecond);
+    expect(paged).toHaveLength(all.length - 1);
+    // The watch pushed both moved threads, so pages and pushes hold every thread.
+    await expect.poll(() => new Set(sent.flatMap((change) => change.rows.map((held) => held.threadId))), { timeout: 10_000 }).toEqual(new Set([onFirst.threadId, onSecond]));
+    expect(new Set([...paged, ...sent.flatMap((change) => change.rows.map((held) => held.threadId))])).toEqual(new Set(all));
+    watches.windowGone(3);
+  }, 60_000);
 
   it("reads the first page in time on thousands of mails", () => {
     expect(seeded).toBeGreaterThanOrEqual(4_000);

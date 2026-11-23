@@ -103,6 +103,8 @@ export const OperatorThreadRow = Schema.Struct({
     from: MailParty,
     text: Schema.String,
     at: Schema.Number,
+    /** The operator's own mail, not yet with its seat (a thread message's `waiting`). */
+    waiting: Schema.optionalKey(Schema.Literal(true)),
   }),
   messageCount: Schema.Number,
   /** Replies to the operator past their read, as a seat's own list counts them. */

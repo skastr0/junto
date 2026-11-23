@@ -31,6 +31,12 @@ export const MailThreadMessage = Schema.Struct({
   attachments: Schema.optionalKey(Schema.Array(ContentRef)),
   /** The resource the thread is about; absent for a seat's mailbox thread. */
   subject: Schema.optionalKey(ResourceSubject),
+  /**
+   * The operator's own mail that has not reached its seat yet: its row has
+   * neither a delivery nor a read receipt. Absent once it has, and on every
+   * seat's mail. A send that failed still waits, so it reads as waiting.
+   */
+  waiting: Schema.optionalKey(Schema.Literal(true)),
 });
 export type MailThreadMessage = typeof MailThreadMessage.Type;
 

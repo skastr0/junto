@@ -292,6 +292,7 @@ const rowOf = (input: MailThreadsInput, thread: Thread): OperatorThreadRow => {
       from: last.from,
       text: last.text.length > OPERATOR_THREAD_PREVIEW_MAX ? last.text.slice(0, OPERATOR_THREAD_PREVIEW_MAX) : last.text,
       at: last.at,
+      ...(last.waiting === true ? { waiting: true as const } : {}),
     },
     messageCount: summary.messageCount,
     unread: thread.unread,
@@ -369,6 +370,7 @@ const signOf = (thread: Thread): string =>
   [
     thread.entries.length,
     thread.entries[thread.entries.length - 1]?.messageId ?? "",
+    thread.entries[thread.entries.length - 1]?.waiting === true ? "w" : "",
     thread.point?.through ?? "",
     thread.unread,
     thread.seat.name,

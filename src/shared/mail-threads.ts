@@ -4,7 +4,7 @@ import { CanvasName, NodeId } from "./model/base";
 import { COMPANION_MAX_TEXT } from "./wire/companion-protocol";
 import { OperatorAttachments } from "./operator-attachments";
 import { ContentRef } from "./wire/content-ref";
-import { messageIdTimeMs } from "./message-delivery";
+import { isMessageDelivered, isMessageRead, messageIdTimeMs } from "./message-delivery";
 import { LinesAnchor, subjectLabel, threadSubjectOf, type ResourceSubject } from "./thread-subject";
 import { mentionLinksOf } from "./mention";
 import type { Message } from "./work-model";
@@ -150,8 +150,16 @@ const entryOf = (
     at: messageIdTimeMs(row.messageId) ?? 0,
     ...(attachments.length === 0 ? {} : { attachments }),
     ...(subject === undefined ? {} : { subject }),
+    ...(from.kind === "operator" && mailWaiting(row) ? { waiting: true as const } : {}),
   };
 };
+
+/**
+ * A mail row not yet with its seat: no delivery receipt and no read receipt.
+ * A thread message carries it on the operator's own mail; a receipt that
+ * flips it is a change to the thread, where other restamps are not.
+ */
+export const mailWaiting = (row: Message): boolean => !isMessageDelivered(row) && !isMessageRead(row);
 
 /** Code-unit order, so a cursor compares the way the sort does. */
 const compareId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
