@@ -10,7 +10,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { AnswerTo, ReplyAnswers, RowSignal, SignalFrame, WaitingMark } = await import("../src/window/components/threads/ThreadSignal");
+const { AnswerTo, ReplyAnswers, RowSignal, SignalFrame, ThreadSaid, WaitingMark, sentArrived, sentWaiting } = await import(
+  "../src/window/components/threads/ThreadSignal"
+);
 type ThreadSignal = import("../src/window/components/threads/ThreadSignal").ThreadSignal;
 
 let root: Root;
@@ -154,12 +156,42 @@ describe("the operator's side", () => {
     expect(words(mark.querySelector(".sr-only"))).toBe("open, waiting on you");
   });
 
-  it("says mail has not reached its seat, politely, in the one wording", async () => {
+  it("says under mail that it has not reached its seat, in the one wording, as plain words", async () => {
     await render(<WaitingMark name="pty-lead" />);
     const mark = q("seat-threads-waiting")!;
     expect(words(mark)).toBe("Waiting for pty-lead. It arrives when the seat is back.");
-    expect(mark.getAttribute("role")).toBe("status");
-    expect(mark.getAttribute("aria-live")).toBe("polite");
+    expect(mark.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    // Never a live region: a thread's history can hold many, and none of it is said aloud.
+    expect(mark.hasAttribute("role")).toBe(false);
+    expect(mark.hasAttribute("aria-live")).toBe(false);
+  });
+});
+
+describe("what a thread says aloud", () => {
+  it("is in the document, empty, before there is anything to say", async () => {
+    await render(<ThreadSaid said={undefined} />);
+    const region = q("seat-threads-said")!;
+    expect(region.getAttribute("role")).toBe("status");
+    expect(region.getAttribute("aria-live")).toBe("polite");
+    expect(region.textContent).toBe("");
+    // Said, not drawn: the mark under the message is what the eye gets.
+    expect(region.className).toContain("sr-only");
+  });
+
+  it("takes its words into the region that was already there, and says the same words twice as two sayings", async () => {
+    await render(<ThreadSaid said={undefined} />);
+    const region = q("seat-threads-said")!;
+    await render(<ThreadSaid said={{ text: sentWaiting("pty-lead"), turn: 1 }} />);
+    expect(q("seat-threads-said")).toBe(region);
+    expect(region.textContent).toBe("Sent. Waiting for pty-lead. It arrives when the seat is back.");
+    const first = region.firstElementChild;
+    await render(<ThreadSaid said={{ text: sentWaiting("pty-lead"), turn: 2 }} />);
+    expect(q("seat-threads-said")).toBe(region);
+    expect(region.textContent).toBe("Sent. Waiting for pty-lead. It arrives when the seat is back.");
+    // A new node, so a screen reader hears the second send too.
+    expect(region.firstElementChild).not.toBe(first);
+    await render(<ThreadSaid said={{ text: sentArrived("pty-lead"), turn: 3 }} />);
+    expect(region.textContent).toBe("pty-lead has it.");
   });
 });
 

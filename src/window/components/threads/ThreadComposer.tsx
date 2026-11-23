@@ -34,6 +34,13 @@ type Shared = {
   readonly yields?: () => boolean;
 };
 
+/** The mail a send wrote, and whether its seat has it yet. */
+export type SentMail = {
+  readonly messageId: string;
+  /** Written, and not with its seat: anything short of delivered. */
+  readonly waiting: boolean;
+};
+
 /** In one seat's threads: a reply in a thread, or a new thread to that seat. */
 type ToOneSeat = Shared & {
   readonly seat: SeatAddress;
@@ -44,8 +51,8 @@ type ToOneSeat = Shared & {
   readonly threadId?: string;
   /** Reply: the mail answered, when known; it names the thread too. */
   readonly inReplyTo?: string;
-  /** Sent: the thread it went in (a new thread's own id). */
-  readonly onSent?: (threadId: string) => void;
+  /** Sent: the thread it went in (a new thread's own id), and the mail as the send answered for it. */
+  readonly onSent?: (threadId: string, mail: SentMail) => void;
 };
 
 /** New threads to the seats the operator chose, one each (Quick thread). */
@@ -176,7 +183,7 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
     }
     write("");
     attachments.clear();
-    props.onSent?.(result.threadId);
+    props.onSent?.(result.threadId, { messageId: result.messageId, waiting: result.delivery !== "delivered" });
   };
 
   // The list takes its own keys first; what reaches here is the composer's.

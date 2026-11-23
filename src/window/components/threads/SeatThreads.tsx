@@ -33,7 +33,7 @@ import { ResourceChip, ResourceGlyphMark, mentionMark } from "../ui/ResourceChip
 import { MessageAttachments } from "./MessageAttachments";
 import { ThreadComposer } from "./ThreadComposer";
 import { ThreadHeadline } from "./ThreadHeadline";
-import { WaitingMark } from "./ThreadSignal";
+import { sentArrived, sentWaiting, ThreadSaid, WaitingMark, type Said } from "./ThreadSignal";
 import { ThreadTime } from "./ThreadTime";
 import { rehypeThreadCodeWells, rehypeThreadInlineIds } from "./thread-inline-ids";
 import "./seat-threads.css";
@@ -450,6 +450,24 @@ export function ThreadChat({
     if (stream.scrollTop < CHAT_NEAR_TOP) void loadOlderMessages(seat, thread.threadId);
   };
   useEffect(() => fillStream(false), [messages, older, loadingMore, error, shown]);
+  // What the chat says aloud: the operator's own send that came back with its
+  // seat away, once, and that mail reaching its seat. Both are of this thread,
+  // so another thread shown in the same chat starts silent. History is never
+  // said: only mail sent from here is followed.
+  const [spoken, setSpoken] = useState<Said & { readonly threadId: string }>();
+  const say = useCallback((text: string) => setSpoken((was) => ({ threadId, text, turn: (was?.turn ?? 0) + 1 })), [threadId]);
+  // The mail sent from here that its seat does not have yet, by id.
+  const followed = useRef(new Set<string>());
+  useEffect(() => {
+    const ids = followed.current;
+    return () => ids.clear();
+  }, [threadId]);
+  useEffect(() => {
+    for (const message of messages) {
+      if (message.waiting === true || !followed.current.delete(message.messageId)) continue;
+      say(sentArrived(name));
+    }
+  }, [messages, name, say]);
   const subject = thread.subject ? subjectChipOf(thread.subject, thread.title, kindOf) : undefined;
   const count = `${thread.messageCount} ${thread.messageCount === 1 ? "message" : "messages"}`;
   const lastId = messages.at(-1)?.messageId;
@@ -536,6 +554,7 @@ export function ThreadChat({
           })}
         </div>
       </div>
+      <ThreadSaid said={spoken?.threadId === threadId ? spoken : undefined} />
       {thread.canReply ? (
         <ThreadComposer
           key={thread.threadId}
@@ -545,6 +564,11 @@ export function ThreadChat({
           threadId={thread.threadId}
           inReplyTo={lastId}
           yields={yields}
+          onSent={(_threadId, mail) => {
+            if (!mail.waiting) return;
+            followed.current.add(mail.messageId);
+            say(sentWaiting(name));
+          }}
         />
       ) : (
         <footer className="seat-threads__readonly" data-testid="seat-threads-readonly">

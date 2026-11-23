@@ -703,18 +703,22 @@ describe("Threads in the seat's stage", () => {
     await render();
     await click(q("seat-view-threads"));
     const [theirs, mine] = all("seat-threads-message");
-    // Under the operator's block, the one wording, said politely; never on a seat's message.
+    // Under the operator's block, the one wording; never on a seat's message.
     const mark = mine!.querySelector<HTMLElement>('[data-testid="seat-threads-waiting"]')!;
     expect(mark.textContent).toBe("Waiting for pty-lead. It arrives when the seat is back.");
-    expect(mark.getAttribute("role")).toBe("status");
     expect(mine!.lastElementChild).toBe(mark);
     expect(theirs!.querySelector('[data-testid="seat-threads-waiting"]')).toBeNull();
+    // History is read, never said: the mark is plain words, and the chat's one voice is silent.
+    expect(mark.hasAttribute("role")).toBe(false);
+    expect(q("seat-threads-said")!.textContent).toBe("");
 
     // Delivered: the read says so, and the mark goes. No timer.
     state.messages.notes = state.messages.notes.map(({ waiting: _waiting, ...message }) => message);
     change();
     await flush();
     expect(q("seat-threads-waiting")).toBeNull();
+    // It was not sent from here, so its arrival is not said either.
+    expect(q("seat-threads-said")!.textContent).toBe("");
   });
 
   it("draws a long id as one token that keeps the whole value", async () => {
@@ -890,6 +894,64 @@ describe("the thread composer", () => {
     await key("Enter");
     expect(sends).toEqual([{ canvasName: "factory", nodeId: "seat-1", text: "Thanks.", inReplyTo: "m2" }]);
     expect(field().value).toBe("");
+  });
+
+  it("says a send that comes back with its seat away, once, and then that the seat has it", async () => {
+    // The store reads a canvas's changes no faster than its floor, so time is the test's to move.
+    vi.useFakeTimers();
+    const read = async () => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+    };
+    try {
+      const { state, change } = await open();
+      const said = q("seat-threads-said")!;
+      // One voice for the chat: there before anything is said, and polite.
+      expect(said.getAttribute("role")).toBe("status");
+      expect(said.getAttribute("aria-live")).toBe("polite");
+      expect(said.textContent).toBe("");
+
+      reply = { ok: true, messageId: "m9", threadId: "notes", delivery: "waiting_for_seat" };
+      await type("Are you there?");
+      await key("Enter");
+      expect(q("seat-threads-said")).toBe(said);
+      expect(said.textContent).toBe("Sent. Waiting for pty-lead. It arrives when the seat is back.");
+
+      // The read shows the mail waiting: the mark is drawn, and nothing more is said.
+      const first = said.firstElementChild;
+      state.messages.notes = [
+        ...state.messages.notes,
+        { messageId: "m9", author: "you", mine: true, text: "Are you there?", at: at(1, 6), waiting: true },
+      ];
+      change();
+      await read();
+      expect(q("seat-threads-waiting")).not.toBeNull();
+      expect(said.firstElementChild).toBe(first);
+
+      // The seat is back and takes it: the mark goes, and that is said.
+      state.messages.notes = state.messages.notes.map(({ waiting: _waiting, ...message }) => message);
+      change();
+      await read();
+      expect(q("seat-threads-waiting")).toBeNull();
+      expect(said.textContent).toBe("pty-lead has it.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says nothing for a send its seat took at once, or one that failed", async () => {
+    await open();
+    await type("Thanks.");
+    await key("Enter");
+    expect(sends).toHaveLength(1);
+    expect(q("seat-threads-said")!.textContent).toBe("");
+    reply = { ok: false, reason: "failed", message: "The mail could not be sent." };
+    await type("Again.");
+    await key("Enter");
+    expect(q("seat-threads-said")!.textContent).toBe("");
+    // The refusal is the composer's own alert.
+    expect(q("thread-composer-failure")?.textContent).toBe("The mail could not be sent.");
   });
 
   describe("with files", () => {

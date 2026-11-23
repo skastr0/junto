@@ -159,13 +159,38 @@ export function AnswerTo({
 /**
  * Under the operator's own message that has not reached its seat. It stays
  * until the message is delivered and then goes: no timer, the read says so.
+ * Plain words, not a status: a thread can hold many of them, and its history
+ * is never said aloud. The send that comes back waiting is said by `ThreadSaid`.
  */
 export function WaitingMark({ name }: { readonly name: string }) {
   return (
-    <p className="seat-threads__waiting" role="status" aria-live="polite" data-testid="seat-threads-waiting">
+    <p className="seat-threads__waiting" data-testid="seat-threads-waiting">
       <Clock size={11} strokeWidth={2.25} aria-hidden />
       <span>{waitingForSeats([name])}</span>
     </p>
+  );
+}
+
+/** A line said aloud, and which saying it is: the same words said twice are two sayings. */
+export type Said = { readonly text: string; readonly turn: number };
+
+/** What is said when the operator's send comes back with its seat away. */
+export const sentWaiting = (name: string): string => `Sent. ${waitingForSeats([name])}`;
+
+/** What is said when mail sent here, that was waiting, reaches its seat. */
+export const sentArrived = (name: string): string => `${name} has it.`;
+
+/**
+ * The one place a thread speaks to a screen reader. It is in the document for
+ * its host's life and empty until there is something to say, because a live
+ * region that arrives with its words is not reliably said. Each saying is a
+ * new node inside it, so the same words twice are said twice.
+ */
+export function ThreadSaid({ said }: { readonly said: Said | undefined }) {
+  return (
+    <div className="sr-only" role="status" aria-live="polite" data-testid="seat-threads-said">
+      {said === undefined ? null : <span key={said.turn}>{said.text}</span>}
+    </div>
   );
 }
 
