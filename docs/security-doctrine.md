@@ -159,6 +159,18 @@ move the operator's viewport, or acquire machine enrollment or credentials.
 Every closed administrative request rechecks the live grant. Timeout after a
 mutation may mean it completed; Junto never automatically replays the mutation.
 
+An overseer may send one message to a set of seats on its own canvas: the
+seats in the regions it names and in the regions inside them, and the seats it
+names, narrowed by what a seat is doing and what it needs from the operator.
+Its own seat is never in the set, and no seat is in it twice. It is the
+overseer's own mail, written by its own seat as its `msg.send` writes it, one
+new thread per seat, never with the operator's role or name, so it grants
+nothing a single send does not. The overseer may ask whom a set reaches
+without sending anything. A send names the count it expects, and may name the
+set's digest; the machine reads the set again at the send, behind the live
+grant, and when either differs it refuses the whole send and writes nothing.
+An ordinary seat has no broadcast.
+
 The agent-run exercise uses disposable cores and homes. Its external controller
 can use their owner commands from an environment without a seat credential;
 their managed seats' CLI calls to owner and machine commands remain refused.
