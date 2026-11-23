@@ -39,6 +39,9 @@ import { onReferencesChanged } from "../../references/changes";
 import { ReferencesRepository } from "../../references/repository";
 import { StateTransactionOperation } from "../../state/service";
 import { SeatGuidanceRepository } from "../../seat-guidance/repository";
+import { SeatSessionRepository } from "../../seat-sessions/repository";
+import { termPlane } from "../../term/plane";
+import type { HeldDelete } from "../../term/node-delete";
 import { onAgentSignalChanged } from "../../signals/changes";
 import { AgentSignalRepository } from "../../signals/repository";
 import { WorkRepository, type ArrivedAutomationFiring } from "../repository";
@@ -158,6 +161,7 @@ export const makeLiveRowExchange = (
     const references = yield* ReferencesRepository;
     const pause = yield* PausePlane;
     const signals = yield* AgentSignalRepository;
+    const seatSessions = yield* Effect.serviceOption(SeatSessionRepository);
     const self = yield* machines.installationId;
     const automationStore = yield* Effect.serviceOption(AutomationRepository);
 
@@ -432,6 +436,54 @@ export const makeLiveRowExchange = (
       held: { readonly term: number; readonly index: number } | undefined,
     ): boolean => held === undefined || position.term > held.term || (position.term === held.term && position.index > held.index);
 
+    /**
+     * The janitor for the delete stops this machine holds: an installed copy
+     * decides each one. A seat still here means the delete aborted and the
+     * lock releases; gone or moved, the finish runs the same teardown a
+     * local node delete does — the binding's process and credential, its
+     * session pin, its open signals — and only then releases the lock. A
+     * finish that cannot prove its teardown keeps the hold for the next
+     * copy, and a failure here never refuses the copy itself.
+     */
+    const finishHeldSeatDeletes = (
+      canvasName: string,
+      installed: ReadonlyArray<{ readonly kind: string; readonly id: string; readonly host?: string }>,
+      here: string,
+    ): Effect.Effect<void, never, never> =>
+      Effect.forEach(
+        termPlane.nodeDelete.heldDeletesFor(canvasName),
+        (held) => finishHeldSeatDelete(held, canvasName, installed, here).pipe(Effect.ignore),
+        { discard: true },
+      );
+
+    const finishHeldSeatDelete = (
+      held: HeldDelete,
+      canvasName: string,
+      installed: ReadonlyArray<{ readonly kind: string; readonly id: string; readonly host?: string }>,
+      here: string,
+    ): Effect.Effect<void, unknown> =>
+      Effect.gen(function* () {
+        const stillHere = installed.some((node) =>
+          node.kind === "agent" && node.id === held.seatId && node.host === here);
+        if (stillHere) {
+          termPlane.nodeDelete.releaseHeldDelete(held.key);
+          return;
+        }
+        const receipt = yield* Effect.tryPromise({
+          try: () => termPlane.router.deleteBinding(held.bindingId),
+          catch: () => new Error("binding teardown failed"),
+        });
+        // Not proven torn down: keep the hold, the next copy decides again.
+        if (receipt.kind !== "clean") return;
+        if (Option.isSome(seatSessions)) {
+          yield* seatSessions.value.end(held.seatId, "removed", undefined, held.bindingId);
+        }
+        yield* signals.withdraw({ canvasName, nodeId: held.seatId });
+        termPlane.nodeDelete.releaseHeldDelete(held.key);
+      }).pipe(
+        Effect.tapError((cause) => Effect.logWarning("held seat delete finish failed", cause)),
+      );
+
     const installCopy = (copy: CanvasCopy): Effect.Effect<CopyInstalled, unknown> =>
       Effect.gen(function* () {
         const head = yield* records.getCanvas(copy.canvasName);
@@ -498,17 +550,21 @@ export const makeLiveRowExchange = (
           );
           if (stale.length > 0) yield* repository.exchangeForgetMail(copy.canvasName, stale);
         }
+        const installedNodes = [...copy.regions, ...copy.seats, ...copy.peers, ...copy.terminals, ...copy.resources, ...(copy.notes ?? [])];
         const outcome = yield* model.installCopy({
           canvas: copy.canvasName,
           canvasId: copy.canvasId,
           seq: copy.seq,
           editor: copy.editor,
-          nodes: [...copy.regions, ...copy.seats, ...copy.peers, ...copy.terminals, ...copy.resources, ...(copy.notes ?? [])],
+          nodes: installedNodes,
           wires: copy.wires,
         });
         if (!("seq" in outcome) || outcome.seq === undefined) return { refused: "a-canvas-of-that-name" };
         // The copy this machine holds, new or sent again: what it carries may have changed.
-        if (outcome.seq === copy.seq) yield* keepCarried(copy);
+        if (outcome.seq === copy.seq) {
+          yield* keepCarried(copy);
+          yield* finishHeldSeatDeletes(copy.canvasName, installedNodes, here);
+        }
         // The list an admitted copy carried replaces the held one only when
         // strictly newer (G3): remote-core reads it back with its sender.
         if (outcome.seq === copy.seq && copy.authorities !== undefined && positionNewer(copy.authorities, heldPosition)) {

@@ -24,11 +24,12 @@ export type SeatAddress = {
   readonly canvasName: string;
 };
 
-export const SEAT_SESSION_END_REASONS = ["offboard", "reseat", "replaced"] as const;
+export const SEAT_SESSION_END_REASONS = ["offboard", "reseat", "replaced", "removed"] as const;
 /**
  * Why a session stopped being the seat's current one. offboard: Junto rotated
  * the seat after a handoff. reseat: the seat moved to another harness or
- * binding. replaced: the id changed for any other reason.
+ * binding. replaced: the id changed for any other reason. removed: the seat
+ * was deleted and the finish ran on the machine it lived on.
  */
 export type SeatSessionEndReason = (typeof SEAT_SESSION_END_REASONS)[number];
 
