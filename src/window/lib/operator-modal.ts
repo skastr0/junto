@@ -16,7 +16,7 @@ import { cancelFocusSwitcher } from "./focus-switcher";
  * modal at a time: a swap out and a swap back, never a stack.
  */
 
-export type OperatorModalId = "search" | "feed" | "git" | "capture" | "threads";
+export type OperatorModalId = "search" | "feed" | "git" | "capture" | "threads" | "quick-thread";
 
 export const operatorModal$ = observable<{ open: OperatorModalId | null }>({ open: null });
 

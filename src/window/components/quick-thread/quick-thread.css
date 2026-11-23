@@ -1,0 +1,179 @@
+/* Quick thread: the seat picker, the row of chosen seats, and the thread
+   input under them. The input's own rules are the thread composer's
+   (threads/seat-threads.css); here it only loses the reading column a seat's
+   threads give it, since this is a small surface of its own. */
+
+.quick-thread {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  /* The message reads as a thread's does. */
+  --prose-size: var(--text-prose-xl);
+  --prose-leading: var(--leading-open);
+}
+
+.quick-thread .thread-composer {
+  gap: 10px;
+  min-height: 0;
+  padding: 12px;
+}
+
+.quick-thread .thread-composer__field {
+  max-width: none;
+}
+
+.quick-thread__to {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Six rows of 28px, the gaps between them and the list's own padding; past that it scrolls. */
+.quick-thread__list > ul {
+  max-height: calc(6 * 28px + 5px + 8px);
+}
+
+.quick-thread__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+}
+
+.quick-thread__option-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--color-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-thread__option-region {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-thread__option-count {
+  flex: none;
+  font-size: var(--text-label);
+  color: var(--color-faint);
+}
+
+/* The region's dot stands where a seat's portrait does, in the same 18px. */
+.quick-thread__option-dot {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+}
+
+.quick-thread__option-check {
+  flex: none;
+  margin-left: auto;
+  color: var(--color-ink);
+}
+
+.quick-thread__empty {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: var(--text-label);
+  color: var(--color-faint);
+}
+
+.quick-thread__hint {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-label);
+  color: var(--color-faint);
+  white-space: nowrap;
+}
+
+/* The region the list is narrowed to, at the start of the field. */
+.quick-thread__narrowed {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  max-width: 45%;
+  height: 22px;
+  padding: 0 3px 0 6px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-body);
+  color: var(--color-ink-2);
+}
+
+.quick-thread__narrowed-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-thread__chosen {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Two lines of seats, then the row scrolls inside itself. */
+.quick-thread__seats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  max-height: calc(2 * 22px + 6px);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+/* A seat and the control that takes it off, held as one. */
+.quick-thread__seat {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding-right: 2px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-sm);
+}
+
+/* The control at the end sits on the first line of seats. */
+.quick-thread__chosen > button {
+  flex: none;
+  margin-top: 3px;
+}
+
+.quick-thread__unsent {
+  display: grid;
+  gap: 2px;
+  font-size: var(--text-body);
+  color: var(--color-ink);
+}
+
+.quick-thread__unsent p {
+  margin: 0;
+}
+
+/* The canvas home: a frame near the top, as tall as what is in it. The
+   mention list drops under the input, so the frame does not clip. */
+.operator-modal__frame.quick-thread-modal {
+  max-height: min(70vh, 100%);
+  overflow: visible;
+}
