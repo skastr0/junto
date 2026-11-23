@@ -6,7 +6,7 @@ import {
 import { admitWorkTarget, connectedCapabilities } from "../src/core/work/authz";
 import { asNodeId, type Peer } from "../src/shared/model";
 import { OTHER_MACHINE } from "./support/machines";
-import { canvasOf, seat, wire } from "./support/model-nodes";
+import { canvasOf, page, seat, wire } from "./support/model-nodes";
 
 /** Another machine's seat, as a copy of a canvas holds it. */
 const peerSeat = (id: string): Peer => ({
@@ -62,10 +62,28 @@ describe("crew work wire contract", () => {
     ]);
     const sent = admitWorkTarget(canvas, "author", "away", "msg.send");
     expect(Result.isSuccess(sent)).toBe(true);
-    for (const op of ["msg.prompt", "seat.read", "seat.wait"] as const) {
+    for (const op of ["msg.prompt", "seat.read", "seat.wait", "thread.list", "thread.show"] as const) {
       const refused = admitWorkTarget(canvas, "author", "away", op);
       expect(Result.isFailure(refused)).toBe(true);
       if (Result.isFailure(refused)) expect(refused.failure.details?.reason).toBe("other_machine");
     }
+  });
+
+  it("admits a seat's threads on threads.read alone, and refuses a node that is not a seat", () => {
+    const canvas = canvasOf(
+      [seat("author"), seat("threads"), seat("screen"), page("site")],
+      [
+        wire("t", "author", "threads", "messages", { mask: ["threads.read"] }),
+        wire("s", "author", "screen", "messages", { mask: ["terminal.read"] }),
+        wire("p", "author", "site", "navigates"),
+      ],
+    );
+    for (const op of ["thread.list", "thread.show"] as const) {
+      expect(Result.isSuccess(admitWorkTarget(canvas, "author", "threads", op)), op).toBe(true);
+      expect(Result.isFailure(admitWorkTarget(canvas, "author", "screen", op)), op).toBe(true);
+      expect(Result.isFailure(admitWorkTarget(canvas, "author", "site", op)), op).toBe(true);
+    }
+    expect(Result.isFailure(admitWorkTarget(canvas, "author", "threads", "seat.read"))).toBe(true);
+    expect(Result.isSuccess(admitWorkTarget(canvas, "author", "screen", "seat.read"))).toBe(true);
   });
 });

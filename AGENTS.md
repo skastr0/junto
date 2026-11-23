@@ -161,7 +161,7 @@ to an exported document or the database:
 
 | surface | detail |
 |---|---|
-| CLI | `dist/junto`, the native Rust CLI in `native/cli` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `artifact`, `automation`; overseer seats also `overseer` |
+| CLI | `dist/junto`, the native Rust CLI in `native/cli` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `thread`, `artifact`, `automation`; overseer seats also `overseer` |
 | Socket | `~/.junto/work/control.sock` (mode 0600). The seat presents `JUNTO_WORK_TOKEN`. |
 | Identity | **generation credential** — main mints one value per occupant generation, injects it at spawn, and admits by registry lookup of the frame token. No token file, no token on argv, no client-supplied nodeRef / `JUNTO_NODE_REF`. `overseer.live` is admitted by the same credential. No process ancestry, no peer PID, and no fallback when the credential is missing. Browser-protected routes are refused in this build. |
 | Authz | **reach and edges** — ordinary agents use the resource nodes (tasks, artifacts) in their own region, the regions inside it and the regions around it, with no edge (`out_of_reach` ScopeError otherwise), and act on seats and pages only through connected edges (ScopeError otherwise). A seat reads its own threads with no edge; another seat's threads need `threads.read` on the edge to it, a port of its own that the `messages` verb grants and a mask removes, never implied by `terminal.read`. An overseer bypasses edge scope for closed `overseer` ops after live grant admission; pause/blocked do not deny those ops. |

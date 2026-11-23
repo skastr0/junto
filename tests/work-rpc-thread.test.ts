@@ -17,7 +17,7 @@ import { OperatorThreadSend } from "../src/shared/mail-threads";
 import { WORK_TOKEN_ENV, encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
-import { region, seat as seatNode, wire } from "./support/model-nodes";
+import { region, seat as seatNode, taskBoard, wire } from "./support/model-nodes";
 import { startWorkControlServer, type WorkControlServer } from "../src/core/work/control";
 import { WorkLive } from "../src/core/work/service";
 import { CrewRepositoryLive } from "../src/core/work/crew-repository";
@@ -43,6 +43,12 @@ const CANVAS = "threads";
 const ME = "agent";
 const PEER = "peer";
 const STRANGER = "stranger";
+/** Wired with threads.read and terminal.read masked off. */
+const THREADS_ONLY = "threads-only";
+/** Wired with terminal.read and threads.read masked off. */
+const TERMINAL_ONLY = "terminal-only";
+/** A Tasks node in the caller's reach: not a seat. */
+const BOARD = "board";
 
 const makeRuntime = (root: string) => {
   const repositoriesLive = Layer.provideMerge(
@@ -94,8 +100,16 @@ beforeEach(async () => {
         seatNode(ME, { x: 0 }),
         seatNode(PEER, { x: 200 }),
         seatNode(STRANGER, { x: 400 }),
+        seatNode(THREADS_ONLY, { x: 600 }),
+        seatNode(TERMINAL_ONLY, { x: 800 }),
+        taskBoard(BOARD, { x: 0, y: 120 }),
       ],
-      [wire("edge", ME, PEER, "messages"), wire("back", PEER, ME, "messages")],
+      [
+        wire("edge", ME, PEER, "messages"),
+        wire("back", PEER, ME, "messages"),
+        wire("threads-only", ME, THREADS_ONLY, "messages", { mask: ["msg.send", "threads.read"] }),
+        wire("terminal-only", ME, TERMINAL_ONLY, "messages", { mask: ["msg.send", "terminal.read"] }),
+      ],
     ),
   );
   server = await startWorkControlServer({
@@ -202,5 +216,60 @@ describe("thread.list and thread.show across the work socket", () => {
     expect((await raw("thread.list", { group: "mine" })).error.type).toBe("InputError");
     const extra = await raw("thread.list", { target: PEER });
     expect(extra.error).toMatchObject({ type: "InputError", details: { hint: "junto schema show thread.list" } });
+  });
+});
+
+describe("thread reads between seats: admission on threads.read alone", () => {
+  const readPointsOf = (nodeId: string) =>
+    runtime.runPromise(readPoints(CANVAS, nodeId) as Effect.Effect<ReadonlyMap<string, unknown>, unknown, never>);
+
+  it("reads a seat whose edge keeps threads.read with terminal.read masked off", async () => {
+    const threadId = await operatorWrites(THREADS_ONLY, "only threads here");
+    const listed = await raw("thread.list", { seat: THREADS_ONLY });
+    expect(listed.data.threads.map((thread: { threadId: string }) => thread.threadId)).toEqual([threadId]);
+    const shown = await raw("thread.show", { seat: THREADS_ONLY, threadId });
+    expect(shown.data.messages.map((message: { text: string }) => message.text)).toEqual(["only threads here"]);
+    // Threads opened nothing of the terminal.
+    const screen = await raw("seat.read", { target: THREADS_ONLY, lines: 10 });
+    expect(screen.ok).toBe(false);
+    expect(screen.error.type).toBe("ScopeError");
+  });
+
+  it("refuses a seat whose edge keeps terminal.read with threads.read masked off", async () => {
+    const threadId = await operatorWrites(TERMINAL_ONLY, "terminal only");
+    for (const [op, args] of [
+      ["thread.list", { seat: TERMINAL_ONLY }],
+      ["thread.show", { seat: TERMINAL_ONLY, threadId }],
+    ] as const) {
+      const refused = await raw(op, args);
+      expect(refused.ok, op).toBe(false);
+      expect(refused.error.type, op).toBe("ScopeError");
+    }
+  });
+
+  it("refuses a target that is not a seat, even one in the caller's reach", async () => {
+    for (const [op, args] of [
+      ["thread.list", { seat: BOARD }],
+      ["thread.show", { seat: BOARD, threadId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" }],
+    ] as const) {
+      const refused = await raw(op, args);
+      expect(refused.ok, op).toBe(false);
+      expect(["ScopeError", "UnknownTarget"], op).toContain(refused.error.type);
+    }
+  });
+
+  it("refuses a seat with no edge on both ops", async () => {
+    const threadId = await operatorWrites(STRANGER, "not yours");
+    const refused = await raw("thread.show", { seat: STRANGER, threadId });
+    expect(refused.ok).toBe(false);
+    expect(refused.error.type).toBe("ScopeError");
+  });
+
+  it("moves none of the operator's read points in the seat it reads", async () => {
+    const threadId = await operatorWrites(PEER, "read me without marking");
+    const before = await readPointsOf(PEER);
+    expect((await raw("thread.list", { seat: PEER })).ok).toBe(true);
+    expect((await raw("thread.show", { seat: PEER, threadId })).ok).toBe(true);
+    expect([...(await readPointsOf(PEER))]).toEqual([...before]);
   });
 });
