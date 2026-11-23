@@ -72,11 +72,12 @@ const press = async (target: Element, init: KeyboardEventInit): Promise<Keyboard
 
 describe("keyboard shortcuts section", () => {
   it("lists every shortcut once, under the place its chord works", () => {
+    // Read every row's name once: a query per shortcut grows with the table.
+    const names = [...host.querySelectorAll('[role="group"]')].map(
+      (row) => row.querySelector(".settings-field__label-row")?.textContent,
+    );
     for (const def of KEY_TABLE) {
-      const rows = [...host.querySelectorAll('[role="group"]')].filter(
-        (row) => row.querySelector(".settings-field__label-row")?.textContent === def.name,
-      );
-      expect(rows, def.name).toHaveLength(1);
+      expect(names.filter((name) => name === def.name), def.name).toHaveLength(1);
     }
     expect([...host.querySelectorAll("section > h3")].map((title) => title.textContent)).toEqual([
       "Anywhere",
