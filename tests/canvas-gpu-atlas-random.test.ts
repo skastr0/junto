@@ -24,11 +24,18 @@
  *   - texel (0, 0) of page 0 of each pool is clear: a row of zeros is still
  *     drawn, and reads it.
  *
+ * And every so often the board sits still, as it does under a reader: no
+ * quad asks again and no frame asks for a cell with no image. The rasters in
+ * flight settle, some by failing, and the device owns up to every texture it
+ * could not make. What failed is the atlas's to try again, so every quad on
+ * screen comes to show the very raster it asked for, with nothing failed and
+ * nothing pending. A run ends at rest too.
+ *
  * Every scenario has content exactly as wide as a plot, and as large as one:
  * the rect that does not fit beside that texel.
  *
- * A run is a seed: the clock, the order rasters land in and every choice come
- * from it, so a failure names the step and replays.
+ * A run is a seed: the clock, the atlas's retry timer, the order rasters land
+ * in and every choice come from it, so a failure names the step and replays.
  *
  *   ATLAS_RANDOM_COLLECT=1   count every violation kind and go on, to list what a build has
  *   ATLAS_RANDOM_IGNORE=a,b  pass over these kinds, to read the next kind's trace
@@ -152,6 +159,8 @@ type Outcome = {
   /** Landings written over the cell their quad showed before. */
   readonly overwrites: number;
   readonly landed: number;
+  /** Rasters, placements and textures that failed: what the atlas had to try again. */
+  readonly failures: number;
 };
 
 /**
@@ -185,9 +194,13 @@ const run = async (config: Config, collect = false): Promise<Outcome> => {
     }
   }
 
-  // --- The clock: the atlas reads performance.now() for its retry backoff.
-  let clock = 1000;
-  vi.spyOn(performance, "now").mockImplementation(() => clock);
+  // --- The clock: the atlas reads performance.now() for its back-off and sets
+  // one timer for the earliest. Both are the run's, so a retry comes at the
+  // step the seed gives it and nowhere else.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+  const pass = (ms: number): void => {
+    vi.advanceTimersByTime(ms);
+  };
 
   // --- Rasterizers ------------------------------------------------------------
   const shownOf = (quad: Quad, scale: number): Shown => {
@@ -605,6 +618,43 @@ const run = async (config: Config, collect = false): Promise<Outcome> => {
     q.lit = false;
     q.showing = undefined;
   };
+  /**
+   * The board sits still. Until it has come to rest nothing asks: no quad
+   * asks again and no frame asks for a cell with no image. Every raster in
+   * flight settles, a share of `failing` of them by failing, and the device
+   * owns up to every texture it could not make. Nine seconds is past the
+   * longest back-off, so whatever failed is tried again in each round, by the
+   * atlas alone, and the rasters it asks for then land.
+   */
+  const rest = async (failing: number): Promise<number> => {
+    const atRest = (): boolean =>
+      jobs.length === 0 &&
+      devices.every((each) => each.unansweredOutOfMemory() === 0) &&
+      atlas.stats().pending === 0 &&
+      atlas.stats().failedCells === 0;
+    let rounds = 0;
+    do {
+      while (jobs.length > 0) jobs.shift()!(rounds > 0 || !chance(failing));
+      for (const each of devices) while (each.unansweredOutOfMemory() > 0) each.answerOutOfMemory(0);
+      await turn();
+      pass(9000);
+      await turn();
+      rounds += 1;
+      if (!atRest()) check();
+    } while (!atRest() && rounds < 40);
+    check();
+    if (!atRest()) {
+      const stats = atlas.stats();
+      fail("never-rests", `after ${rounds} rounds with nothing asking: ${stats.failedCells} cells failed, ${stats.pending} rasters pending, ${jobs.length} in flight`);
+    }
+    for (const q of quads) {
+      if (q.cell === NO_ATLAS_CELL || q.want === undefined) continue;
+      if (q.showing === undefined || q.showing.content !== q.want.content || q.showing.scale !== q.want.scale) {
+        fail("never-shown", `quad ${q.name} asked ${label(q.want)} and at rest shows ${label(q.showing)}, cell ${q.cell}`);
+      }
+    }
+    return rounds;
+  };
   const neighbourScale = (scale: number): number => Math.max(0, Math.min(config.scales.length - 1, scale + (chance(0.5) ? 1 : -1)));
   const sibling = (content: Content): Content => pick(config.contents.filter((c) => c.family === content.family));
   let zoom = below(config.scales.length);
@@ -709,13 +759,18 @@ const run = async (config: Config, collect = false): Promise<Outcome> => {
       }
       return `${left} quads leave`;
     }
-    if (roll < 99) {
+    if (roll < 98) {
       warm.clear();
       atlas.notifyMemoryPressure?.();
       return "memory pressure, decoded sources dropped";
     }
+    if (roll < 99) {
+      const inFlight = jobs.length;
+      const rounds = await rest(0.5);
+      return `the board sits still: ${inFlight} rasters in flight settle, at rest after ${rounds} rounds`;
+    }
     if (roll < 99.6) {
-      clock += 9000;
+      pass(9000);
       return "nine seconds pass";
     }
     attach();
@@ -728,14 +783,19 @@ const run = async (config: Config, collect = false): Promise<Outcome> => {
 
   check();
   for (step = 1; step <= config.steps; step += 1) {
-    clock += 40;
+    pass(40);
     const did = await once();
     trace.push(`${step}: ${did}`);
     check();
   }
 
-  // Everything leaves; nothing may stay referenced, and dispose frees it all.
+  // The run ends with the board at rest, whatever it was in the middle of.
   step = config.steps + 1;
+  trace.push(`${step}: the board sits still, at rest after ${await rest(0.5)} rounds`);
+  const failures = atlas.stats().failures;
+
+  // Everything leaves; nothing may stay referenced, and dispose frees it all.
+  step = config.steps + 2;
   for (const q of quads) if (q.cell !== NO_ATLAS_CELL) drop(q);
   while (jobs.length > 0) jobs.pop()!(true);
   for (const each of devices) while (each.unansweredOutOfMemory() > 0) each.answerOutOfMemory(0);
@@ -749,7 +809,7 @@ const run = async (config: Config, collect = false): Promise<Outcome> => {
   const live = devices[devices.length - 1]!.liveTextures();
   if (live !== 0) fail("textures-left", `${live} textures survive dispose`);
 
-  return { steps: config.steps, violations, pages: stats.pages, evictions: stats.evictions, overwrites: stats.overwrites, landed: stats.landed };
+  return { steps: config.steps, violations, pages: stats.pages, evictions: stats.evictions, overwrites: stats.overwrites, landed: stats.landed, failures };
 };
 
 // --- The scenarios ---------------------------------------------------------------
@@ -876,6 +936,7 @@ const stepsAsked = Number(process.env.ATLAS_RANDOM_STEPS ?? "0") || 0;
 
 describe("gpu atlas under random use", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -893,7 +954,7 @@ describe("gpu atlas under random use", () => {
         if (collect) {
           const lines = [...outcome.violations].map(([kind, v]) => `  ${String(v.count).padStart(6)}  ${kind}\n          ${v.first}`);
           console.log(
-            `\n"${config.name}" seed ${config.seed}: ${outcome.steps} steps, ${outcome.landed} landed, ${outcome.evictions} evicted, ${outcome.overwrites} written over, ${outcome.pages} pages\n${lines.join("\n")}`,
+            `\n"${config.name}" seed ${config.seed}: ${outcome.steps} steps, ${outcome.landed} landed, ${outcome.evictions} evicted, ${outcome.overwrites} written over, ${outcome.failures} failed, ${outcome.pages} pages\n${lines.join("\n")}`,
           );
         }
         expect([...outcome.violations.keys()]).toEqual([]);
@@ -902,6 +963,8 @@ describe("gpu atlas under random use", () => {
         // content changed inside a box written over the cell it replaced.
         expect(outcome.evictions).toBeGreaterThan(0);
         expect(outcome.overwrites).toBeGreaterThan(0);
+        // And rasters failed along the way, so the rest it came to was the atlas's own doing.
+        expect(outcome.failures).toBeGreaterThan(0);
         // A run takes about half a millisecond a step; a loaded machine and a long soak get room.
       }, Math.max(30_000, config.steps * 20));
     }

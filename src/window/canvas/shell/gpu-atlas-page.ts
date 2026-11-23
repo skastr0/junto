@@ -23,6 +23,7 @@ const EMPTY_ATLAS_STATS: AtlasStats = {
   evictions: 0,
   overwrites: 0,
   failures: 0,
+  failedCells: 0,
   pages: 0,
   pageSize: 0,
   bytesInUse: 0,

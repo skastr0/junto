@@ -63,7 +63,14 @@ export type AtlasStats = {
   readonly evictions: number;
   /** Landings written over the cell their slot showed, when nothing else held it: a changed status line takes no new rect. */
   readonly overwrites: number;
+  /** Failures reported so far, a running total. `failedCells` is the slots failed now. */
   readonly failures: number;
+  /**
+   * Slots failed now: no pixels of their own and no raster on the way, each
+   * waiting for the retry timer. Their quads draw the last pixels they had,
+   * or nothing. 0 when every held cell has what it asked for.
+   */
+  readonly failedCells: number;
   readonly pages: number;
   readonly pageSize: number;
   readonly bytesInUse: number;

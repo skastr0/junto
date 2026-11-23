@@ -31,9 +31,13 @@
  * - Room is made by wiping the plot used longest ago that holds no
  *   referenced cell; when there is none, a page is added.
  *
- * `ensureNow()` rasters synchronously before a frame submits, a failed
- * raster is retried with backoff, text is true-ink coverage, and no
- * ImageBitmap is retained.
+ * - A slot whose raster, placement or texture failed is queued again by the
+ *   atlas itself when its back-off runs out, on one timer set for the
+ *   earliest. A quad asks once and then holds its cell, so nothing else
+ *   would try it again.
+ *
+ * `ensureNow()` rasters synchronously before a frame submits, text is
+ * true-ink coverage, and no ImageBitmap is retained.
  *
  * The engine stays DOM-free: every rasterizer is injected. The browser
  * implementations live at the bottom of this file (`browserRasterizers`).
@@ -1335,19 +1339,80 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (!byKey.has(rec.key)) byKey.set(rec.key, rec);
   };
 
+  // --- Failure and retry --------------------------------------------------------
+
+  /**
+   * The atlas's one timer, set for the earliest back-off to run out. It is
+   * the only way from failed back to the queue: a quad asks once and then
+   * holds its cell, so a slot that fails while held is tried again by nobody
+   * else, and its quad would draw the last scale's pixels, or nothing, until
+   * the next repaint or zoom step.
+   */
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  /** When `retryTimer` fires, on `nowMs()`'s clock. Infinity while it is not set. */
+  let retryAt = Number.POSITIVE_INFINITY;
+
+  const stopRetryTimer = (): void => {
+    if (retryTimer !== undefined) clearTimeout(retryTimer);
+    retryTimer = undefined;
+    retryAt = Number.POSITIVE_INFINITY;
+  };
+
+  /** The timer fires no later than `at`. */
+  const retryBy = (at: number): void => {
+    if (disposed || at >= retryAt) return;
+    stopRetryTimer();
+    retryAt = at;
+    retryTimer = setTimeout(retryDue, Math.max(0, Math.ceil(at - nowMs())));
+  };
+
+  /**
+   * Every failed slot whose back-off has run out goes back in the queue, and
+   * the timer is set for the earliest of the rest. A landing from here is a
+   * landing like any other: it writes its row and marks the atlas dirty.
+   */
+  const retryDue = (): void => {
+    retryTimer = undefined;
+    retryAt = Number.POSITIVE_INFINITY;
+    if (disposed) return;
+    const now = nowMs();
+    let next = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < highWaterCells; i += 1) {
+      const rec = slots[i];
+      if (rec === undefined || rec.state !== "failed") continue;
+      if (rec.retryAfter > now) {
+        next = Math.min(next, rec.retryAfter);
+      } else {
+        rec.state = "queued";
+        enqueue(rec.index);
+      }
+    }
+    retryBy(next);
+  };
+
+  /**
+   * `rec` has no pixels of its own and no raster on the way: it is failed,
+   * and the timer queues it again `ms` from now. The one way a slot that
+   * stays is left failed.
+   */
+  const failFor = (rec: SlotRecord, ms: number): void => {
+    rec.state = "failed";
+    rec.attempts += 1;
+    rec.retryAfter = nowMs() + ms;
+    retryBy(rec.retryAfter);
+  };
+
   /**
    * The texture under these cells never came to be: an allocation found out
    * of memory after the cells had landed on it. They have no pixels, and
-   * neither have the slots that showed them. Each goes back to waiting for a
-   * raster if a quad still holds it, and is freed if not.
+   * neither have the slots that showed them. Each is rastered again after a
+   * short back-off if a quad still holds it, and is freed if not.
    */
   const pixelsLost = (lost: ReadonlyArray<SlotRecord>): void => {
     for (const rec of lost) {
       unplace(rec);
       freeStandalone(rec);
       unland(rec);
-      rec.attempts += 1;
-      rec.retryAfter = nowMs() + BASE_RETRY_MS;
     }
     // Every slot that showed one of them shows nothing from here, and lets it go.
     for (let i = 0; i < highWaterCells; i += 1) {
@@ -1360,8 +1425,13 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       writeRow(rec);
     }
     for (const rec of lost) {
-      if (rec.refCount > 0) writeRow(rec);
-      else freeSlot(rec);
+      if (rec.refCount > 0) {
+        // Soon: the memory may be back. If it is not, the raster's own failure backs off further.
+        failFor(rec, BASE_RETRY_MS);
+        writeRow(rec);
+      } else {
+        freeSlot(rec);
+      }
     }
     markDirty();
   };
@@ -1369,9 +1439,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   /** A raster or a placement failed: try again later, later each time. A landed slot has nothing to retry. */
   const backOff = (rec: SlotRecord): void => {
     if (rec.state === "landed") return;
-    rec.state = "failed";
-    rec.attempts += 1;
-    rec.retryAfter = nowMs() + Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts - 1));
+    failFor(rec, Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts)));
   };
 
   /**
@@ -1687,14 +1755,6 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (hadOwnTexture) markDirty();
   };
 
-  /** A failed slot whose backoff has run out goes back in the queue. */
-  const retryIfDue = (rec: SlotRecord, desc: CellDesc): void => {
-    if (rec.state !== "failed" || nowMs() < rec.retryAfter) return;
-    rec.desc = desc;
-    rec.state = "queued";
-    enqueue(rec.index);
-  };
-
   /** A free row index: a recycled one, or the next of the table. */
   const takeIndex = (): number | undefined => {
     const recycled = freeIndices.pop();
@@ -1716,11 +1776,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
     const desc: CellDesc = { quad, scale, mode, kind: keys.kind };
 
-    // Same key: the caller keeps its slot, with net zero ref change.
-    if (prev !== undefined && prev.key === keys.key) {
-      retryIfDue(prev, desc);
-      return prev.index;
-    }
+    // Same key: the caller keeps its slot, with net zero ref change. A failed
+    // slot is not queued for being asked again: the retry timer does that.
+    if (prev !== undefined && prev.key === keys.key) return prev.index;
 
     // The pixels the caller's quad shows now, if a quad of this kind can go
     // on showing them. A cell of the other pool cannot: the quad reads its
@@ -1744,7 +1802,6 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (shared !== undefined) {
       hold(shared);
       shared.desc = desc;
-      retryIfDue(shared, desc);
       if (prev !== undefined) release(prev.index);
       return shared.index;
     }
@@ -1826,10 +1883,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (keys === undefined) return NO_ATLAS_CELL;
     if (compatHeld.has(keys.key)) {
       const rec = byKey.get(keys.key);
-      if (rec !== undefined) {
-        retryIfDue(rec, { quad, scale, mode, kind: keys.kind });
-        return rec.index;
-      }
+      if (rec !== undefined) return rec.index;
       compatHeld.delete(keys.key);
     }
     const idx = acquire(quad, scale);
@@ -1840,11 +1894,13 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const stats = (): AtlasStats => {
     let activeCells = 0;
     let pinnedCells = 0;
+    let failedCells = 0;
     for (let i = 0; i < highWaterCells; i += 1) {
       const rec = slots[i];
       if (rec === undefined) continue;
       activeCells += 1;
       if (rec.refCount > 0) pinnedCells += 1;
+      if (rec.state === "failed") failedCells += 1;
     }
     let pageBytes = 0;
     for (const p of rgbaPool.pages) if (!p.dead) pageBytes += p.bytes;
@@ -1856,6 +1912,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       evictions,
       overwrites,
       failures,
+      failedCells,
       pages: rgbaPool.pages.filter((p) => !p.dead).length + coveragePool.pages.filter((p) => !p.dead).length,
       pageSize,
       bytesInUse: pageBytes + standaloneBytes,
@@ -1881,7 +1938,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
    * and exists unlanded only while held. What a slot shows meanwhile is a
    * referenced, landed cell of its own pool. A plot lists exactly the slots
    * placed in it, no two rects share texels or a gutter, no rect is on the
-   * reserved texel an empty row reads, and every name finds its slot. `held`
+   * reserved texel an empty row reads, every name finds its slot, and the
+   * retry timer is set to fire by the back-off of every failed slot. `held`
    * counts the references draw records hold per cell.
    */
   const audit = (held?: ReadonlyMap<number, number>): AtlasAudit => {
@@ -1908,6 +1966,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       const owns = rec.placed !== undefined || rec.standalone !== undefined;
       if (landed !== owns) flag("landed-and-pixels-disagree", i, `state ${rec.state}, ${owns ? "owns pixels" : "owns none"}`);
       if (!landed && rec.refCount <= 0) flag("unlanded-slot-unheld", i, `state ${rec.state}, refCount ${rec.refCount}`);
+      if (rec.state === "failed" && !(retryAt <= rec.retryAfter)) {
+        flag("failed-slot-not-retried", i, `failed ${rec.attempts} times and ${retryTimer === undefined ? "no retry timer is set" : "the retry timer fires after its back-off"}`);
+      }
       if (rec.placed !== undefined) {
         const at = rec.placed;
         if (at.page.dead) flag("placed-on-dead-page", i, `page ${at.page.pageIndex}`);
@@ -2237,6 +2298,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       // frame presents.
       contentLanded.clear();
       landedCount = 0;
+      // No slot is failed from here, so the retry timer has nothing to wait
+      // for. A raster that fails below sets it again.
+      stopRetryTimer();
       for (let i = 0; i < highWaterCells; i += 1) {
         const rec = slots[i];
         if (rec === undefined) continue;
@@ -2304,6 +2368,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     },
     dispose: () => {
       disposed = true;
+      stopRetryTimer();
       seenContentKeys.clear();
       drainChannel?.port1.close();
       drainChannel?.port2.close();
