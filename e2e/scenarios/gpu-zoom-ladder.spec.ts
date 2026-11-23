@@ -347,17 +347,16 @@ const seatChurn = (board: ProofBoard) => {
       await send(app, bindings.map((b) => fresh.force(b, "idle", "ladder:baseline")));
       fresh.dispose();
     },
-    /** A share of seats change their line and their expression. */
+    /**
+     * A third of the seats, a different third each turn, go to work: the line
+     * reads "working", the portrait takes its working expression and the ring
+     * turns. Attention is left out: it raises a "waiting on you" bubble and a
+     * "wants your input" line that outlive the seat's next generation, so no
+     * baseline event could put the reference's content back.
+     */
     churn: (app: ElectronApplication) => {
       turn += 1;
-      const events = bindings
-        .filter((_, i) => (i + turn) % 3 === 0)
-        .map((b, i) =>
-          (i + turn) % 2 === 0
-            ? machine.force(b, "working", "ladder:churn")
-            : machine.force(b, "attention", `churn ${String(turn)}: reading the ${String(turn * 7 + i)} files it wrote`),
-        );
-      return send(app, events);
+      return send(app, bindings.filter((_, i) => (i + turn) % 3 === 0).map((b) => machine.force(b, "working", "ladder:churn")));
     },
   };
 };
