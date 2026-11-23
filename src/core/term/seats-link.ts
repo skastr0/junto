@@ -17,6 +17,7 @@ import { ActorSeatOccupy } from "./actor-seat-occupy";
 import { ensureSeatSessionId } from "./seat-session-before-start";
 import { makeManagedSpawnIntent } from "./managed-spawn-plan";
 import { termPlane } from "./plane";
+import type { TerminalNodeDeleteService } from "./node-delete";
 import { runOnSeatStartTurn } from "./seat-start-turn";
 import {
   ATTACH_LIMIT, makeSeatAttachments, SeatsAttach, SeatsAttached, SeatsCacheAnswer,
@@ -119,6 +120,11 @@ export type SeatsChannelOptions = {
     readonly answer: (seat: { readonly canvasName: string; readonly seatId: string }, question: string,
       answer: "fresh" | "keep", generation: string) => Promise<SeatCacheAnswerOutcome>;
   };
+  /**
+   * The delete fence a for-delete Stop holds and every start must pass. The
+   * live node-delete service by default; a test may leave it unset.
+   */
+  readonly nodeDelete?: Pick<TerminalNodeDeleteService, "admitCreate" | "assertCreate" | "holdDelete">;
 };
 
 /** The peer names a seat; its own machine derives the whole launch. */
@@ -131,6 +137,7 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
   const log = yield* LogService;
   const run = Effect.runPromiseWith(yield* Effect.context<never>());
   const host = options.host ?? termPlane.host;
+  const nodeDelete = options.nodeDelete ?? termPlane.nodeDelete;
   const pin = options.pin ?? ensureSeatSessionId;
   const seatStates = options.seatStates ?? seatStateRuntime;
   const publishState = options.publishState ?? ((event: AgentSeatStateEvent, machine: InstallationId) => remoteState.publish(event, machine));
@@ -340,6 +347,11 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
       return { ...window, machine: initial.name };
     }
     if (request._tag === "Stop") {
+      // A delete stop holds the binding's create lock from here until the next
+      // installed copy of this canvas decides — vacant or not, so nothing can
+      // start in between. An ordinary stop takes no lock.
+      if (request.forDelete === true)
+        nodeDelete.holdDelete(initial.seat.bindingId, initial.name, { canvas: request.canvas, seatId: request.seatId });
       const live = host.get(initial.seat.bindingId);
       if (live === undefined || live.status === "exited" || live.status === "missing")
         return { _tag: "Vacant", canvas: request.canvas, seatId: request.seatId, machine: initial.name };
@@ -366,7 +378,17 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
           message: "The seat's occupant generation changed before activation." });
       return yield* reply(context, request.canvas, initial.seat, initial.name, live);
     }
+    // A start passes the same delete fence a local start does: a held delete
+    // or an in-flight node delete refuses it before anything spawns.
+    const deleteAdmission = yield* Effect.try({
+      try: () => nodeDelete.admitCreate(initial.seat.bindingId, initial.name),
+      catch: () => new SeatChangedWhilePreparing({ ...where,
+        message: "This seat is being deleted; it cannot start." }),
+    });
     const beforeSpawn = Effect.gen(function* () {
+      yield* Effect.try({ try: () => nodeDelete.assertCreate(deleteAdmission),
+        catch: () => new SeatChangedWhilePreparing({ ...where,
+          message: "This seat was deleted while its start was being prepared." }) });
       const current = yield* admit();
       if (current.seq !== initial.seq || current.seat.bindingId !== initial.seat.bindingId ||
         current.seat.harness !== initial.seat.harness || current.seat.agentKey !== initial.seat.agentKey)

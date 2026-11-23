@@ -65,7 +65,7 @@ const harness = async () => {
       createdAt: 1,
     })),
     kill: vi.fn(async () => {}),
-    deleteBinding: vi.fn(async () => true),
+    deleteBinding: vi.fn(async () => ({ kind: "clean" })),
     release: vi.fn(),
     setTerminalEnvironment: vi.fn(),
   });

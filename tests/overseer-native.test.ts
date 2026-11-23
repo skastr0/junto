@@ -100,7 +100,7 @@ const makeTermPlane = (overrides: {
   readonly create?: (input: unknown) => Promise<unknown>;
   readonly writeManagedSeat?: (bindingId: string, data: string) => boolean;
   readonly resizeManagedSeat?: (bindingId: string, cols: number, rows: number) => boolean;
-  readonly deleteBinding?: (bindingId: string, hostId?: string) => Promise<boolean>;
+  readonly deleteBinding?: (bindingId: string, hostId?: string) => Promise<unknown>;
   readonly attach?: (input: {
     readonly bindingId?: string;
     readonly hostId?: string;
@@ -125,7 +125,7 @@ const makeTermPlane = (overrides: {
       detached: true,
       createdAt: 1,
     })),
-    deleteBinding: overrides.deleteBinding ?? (async () => true),
+    deleteBinding: overrides.deleteBinding ?? (async () => ({ kind: "clean" })),
   };
   const host = {
     writeManagedSeat: overrides.writeManagedSeat ?? vi.fn(() => true),
@@ -847,7 +847,7 @@ describe("overseer native adapters", () => {
 describe("overseer deletion fences share TermPlane identity", () => {
   it("locks the same TerminalNodeDeleteService renderer IPC would use", async () => {
     const termPlane = makeTermPlane({
-      deleteBinding: vi.fn(async () => true),
+      deleteBinding: vi.fn(async () => ({ kind: "clean" })),
     });
     const native = live([{ name: "factory", doc: doc([agent("a1")]) }], { termPlane });
     const admitted = termPlane.nodeDelete.admitCreate("bind-a1", THIS_MACHINE);

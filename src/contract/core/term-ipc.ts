@@ -182,9 +182,14 @@ export const TermAttachInput = Schema.Struct({
 export const TerminalNodeDeleteResource = Schema.Struct({
   bindingId: Schema.String,
   hostId: Schema.optional(Schema.String),
+  confirmedUnreachable: Schema.optional(Schema.Literal(true)),
 });
 
 export const TerminalNodeDeleteOutcome = Schema.Literals(["committed", "aborted"]);
+
+export const TerminalUnstoppedRemoteReason = Schema.Literals([
+  "refused", "epoch-changed", "unreachable", "timeout",
+]);
 
 export const TerminalBeginNodeDeleteResult = Schema.Union([
   Schema.Struct({
@@ -192,7 +197,19 @@ export const TerminalBeginNodeDeleteResult = Schema.Union([
     leaseId: Schema.String,
     closeResults: Schema.Array(Schema.Struct({ bindingId: Schema.String, hostId: Schema.String, clean: Schema.Literal(true) })),
   }),
-  Schema.Struct({ ok: Schema.Literal(false), error: Schema.String }),
+  Schema.Struct({
+    ok: Schema.Literal(false),
+    error: Schema.String,
+    unstoppedRemote: Schema.optional(Schema.Array(Schema.Struct({
+      bindingId: Schema.String,
+      hostId: Schema.String,
+      reason: TerminalUnstoppedRemoteReason,
+    }))),
+    failedLocal: Schema.optional(Schema.Array(Schema.Struct({
+      bindingId: Schema.String,
+      hostId: Schema.String,
+    }))),
+  }),
 ]);
 
 export const TerminalFinishNodeDeleteResult = Schema.Union([

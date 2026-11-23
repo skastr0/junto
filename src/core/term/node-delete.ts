@@ -16,17 +16,38 @@ type ResourceKey = Readonly<{
   bindingId: string;
   hostId: string;
   key: string;
+  /** The operator confirmed this remote binding's delete while its stop was unproven. */
+  confirmedUnreachable?: true;
 }>;
 
 type ActiveLease = {
   readonly id: string;
   readonly resources: readonly ResourceKey[];
+  /**
+   * Remote stops admitted on the operator's confirm: the owed finish, a
+   * stored fact settled when the seat's machine next installs a copy
+   * without the node. Never marked stopped; history is kept.
+   */
+  readonly owed: Array<{
+    bindingId: string;
+    hostId: string;
+    reason: "refused" | "epoch-changed" | "unreachable" | "timeout";
+  }>;
   expiresAt: number;
 };
 
 export type TerminalCreateAdmission = Readonly<{
   key: string;
   revision: number;
+}>;
+
+/** A delete stop this machine holds until the next installed copy decides. */
+export type HeldDelete = Readonly<{
+  key: string;
+  bindingId: string;
+  hostId: string;
+  canvas: string;
+  seatId: string;
 }>;
 
 const safeField = (value: unknown, label: string, maxBytes: number): string => {
@@ -54,6 +75,8 @@ export class TerminalNodeDeleteService {
   private readonly locks = new Map<string, string>();
   private readonly revisions = new Map<string, number>();
   private readonly leases = new Map<string, ActiveLease>();
+  /** Delete stops taken on this machine, keyed like locks but owned by no lease: they never expire on their own. */
+  private readonly heldDeletes = new Map<string, HeldDelete>();
 
   constructor(private readonly router: TerminalRouter) {}
 
@@ -82,6 +105,50 @@ export class TerminalNodeDeleteService {
     }
   }
 
+  /**
+   * A delete stop arriving over the seats channel: the binding's create lock
+   * is taken now and held until the next installed copy of its canvas decides.
+   * The lock rides the same key space as a delete lease, so admitCreate and
+   * assertCreate refuse creates exactly as they do mid-delete; unlike a lease
+   * it has no expiry, because the copy that decides may be hours away.
+   */
+  holdDelete(
+    bindingId: unknown,
+    hostId: unknown,
+    where: { readonly canvas: string; readonly seatId: string },
+  ): HeldDelete {
+    this.gcExpired();
+    const resource = this.resource({
+      bindingId: safeField(bindingId, "bindingId", MAX_BINDING_BYTES),
+      ...(typeof hostId === "string" ? { hostId } : {}),
+    });
+    this.revisions.set(resource.key, (this.revisions.get(resource.key) ?? 0) + 1);
+    const held: HeldDelete = Object.freeze({
+      key: resource.key,
+      bindingId: resource.bindingId,
+      hostId: resource.hostId,
+      canvas: safeField(where.canvas, "canvas", MAX_HOST_BYTES),
+      seatId: safeField(where.seatId, "seatId", MAX_HOST_BYTES),
+    });
+    this.heldDeletes.set(resource.key, held);
+    this.locks.set(resource.key, "held-delete");
+    return held;
+  }
+
+  /** The copy of `canvas` installed: every held delete on it is decided by the caller. */
+  heldDeletesFor(canvas: string): readonly HeldDelete[] {
+    this.gcExpired();
+    return [...this.heldDeletes.values()].filter((held) => held.canvas === canvas);
+  }
+
+  /** Release one held delete once its canvas's copy has decided. */
+  releaseHeldDelete(key: string): void {
+    const held = this.heldDeletes.get(key);
+    if (held === undefined) return;
+    this.heldDeletes.delete(key);
+    if (this.locks.get(key) === "held-delete") this.locks.delete(key);
+  }
+
   async beginNodeDelete(
     input: ReadonlyArray<TerminalNodeDeleteResource>,
   ): Promise<TerminalBeginNodeDeleteResult> {
@@ -107,12 +174,24 @@ export class TerminalNodeDeleteService {
           error: `terminal ${resource.bindingId} already has an active delete lease`,
         };
       }
+      // The confirm marker exists only for a host that is not this machine;
+      // a local binding stays clean or refused, nothing else.
+      if (
+        resource.confirmedUnreachable === true &&
+        this.router.isLocalHostId(resource.hostId)
+      ) {
+        return {
+          ok: false,
+          error: `terminal ${resource.bindingId} is on this machine; an unreachable confirm does not apply`,
+        };
+      }
     }
 
     const id = `tdl-${randomBytes(12).toString("hex")}`;
     const lease: ActiveLease = {
       id,
       resources: Object.freeze(resources),
+      owed: [],
       expiresAt: Date.now() + LEASE_TTL_MS,
     };
     this.leases.set(id, lease);
@@ -132,20 +211,59 @@ export class TerminalNodeDeleteService {
         try {
           return {
             resource,
-            clean: await this.router.deleteBinding(
+            receipt: await this.router.deleteBinding(
               resource.bindingId,
               resource.hostId,
             ),
           } as const;
-        } catch (error) {
-          return { resource, clean: false as const, error };
+        } catch {
+          return { resource, receipt: { kind: "refused" } as const };
         }
       }));
-      const failed = outcomes.find((outcome) => !outcome.clean);
-      if (failed !== undefined) {
-        throw new Error(
-          `terminal ${failed.resource.bindingId} did not produce an exact clean teardown receipt`,
-        );
+      const unstoppedRemote: Array<{
+        bindingId: string;
+        hostId: string;
+        reason: "refused" | "epoch-changed" | "unreachable" | "timeout";
+      }> = [];
+      const failedLocal: Array<{ bindingId: string; hostId: string }> = [];
+      for (const { resource, receipt } of outcomes) {
+        if (receipt.kind === "clean") continue;
+        const reason = receipt.kind === "unproven" ? receipt.reason : "refused";
+        if (resource.confirmedUnreachable === true) {
+          // The operator confirmed this delete while the stop was unproven:
+          // admitted, and the finish it is owed is a stored fact.
+          lease.owed.push({
+            bindingId: resource.bindingId,
+            hostId: resource.hostId,
+            reason,
+          });
+        } else if (this.router.isLocalHostId(resource.hostId)) {
+          failedLocal.push({
+            bindingId: resource.bindingId,
+            hostId: resource.hostId,
+          });
+        } else {
+          unstoppedRemote.push({
+            bindingId: resource.bindingId,
+            hostId: resource.hostId,
+            reason,
+          });
+        }
+      }
+      if (failedLocal.length > 0 || unstoppedRemote.length > 0) {
+        this.release(id);
+        return {
+          ok: false,
+          error: failedLocal.length > 0
+            ? `terminal ${failedLocal[0].bindingId} did not produce an exact clean teardown receipt`
+            : `terminal ${unstoppedRemote[0].bindingId} stop could not be proven`,
+          ...(unstoppedRemote.length > 0
+            ? { unstoppedRemote: Object.freeze(unstoppedRemote) }
+            : {}),
+          ...(failedLocal.length > 0
+            ? { failedLocal: Object.freeze(failedLocal) }
+            : {}),
+        };
       }
       const closeResults = outcomes.map(({ resource }) => Object.freeze({
         bindingId: resource.bindingId,
@@ -200,6 +318,9 @@ export class TerminalNodeDeleteService {
       bindingId,
       hostId,
       key: JSON.stringify([hostId, bindingId]),
+      ...(input.confirmedUnreachable === true
+        ? { confirmedUnreachable: true as const }
+        : {}),
     });
   }
 

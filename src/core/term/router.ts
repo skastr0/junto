@@ -229,6 +229,15 @@ export type AttachOk = {
 
 export type AttachResult = AttachOk | { readonly ok: false; readonly message: string };
 
+/** What a node delete's binding teardown proved. Remote is never refused: unproven waits on the operator's confirm. */
+export type DeleteBindingReceipt =
+  | { readonly kind: "clean" }
+  | { readonly kind: "refused" }
+  | {
+      readonly kind: "unproven";
+      readonly reason: "refused" | "epoch-changed" | "unreachable" | "timeout";
+    };
+
 /**
  * Remap a Remote hop attach onto a local lease id. Journal and screen stay
  * exactly as the hop sent them — the renderer restores VT from screen.
@@ -542,18 +551,26 @@ export class TerminalRouter extends EventEmitter {
   }
 
   /**
-   * Exact node-delete teardown exists only where this runtime owns the PTY and
-   * daemon witnesses. Remote control currently returns stop admission only,
-   * so refuse rather than committing a node deletion on an unproven receipt.
+   * Exact node-delete teardown. A local binding gets the owned receipt;
+   * a remote seat is stopped through its machine's seats channel, where
+   * Stopping or Vacant is the clean receipt and anything else is unproven,
+   * never refused: the operator confirms an unproven delete each time.
    */
-  async deleteBinding(bindingId: string, hostId?: string): Promise<boolean> {
-    if (this.quiescing) return false;
+  async deleteBinding(bindingId: string, hostId?: string): Promise<DeleteBindingReceipt> {
+    if (this.quiescing) return { kind: "refused" };
     const normalizedHostId = hostId?.trim();
-    if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) return false;
+    if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) return { kind: "refused" };
     if (!hostId || this.isLocalHostId(hostId)) {
-      return this.local.deleteBinding(bindingId);
+      return (await this.local.deleteBinding(bindingId))
+        ? { kind: "clean" }
+        : { kind: "refused" };
     }
-    return false;
+    try {
+      const { makeSeatsProcessClient } = await import("./seats-client");
+      return await makeSeatsProcessClient(normalizedHostId || hostId).stopForDelete(bindingId);
+    } catch {
+      return { kind: "unproven", reason: "unreachable" };
+    }
   }
 
   async bindCanvas(

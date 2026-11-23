@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
-import type { TerminalRouter } from "../src/core/term/router";
+import type { DeleteBindingReceipt, TerminalRouter } from "../src/core/term/router";
 
 const makeRouter = (
-  deleteBinding: (bindingId: string, hostId?: string) => Promise<boolean>,
+  deleteBinding: (bindingId: string, hostId?: string) => Promise<DeleteBindingReceipt>,
 ): TerminalRouter => ({
   thisMachineName: () => "workbench",
   isLocalHostId: (hostId: string | undefined | null) =>
@@ -14,9 +14,9 @@ const makeRouter = (
 
 describe("terminal node-delete fence", () => {
   it("invalidates an older in-flight create before awaiting exact teardown", async () => {
-    let finishStop!: (clean: boolean) => void;
+    let finishStop!: (receipt: DeleteBindingReceipt) => void;
     const deleteBinding = vi.fn(
-      () => new Promise<boolean>((resolve) => {
+      () => new Promise<DeleteBindingReceipt>((resolve) => {
         finishStop = resolve;
       }),
     );
@@ -36,7 +36,7 @@ describe("terminal node-delete fence", () => {
     );
     expect(deleteBinding).toHaveBeenCalledWith("binding-a", "workbench");
 
-    finishStop(true);
+    finishStop({ kind: "clean" });
     const lease = await begin;
     expect(lease).toMatchObject({ ok: true });
     if (!lease.ok) throw new Error(lease.error);
@@ -53,7 +53,7 @@ describe("terminal node-delete fence", () => {
   });
 
   it("fails closed and releases the lease when exact cleanup is unproven", async () => {
-    const deleteBinding = vi.fn(async () => false);
+    const deleteBinding = vi.fn(async () => ({ kind: "refused" }) as const);
     const service = new TerminalNodeDeleteService(makeRouter(deleteBinding));
 
     const result = await service.beginNodeDelete([
@@ -71,11 +71,11 @@ describe("terminal node-delete fence", () => {
   });
 
   it("retains every sibling lock until all teardown receipts settle", async () => {
-    let finishSlow!: (clean: boolean) => void;
+    let finishSlow!: (receipt: DeleteBindingReceipt) => void;
     const deleteBinding = vi.fn((bindingId: string) =>
       bindingId === "fast-dirty"
-        ? Promise.resolve(false)
-        : new Promise<boolean>((resolve) => {
+        ? Promise.resolve({ kind: "refused" } as const)
+        : new Promise<DeleteBindingReceipt>((resolve) => {
             finishSlow = resolve;
           })
     );
@@ -90,7 +90,7 @@ describe("terminal node-delete fence", () => {
     expect(service.isLocked("fast-dirty", "workbench")).toBe(true);
     expect(service.isLocked("slow-clean", "workbench")).toBe(true);
 
-    finishSlow(true);
+    finishSlow({ kind: "clean" });
     await expect(begin).resolves.toMatchObject({ ok: false });
     expect(service.isLocked("fast-dirty", "workbench")).toBe(false);
     expect(service.isLocked("slow-clean", "workbench")).toBe(false);
@@ -98,7 +98,7 @@ describe("terminal node-delete fence", () => {
 
   it("deduplicates the same machine but refuses another machine's teardown receipt", async () => {
     const deleteBinding = vi.fn(async (_bindingId: string, hostId?: string) =>
-      hostId === "workbench"
+      hostId === "workbench" ? ({ kind: "clean" } as const) : ({ kind: "refused" } as const)
     );
     const service = new TerminalNodeDeleteService(makeRouter(deleteBinding));
 

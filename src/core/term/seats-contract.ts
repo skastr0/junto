@@ -34,6 +34,12 @@ export const SeatsActivate = Schema.Struct({
 export const SeatsStop = Schema.Struct({
   canvas: CanvasName, seatId: NodeId,
   generation: Schema.optionalKey(Generation),
+  /**
+   * The editing machine is deleting this seat, not just stopping it: this
+   * machine takes the binding's create lock until the next installed copy
+   * decides, so nothing starts in between. An ordinary stop never sets it.
+   */
+  forDelete: Schema.optionalKey(Schema.Literal(true)),
 });
 /** The operator viewed the seat's occupant: its finished turn is no longer unseen. */
 export const SeatsViewed = Schema.Struct({

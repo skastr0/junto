@@ -215,7 +215,7 @@ const live = (
       detached: true,
       createdAt: 1,
     }),
-    deleteBinding: async () => true,
+    deleteBinding: async () => ({ kind: "clean" }),
   };
   const termPlane = {
     router,

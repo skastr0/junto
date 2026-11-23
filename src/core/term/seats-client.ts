@@ -21,9 +21,35 @@ type Services = HostsService | MachineLink | ModelService;
 export type SeatsClientRunner = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
 const asError = (cause: unknown): Error => cause instanceof Error ? cause : new Error(String(cause));
 
+/** Why a delete stop could not prove its receipt; the operator confirms each. */
+export type StopForDeleteReason = "refused" | "epoch-changed" | "unreachable" | "timeout";
+export type StopForDeleteReceipt =
+  | { readonly kind: "clean" }
+  | { readonly kind: "unproven"; readonly reason: StopForDeleteReason };
+
+const classifyStopForDelete = (cause: unknown): StopForDeleteReceipt => {
+  const tag = typeof cause === "object" && cause !== null && "_tag" in cause
+    ? String((cause as { _tag: unknown })._tag)
+    : "";
+  if (tag === "SeatEpochChanged" || tag === "SeatOccupantChanged") {
+    return { kind: "unproven", reason: "epoch-changed" };
+  }
+  if (tag === "SeatLinkClosed") return { kind: "unproven", reason: "unreachable" };
+  const message = cause instanceof Error ? cause.message : String(cause);
+  if (/timed?\s?out|timeout/i.test(message)) return { kind: "unproven", reason: "timeout" };
+  return { kind: "unproven", reason: "refused" };
+};
+
 export type SeatsClient = RemoteSeatProcessClient & {
   /** True when the seat's machine began stopping it, false when it had no occupant. */
   readonly stop: (bindingId: string, operationId?: string) => Promise<boolean>;
+  /**
+   * The delete stop: Stopping or Vacant is the clean receipt. Anything else
+   * is unproven, with the reason the operator's confirm names. The stop is
+   * marked for delete, so the seat's machine holds its create lock until the
+   * next installed copy decides.
+   */
+  readonly stopForDelete: (bindingId: string, operationId?: string) => Promise<StopForDeleteReceipt>;
   /**
    * The operator viewed the seat's occupant of that generation. True when it
    * cleared a finished turn there, false when nothing changed or no occupant.
@@ -116,6 +142,25 @@ export const makeSeatsProcessClient = (
         return yield* Effect.fail(new Error("The machine answered for another seat."));
       return response._tag === "Stopping";
     }).pipe(Effect.annotateLogs({ area: "seats", seat: bindingId }))),
+    stopForDelete: (bindingId, operationId) => run(Effect.gen(function* () {
+      const held = yield* locate(bindingId);
+      if (held === undefined) return { kind: "unproven", reason: "unreachable" } as const;
+      // The epoch this machine last saw of the seat; none sends without, so
+      // the seat's machine stops whoever occupies it now.
+      const state = Context.getOrUndefined(yield* Effect.context<never>(), RemoteSeatState);
+      const epoch = state?.events().find((event) => event.bindingId === bindingId)?.epoch;
+      const seats = yield* connect;
+      const response = yield* seats.Stop(machine, {
+        canvas: held.canvas, seatId: held.seat.id, forDelete: true,
+        ...(epoch === undefined ? {} : { generation: epoch }),
+      }, options(operationId));
+      if (response.canvas !== held.canvas || response.seatId !== held.seat.id || response.machine !== machine)
+        return yield* Effect.fail(new Error("The machine answered for another seat."));
+      return { kind: "clean" } as const;
+    }).pipe(
+      Effect.catch((cause: unknown) => Effect.succeed(classifyStopForDelete(cause))),
+      Effect.annotateLogs({ area: "seats", seat: bindingId }),
+    )),
     viewed: (bindingId, generation, operationId = randomUUID()) => run(Effect.gen(function* () {
       const held = yield* locate(bindingId);
       if (held === undefined) return false;
