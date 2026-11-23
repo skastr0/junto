@@ -1,6 +1,7 @@
 import {
   memo,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -19,10 +20,11 @@ import {
   Lock,
   LockOpen,
   Pencil,
+  RefreshCw,
   TextCursorInput,
   Trash2,
 } from "lucide-react";
-import type { Region } from "@shared/model";
+import type { Node, Region, Seat } from "@shared/model";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { seatTasks$ } from "../../lib/seat-tasks";
 import type { RegionRollup } from "@shared/region-rollup";
@@ -39,6 +41,7 @@ import {
   setRegionHold,
 } from "../../lib/mutations";
 import {
+  agentCountLabel,
   classifySelectionOf,
   selectionLabelOf,
 } from "../../lib/multi-selection";
@@ -58,6 +61,7 @@ import { openWorkDetail } from "../../lib/work-detail-open";
 import { focusBlockerCause, resolveBlockerCause } from "../../lib/blocker-cause";
 import { executionGraphForImpact } from "../../lib/impact-mode";
 import { ConnectEditor } from "./ConnectEditor";
+import { SeatsReseatPick, useSeatsReseat } from "./SeatsReseat";
 import { EdgeCommandCard } from "./RtsControls";
 import { KindSurface } from "./KindSurface";
 import { RollCall } from "./RollCall";
@@ -173,42 +177,8 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
   }
 
   if (multi) {
-    const selectedNodes = nodes;
-    // Actions apply only to selected rows that still exist.
-    const liveIds = selectedNodes.map((n) => n.id);
-    const classified = classifySelectionOf(selectedNodes);
-    const colorsMatch =
-      selectedNodes.length > 0 &&
-      selectedNodes.every((n) => n.color === selectedNodes[0]?.color);
-    const sharedColor = colorsMatch ? selectedNodes[0]?.color : undefined;
-    const mixedColor = !colorsMatch;
-
-    return (
-      <div className="rts-panel rts-panel--cmd" data-testid="rts-multi-command">
-        <div className="rts-panel__body rts-cmd-shell">
-          <div className="rts-cmd-main">
-            <div className="rts-cmd-head">
-              <div className="rts-cmd__title">
-                {classified.mode === "homogeneous" ? "shared settings" : "shared settings only"}
-              </div>
-              <div className="rts-cmd__live">{selectionLabelOf(classified)}</div>
-            </div>
-            <AccentColorSwatches
-              nodeIds={liveIds}
-              color={sharedColor}
-              mixed={mixedColor}
-            />
-          </div>
-          <div className="rts-cmd-keys-rail" role="toolbar" aria-label="Multi-select actions">
-            <div className="rts-cmd-keys rts-cmd-keys--col" aria-label="Actions">
-              <CmdKey label="Delete selection" danger onClick={() => deleteNodes(liveIds)}>
-                <Trash2 size={ICON} />
-              </CmdKey>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    // A new selection is a new card: its pop and its last re-seat line go.
+    return <MultiCommandCard key={nodes.map((n) => n.id).join(" ")} nodes={nodes} />;
   }
 
   if (node?.kind === "region" && regionRollup) {
@@ -226,6 +196,80 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
   }
 
   return <NodeCommandCard nodeId={singleId} />;
+}
+
+function MultiCommandCard({ nodes }: { readonly nodes: ReadonlyArray<Node> }) {
+  const canvasName = use$(state$.canvasName);
+  const selectedNodes = nodes;
+  // Actions apply only to selected rows that still exist.
+  const liveIds = selectedNodes.map((n) => n.id);
+  const classified = classifySelectionOf(selectedNodes);
+  const colorsMatch =
+    selectedNodes.length > 0 &&
+    selectedNodes.every((n) => n.color === selectedNodes[0]?.color);
+  const sharedColor = colorsMatch ? selectedNodes[0]?.color : undefined;
+  const mixedColor = !colorsMatch;
+  // Every agent seat in the selection, a mixed one included, re-seats together.
+  const seats = useMemo(
+    () => selectedNodes.filter((n): n is Seat => n.kind === "agent"),
+    [selectedNodes],
+  );
+  const [reseatOpen, setReseatOpen] = useState(false);
+  const reseat = useSeatsReseat(canvasName, seats);
+
+  return (
+    <div className="rts-panel rts-panel--cmd" data-testid="rts-multi-command">
+      <div className="rts-panel__body rts-cmd-shell">
+        <div className="rts-cmd-main">
+          <div className="rts-cmd-head">
+            <div className="rts-cmd__title">
+              {classified.mode === "homogeneous" ? "shared settings" : "shared settings only"}
+            </div>
+            <div className="rts-cmd__live">{selectionLabelOf(classified)}</div>
+            {reseat.line ? (
+              <div
+                className={`rts-cmd__live rts-cmd__reseat-line${reseat.line.failed ? " is-failed" : ""}`}
+                role="status"
+                title={reseat.line.text}
+              >
+                {reseat.line.text}
+              </div>
+            ) : null}
+          </div>
+          <AccentColorSwatches
+            nodeIds={liveIds}
+            color={sharedColor}
+            mixed={mixedColor}
+          />
+        </div>
+        <div className="rts-cmd-keys-rail" role="toolbar" aria-label="Multi-select actions">
+          <div className="rts-cmd-keys rts-cmd-keys--col" aria-label="Actions">
+            {seats.length > 0 ? (
+              <CmdKey
+                label={reseatOpen ? "Close re-seat" : "Re-seat agents"}
+                title={`Re-seat ${agentCountLabel(seats.length)} onto one harness, model and effort`}
+                active={reseatOpen}
+                disabled={reseat.busy}
+                onClick={() => setReseatOpen((open) => !open)}
+              >
+                <RefreshCw size={ICON} className={reseat.busy ? "animate-spin" : undefined} />
+              </CmdKey>
+            ) : null}
+            <CmdKey label="Delete selection" danger onClick={() => deleteNodes(liveIds)}>
+              <Trash2 size={ICON} />
+            </CmdKey>
+          </div>
+        </div>
+
+        {reseatOpen && seats.length > 0 ? (
+          <div className="rts-cmd-pop">
+            <SeatsReseatPick seats={seats} onConfigure={reseat.request} onClose={() => setReseatOpen(false)} />
+          </div>
+        ) : null}
+      </div>
+      {reseat.dialog}
+    </div>
+  );
 }
 
 function RegionCommandCard({

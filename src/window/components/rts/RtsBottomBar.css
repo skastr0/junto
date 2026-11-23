@@ -790,3 +790,43 @@
   height: 100%;
   min-height: 80px;
 }
+
+/* Re-seat of several seats (SeatsReseat.tsx): a title, then the harness
+   list, which scrolls inside the pop. */
+.seats-reseat-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  padding: 8px;
+  outline: none;
+}
+
+.seats-reseat-pick__title {
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.seats-reseat-pick__note {
+  letter-spacing: var(--tracking-flat);
+  text-transform: none;
+}
+
+.seats-reseat-pick .agent-harness-pick {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.seats-reseat-pick .agent-harness-pick__list {
+  max-height: 260px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* What the last re-seat did. */
+.rts-cmd__reseat-line.is-failed {
+  color: var(--color-crimson-fg);
+}
