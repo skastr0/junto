@@ -472,3 +472,37 @@ describe("seat-state source: the seats link's feed", () => {
     expect(state.feeds().map(({ machine, event }) => `${machine} ${event.bindingId}`)).toEqual(["inst-remote seat-r"]);
   });
 });
+
+describe("current", () => {
+  const OTHER = InstallationId.make("inst-other");
+
+  it("a lost link turns that machine's seats not current and leaves another machine's alone", () => {
+    const state = makeState();
+    state.publish(ev("seat-r", "e1", "idle", 1), REMOTE);
+    state.publish(ev("seat-x", "e1", "idle", 2), OTHER);
+    state.linkLost(REMOTE);
+    expect(state.current("seat-r")).toBe(false);
+    expect(state.current("seat-x")).toBe(true);
+  });
+
+  it("a later State restores only its own binding", () => {
+    const state = makeState();
+    state.publish(ev("seat-r", "e1", "idle", 1), REMOTE);
+    state.publish(ev("seat-x", "e1", "idle", 2), REMOTE);
+    state.linkLost(REMOTE);
+    state.publish(ev("seat-r", "e2", "idle", 3), REMOTE);
+    expect(state.current("seat-r")).toBe(true);
+    expect(state.current("seat-x")).toBe(false);
+  });
+
+  it("never reported is not current, a remember with no machine never makes one current, reset clears", () => {
+    const state = makeState();
+    expect(state.current("seat-n")).toBe(false);
+    state.remember(ev("seat-m", "e1", "idle", 1));
+    expect(state.current("seat-m")).toBe(false);
+    state.publish(ev("seat-p", "e1", "idle", 2), REMOTE);
+    expect(state.current("seat-p")).toBe(true);
+    state.reset();
+    expect(state.current("seat-p")).toBe(false);
+  });
+});

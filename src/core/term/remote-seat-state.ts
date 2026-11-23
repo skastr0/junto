@@ -34,6 +34,13 @@ export class RemoteSeatState extends Context.Service<RemoteSeatState, {
   readonly events: () => ReadonlyArray<AgentSeatStateEvent>;
   /** Whether the machine running this seat last reported an occupant for it. */
   readonly occupied: (bindingId: string) => boolean;
+  /**
+   * Whether this core holds a reading for the seat that its machine reported
+   * over a link not lost since: a State with its machine makes it current, a
+   * lost link clears every binding of that machine, and a remember with no
+   * machine never makes one current.
+   */
+  readonly current: (bindingId: string) => boolean;
   readonly reset: () => void;
 }>()("@junto/RemoteSeatState") {}
 
@@ -51,6 +58,7 @@ export const makeRemoteSeatState = (): RemoteSeatState["Service"] => {
   const lastRemoteByBinding = new Map<string, AgentSeatStateEvent>();
   const remoteListeners = new Set<(event: AgentSeatStateEvent) => void>();
   const machineByBinding = new Map<string, InstallationId>();
+  const currentByBinding = new Map<string, InstallationId>();
   const feedListeners = new Set<(feed: RemoteSeatFeed) => void>();
 
   const remember = (event: AgentSeatStateEvent): void => {
@@ -65,11 +73,15 @@ export const makeRemoteSeatState = (): RemoteSeatState["Service"] => {
       remember(event);
       if (machine !== undefined && event.bindingId.length > 0) {
         machineByBinding.set(event.bindingId, machine);
+        currentByBinding.set(event.bindingId, machine);
         for (const listener of feedListeners) listener({ _tag: "State", machine, event });
       }
       for (const listener of remoteListeners) listener(event);
     },
     linkLost: (machine) => {
+      for (const [bindingId, owner] of currentByBinding) {
+        if (owner === machine) currentByBinding.delete(bindingId);
+      }
       for (const listener of feedListeners) listener({ _tag: "Lost", machine });
     },
     onState: (listener) => {
@@ -89,9 +101,11 @@ export const makeRemoteSeatState = (): RemoteSeatState["Service"] => {
       const event = lastRemoteByBinding.get(bindingId);
       return event !== undefined && event.state !== "gone";
     },
+    current: (bindingId) => currentByBinding.has(bindingId),
     reset: () => {
       lastRemoteByBinding.clear();
       machineByBinding.clear();
+      currentByBinding.clear();
     },
   });
 };
