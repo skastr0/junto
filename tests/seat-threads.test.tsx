@@ -693,6 +693,30 @@ describe("Threads in the seat's stage", () => {
     expect(state.messages.notes[0]?.text).toBe(text);
   });
 
+  it("says under the operator's own message that its seat does not have it yet, until it does", async () => {
+    const { state, source, change } = fake();
+    state.messages.notes = [
+      { messageId: "m1", author: "pty-lead", mine: false, text: "On it.", at: at(1, 2) },
+      { messageId: "m2", author: "you", mine: true, text: "Move them into junto.db.", at: at(1, 4), waiting: true },
+    ];
+    setSeatThreadsSource(source);
+    await render();
+    await click(q("seat-view-threads"));
+    const [theirs, mine] = all("seat-threads-message");
+    // Under the operator's block, the one wording, said politely; never on a seat's message.
+    const mark = mine!.querySelector<HTMLElement>('[data-testid="seat-threads-waiting"]')!;
+    expect(mark.textContent).toBe("Waiting for pty-lead. It arrives when the seat is back.");
+    expect(mark.getAttribute("role")).toBe("status");
+    expect(mine!.lastElementChild).toBe(mark);
+    expect(theirs!.querySelector('[data-testid="seat-threads-waiting"]')).toBeNull();
+
+    // Delivered: the read says so, and the mark goes. No timer.
+    state.messages.notes = state.messages.notes.map(({ waiting: _waiting, ...message }) => message);
+    change();
+    await flush();
+    expect(q("seat-threads-waiting")).toBeNull();
+  });
+
   it("draws a long id as one token that keeps the whole value", async () => {
     const { state, change } = await open();
     state.messages.notes = [

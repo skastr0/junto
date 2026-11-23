@@ -62,6 +62,8 @@ export type SeatThreadMessage = {
   readonly at: number;
   /** Files the mail carries, by reference into the content store. */
   readonly attachments?: ReadonlyArray<ContentRef>;
+  /** The operator's own mail that has not reached its seat yet; absent once it has, and on a seat's mail. */
+  readonly waiting?: true;
 };
 
 /** Threads in a page: the first on open, and each older page as the list nears its end. */
@@ -106,6 +108,7 @@ const messageOf = (message: MailThreadMessage): SeatThreadMessage => ({
   text: message.text,
   at: message.at,
   ...(message.attachments === undefined || message.attachments.length === 0 ? {} : { attachments: message.attachments }),
+  ...(message.waiting === true ? { waiting: true as const } : {}),
 });
 
 /** The source over main's threads IPC, or undefined while the bridge lacks it. */

@@ -19,7 +19,7 @@ import {
 } from "../../lib/seat-threads";
 import { deepActiveElement, focusPrimaryControl, recentGestureKind } from "../../lib/focus-ownership";
 import { mentionChipOf, openMention, subjectChipOf, type MentionChip } from "../../lib/mention-open";
-import { stripAuthorPreamble, threadHeadline } from "../../lib/thread-text";
+import { stripAuthorPreamble } from "../../lib/thread-text";
 import { useCanvas } from "../../lib/use-model";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
@@ -32,6 +32,8 @@ import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
 import { ResourceChip, ResourceGlyphMark, mentionMark } from "../ui/ResourceChip";
 import { MessageAttachments } from "./MessageAttachments";
 import { ThreadComposer } from "./ThreadComposer";
+import { ThreadHeadline } from "./ThreadHeadline";
+import { WaitingMark } from "./ThreadSignal";
 import { ThreadTime } from "./ThreadTime";
 import { rehypeThreadCodeWells, rehypeThreadInlineIds } from "./thread-inline-ids";
 import "./seat-threads.css";
@@ -147,28 +149,6 @@ function usePortraitOf(canvasName: string): (author: string) => string {
     }
     return (author: string): string => byTitle.get(author) ?? author;
   }, [nodes]);
-}
-
-/**
- * A thread's line as it is drawn: its words, with each long id as the token
- * whose whole value stays in the document (the stylesheet cuts what the eye
- * sees). A row is a button whose name is this text, so nothing here may cut an
- * id into a string.
- */
-function Headline({ text, known }: { readonly text: string; readonly known: ReadonlyArray<string> }) {
-  return (
-    <>
-      {threadHeadline(previewText(text), known).map((segment, index) =>
-        segment.id === undefined ? (
-          segment.text
-        ) : (
-          <span key={`${segment.id}-${String(index)}`} className="seat-threads__id">
-            {segment.id}
-          </span>
-        ),
-      )}
-    </>
-  );
 }
 
 /** How far from the list's end, in pixels, the next older page is asked for. */
@@ -290,7 +270,7 @@ function SeatThreads({
           </span>
         ) : null}
         <span className="seat-threads__row-preview">
-          <Headline text={item.last.text} known={[item.last.author]} />
+          <ThreadHeadline text={item.last.text} known={[item.last.author]} />
         </span>
       </button>
     </li>
@@ -480,7 +460,7 @@ export function ThreadChat({
           subject ? (
             <MentionChipView chip={subject} testId="seat-threads-subject" />
           ) : (
-            <Headline text={thread.title} known={thread.participants} />
+            <ThreadHeadline text={thread.title} known={thread.participants} />
           )
         }
         full={thread.title}
@@ -549,6 +529,8 @@ export function ThreadChat({
                   </div>
                 ) : null}
                 {message.attachments ? <MessageAttachments files={message.attachments} /> : null}
+                {/* The operator's own mail that its seat does not have yet. */}
+                {message.mine && message.waiting ? <WaitingMark name={name} /> : null}
               </article>
             );
           })}
