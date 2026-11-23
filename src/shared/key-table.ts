@@ -188,7 +188,7 @@ export type SurfaceKeyId =
   | "inQuickThread.pick"
   | "inQuickThread.another"
   | "inQuickThread.unpick"
-  | "inQuickThread.send"
+  | "inThread.send"
   | "inPreview.step"
   | "inPreview.compare"
   | "inPreview.zoom"
@@ -916,7 +916,8 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
   }),
 
   // Quick thread: the seat field is a combobox, so its keys are the ones a
-  // combobox owns, and the message is a thread input with its own.
+  // combobox owns. Tab stays the house combobox's (lib/combobox): it moves
+  // on. The message is a thread input, and sends as every thread does.
   surfaceKey({
     id: "inQuickThread.move",
     area: "Inside quick thread",
@@ -930,7 +931,7 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     area: "Inside quick thread",
     name: "Pick the seat",
     does: "Pick the seat and write the message; on a region, show only its seats",
-    keys: ["Enter", "Tab"],
+    keys: ["Enter"],
     where: ["field"],
   }),
   surfaceKey({
@@ -947,14 +948,6 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     name: "Take the last seat off",
     does: "With nothing typed in the seat field, take the last seat off",
     keys: ["Backspace"],
-    where: ["field"],
-  }),
-  surfaceKey({
-    id: "inQuickThread.send",
-    area: "Inside quick thread",
-    name: "Start the threads",
-    does: "Send the message as a new thread to each seat picked; Shift+Tab goes back to the seats",
-    keys: ["Enter"],
     where: ["field"],
   }),
   surfaceKey({
@@ -1222,6 +1215,16 @@ const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
     does: "Send the message being written",
     keys: ["Cmd+Enter"],
     keysOther: ["Ctrl+Enter"],
+    where: ["field"],
+  }),
+  // A thread's reply, and Quick thread's message: Enter sends, Shift+Enter
+  // is a new line. Quick thread sends one new thread to each seat picked.
+  surfaceKey({
+    id: "inThread.send",
+    area: "Writing a message",
+    name: "Send in a thread",
+    does: "Send the reply or the new thread; Shift+Enter is a new line",
+    keys: ["Enter"],
     where: ["field"],
   }),
   surfaceKey({

@@ -383,11 +383,15 @@ describe("threads", () => {
   it("gives quick thread's seat field and message the keys a combobox and a thread input own", () => {
     const row = (id: string) => KEY_TABLE.find((def) => def.id === id)!;
     expect(chordsFor(row("inQuickThread.move"), true)).toEqual(["ArrowDown", "ArrowUp"]);
-    expect(chordsFor(row("inQuickThread.pick"), true)).toEqual(["Enter", "Tab"]);
+    // Tab is the house combobox's: it moves on, never picks.
+    expect(chordsFor(row("inQuickThread.pick"), true)).toEqual(["Enter"]);
     expect(chordsFor(row("inQuickThread.another"), true)).toEqual(["Shift+Enter"]);
     expect(chordsFor(row("inQuickThread.unpick"), true)).toEqual(["Backspace"]);
-    expect(chordsFor(row("inQuickThread.send"), true)).toEqual(["Enter"]);
-    for (const id of ["inQuickThread.move", "inQuickThread.pick", "inQuickThread.another", "inQuickThread.unpick", "inQuickThread.send"]) {
+    // One send for every thread input, Quick thread's message included.
+    expect(chordsFor(row("inThread.send"), true)).toEqual(["Enter"]);
+    expect(row("inThread.send").area).toBe("Writing a message");
+    expect(KEY_TABLE.some((def) => def.id.startsWith("inQuickThread.") && def.name.startsWith("Send"))).toBe(false);
+    for (const id of ["inQuickThread.move", "inQuickThread.pick", "inQuickThread.another", "inQuickThread.unpick"]) {
       expect(row(id).surface, id).toBe(true);
       expect(row(id).area, id).toBe("Inside quick thread");
     }
