@@ -78,6 +78,8 @@ const rig = (
     noModel?: () => boolean;
     /** Whether this write into the seat rejects. */
     writeThrows?: () => boolean;
+    /** What one message read waits on before it answers; none by default. */
+    messageReadGate?: (messageId: string) => Promise<void> | undefined;
   } = {},
 ) => {
   const messages: Message[] = [];
@@ -97,6 +99,7 @@ const rig = (
       return options.canvas ?? crew;
     },
     readMessage: async (_canvas, _nodeId, messageId) => {
+      await options.messageReadGate?.(messageId);
       if (options.readThrows?.("message", messageId) === true) throw new Error("the message read failed");
       return messages.find((message) => message.messageId === messageId);
     },
@@ -547,6 +550,42 @@ describe("mail delivery", () => {
     seat.service.onSeatLive(bindingId);
     await settle();
     expect(seat.modelReads()).toBe(reads);
+  });
+
+  it("types no prompt whose message read was in flight at suspend, and leaves it in no waiting list", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const seat = rig({ messageReadGate: () => gate });
+    seat.append(mail("01A", "a prompt", "prompt"));
+    const asked = seat.service.deliver(canvas, nodeId, "01A");
+    await settle();
+    seat.restart();
+    release();
+    expect(await asked).toBe("waiting");
+    expect(seat.writes).toEqual([]);
+    // A waiting or held entry would be read and typed on this live event.
+    const reads = seat.modelReads();
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    expect(seat.modelReads()).toBe(reads);
+    expect(seat.writes).toEqual([]);
+  });
+
+  it("types no prompt still queued behind its seat's write at suspend", async () => {
+    const seat = rig({ writeMs: 300 });
+    seat.append(mail("01A", "first prompt", "prompt"));
+    seat.append(mail("01B", "second prompt", "prompt"));
+    const first = seat.service.deliver(canvas, nodeId, "01A");
+    const second = seat.service.deliver(canvas, nodeId, "01B");
+    // Both are past their reads: the first is typing, the second waits on the seat's chain.
+    await settle();
+    seat.service.suspend();
+    await Promise.all([first, second]);
+    await settle();
+    expect(seat.writes).toHaveLength(1);
+    expect(seat.writes[0]).toMatch(/first prompt/u);
   });
 
   it("holds no mail whose attempt failed after both reads, as a write that rejects", async () => {

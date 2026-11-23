@@ -568,9 +568,12 @@ export class MessageDeliveryService {
     }
     const node = doc?.nodes.get(asNodeId(nodeId));
     const message = await holding(store.readMessage(canvas, nodeId, messageId));
-    // Both reads answered: what follows delivers it, indexes it or finds it not
-    // pending. An older flight never lets go of a newer generation's hold.
-    if (this.active(generation)) this.unresolved.delete(key);
+    // A flight that outlived its generation goes no further: it would index,
+    // hand to a link or type with the transport it captured, and let go of a
+    // newer generation's hold.
+    if (!this.active(generation)) return waiting("delivery generation ended during the message read");
+    // Both reads answered: what follows delivers it, indexes it or finds it not pending.
+    this.unresolved.delete(key);
     const target = node === undefined ? undefined : this.targetHere(node);
     if (target === "elsewhere") {
       this.waiting.delete(key);
@@ -631,7 +634,11 @@ export class MessageDeliveryService {
       ...(attachmentLines === undefined ? {} : { attachmentLines }),
     });
     let state: MailDeliveryState = "waiting";
-    const written = await this.inSeatOrder(target.bindingId, () => transport.writeMail(target.bindingId, payload));
+    // The seat's chain can run this write after the generation ended: then it
+    // types nothing, and `landed` lets the mail go unstamped.
+    const written = await this.inSeatOrder(target.bindingId, () =>
+      this.active(generation) ? transport.writeMail(target.bindingId, payload) : Promise.resolve("lost" as const),
+    );
     await this.landed(
       { mail: [{ ...mail, settle: (answer) => { state = answer; } }], whole: [true], written },
       store,
