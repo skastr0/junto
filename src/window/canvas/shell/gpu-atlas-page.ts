@@ -13,7 +13,7 @@
 
 import { themeMode$ } from "../../lib/theme-mode";
 import { createGpuAtlas, browserRasterizers, type GpuAtlas } from "../engine/gpu-atlas";
-import type { AtlasPendingEntry, AtlasStats } from "../engine/types";
+import type { AtlasAudit, AtlasTexelAudit, AtlasPendingEntry, AtlasStats } from "../engine/types";
 import { pageDeviceKeeper } from "./gpu-device";
 
 const EMPTY_ATLAS_STATS: AtlasStats = {
@@ -47,6 +47,12 @@ export const pageGpuAtlasStats = (): AtlasStats => atlas?.stats() ?? EMPTY_ATLAS
 /** Bounded snapshot of queued or in-flight atlas cells (for proof diagnostics). */
 export const pageGpuAtlasPendingKeys = (limit = 200): ReadonlyArray<AtlasPendingEntry> =>
   atlas?.pendingKeys(limit) ?? [];
+
+/** The atlas's read-only invariant check, or null before first mount. */
+export const pageGpuAtlasAudit = (held?: ReadonlyMap<number, number>): AtlasAudit | null => atlas?.audit(held) ?? null;
+
+/** Texel readback of landed sprite cells against fresh rasters, or null before first mount. */
+export const pageGpuAtlasAuditTexels = (limit?: number): Promise<AtlasTexelAudit> | null => atlas?.auditTexels(limit) ?? null;
 
 /** The page's atlas, made on first use and kept for the page's life. */
 export const pageGpuAtlas = (): GpuAtlas => {

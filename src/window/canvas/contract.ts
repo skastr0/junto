@@ -851,6 +851,8 @@ export interface Engine {
    * portraits they or their badges lack (issue 912, rulings 3 and 6).
    */
   readonly seatStats?: () => SeatStats;
+  /** Atlas cells the draw records hold, with how many records hold each (the atlas audit's input). */
+  readonly heldCells?: () => ReadonlyMap<number, number>;
   readonly stats: () => EngineStats;
   readonly dispose: () => void;
 }

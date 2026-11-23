@@ -16,7 +16,7 @@
 import type { ColorRef, Quad, TextRun } from "../contract";
 import { gpuColorCss, themeGpu, type GpuColor, type GpuTheme, type ThemeMode } from "@shared/theme";
 import { NO_ATLAS_CELL } from "./quad";
-import { ATLAS_CELL_FLOATS, atlasBindBudget, type AtlasBinding, type AtlasDirtyCells, type AtlasPendingEntry, type AtlasStats } from "./types";
+import { ATLAS_CELL_FLOATS, atlasBindBudget, type AtlasBinding, type AtlasDirtyCells, type AtlasAudit, type AtlasAuditViolation, type AtlasTexelAudit, type AtlasTexelMismatch, type AtlasPendingEntry, type AtlasStats } from "./types";
 import { resolveColour } from "./styles";
 import { drawGlyph, glyphKnown } from "./glyphs";
 import {
@@ -124,6 +124,17 @@ export interface GpuAtlas {
   stats(): AtlasStats;
   /** Bounded diagnostic snapshot of pending (queued/rasterizing) cells. */
   pendingKeys(limit?: number): ReadonlyArray<AtlasPendingEntry>;
+  /**
+   * Read-only invariant check over the cell table (the zoom-corruption gate).
+   * `held` counts the references draw records hold per cell. Never mutates.
+   */
+  audit(held?: ReadonlyMap<number, number>): AtlasAudit;
+  /**
+   * Read back the texels of up to `limit` referenced, landed rgba cells and
+   * compare each with a fresh synchronous raster of its own quad at its own
+   * scale (the zoom-corruption gate). Read-only; resolves after the GPU copy.
+   */
+  auditTexels(limit?: number): Promise<AtlasTexelAudit>;
   readonly requests: number;
   readonly pending: number;
   /** Evict unreferenced decoded sources on a real memory-pressure event. */
@@ -1851,6 +1862,217 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     };
   };
 
+  /**
+   * Every row a quad can sample must name pixels that belong to its slot (or,
+   * for a stand-in, to the live slot it stands in for, with that slot's row
+   * exactly); no two live rects share texels; each plot's counts match its
+   * cells. Rows are compared as the Float32 values writeCellUV would store.
+   */
+  const audit = (held?: ReadonlyMap<number, number>): AtlasAudit => {
+    const counts: Record<string, number> = {};
+    const samples: AtlasAuditViolation[] = [];
+    const flag = (kind: string, cell: number, detail: string): void => {
+      counts[kind] = (counts[kind] ?? 0) + 1;
+      if (samples.length < 40) samples.push({ kind, cell, key: slots[cell]?.key ?? null, detail });
+    };
+    const rowOf = (i: number): number[] => Array.from(cells.subarray(i * ATLAS_CELL_FLOATS, i * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
+    const ownRow = (rec: SlotRecord): number[] | undefined => {
+      const at = rec.placed;
+      if (at === undefined) return undefined;
+      const pool = poolFor(at.pool);
+      const layer = at.page.pageIndex < pool.bindLimit ? at.page.pageIndex : 0;
+      const d = at.page.size;
+      return [at.x / d, at.y / d, (at.x + at.w) / d, (at.y + at.h) / d, layer, 0, 0, 0].map((v) => Math.fround(v));
+    };
+    const same = (a: number[], b: number[]): boolean => a.every((v, i) => v === b[i]);
+    const zero = (a: number[]): boolean => a.every((v) => v === 0);
+    const fmt = (a: number[] | undefined): string => (a === undefined ? "none" : a.slice(0, 5).map((v) => Number(v.toFixed(5))).join(","));
+    const aliasRefs = new Map<number, number>();
+    let checked = 0;
+    for (let i = 0; i < highWaterCells; i += 1) {
+      const rec = slots[i];
+      if (rec === undefined) continue;
+      checked += 1;
+      const row = rowOf(i);
+      if (rec.aliasOf !== undefined) {
+        aliasRefs.set(rec.aliasOf, (aliasRefs.get(rec.aliasOf) ?? 0) + 1);
+        const target = slots[rec.aliasOf];
+        if (target === undefined) {
+          flag("alias-target-freed", i, `aliasOf ${rec.aliasOf} is a free slot; row ${fmt(row)}`);
+          continue;
+        }
+        if (target.refCount <= 0) flag("alias-target-unreferenced", i, `aliasOf ${rec.aliasOf} refCount ${target.refCount}`);
+        const targetRow = rowOf(rec.aliasOf);
+        if (!same(row, targetRow)) {
+          flag("alias-row-stale", i, `row ${fmt(row)} target ${rec.aliasOf} (${target.key}) row ${fmt(targetRow)}`);
+        }
+        continue;
+      }
+      if (rec.standalone !== undefined) continue;
+      const own = ownRow(rec);
+      if (own !== undefined) {
+        if (rec.placed!.page.dead) flag("placed-on-dead-page", i, `page ${rec.placed!.page.pageIndex}`);
+        if (!rec.placed!.plot.cells.has(i)) flag("plot-missing-cell", i, `plot ${rec.placed!.plot.x0},${rec.placed!.plot.y0} page ${rec.placed!.page.pageIndex}`);
+        if (!same(row, own)) flag("row-not-own", i, `row ${fmt(row)} own ${fmt(own)} state ${rec.state}`);
+      } else if (!zero(row)) {
+        flag("row-without-pixels", i, `row ${fmt(row)} state ${rec.state}`);
+      }
+    }
+    // Overlap and plot bookkeeping, per pool page.
+    for (const pool of [rgbaPool, coveragePool]) {
+      for (const page of pool.pages) {
+        if (page.dead) continue;
+        const rects: Array<{ i: number; x: number; y: number; w: number; h: number }> = [];
+        for (const plot of page.plots) {
+          let pinned = 0;
+          for (const idx of plot.cells) {
+            const rec = slots[idx];
+            if (rec === undefined) {
+              flag("plot-holds-free-slot", idx, `plot ${plot.x0},${plot.y0} page ${page.pageIndex} ${pool.kind}`);
+              continue;
+            }
+            if (rec.placed === undefined || rec.placed.plot !== plot) {
+              flag("plot-cell-placed-elsewhere", idx, `plot ${plot.x0},${plot.y0} page ${page.pageIndex}`);
+              continue;
+            }
+            if (rec.refCount > 0) pinned += 1;
+            rects.push({ i: idx, x: rec.placed.x, y: rec.placed.y, w: rec.placed.w, h: rec.placed.h });
+          }
+          if (pinned !== plot.pinnedCount) {
+            flag("plot-pinned-miscount", plot.cells.values().next().value ?? -1, `plot ${plot.x0},${plot.y0} page ${page.pageIndex} ${pool.kind}: pinnedCount ${plot.pinnedCount}, referenced cells ${pinned}`);
+          }
+        }
+        rects.sort((a, b) => a.x - b.x);
+        for (let a = 0; a < rects.length; a += 1) {
+          const ra = rects[a]!;
+          for (let b = a + 1; b < rects.length && rects[b]!.x < ra.x + ra.w; b += 1) {
+            const rb = rects[b]!;
+            if (rb.y < ra.y + ra.h && ra.y < rb.y + rb.h) {
+              flag("rects-overlap", ra.i, `${pool.kind} page ${page.pageIndex}: cell ${ra.i} ${ra.x},${ra.y} ${ra.w}x${ra.h} overlaps cell ${rb.i} ${rb.x},${rb.y} ${rb.w}x${rb.h}`);
+            }
+          }
+        }
+      }
+    }
+    // References the draw records hold.
+    let heldCells = 0;
+    if (held !== undefined) {
+      for (const [cell, n] of held) {
+        heldCells += 1;
+        const rec = slots[cell];
+        if (rec === undefined) {
+          flag("held-cell-freed", cell, `${n} quad(s) hold a free slot; row ${fmt(cell < highWaterCells ? rowOf(cell) : undefined)}`);
+          continue;
+        }
+        const own = rec.refCount - (aliasRefs.get(cell) ?? 0);
+        if (own < n) flag("held-cell-underreferenced", cell, `${n} quad(s) hold it, refCount ${rec.refCount} (${aliasRefs.get(cell) ?? 0} from stand-ins)`);
+      }
+    }
+    return { checked, heldCells, counts, samples };
+  };
+
+  const auditTexels = async (limit = 400): Promise<AtlasTexelAudit> => {
+    const result: { checked: number; skipped: Record<string, number>; mismatches: AtlasTexelMismatch[]; worst: number } = {
+      checked: 0,
+      skipped: {},
+      mismatches: [],
+      worst: 0,
+    };
+    const skip = (why: string): void => {
+      result.skipped[why] = (result.skipped[why] ?? 0) + 1;
+    };
+    if (device === undefined || typeof document === "undefined" || typeof device.createBuffer !== "function") {
+      skip("no-device");
+      return result;
+    }
+    const dev = device;
+    type Job = { rec: SlotRecord; at: Placed; want: Uint8ClampedArray; buffer: GPUBuffer; stride: number; key: string };
+    const jobs: Job[] = [];
+    const encoder = dev.createCommandEncoder();
+    for (let i = 0; i < highWaterCells && jobs.length < limit; i += 1) {
+      const rec = slots[i];
+      if (rec === undefined || rec.refCount <= 0) continue;
+      if (rec.state !== "landed" || rec.aliasOf !== undefined || rec.standalone !== undefined) continue;
+      const at = rec.placed;
+      if (at === undefined || at.pool !== "rgba" || at.page.dead) continue;
+      if (rec.desc === undefined || rec.desc.kind !== "sprite") {
+        skip("no-desc");
+        continue;
+      }
+      let px: AtlasPixels | undefined;
+      try {
+        px = rasterizeSync(rec.desc);
+      } catch {
+        px = undefined;
+      }
+      if (px === undefined) {
+        skip("no-sync-raster");
+        continue;
+      }
+      if (px.width !== at.w || px.height !== at.h) {
+        result.mismatches.push({ cell: i, key: rec.key, meanDiff: 255, badFraction: 1, detail: `box ${at.w}x${at.h}, fresh raster ${px.width}x${px.height}`, page: at.page.pageIndex, x: at.x, y: at.y, w: at.w, h: at.h });
+        continue;
+      }
+      // Take the fresh raster now: a sync raster may be a view of the shared scratch.
+      const own = document.createElement("canvas");
+      own.width = at.w;
+      own.height = at.h;
+      const octx = own.getContext("2d", { willReadFrequently: true });
+      if (octx === null) {
+        skip("no-2d");
+        continue;
+      }
+      const src = ("source" in px ? px.source : px) as CanvasImageSource;
+      octx.drawImage(src, 0, 0, at.w, at.h, 0, 0, at.w, at.h);
+      const want = octx.getImageData(0, 0, at.w, at.h).data;
+      const stride = Math.ceil((at.w * 4) / 256) * 256;
+      const buffer = dev.createBuffer({ size: stride * at.h, usage: 0x0001 | 0x0008 }); // MAP_READ | COPY_DST
+      encoder.copyTextureToBuffer(
+        { texture: at.page.texture, mipLevel: 0, origin: { x: at.x, y: at.y, z: 0 } },
+        { buffer, bytesPerRow: stride, rowsPerImage: at.h },
+        { width: at.w, height: at.h, depthOrArrayLayers: 1 },
+      );
+      jobs.push({ rec, at, want, buffer, stride, key: rec.key });
+    }
+    dev.queue.submit([encoder.finish()]);
+    for (const job of jobs) {
+      try {
+        await job.buffer.mapAsync(0x0001);
+      } catch {
+        skip("map-failed");
+        job.buffer.destroy();
+        continue;
+      }
+      const got = new Uint8Array(job.buffer.getMappedRange().slice(0));
+      job.buffer.unmap();
+      job.buffer.destroy();
+      const { w, h } = job.at;
+      let sum = 0;
+      let bad = 0;
+      for (let y = 0; y < h; y += 1) {
+        for (let x = 0; x < w; x += 1) {
+          const g = y * job.stride + x * 4;
+          const s = (y * w + x) * 4;
+          // Compare premultiplied, so a colour under zero alpha never counts.
+          const ga = got[g + 3]! / 255;
+          const sa = job.want[s + 3]! / 255;
+          let d = Math.abs(got[g + 3]! - job.want[s + 3]!);
+          for (let c = 0; c < 3; c += 1) d = Math.max(d, Math.abs(got[g + c]! * ga - job.want[s + c]! * sa));
+          sum += d;
+          if (d > 64) bad += 1;
+        }
+      }
+      result.checked += 1;
+      const meanDiff = sum / Math.max(1, w * h);
+      const badFraction = bad / Math.max(1, w * h);
+      result.worst = Math.max(result.worst, meanDiff);
+      if (meanDiff > 12 && badFraction > 0.02) {
+        result.mismatches.push({ cell: job.rec.index, key: job.key, meanDiff, badFraction, detail: `state ${job.rec.state}`, page: job.at.page.pageIndex, x: job.at.x, y: job.at.y, w, h });
+      }
+    }
+    return result;
+  };
+
   const pendingKeys = (limit = 200): ReadonlyArray<AtlasPendingEntry> => {
     const cap = Math.max(0, Math.floor(limit));
     if (cap === 0) return [];
@@ -2026,6 +2248,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     revision: () => revision,
     stats,
     pendingKeys,
+    audit,
+    auditTexels,
     get requests() {
       return requests;
     },

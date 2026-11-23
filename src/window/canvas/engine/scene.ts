@@ -638,6 +638,17 @@ export const createScene = (options: {
     }
   };
 
+  /** Every cell a record's source word holds, with how many records hold it (read-only). */
+  const heldCells = (): Map<number, number> => {
+    const out = new Map<number, number>();
+    for (let slot = 0; slot < quadCount; slot += 1) {
+      const cell = cellOf(slot);
+      if (cell === NO_ATLAS_CELL) continue;
+      out.set(cell, (out.get(cell) ?? 0) + 1);
+    }
+    return out;
+  };
+
   /** Let go of whatever the record holds. */
   const dropCell = (slot: number): void => {
     const at = slot * QUAD_FLOATS + SOURCE_WORD;
@@ -3022,6 +3033,7 @@ export const createScene = (options: {
     drawnAt,
     drawnReach,
     seatStats,
+    heldCells,
     badgePartsOf,
     clusters,
     /** Build the draw list for a GPU cull (every tier) or the CPU one (the current tier only). */

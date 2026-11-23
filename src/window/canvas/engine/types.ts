@@ -98,3 +98,41 @@ export type AtlasPendingEntry = {
   readonly sourceRef: string | null;
   readonly attempts: number;
 };
+
+/** One broken cell-table invariant, as `GpuAtlas.audit` found it. */
+export type AtlasAuditViolation = {
+  readonly kind: string;
+  readonly cell: number;
+  readonly key: string | null;
+  readonly detail: string;
+};
+
+/** The atlas's read-only invariant check: counts by kind and the first violations. */
+export type AtlasAudit = {
+  readonly checked: number;
+  readonly heldCells: number;
+  readonly counts: Readonly<Record<string, number>>;
+  readonly samples: ReadonlyArray<AtlasAuditViolation>;
+};
+
+/** One landed cell whose texels differ from a fresh raster of its own quad. */
+export type AtlasTexelMismatch = {
+  readonly cell: number;
+  readonly key: string;
+  readonly meanDiff: number;
+  readonly badFraction: number;
+  readonly detail: string;
+  readonly page: number;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+};
+
+/** The atlas's texel readback check over referenced, landed sprite cells. */
+export type AtlasTexelAudit = {
+  readonly checked: number;
+  readonly skipped: Readonly<Record<string, number>>;
+  readonly mismatches: ReadonlyArray<AtlasTexelMismatch>;
+  readonly worst: number;
+};

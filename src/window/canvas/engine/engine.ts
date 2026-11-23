@@ -1021,6 +1021,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     ringAngle: (id) => scene.ringAngle(id, wallNow()),
     partsOf: (id) => scene.partsOf(id),
     seatStats: () => scene.seatStats(),
+    heldCells: () => scene.heldCells(),
     setCull: (mode) => {
       scene.setCullOnGpu(mode === "gpu");
       renderer.setCull(mode);

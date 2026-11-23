@@ -8,11 +8,11 @@
 import type { CanvasTestHook, DrawnCluster, DrawnPart, Hit, NodeId, Part, Point, Rect, SeatStats } from "../contract";
 import { farSeatScale, seatFloorScale } from "@shared/canvas-tier";
 import type { SeamEngine } from "../engine/engine";
-import type { AtlasPendingEntry, AtlasStats } from "../engine/types";
+import type { AtlasAudit, AtlasTexelAudit, AtlasPendingEntry, AtlasStats } from "../engine/types";
 import type { GpuErrors } from "../engine/device";
 import { drawnMinimap } from "../../components/FactoryMinimap";
 import type { MapPaint, PackedMap } from "../../components/minimap-draw";
-import { pageGpuAtlasPendingKeys, pageGpuAtlasStats } from "./gpu-atlas-page";
+import { pageGpuAtlasAudit, pageGpuAtlasAuditTexels, pageGpuAtlasPendingKeys, pageGpuAtlasStats } from "./gpu-atlas-page";
 import { pageDeviceKeeper } from "./gpu-device";
 import { engineStats } from "./gpu-canvas-api";
 import type { SurfaceMirror } from "./surface-mirror";
@@ -49,6 +49,10 @@ type FullHook = CanvasTestHook & {
   readonly setCull: (mode: "cpu" | "gpu") => void;
   /** GPU errors no error scope caught (a failed frame presents nothing): a gate requires a count of 0. */
   readonly gpuErrors: () => GpuErrors;
+  /** The atlas's cell-table invariants against the cells the draw records hold (zoom-corruption gate). */
+  readonly atlasAudit: () => AtlasAudit | null;
+  /** Texel readback of referenced landed sprite cells against fresh rasters of their own quads. */
+  readonly atlasAuditTexels: (limit?: number) => Promise<AtlasTexelAudit> | null;
   /** The map and placement the minimap last drew, for the SVG parity check (issue 912). */
   readonly minimapDrawn: () => { readonly map: PackedMap; readonly paint: MapPaint } | undefined;
 };
@@ -184,6 +188,8 @@ const build = (
     atlasStats,
     pendingKeys: pageGpuAtlasPendingKeys,
     gpuErrors: () => pageDeviceKeeper().errors(),
+    atlasAudit: () => pageGpuAtlasAudit(engine()?.heldCells?.()),
+    atlasAuditTexels: (limit) => pageGpuAtlasAuditTexels(limit),
     minimapDrawn: drawnMinimap,
     wireStats,
     ...(pulse === undefined ? {} : { pulse }),
