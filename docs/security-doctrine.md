@@ -166,10 +166,16 @@ Its own seat is never in the set, and no seat is in it twice. It is the
 overseer's own mail, written by its own seat as its `msg.send` writes it, one
 new thread per seat, never with the operator's role or name, so it grants
 nothing a single send does not. The overseer may ask whom a set reaches
-without sending anything. A send names the count it expects, and may name the
-set's digest; the machine reads the set again at the send, behind the live
-grant, and when either differs it refuses the whole send and writes nothing.
-An ordinary seat has no broadcast.
+without sending anything. A set holds at most 200 seats; a larger one is
+refused whole, by the ask as by the send. Its digest is SHA-256 over the seat
+node ids of the set, sorted and joined by newlines, shown as its first 16 hex
+characters, and carries nothing else: no names, no text, no canvas. A send
+names the count it expects, and may name the digest. Every mailbox row of a
+send is written in one transaction, with the live grant and the set read
+again inside it: when the count or the digest differs, the grant is gone, or
+any row fails, nothing is written and no thread is made. A timeout may mean
+the send completed, and it is never replayed. An ordinary seat has no
+broadcast.
 
 The agent-run exercise uses disposable cores and homes. Its external controller
 can use their owner commands from an environment without a seat credential;
