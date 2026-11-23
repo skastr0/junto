@@ -382,6 +382,9 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       }
       for (const signal of frame.signals) {
         const home = placement.seatOf(signal.nodeId)?.machine;
+        // A seat this machine no longer places, deleted while the frame was in
+        // flight: the signal writes nothing and the link stays open.
+        if (home === undefined) continue;
         const raised = home === peer && placement.editor === deps.self;
         const closedByEditor = peer === placement.editor && home === deps.self;
         if (raised) {
