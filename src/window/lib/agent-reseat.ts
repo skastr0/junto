@@ -7,12 +7,18 @@ import type { Seat } from "@shared/model";
 import { asCanvasName, type Command, type NodeOf } from "@shared/model";
 import { seatParts, type SeatChoices } from "@shared/model/seat-parts";
 import { templateFor, type HarnessId } from "@shared/managed-terminal-templates";
-import type { AgentConfigurationChoices } from "../components/node-palette/agent-launch-model";
+import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
+import { profileFromAgentKey } from "@shared/harness-records";
+import {
+  withHarnessSettingsDefaults,
+  type AgentConfigurationChoices,
+} from "../components/node-palette/agent-launch-model";
 import { getJuntoApi } from "./junto-api";
 import { commitCommands } from "./mutations";
 import { openTerminal } from "./terminal-actions";
 import { terminal$ } from "./terminal-state";
 import { nodeAt } from "./use-model";
+import { state$ } from "./state";
 import {
   closeTerminalView,
 } from "./dock-state";
@@ -46,10 +52,51 @@ export const reseatChoicesFromConfiguration = (
   ...(choices.model ? { model: choices.model } : {}),
   ...(choices.effort ? { effort: choices.effort } : {}),
   ...(choices.mode ? { mode: choices.mode } : {}),
+  ...(choices.permissionMode ? { permissionMode: choices.permissionMode } : {}),
+  ...(choices.extraArgs && choices.extraArgs.length > 0 ? { extraArgs: choices.extraArgs } : {}),
   ...(cwd ? { cwd } : {}),
 });
 
 type ReseatResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
+
+/** What a re-seat of several seats did, seat by seat. */
+export type ReseatOutcome = {
+  readonly moved: readonly string[];
+  /** Already on that exact pick, so left alone. */
+  readonly unchanged: readonly string[];
+  readonly failed: ReadonlyArray<{ readonly id: string; readonly message: string }>;
+};
+
+/**
+ * The pick a seat on `host` is re-seated to: the operator's choices over
+ * Settings > Agents defaults for that machine, as a new seat of the same pick
+ * would launch.
+ */
+export const reseatPickFor = (choices: AgentConfigurationChoices, host: string): AgentConfigurationChoices =>
+  withHarnessSettingsDefaults(choices, state$.settings.peek(), host);
+
+const sameArgs = (left: readonly string[] | undefined, right: readonly string[] | undefined): boolean => {
+  const a = left ?? [];
+  const b = right ?? [];
+  return a.length === b.length && a.every((token, at) => token === b[at]);
+};
+
+/** Whether the seat already launches exactly as `pick` would: same harness and every dial. */
+export const seatRunsPick = (seat: Seat, pick: AgentConfigurationChoices): boolean => {
+  if (seat.harness !== pick.harness) return false;
+  const current = recoverDocumentLaunchChoices(seat.harness, seat.launch);
+  const profile = current.profile ?? profileFromAgentKey(seat.harness, seat.agentKey);
+  return (
+    (current.model ?? "") === (pick.model ?? "") &&
+    (current.effort ?? "") === (pick.effort ?? "") &&
+    (current.mode ?? "") === (pick.mode ?? "") &&
+    (current.permissionMode ?? "") === (pick.permissionMode ?? "") &&
+    (profile ?? "") === (pick.profile ?? "") &&
+    // A re-seat carries no provider: a seat that has one launches differently.
+    current.provider === undefined &&
+    sameArgs(current.extraArgs, pick.extraArgs)
+  );
+};
 
 /**
  * The command that puts another agent in a seat: a new agent key, a fresh
@@ -81,20 +128,7 @@ export const reseatCommand = (
   };
 };
 
-/**
- * Re-seat a seat onto another harness: stop the old process, say the Reseat,
- * and open the terminal again if it was open. The seat is read from the node
- * store by canvas and id, as it stands when the operator confirms.
- */
-export const reseatSeat = async (
-  canvas: string,
-  id: string,
-  choices: AgentConfigurationChoices,
-): Promise<ReseatResult> => {
-  const seat = nodeAt(canvas, id);
-  if (seat?.kind !== "agent") return { ok: false, message: "not an agent seat" };
-  const surfaceWasOpen = Boolean(terminal$.openByNodeId[id].peek());
-
+const stopSeatProcess = async (seat: Seat): Promise<void> => {
   try {
     await getJuntoApi()?.terminalKill?.(seat.bindingId, seat.host);
     try {
@@ -106,20 +140,85 @@ export const reseatSeat = async (
     // Still reseat: the stale process may already be gone.
     console.warn("[agent-reseat] kill prior seat failed", error instanceof Error ? error.message : error);
   }
+};
 
-  // Drop the open surface before the binding changes, so attach cannot race.
-  if (surfaceWasOpen) closeTerminalView(id);
+/** Say the commands as one act and wait for main to take or refuse it. */
+const sayReseats = (commands: ReadonlyArray<Command>): Promise<string | undefined> =>
+  new Promise((resolve) => {
+    let said = false;
+    commitCommands(
+      () => {
+        said = true;
+        return commands;
+      },
+      { onTaken: () => resolve(undefined), onRefused: (reason) => resolve(reason) },
+    );
+    // The canvas was not open for edits: nothing was said, so nothing moved.
+    if (!said) resolve("the canvas is not open for edits");
+  });
 
-  let command: Command;
-  try {
-    command = reseatCommand(canvas, seat, choices);
-  } catch (error: unknown) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+/**
+ * Re-seat several seats onto one pick: one Reseat command a seat, said as one
+ * act. Each seat gets the pick over its own machine's Settings defaults, so it
+ * launches like a new seat of that pick on that machine. A seat already on
+ * that exact pick is left alone and counted; a node that is not a seat fails.
+ * Each old process is stopped and each open terminal is opened again.
+ */
+export const reseatSeats = async (
+  canvas: string,
+  ids: readonly string[],
+  choices: AgentConfigurationChoices,
+): Promise<ReseatOutcome> => {
+  const unchanged: string[] = [];
+  const failed: Array<{ readonly id: string; readonly message: string }> = [];
+  const plans: Array<{ readonly seat: Seat; readonly command: Command; readonly surfaceWasOpen: boolean }> = [];
+  for (const id of new Set(ids)) {
+    const seat = nodeAt(canvas, id);
+    if (seat?.kind !== "agent") {
+      failed.push({ id, message: "not an agent seat" });
+      continue;
+    }
+    const pick = reseatPickFor(choices, seat.host);
+    if (seatRunsPick(seat, pick)) {
+      unchanged.push(id);
+      continue;
+    }
+    try {
+      plans.push({
+        seat,
+        command: reseatCommand(canvas, seat, pick),
+        surfaceWasOpen: Boolean(terminal$.openByNodeId[id].peek()),
+      });
+    } catch (error: unknown) {
+      failed.push({ id, message: error instanceof Error ? error.message : String(error) });
+    }
   }
-  commitCommands(() => [command]);
+  if (plans.length === 0) return { moved: [], unchanged, failed };
 
-  if (surfaceWasOpen) {
-    await openTerminal(canvas, id);
+  await Promise.all(plans.map((plan) => stopSeatProcess(plan.seat)));
+  // Drop each open surface before its binding changes, so attach cannot race.
+  for (const plan of plans) if (plan.surfaceWasOpen) closeTerminalView(plan.seat.id);
+
+  const refused = await sayReseats(plans.map((plan) => plan.command));
+  if (refused !== undefined) {
+    return { moved: [], unchanged, failed: [...failed, ...plans.map((plan) => ({ id: plan.seat.id, message: refused }))] };
   }
-  return { ok: true };
+  for (const plan of plans) {
+    if (plan.surfaceWasOpen) await openTerminal(canvas, plan.seat.id);
+  }
+  return { moved: plans.map((plan) => plan.seat.id), unchanged, failed };
+};
+
+/**
+ * Re-seat one seat: `reseatSeats` with one id. The seat is read from the node
+ * store by canvas and id, as it stands when the operator confirms.
+ */
+export const reseatSeat = async (
+  canvas: string,
+  id: string,
+  choices: AgentConfigurationChoices,
+): Promise<ReseatResult> => {
+  const outcome = await reseatSeats(canvas, [id], choices);
+  const failure = outcome.failed[0];
+  return failure ? { ok: false, message: failure.message } : { ok: true };
 };

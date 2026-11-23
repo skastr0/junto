@@ -8,9 +8,12 @@ import { note } from "./support/model-nodes";
 import {
   readSkipReseatConfirm,
   reseatChoicesFromConfiguration,
+  reseatSeats,
   seatLaunchCwd,
+  seatRunsPick,
   writeSkipReseatConfirm,
 } from "../src/window/lib/agent-reseat";
+import { recoverDocumentLaunchChoices } from "../src/shared/launch-choices";
 
 describe("reseatChoicesFromConfiguration", () => {
   it("maps cascade picks into seat options", () => {
@@ -27,6 +30,17 @@ describe("reseatChoicesFromConfiguration", () => {
       model: "m",
       effort: "high",
     });
+  });
+
+  it("keeps the permission mode and the extra arguments", () => {
+    expect(
+      reseatChoicesFromConfiguration({
+        harness: "claude",
+        model: "opus",
+        permissionMode: "plan",
+        extraArgs: ["--verbose"],
+      }),
+    ).toEqual({ harness: "claude", model: "opus", permissionMode: "plan", extraArgs: ["--verbose"] });
   });
 });
 
@@ -114,5 +128,67 @@ describe("reseatSeat: a re-seat said as one command", () => {
     } finally {
       release();
     }
+  });
+});
+
+/**
+ * Several seats re-seated onto one pick, as one act: a seat already on that
+ * exact pick is left alone, a node that is not a seat fails, and every other
+ * seat moves.
+ */
+describe("reseatSeats: one pick for many seats", () => {
+  const seatAt = (label: string, choices: Omit<Parameters<typeof newSeat>[1], "host">) =>
+    newSeat({ x: 0, y: 0, z: 1 }, { host: "studio", cwd: `/Users/me/Projects/${label}`, label, ...choices });
+
+  it("moves every seat not already on the pick, in one act, and counts the rest", async () => {
+    const onClaude = seatAt("a", { harness: "claude" });
+    const onCodex = seatAt("b", { harness: "codex", model: "gpt-5" });
+    const already = seatAt("c", { harness: "claude", model: "opus", effort: "xhigh", permissionMode: "plan" });
+    state$.canvasName.set("factory");
+    const release = modelStore.adopt({
+      canvas: asCanvasName("factory"),
+      seq: 0,
+      nodes: [onClaude, onCodex, already, note("n")],
+      wires: [],
+    });
+    try {
+      const pick = { harness: "claude", model: "opus", effort: "xhigh", permissionMode: "plan" } as const;
+      expect(seatRunsPick(already, pick)).toBe(true);
+      const outcome = await reseatSeats("factory", [onClaude.id, onCodex.id, already.id, "n"], pick);
+      expect(outcome).toEqual({
+        moved: [onClaude.id, onCodex.id],
+        unchanged: [already.id],
+        failed: [{ id: "n", message: "not an agent seat" }],
+      });
+      const nodes = modelStore.canvasOf("factory").nodes;
+      for (const seat of [onClaude, onCodex]) {
+        const after = nodes.get(seat.id);
+        expect(after?.kind).toBe("agent");
+        if (after?.kind !== "agent") continue;
+        expect(after.harness).toBe("claude");
+        expect(after.label).toBe(seat.label);
+        expect(after.launch?.cwd).toBe(seat.launch?.cwd);
+        expect(after.bindingId).not.toBe(seat.bindingId);
+        // Every dial of the pick reaches the launch, permission mode included.
+        expect(recoverDocumentLaunchChoices("claude", after.launch)).toMatchObject({
+          model: "opus",
+          effort: "xhigh",
+          permissionMode: "plan",
+        });
+      }
+      // The seat already on the pick keeps its binding: its process was not touched.
+      const kept = nodes.get(already.id);
+      expect(kept?.kind === "agent" ? kept.bindingId : undefined).toBe(already.bindingId);
+    } finally {
+      release();
+    }
+  });
+
+  it("a seat on the same harness with another dial is not on the pick", () => {
+    const seat = seatAt("d", { harness: "claude", model: "opus" });
+    expect(seatRunsPick(seat, { harness: "claude", model: "opus" })).toBe(true);
+    expect(seatRunsPick(seat, { harness: "claude", model: "opus", effort: "high" })).toBe(false);
+    expect(seatRunsPick(seat, { harness: "claude" })).toBe(false);
+    expect(seatRunsPick(seat, { harness: "codex", model: "opus" })).toBe(false);
   });
 });
