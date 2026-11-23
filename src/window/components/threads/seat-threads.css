@@ -211,6 +211,12 @@
   min-height: 0;
 }
 
+/* Round the chat's parts, to hear the operator act in any of them. It has no
+   box of its own: the parts lie in the column that holds the chat. */
+.seat-threads__acts {
+  display: contents;
+}
+
 .seat-threads__chat-head {
   display: flex;
   flex-direction: column;

@@ -306,19 +306,71 @@ describe("the Threads half of the switch", () => {
     expect(q("seat-view-threads")?.textContent).toBe("Threads3");
   });
 
-  it("marks the thread it shows as read, and the count goes with it", async () => {
+  /** The operator acts inside the chat: a press, a key, the wheel, a touch scroll. */
+  const actInChat = async (type: string) => {
+    act(() => {
+      q("seat-threads-stream")!.dispatchEvent(new Event(type, { bubbles: true }));
+    });
+    await flush();
+  };
+
+  it("leaves a thread unread that shows only because it is first, and reads it at one press in its chat", async () => {
     const fixture = fake();
     fixture.state.threads = [thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20), unread: 2 })];
     setSeatThreadsSource(fixture.source);
     await render();
     expect(q("seat-view-threads")?.textContent).toBe("Threads2");
 
+    // Opened on Threads, nothing touched: the first thread shows, with the
+    // keyboard set in its reply, and it is still unread.
     await click(q("seat-view-threads"));
+    expect(q("seat-threads-stream")).not.toBeNull();
+    expect(document.activeElement).toBe(q("thread-composer-input"));
+    expect(fixture.marks).toEqual([]);
+    expect(q("seat-threads-row-unread")).not.toBeNull();
+    expect(q("seat-view-threads")?.textContent).toBe("Threads2");
+
+    // One press in the chat: read, and the count goes with it.
+    await actInChat("pointerdown");
     expect(fixture.marks[0]).toEqual({ canvasName: "factory", seatId: "seat-1", threadId: "notes" });
-    // Every mark is for the thread on screen; main writes nothing once the point has moved.
+    // Every mark is for that thread; main writes nothing once the point has moved.
     expect(new Set(fixture.marks.map((mark) => mark.threadId))).toEqual(new Set(["notes"]));
     expect(q("seat-threads-row-unread")).toBeNull();
     expect(q("seat-view-threads")?.textContent).toBe("Threads");
+  });
+
+  it.each([
+    ["a key", "keydown"],
+    ["the wheel", "wheel"],
+    ["a touch scroll", "touchmove"],
+  ])("reads the first thread at %s inside its chat", async (_what, type) => {
+    const fixture = fake();
+    fixture.state.threads = [thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20), unread: 2 })];
+    setSeatThreadsSource(fixture.source);
+    await render();
+    await click(q("seat-view-threads"));
+    expect(fixture.marks).toEqual([]);
+    await actInChat(type);
+    expect(fixture.marks[0]).toEqual({ canvasName: "factory", seatId: "seat-1", threadId: "notes" });
+    expect(q("seat-view-threads")?.textContent).toBe("Threads");
+  });
+
+  it("reads the thread the operator picks from the list, and no other", async () => {
+    const fixture = fake();
+    fixture.state.threads = [
+      thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20), unread: 2 }),
+      thread({ threadId: "banner", title: "Cache banner", lastAt: at(0, 58), unread: 1 }),
+    ];
+    setSeatThreadsSource(fixture.source);
+    await render();
+    await click(q("seat-view-threads"));
+    expect(fixture.marks).toEqual([]);
+
+    await click(document.querySelector('[data-testid="seat-threads-row"][data-thread-id="banner"]'));
+    expect(new Set(fixture.marks.map((mark) => mark.threadId))).toEqual(new Set(["banner"]));
+    // The first thread was shown and never chosen: it still counts.
+    expect(fixture.state.threads.find((item) => item.threadId === "notes")?.unread).toBe(2);
+    expect(q("seat-view-threads")?.textContent).toBe("Threads2");
   });
 
   it("reads mail that lands in the thread on screen, so the row never counts what is in front of the operator", async () => {
@@ -327,6 +379,8 @@ describe("the Threads half of the switch", () => {
     setSeatThreadsSource(fixture.source);
     await render();
     await click(q("seat-view-threads"));
+    // The operator picks it; from then on it is the thread in front of them.
+    await click(q("seat-threads-row"));
     expect(fixture.state.threads[0]?.unread).toBe(0);
 
     // Mail arrives in the thread on screen: the seat reads again, and the row is read at once.
@@ -523,7 +577,7 @@ describe("the switch", () => {
     expect(document.activeElement).toBe(tab("threads"));
   });
 
-  it("marks nothing read behind Terminal, and reads what is on screen when Threads shows again", async () => {
+  it("marks nothing read behind Terminal, and reads the picked thread when Threads shows again", async () => {
     const fixture = fake();
     fixture.state.threads = [thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20), unread: 2 })];
     setSeatThreadsSource(fixture.source);
@@ -532,7 +586,11 @@ describe("the switch", () => {
     expect(fixture.marks).toEqual([]);
     expect(tab("threads").textContent).toBe("Threads2");
 
+    // Shown because it is first, not because it was chosen: still unread.
     await click(tab("threads"));
+    expect(fixture.marks).toEqual([]);
+    expect(tab("threads").textContent).toBe("Threads2");
+    await click(q("seat-threads-row"));
     expect(fixture.marks.length).toBeGreaterThan(0);
     expect(tab("threads").textContent).toBe("Threads");
 
@@ -546,7 +604,7 @@ describe("the switch", () => {
     expect(fixture.state.threads[0]?.unread).toBe(1);
     expect(tab("threads").textContent).toBe("Threads1");
 
-    // Threads shows again: the thread is on screen, so it is read.
+    // Threads shows again: the thread the operator picked is on screen, so it is read.
     await click(tab("threads"));
     expect(fixture.marks.length).toBeGreaterThan(marked);
     expect(fixture.state.threads[0]?.unread).toBe(0);

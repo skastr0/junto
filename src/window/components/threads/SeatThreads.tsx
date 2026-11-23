@@ -333,7 +333,16 @@ function SeatThreads({
             onSent={(threadId) => setSelection({ kind: "thread", threadId, sent: true })}
           />
         ) : thread ? (
-          <ThreadChat seat={seat} name={name} thread={thread} shown={shown} yields={yields} />
+          <ThreadChat
+            seat={seat}
+            name={name}
+            thread={thread}
+            shown={shown}
+            // A row the operator pressed, or a thread they just started. The
+            // first of the list, shown because nothing was picked, is not.
+            picked={selection?.kind === "thread" && selection.threadId === thread.threadId}
+            yields={yields}
+          />
         ) : (
           <>
             <ChatHead title="Threads" />
@@ -392,6 +401,7 @@ export function ThreadChat({
   name,
   thread,
   shown = true,
+  picked = true,
   yields,
 }: {
   readonly seat: SeatAddress;
@@ -400,6 +410,13 @@ export function ThreadChat({
   readonly thread: SeatThreadSummary;
   /** False while the chat is in the document and not on screen: it then has no box to scroll or fill. */
   readonly shown?: boolean;
+  /**
+   * The operator chose this thread: a press or a key moved the selection to
+   * it, or a link opened it. False for a thread that shows only because it
+   * is first in a list: it shows, scrolls and pages all the same, and is
+   * read at the operator's first act in it.
+   */
+  readonly picked?: boolean;
   /** Asked as the reply field mounts: true leaves the keyboard where the operator has it. */
   readonly yields?: () => boolean;
 }) {
@@ -416,18 +433,26 @@ export function ThreadChat({
   );
   const portraitOf = usePortraitOf(seat.canvasName);
   const { messages, loaded, error, older, loadingMore } = useSeatThreadMessages(seat, thread.threadId);
-  // A thread on screen is read, on this device and every other, wherever the
-  // chat is laid. Mail that lands in it while it is on screen reads too, so
-  // nothing counts what the operator is looking at. A chat that is not on
-  // screen (behind Terminal) reads nothing: its thread stays unread until it
-  // shows again. Main writes nothing when the point has not moved, so
-  // re-marking costs nothing (0.11.3).
+  // A thread is read when the operator picks it or acts in it: a press, a
+  // key or a scroll inside its chat. One that shows only because it is first
+  // in a list is not: an unread the operator never chose stays unread, and
+  // the other mistake costs one click. The keyboard set in the reply field as
+  // a view opens is not the operator's act; the press or key that brings
+  // their own focus here is. From then on, wherever the chat is laid, mail
+  // that lands in it while it is on screen reads too, so nothing counts what
+  // the operator is looking at. A chat that is not on screen (behind
+  // Terminal) reads nothing: its thread stays unread until it shows again.
+  // Main writes nothing when the point has not moved, so re-marking costs
+  // nothing (0.11.3).
   const { canvasName, seatId } = seat;
   const { threadId, unread } = thread;
+  const [actedIn, setActedIn] = useState<string>();
+  const chosen = picked || actedIn === threadId;
+  const act = chosen ? undefined : () => setActedIn(threadId);
   useEffect(() => {
-    if (!shown) return;
+    if (!shown || !chosen) return;
     void markSeatThreadRead({ canvasName, seatId }, threadId);
-  }, [canvasName, seatId, threadId, unread, shown]);
+  }, [canvasName, seatId, threadId, unread, shown, chosen]);
   const streamRef = useRef<HTMLDivElement>(null);
   const held = useRef<{ threadId: string; first?: string; last?: string; height: number } | undefined>(undefined);
   // The newest at the bottom, in view, on open and as mail arrives. An older
@@ -475,7 +500,14 @@ export function ThreadChat({
   const count = `${thread.messageCount} ${thread.messageCount === 1 ? "message" : "messages"}`;
   const lastId = messages.at(-1)?.messageId;
   return (
-    <>
+    <div
+      className="seat-threads__acts"
+      data-testid="seat-threads-acts"
+      onPointerDown={act}
+      onKeyDown={act}
+      onWheel={act}
+      onTouchMove={act}
+    >
       <ChatHead
         title={
           subject ? (
@@ -581,7 +613,7 @@ export function ThreadChat({
           </span>
         </footer>
       )}
-    </>
+    </div>
   );
 }
 
