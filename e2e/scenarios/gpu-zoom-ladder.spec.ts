@@ -26,20 +26,24 @@
  *   (b) `atlasAudit()` and the texel readback (`atlasAuditTexels`) are clean;
  *   (c) no GPU error since the last stop.
  *
- * During each gesture between two stops (each leg crosses one bucket
- * boundary), one frame is captured mid-gesture with the atlas unsettled. The
- * leg churns first and lets the atlas raster the churned seats, then restores
- * the baseline and settles, so the frame holds its reference's content and
- * differs only by what the zoom did. A leg that crosses a tier captures just
- * past the crossing, hysteresis included (where a card changes its drawing
- * and a pop would show); any other leg captures at its geometric middle. The
- * frame is compared, downsampled to 8 px blocks, against the reference of the nearest
- * stop of the same tier, mapped to the frame's camera. Tolerance: a block is
- * hot when its mean channel delta is over 56, and the frame fails on a
+ * Each leg between two stops (each crosses one bucket boundary) pinches to a
+ * point and takes a zoom-end frame there: the picture right after a zoom
+ * ends, on a camera still for three display frames, with the atlas
+ * unsettled (rasters for the new scale still in flight, stand-ins showing).
+ * It is not a frame from inside a moving gesture. The leg churns first and
+ * lets the atlas raster the churned seats, then restores the baseline and
+ * settles, so the frame holds its reference's content and differs only by
+ * what the zoom did. A leg that crosses a tier ends just past the crossing,
+ * hysteresis included (where a card changes its drawing and a pop would
+ * show); any other leg ends at its geometric middle. The frame is compared,
+ * downsampled to 8 px blocks, against the reference of the nearest stop of
+ * the same tier, mapped to the frame's camera; pixels under DOM at either end
+ * of the mapping are skipped. Tolerance: a block is hot when one channel of
+ * its mean colour differs by more than 40 of 255, and the frame fails on a
  * connected group of 12 or more hot blocks (about a 28 px square, smaller
- * than a mid-tier portrait). A scaled stand-in blurs or sharpens and stays
- * under that; another item's pixels, a missing portrait, a black disc or a
- * whole page drawn in a quad do not.
+ * than a mid-tier portrait). A scaled stand-in blurs or sharpens and keeps
+ * its block means; another item's pixels, a missing portrait, a black disc or
+ * a whole page drawn in a quad do not.
  *
  * What legitimately differs between two launches, and how it is held for the
  * shot (nothing else is masked):
@@ -58,7 +62,7 @@
  *     generation (agent-seat-state.ts), so no finished turn carries over. An
  *     idle in the churn's own epoch ends the churned turn instead: "done, not
  *     read yet" and a "Junto done" bubble, which the reference never had.
- * A frame captured during a gesture cannot hold its clocks (a transition
+ * A zoom-end frame cannot hold its clocks (a transition
  * started under a held clock never ends), so it skips the pixels that moved
  * across four unheld reference shots: the board's own motion.
  *
@@ -249,9 +253,17 @@ const auditTexels = (page: Page): Promise<TexelAudit | null> =>
   });
 
 /** Checks (b) and (c) at one stop. `seen` carries the GPU error count across stops. */
-const checkStop = async (page: Page, where: string, seen: { errors: number }): Promise<Record<string, unknown>> => {
+const checkStop = async (page: Page, where: string, seen: { errors: number; since: number }): Promise<Record<string, unknown>> => {
   const state = await readProofState(page);
-  const atlas = state.atlas as (typeof state.atlas & { compactions?: number; overwrites?: number }) | null;
+  const atlas = state.atlas as
+    | (typeof state.atlas & { compactions?: number; overwrites?: number; rerasters?: number; rerasterLog?: ReadonlyArray<{ key: string; evictedAt: number; at: number }> })
+    | null;
+  // Thrash: keys evicted and rastered again inside this stop's window (since the last stop). Logged for canvas-services, not failed.
+  const now = await page.evaluate(() => performance.now());
+  const log = atlas?.rerasterLog ?? [];
+  const thrashed = log.filter((r) => r.evictedAt >= seen.since);
+  const thrash = { count: thrashed.length, logFull: log.length >= 256 && (log[0]?.evictedAt ?? 0) >= seen.since, keys: thrashed.slice(0, 8).map((r) => r.key) };
+  seen.since = now;
   const errors = state.gpuErrors?.count ?? 0;
   if (state.gpuErrors === null) fail(`${where}: the build has no gpuErrors hook`);
   else if (errors > seen.errors) fail(`${where}: ${String(errors - seen.errors)} GPU error(s) since the last stop`, { last: state.gpuErrors.last });
@@ -269,6 +281,8 @@ const checkStop = async (page: Page, where: string, seen: { errors: number }): P
     compactions: atlas?.compactions,
     // A cell re-keyed in place (status churn) counts here; pages stay flat.
     overwrites: atlas?.overwrites,
+    rerasters: atlas?.rerasters,
+    thrash,
     pages: atlas?.pages,
     landed: atlas?.landed,
     gpuErrors: errors,
@@ -423,15 +437,15 @@ const motionMask = (shots: ReadonlyArray<PngImage>): Uint8Array => {
 };
 
 /**
- * A gesture frame against a reference at another camera: each frame pixel is
+ * A zoom-end frame against a reference at another camera: each frame pixel is
  * mapped to the board, then to the reference's pixel at its camera. Both are
- * averaged over 8 px blocks; a block is hot over a mean delta of 56; the frame
- * fails on a connected group of 12 hot blocks.
+ * averaged over 8 px blocks; a block is hot over ZOOM_END_BLOCK_TOLERANCE; the
+ * frame fails on a connected group of 12 hot blocks.
  */
 /**
  * The pane's device pixels that lie under DOM (top bar, bottom bar, any
  * panel): the element hit there is not the one hit across most of the pane,
- * the canvas. Sampled every 4 CSS px. A gesture frame maps canvas pixels onto
+ * the canvas. Sampled every 4 CSS px. A zoom-end frame maps canvas pixels onto
  * the reference; where either end of that mapping is DOM, the two pixels are
  * not the same thing and are not compared.
  */
@@ -470,14 +484,14 @@ const overlayMask = async (page: Page, pane: Rect, dpr: number): Promise<{ mask:
 };
 
 /**
- * A gesture block is hot when one channel of its mean colour differs from
+ * A zoom-end block is hot when one channel of its mean colour differs from
  * the mapped reference's by more than this (of 255): looser than a stop,
  * which compares pixel by pixel, because the frame is unsettled and may draw
  * a scaled stand-in.
  */
-const GESTURE_BLOCK_TOLERANCE = 40;
+const ZOOM_END_BLOCK_TOLERANCE = 40;
 
-const compareGesture = (
+const compareZoomEnd = (
   ref: { image: PngImage; mask: Uint8Array; camera: Camera },
   frame: PngImage,
   camera: Camera,
@@ -534,7 +548,7 @@ const compareGesture = (
       }
       if (skip || n === 0) continue;
       const meanDelta = Math.max(Math.abs(fm[0]! - rm[0]!), Math.abs(fm[1]! - rm[1]!), Math.abs(fm[2]! - rm[2]!)) / n;
-      if (meanDelta <= GESTURE_BLOCK_TOLERANCE) continue;
+      if (meanDelta <= ZOOM_END_BLOCK_TOLERANCE) continue;
       hot[by * bw + bx] = 1;
       hotCount += 1;
       for (let y = by * B; y < by * B + B; y += 1) {
@@ -752,7 +766,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
       const overlay = await overlayMask(page, pane, dpr);
       log("overlay", { share: Math.round(overlay.share * 1000) / 1000 });
       if (overlay.share > 0.5) fail(`the DOM overlay mask covers ${String(Math.round(overlay.share * 100))}% of the pane: it would hide the canvas`);
-      const seen = { errors: (await readProofState(page)).gpuErrors?.count ?? 0 };
+      const seen = { errors: (await readProofState(page)).gpuErrors?.count ?? 0, since: await page.evaluate(() => performance.now()) };
       if (seen.errors > 0) fail(`ladder launch: ${String(seen.errors)} GPU error(s) before the first stop`);
       let stopIndex = 0;
 
@@ -786,7 +800,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
         log(`stop ${name}`, { changed, blocks, ...facts });
       };
 
-      /** One gesture leg with a frame captured unsettled: past a tier crossing, or halfway. */
+      /** One leg with a zoom-end frame, taken unsettled: past a tier crossing, or halfway. */
       const leg = async (cycle: number, place: Place, from: number, to: number): Promise<void> => {
         const mid = captureZoom(from, to);
         // Churn works the atlas; the baseline puts the reference's content back before the gesture.
@@ -819,15 +833,15 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           (a, b) => Math.abs(Math.log2(a / state.camera.zoom)) - Math.abs(Math.log2(b / state.camera.zoom)),
         )[0]!;
         const ref = references.get(refKey(place.name, nearest))!;
-        const { worstGroup, hot, diff } = compareGesture({ image: ref.unheld, mask: ref.mask, camera: ref.camera }, frame, state.camera, dpr, overlay.mask);
-        const name = `c${String(cycle)}-${place.name}-gesture-${String(from)}-${String(to)}`;
-        log(`gesture ${name}`, { aimed: Math.round(mid * 1000) / 1000, zoom: Math.round(state.camera.zoom * 1000) / 1000, tier: state.tier, against: nearest, hot, worstGroup });
+        const { worstGroup, hot, diff } = compareZoomEnd({ image: ref.unheld, mask: ref.mask, camera: ref.camera }, frame, state.camera, dpr, overlay.mask);
+        const name = `c${String(cycle)}-${place.name}-zoomend-${String(from)}-${String(to)}`;
+        log(`zoomend ${name}`, { aimed: Math.round(mid * 1000) / 1000, zoom: Math.round(state.camera.zoom * 1000) / 1000, tier: state.tier, against: nearest, hot, worstGroup });
         if (worstGroup >= 12) {
           const framePath = join(OUT, "stops", `${name}-frame.png`);
           const diffPath = join(OUT, "stops", `${name}-diff.png`);
           await writeFile(framePath, PNG.sync.write(frame));
           await writeFile(diffPath, PNG.sync.write(diff));
-          fail(`${name}: a frame mid-gesture holds a wrong picture (${String(worstGroup)} connected 8px blocks off the ${String(nearest)} reference)`, { frame: framePath, diff: diffPath });
+          fail(`${name}: the frame right after the zoom ends holds a wrong picture (${String(worstGroup)} connected 8px blocks off the ${String(nearest)} reference)`, { frame: framePath, diff: diffPath });
           const stripPath = `contact/${name}.png`;
           await writeFile(join(OUT, stripPath), PNG.sync.write(strip([ref.unheld, frame, diff])));
           contact.push({ name, strip: stripPath, verdict: "fail", detail: failures[failures.length - 1]! });
