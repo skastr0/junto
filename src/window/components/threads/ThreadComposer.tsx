@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { MAIL_TEXT_INLINE_MAX_BYTES, type TextBound } from "@shared/mail-text-bound";
 import type { NodeId } from "@shared/physics/schema";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
@@ -33,6 +33,7 @@ export function ThreadComposer({
   inReplyTo,
   onSent,
   onCancel,
+  yields,
 }: {
   readonly seat: SeatAddress;
   /** The seat's name: the one recipient, for the hint and the To line. */
@@ -46,6 +47,8 @@ export function ThreadComposer({
   readonly onSent?: (threadId: string) => void;
   /** New thread only: leave without sending. */
   readonly onCancel?: () => void;
+  /** Asked as the field mounts: true leaves the keyboard where the operator has it. */
+  readonly yields?: () => boolean;
 }) {
   const connected = useConnectedSeats(seat);
   const inReach = useResourcesInReach(seat.canvasName, seat.seatId as NodeId, useMentionItems(seat.canvasName));
@@ -55,9 +58,17 @@ export function ThreadComposer({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string>();
-  // The field takes the keyboard once, when it mounts.
+  // The field takes the keyboard once, when it mounts, unless it is asked to
+  // yield. The combobox hands its field over again on every render, so the
+  // one already taken is remembered: mail landing in the thread must not pull
+  // the keyboard back from the stream or the list.
+  const yieldsNow = useRef(yields);
+  yieldsNow.current = yields;
+  const taken = useRef<HTMLTextAreaElement | null>(null);
   const setField = useCallback((element: HTMLTextAreaElement | null) => {
-    claimFocusOnMount(element);
+    if (element === null || element === taken.current) return;
+    taken.current = element;
+    if (yieldsNow.current?.() !== true) claimFocusOnMount(element);
   }, []);
 
 
