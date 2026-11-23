@@ -140,6 +140,8 @@ export interface GpuAtlas {
   release(cell: number): void;
   /** True when `cell` currently points at pixels: its own, or those of the cell it shows until its own land. */
   hasImage(cell: number): boolean;
+  /** True when `cell` shows its own landed pixels, not a stand-in's (read-only, for the pop check). */
+  ownImage(cell: number): boolean;
   /**
    * Last-resort synchronous raster + copy before frame submit for an in-view cell
    * that still has no image. Draws a tone placeholder in place if a cold image/media
@@ -734,6 +736,11 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (cell === NO_ATLAS_CELL || cell < 0 || cell >= highWaterCells) return false;
     const base = cell * ATLAS_CELL_FLOATS;
     return cells[base + 2]! > cells[base]! || cells[base + 3]! > cells[base + 1]!;
+  };
+
+  const ownImage = (cell: number): boolean => {
+    if (cell === NO_ATLAS_CELL || cell < 0 || cell >= highWaterCells) return false;
+    return slots[cell]?.state === "landed" && hasImage(cell);
   };
 
   const addContentLanded = (rec: SlotRecord): void => {
@@ -2764,6 +2771,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     acquire,
     release,
     hasImage,
+    ownImage,
     ensureNow,
     prepareSource: (quad: Quad) => {
       if (quad.sprite === undefined) return;
