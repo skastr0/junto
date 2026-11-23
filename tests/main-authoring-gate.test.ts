@@ -196,6 +196,7 @@ describe("work-control main authoring classification", () => {
       "msg.reply": "authorial",
       "msg.react": "authorial",
       "signal.raise": "authorial",
+      "signal.batch": "authorial",
       "signal.clear": "authorial",
       "signal.list": "read",
       "op.show": "read",

@@ -1,13 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { Effect, Schema } from "effect";
 import {
+  AGENT_SIGNAL_MAX_DEPENDS_ON,
   AGENT_SIGNAL_MAX_SUGGESTIONS,
   AgentSignalSuggestions,
+  SeatRaiseKind,
   type AgentSignalKind,
-  type SeatRaiseKind,
   SignalFormRequest,
 } from "../../shared/agent-signals";
-import type { SignalRaiseArgs } from "../../shared/work-control";
+import { SIGNAL_BATCH_MAX, type SignalBatchArgs, type SignalBatchItem, type SignalRaiseArgs } from "../../shared/work-control";
+import { isUlid } from "../../shared/ulid";
 import {
   type AttachFlags,
   liveAttachProbe,
@@ -249,5 +251,122 @@ export const loadSignalRaiseArgs = (
       ...(suggested.length > 0 ? { suggest: suggested } : {}),
       ...(form === undefined ? {} : { form }),
     };
+    return args;
+  });
+
+/** Where a raise stands: `--thread`, `--depends-on` and `--depends-on-last`. */
+export type OrderFlags = {
+  readonly thread?: string;
+  readonly dependsOn?: ReadonlyArray<string>;
+  readonly dependsOnLast?: boolean;
+};
+
+const notUlid = (path: string, what: string) =>
+  new InputError({ message: `${path} takes ${what}: a ULID, 26 characters of Crockford base32`, path, hint: "junto thread list and junto signal list print the ids" });
+
+/** The flags as the raise carries them, each id checked before anything is read or sent. */
+export const planOrderFlags = (flags: OrderFlags): Effect.Effect<Pick<SignalRaiseArgs, "thread" | "dependsOn" | "dependsOnLast">, InputError> =>
+  Effect.gen(function* () {
+    const thread = flags.thread?.trim();
+    if (thread !== undefined && !isUlid(thread)) return yield* Effect.fail(notUlid("--thread", "a thread id or the id of any mail in it"));
+    const dependsOn = (flags.dependsOn ?? []).map((id) => id.trim());
+    const bad = dependsOn.find((id) => !isUlid(id));
+    if (bad !== undefined) return yield* Effect.fail(notUlid("--depends-on", "a signal id"));
+    if (dependsOn.length > AGENT_SIGNAL_MAX_DEPENDS_ON) {
+      return yield* Effect.fail(new InputError({ message: `a signal comes after at most ${AGENT_SIGNAL_MAX_DEPENDS_ON} others`, path: "--depends-on" }));
+    }
+    return {
+      ...(thread === undefined ? {} : { thread }),
+      ...(dependsOn.length > 0 ? { dependsOn } : {}),
+      ...(flags.dependsOnLast === true ? { dependsOnLast: true } : {}),
+    };
+  });
+
+/**
+ * One item of `junto signal batch`: a raise's JSON input with its kind, the
+ * thread it is raised in, and what it comes after: earlier items by position
+ * from 1, or this seat's own signals by id. Absent, it comes after the item
+ * before it; an empty list, after nothing.
+ */
+export const SignalBatchCliItem = Schema.Struct({
+  kind: SeatRaiseKind,
+  ...SignalRaiseCliInput.fields,
+  thread: Schema.optionalKey(Schema.String),
+  dependsOn: Schema.optionalKey(Schema.Array(Schema.Union([Schema.Int, Schema.String]))),
+});
+export type SignalBatchCliItem = typeof SignalBatchCliItem.Type;
+
+/** What `junto signal batch` reads: a JSON list of items, or `{"signals": [...]}`. */
+const SignalBatchCliInput = Schema.Union([
+  Schema.Array(SignalBatchCliItem),
+  Schema.Struct({ signals: Schema.Array(SignalBatchCliItem) }),
+]);
+
+/**
+ * `junto signal batch <input>`: the list inline, `@file`, or `-` for stdin,
+ * raised in the order given. Every item is checked before anything goes up;
+ * stdin feeds the list only, so an attached text comes from a file or inline.
+ */
+export const loadSignalBatchArgs = (input: string, timeoutMs?: number) =>
+  Effect.gen(function* () {
+    if (input.trim() === "") {
+      return yield* Effect.fail(new InputError({
+        message: "give the signals as a JSON list",
+        path: "input",
+        hint: 'junto signal batch \'[{"kind":"escalate","text":"First topic."},{"kind":"escalate","text":"Second topic."}]\'',
+      }));
+    }
+    const source = sourceOf(input);
+    const decoded = yield* decodeJsonText(SignalBatchCliInput, yield* readSource(source), source.kind);
+    const items = Array.isArray(decoded) ? decoded : (decoded as { readonly signals: ReadonlyArray<SignalBatchCliItem> }).signals;
+    if (items.length === 0 || items.length > SIGNAL_BATCH_MAX) {
+      return yield* Effect.fail(new InputError({ message: `a batch raises 1 to ${SIGNAL_BATCH_MAX} signals`, path: "input" }));
+    }
+    const planned = [];
+    for (const [index, item] of items.entries()) {
+      const path = `signals[${index}]`;
+      if ((item.suggest?.length ?? 0) > AGENT_SIGNAL_MAX_SUGGESTIONS) {
+        return yield* Effect.fail(new InputError({ message: `at most ${AGENT_SIGNAL_MAX_SUGGESTIONS} suggested replies`, path: `${path}.suggest` }));
+      }
+      const form = item.form === undefined ? undefined : foldFormInput(item.kind, item.form);
+      if (form !== undefined && !form.ok) return yield* Effect.fail(new InputError({ message: form.error.message, path: `${path}.${form.error.path ?? "form"}` }));
+      const thread = item.thread?.trim();
+      if (thread !== undefined && !isUlid(thread)) return yield* Effect.fail(notUlid(`${path}.thread`, "a thread id or the id of any mail in it"));
+      const dependsOn = item.dependsOn?.map((ref: number | string) => (typeof ref === "string" ? ref.trim() : ref));
+      for (const [at, ref] of (dependsOn ?? []).entries()) {
+        const where = `${path}.dependsOn[${at}]`;
+        if (typeof ref === "string" ? !isUlid(ref) : ref < 1 || ref > index) {
+          return yield* Effect.fail(new InputError({
+            message: typeof ref === "string"
+              ? `${where} is not a signal id: a ULID, as junto signal list prints it`
+              : `item ${index + 1} can come only after an earlier item, counted from 1`,
+            path: where,
+          }));
+        }
+      }
+      if ((dependsOn?.length ?? 0) > AGENT_SIGNAL_MAX_DEPENDS_ON) {
+        return yield* Effect.fail(new InputError({ message: `a signal comes after at most ${AGENT_SIGNAL_MAX_DEPENDS_ON} others`, path: `${path}.dependsOn` }));
+      }
+      const plans = item.attach === undefined ? [] : planAttachItems(item.attach);
+      if (stdinUses(plans) > 0) {
+        return yield* Effect.fail(new InputError({ message: "stdin feeds the batch only: attach a text from a file or inline", path: `${path}.attach` }));
+      }
+      planned.push({ item, form: form?.form, thread, dependsOn, plans });
+    }
+    const signals: Array<SignalBatchItem> = [];
+    for (const { item, form, thread, dependsOn, plans } of planned) {
+      const attach = plans.length > 0 ? yield* stageAttachPlans(plans, timeoutMs === undefined ? {} : { timeoutMs }) : [];
+      signals.push({
+        kind: item.kind,
+        text: item.text,
+        ...(item.detail === undefined ? {} : { detail: item.detail }),
+        ...(attach.length > 0 ? { attach } : {}),
+        ...(form === undefined ? {} : { form }),
+        ...(item.suggest !== undefined && item.suggest.length > 0 ? { suggest: item.suggest } : {}),
+        ...(thread === undefined ? {} : { thread }),
+        ...(dependsOn === undefined ? {} : { dependsOn }),
+      });
+    }
+    const args: SignalBatchArgs = { signals };
     return args;
   });

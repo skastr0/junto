@@ -23,8 +23,10 @@ import {
   SignalClearArgs,
   SignalListArgs,
   RulingsArgs,
+  SIGNAL_BATCH_MAX,
 } from "../../shared/work-control";
-import { SignalRaiseCliInput } from "./signal-input";
+import { SignalBatchCliItem, SignalRaiseCliInput } from "./signal-input";
+import { AGENT_SIGNAL_MAX_DEPENDS_ON } from "../../shared/wire/agent-signals";
 import { Level, rankOf } from "../../shared/wire/urgency";
 import { ContentStageArgs } from "../../shared/content-stage";
 import { envReportCapability, envReportExamples, envReportSchema } from "../commands/env";
@@ -288,6 +290,15 @@ export const signalListSchema: CommandSchemaContract = {
   schema_id: "signal.list.input/v1",
   description: `This seat's signals with the operator's answers. Each carries its level on the urgency ladder and that level's rank (${rankOf(Level.offline)} ${Level.offline} to ${rankOf(Level.blocked)} ${Level.blocked}, higher more urgent). Open signals come first, then the most urgent, then the oldest; open counts the open ones.`,
   schema: SignalListArgs,
+};
+
+export const signalBatchSchema: CommandSchemaContract = {
+  command_id: "signal.batch",
+  command: "signal batch",
+  schema_id: "signal.batch.input/v1",
+  description: `Raise 1 to ${SIGNAL_BATCH_MAX} signals in the order the operator should act on them, all or none. Each item is a raise's JSON input with its kind, an optional thread, and dependsOn: earlier items by position from 1, or your own signal ids, at most ${AGENT_SIGNAL_MAX_DEPENDS_ON}. An item with no dependsOn comes after the one before it; [] after nothing.`,
+  schema: Schema.Array(SignalBatchCliItem),
+  input_modes: ["inline", "file", "stdin"],
 };
 
 export const signalClearSchema: CommandSchemaContract = {
@@ -733,6 +744,49 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     args: ["feedback", "The import is ready for your stamp.", "--task", "Stamp this=#42"],
   },
   {
+    command_id: "signal.escalate",
+    command: "escalate",
+    name: "a signal in a thread with the operator",
+    description:
+      "Answer the operator in their thread and raise a signal at once: it shows in the feed and is your next mail there, and it follows the signal before it in that thread. --thread takes the thread id or the id of any mail in it.",
+    input: { text: "Your answer opens a second question: keep the old export or drop it?" },
+    args: ["escalate", "Your answer opens a second question: keep the old export or drop it?", "--thread", "01M852PM9NWTBBVNYYPSPR0HNV"],
+  },
+  {
+    command_id: "signal.blocked",
+    command: "blocked",
+    name: "a signal that comes after another",
+    description:
+      "The operator meets the signal it comes after first; until that one closes, this one waits. Name your own signals by id, repeat --depends-on for each.",
+    input: { text: "Need the staging key once the schema question is settled." },
+    args: ["blocked", "Need the staging key once the schema question is settled.", "--depends-on", "01M855GV69YVAA8AM3PDJHCJXX"],
+  },
+  {
+    command_id: "signal.escalate",
+    command: "escalate",
+    name: "after the signal you raised last",
+    description: "No id to carry: it comes after your last signal on this canvas, or after nothing when you raised none.",
+    input: { text: "Second topic: the retry budget." },
+    args: ["escalate", "Second topic: the retry budget.", "--depends-on-last"],
+  },
+  {
+    command_id: "signal.batch",
+    command: "signal batch",
+    name: "several signals in the order to act",
+    description:
+      "Raised first to last, each after the one before it, all or none; the feed shows them in this order. dependsOn names earlier items by position from 1, [] none.",
+    input: [
+      { kind: "escalate", text: "Topic 1: which store for the run log?", suggest: ["Use sqlite", "Keep JSON"] },
+      { kind: "escalate", text: "Topic 2: the retry budget for the importer." },
+      { kind: "feedback", text: "Topic 3: the onboarding copy is ready to review.", dependsOn: [] },
+    ],
+    args: [
+      "signal",
+      "batch",
+      '[{"kind":"escalate","text":"Topic 1: which store for the run log?","suggest":["Use sqlite","Keep JSON"]},{"kind":"escalate","text":"Topic 2: the retry budget for the importer."},{"kind":"feedback","text":"Topic 3: the onboarding copy is ready to review.","dependsOn":[]}]',
+    ],
+  },
+  {
     command_id: "signal.list",
     command: "signal list",
     name: "read the operator's answers, most urgent open signal first",
@@ -999,6 +1053,14 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     description: "Read this seat's signals and the operator's answers.",
     schemas: [signalListSchema],
     examples: allExamples.filter((e) => e.command_id === "signal.list"),
+  },
+  {
+    command_id: "signal.batch",
+    command: "signal batch",
+    category: "workflow",
+    description: "Raise several signals in the order to act, all or none.",
+    schemas: [signalBatchSchema],
+    examples: allExamples.filter((e) => e.command_id === "signal.batch"),
   },
   {
     command_id: "signal.clear",

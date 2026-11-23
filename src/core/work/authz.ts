@@ -368,6 +368,7 @@ export const requiresConnection = (op: WorkOpName | OldTaskStoreOp | "overseer")
     // Agent signals are universal and seat-local: the process-bound caller
     // raises, clears, and reads only its own. No edge, no port.
     case "signal.raise":
+    case "signal.batch":
     case "signal.clear":
     case "signal.list":
     // A seat reads only its own writes, by opId. No edge, no port.
@@ -531,6 +532,29 @@ export const scopeError = (
 };
 
 /**
+ * An edge joins the two, but its port for this op is off: the operator's mask
+ * leaves it out. The refusal names that port as the missing grant.
+ */
+export const portOffError = (
+  callerId: string,
+  targetId: string,
+  port: string,
+  op: WorkOpName | OldTaskStoreOp,
+): WorkErrorBody => ({
+  type: "ScopeError",
+  message: `the edge between "${callerId}" and "${targetId}" does not carry port ${port}, which ${op} needs`,
+  details: {
+    target: targetId,
+    caller: callerId,
+    reason: "port_off",
+    missing: port,
+    hint: `the edge is there, with ${port} turned off on it`,
+    next_step: `ask the operator to turn on ${port} for the edge between these nodes on the canvas`,
+    retryable: false,
+  },
+});
+
+/**
  * Map physics ScopeDenial → wire-compatible WorkErrorBody ScopeError.
  * Messages/details match the pre-physics surface for not_connected / invisible /
  * wrong_kind so CLIs and tests stay stable.
@@ -545,6 +569,15 @@ export const scopeDenialToWorkError = (
     case "not_connected":
       return scopeError(denial.caller, denial.target, "not_connected");
     case "no_port":
+      // The target's kind takes the op, so the edge is there and the operator
+      // turned this port off on it: name the port, not the kind.
+      if (denial.port !== undefined && extra?.op !== undefined && kindAllowsOp(extra.kind, extra.op)) {
+        return portOffError(denial.caller, denial.target, denial.port, extra.op);
+      }
+      return scopeError(denial.caller, denial.target, "wrong_kind", {
+        kind: extra?.kind,
+        op: extra?.op,
+      });
     case "role_law":
       return scopeError(denial.caller, denial.target, "wrong_kind", {
         kind: extra?.kind,

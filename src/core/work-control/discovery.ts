@@ -5,16 +5,9 @@
  * v1 error body as a `WorkFailure`.
  */
 import { Effect, Option, Result } from "effect";
-import { ulid } from "ulid";
 import { DiscoveryRpcs } from "../../contract/work/discovery";
 import { workFailure } from "../../contract/work/failure";
-import {
-  AGENT_SIGNAL_MAX_DETAIL_LENGTH,
-  AGENT_SIGNAL_MAX_TEXT_LENGTH,
-  type AgentSignalAttachment,
-  compareSignalListOrder,
-  normalizeSignalText,
-} from "@shared/agent-signals";
+import { compareSignalListOrder } from "@shared/agent-signals";
 import { sinceCursorOf } from "@shared/mail-list-filter";
 import { asNodeId, taskBoardTitle, type Canvas, type Node } from "@shared/model";
 import { regionStack } from "@shared/model/canvas";
@@ -49,15 +42,14 @@ import {
   sessionDrainCaution,
 } from "@shared/seat-sessions";
 import type { OpListResult, OpView } from "@shared/op-control";
-import { isResourceKind, reaches, resourcesInReach, resourcesSeatReaches } from "@shared/region-reach";
+import { isResourceKind, reaches, resourcesInReach } from "@shared/region-reach";
 import { levelOfSignal, rankOf } from "@shared/wire/urgency";
+import { signalReadiness } from "@shared/wire/agent-signals";
 import { type SignalListResult, WORK_PROTOCOL_VERSION, type WorkErrorBody } from "@shared/work-control";
 import { ContentService } from "../content/service";
 import { operatorAttachmentLines } from "../content/operator-attachments";
-import { claimSignalAttachments, releaseSignalAttachments, signalAttachmentOwner } from "../signals/attachments";
-import { resolveSignalForm, signalKindTakesForm } from "../signals/form-rule";
+import { releaseSignalAttachments, signalAttachmentOwner } from "../signals/attachments";
 import { AgentSignalRepository, type AgentSignalRepositoryError } from "../signals/repository";
-import { signalResourcesFor } from "../signals/resource-refs";
 import {
   connectedCapabilities,
   containingRegion,
@@ -84,6 +76,7 @@ import { offeredCapturedSessionId } from "../term/session-id-store";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { readMachineLog, seatLogScope } from "../../node/observability/log-file";
 import { WorkAdmission, WorkSeat } from "./seat";
+import { askedBatch, askedRaise, raiseSignals } from "./signal-raise";
 import { lookForSeatSession } from "./session-lookup";
 
 /** What a seat does next once its signal is raised, by the signal's kind. */
@@ -509,12 +502,18 @@ export const DiscoveryHandlers = DiscoveryServed.toLayer(
           );
         };
         const sorted = [...listed].sort(compareSignalListOrder);
+        // Every open signal is listed, so one not listed is closed or unknown: it holds nothing back.
+        const stateOf = new Map(listed.map((signal) => [signal.signalId, signal.state]));
+        const readiness = (signal: (typeof listed)[number]) => {
+          const { ready, waitingOn } = signalReadiness(signal, (id) => stateOf.get(id));
+          return { ready, waitingOn };
+        };
         const files = yield* Effect.forEach(sorted, filesOf);
         const result: SignalListResult = {
           signals: sorted.map((signal, index) => {
             // A work signal's level is its timing's: due once urgent or past its time, todo before.
             const level = levelOfSignal(signal.kind, signal.work, Date.now());
-            return { ...signal, level, rank: rankOf(level), ...files[index] };
+            return { ...signal, level, rank: rankOf(level), ...readiness(signal), ...files[index] };
           }),
           open: listed.filter((signal) => signal.state === "open").length,
           ...(closedTotal > closedListed
@@ -538,120 +537,21 @@ export const DiscoveryHandlers = DiscoveryServed.toLayer(
       }).pipe(Effect.mapError(workFailure)),
 
     "signal.raise": (args) =>
-      Effect.gen(function* () {
-        const { caller, board } = yield* WorkSeat;
-        const signals = yield* signalStore;
-        const seat = { canvasName: caller.canvasName, nodeId: caller.nodeId };
-        const text = normalizeSignalText(args.text);
-        if (!text || text.length > AGENT_SIGNAL_MAX_TEXT_LENGTH) {
-          return yield* Effect.fail<WorkErrorBody>({
-            type: "InputError",
-            message: `text must be one sentence of 1 to ${AGENT_SIGNAL_MAX_TEXT_LENGTH} characters`,
-            details: {
-              path: "args.text",
-              retryable: false,
-              hint: "put the longer explanation in --detail",
-            },
-          });
-        }
-        const detail = args.detail?.trim() || undefined;
-        if (detail !== undefined && detail.length > AGENT_SIGNAL_MAX_DETAIL_LENGTH) {
-          return yield* Effect.fail<WorkErrorBody>({
-            type: "InputError",
-            message: `detail must be at most ${AGENT_SIGNAL_MAX_DETAIL_LENGTH} characters`,
-            details: { path: "args.detail", retryable: false },
-          });
-        }
-        // The reply the signal asks for (0.11, 07 N1). The wire lets a form ride
-        // any raise; here is where it is resolved, and only the kinds that ask
-        // the operator to produce something may carry one.
-        const request = args.form;
-        if (request !== undefined && !signalKindTakesForm(args.kind)) {
-          return yield* Effect.fail<WorkErrorBody>({
-            type: "InputError",
-            message: `${args.kind} asks for no form: a notice is read and cleared, a review asks the operator to look`,
-            details: { path: "args.form", retryable: false, next_step: "raise blocked or escalate to ask for something" },
-          });
-        }
-        const form =
-          request === undefined
-            ? undefined
-            : yield* Effect.fromResult(
-                resolveSignalForm({
-                  board,
-                  reaches: resourcesSeatReaches(board, asNodeId(caller.nodeId)).map((node) => node.id),
-                  text,
-                  request,
-                }),
-              );
-        // Attached files: the seat uploaded them already. They are judged here,
-        // whatever the CLI already checked, and held under the signal's id
-        // before the signal itself is written.
-        const signalId = ulid();
-        let attachments: ReadonlyArray<AgentSignalAttachment> = [];
-        if (args.attach !== undefined && args.attach.length > 0) {
-          const contentOption = yield* Effect.serviceOption(ContentService);
-          if (Option.isNone(contentOption)) {
-            return yield* Effect.fail<WorkErrorBody>({
-              type: "RuntimeDown",
-              message: "attachments are unavailable in this Junto runtime",
-              details: { retryable: false, next_step: "raise the signal without --attach" },
-            });
-          }
-          // A task or an artifact is named as the seat typed it: resolved here
-          // in its reach to the canonical ref, then judged with the rest.
-          const named = yield* signalResourcesFor(board, caller.canvasName, asNodeId(caller.nodeId), args.attach);
-          attachments = yield* claimSignalAttachments(
-            contentOption.value,
-            { ...seat, signalId },
-            named.inputs,
-            named.resources,
-          ).pipe(
-            Effect.mapError((refused): WorkErrorBody => ({
-              type: "InputError",
-              message: refused.message,
-              details: { path: `args.${refused.path}`, retryable: false },
-            })),
-          );
-        }
-        // Pre-baked replies: each one line the operator can send as-is. The
-        // wire already bounds their count and length; what is left to do here
-        // is fold each to a single line and drop the ones that fold to none.
-        const suggestions = args.suggest
-          ?.map((suggestion) => normalizeSignalText(suggestion))
-          .filter((suggestion): suggestion is string => suggestion.length > 0);
-        const signal = yield* signals
-          .raise({
-            ...seat,
-            signalId,
-            kind: args.kind,
-            text,
-            ...(detail ? { detail } : {}),
-            ...(form === undefined ? {} : { form }),
-            ...(attachments.length > 0 ? { attachments } : {}),
-            ...(suggestions !== undefined && suggestions.length > 0 ? { suggestions } : {}),
-          })
-          .pipe(
-            Effect.mapError(signalError),
-            // The signal was not written: nothing may keep holding its files.
-            Effect.tapError(() =>
-              attachments.length === 0
-                ? Effect.void
-                : Effect.serviceOption(ContentService).pipe(
-                    Effect.flatMap((content) =>
-                      Option.isNone(content)
-                        ? Effect.void
-                        : content.value.releaseOwner(signalAttachmentOwner({ ...seat, signalId })).pipe(Effect.ignore),
-                    ),
-                  ),
-            ),
-          );
-        return {
-          signal,
+      raiseSignals([askedRaise(args)], false).pipe(
+        Effect.map(([signal]) => ({ signal: signal!, disposition: "applied" as const, next_step: SIGNAL_NEXT_STEP[signal!.kind] })),
+        Effect.mapError(workFailure),
+      ),
+
+    "signal.batch": (args) =>
+      raiseSignals(askedBatch(args.signals), true).pipe(
+        Effect.map((signals) => ({
+          signals,
           disposition: "applied" as const,
-          next_step: SIGNAL_NEXT_STEP[signal.kind],
-        };
-      }).pipe(Effect.mapError(workFailure)),
+          // The batch's next step is its strongest kind's: blocked stops the seat, escalate keeps it working.
+          next_step: `${SIGNAL_NEXT_STEP[(["blocked", "escalate"] as const).find((kind) => signals.some((signal) => signal.kind === kind)) ?? signals[0]!.kind]}; junto signal list shows which are ready and what each waits on`,
+        })),
+        Effect.mapError(workFailure),
+      ),
 
     "op.show": (args) =>
       Effect.gen(function* () {

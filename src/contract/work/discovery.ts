@@ -25,6 +25,7 @@ import {
   SignalListArgs,
   SignalListResult,
   SignalRaiseArgs,
+  SignalBatchArgs,
   EmptyArgs,
   EnvReportArgs,
   OffboardArgs,
@@ -44,6 +45,9 @@ import { WorkFailure, WorkInputHint, WorkInputRefusal } from "./failure";
 const applied = { disposition: Schema.Literal("applied") };
 
 export const SignalRaiseAnswer = Schema.Struct({ signal: AgentSignal, ...applied, next_step: Schema.String });
+
+/** The batch as raised, in the order given. */
+export const SignalBatchAnswer = Schema.Struct({ signals: Schema.Array(AgentSignal), ...applied, next_step: Schema.String });
 
 /** The signals withdrawn: one by its id, or every open one. */
 export const SignalClearAnswer = Schema.Struct({ signals: Schema.Array(AgentSignal), ...applied });
@@ -337,6 +341,7 @@ const noArgs = (words: string) =>
   );
 
 export const SignalRaise = Rpc.make("signal.raise", { payload: SignalRaiseArgs, success: SignalRaiseAnswer, error: WorkFailure });
+export const SignalBatch = Rpc.make("signal.batch", { payload: SignalBatchArgs, success: SignalBatchAnswer, error: WorkFailure });
 export const SignalClear = Rpc.make("signal.clear", { payload: SignalClearArgs, success: SignalClearAnswer, error: WorkFailure });
 export const SignalList = Rpc.make("signal.list", { payload: SignalListArgs, success: SignalListResult, error: WorkFailure });
 /** op show and op list refuse their arguments in the schema's words, and point at their own schema. */
@@ -361,7 +366,7 @@ export const Onboard = Rpc.make("onboard", { payload: OnboardTakesNothing, succe
   .annotate(WorkInputRefusal, ONBOARD_TAKES_NOTHING);
 
 /** Decoded strictly where the core serves it: an argument or an answer field the contract does not name is refused. */
-export const DiscoveryRpcs = RpcGroup.make(SignalRaise, SignalClear, SignalList, OpShow, OpList, EnvReport, LogsRead, Since, Offboard, Capabilities, Onboard).annotateRpcs(
+export const DiscoveryRpcs = RpcGroup.make(SignalRaise, SignalBatch, SignalClear, SignalList, OpShow, OpList, EnvReport, LogsRead, Since, Offboard, Capabilities, Onboard).annotateRpcs(
   Rpc.ParseOptions,
   { onExcessProperty: "error" },
 );

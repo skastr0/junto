@@ -8,7 +8,7 @@ use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 
 use super::{Run, Timeout};
-use crate::attach::signal_input::{self, Raise};
+use crate::attach::signal_input::{self, Order, Raise};
 use crate::attach::{Kind, signal_attach, signal_form};
 use crate::envelope::{self, Answer};
 use crate::{ops, wire};
@@ -25,6 +25,15 @@ struct Common {
     /// A reply the operator can send in one click, ahead of the quick replies. At most two.
     #[arg(long, allow_hyphen_values = true)]
     suggest: Vec<String>,
+    /// Raise it in a thread you have with the operator: the thread id or the id of any mail in it. The signal is also your next mail there
+    #[arg(long)]
+    thread: Option<String>,
+    /// A signal of yours this one comes after, by id: the operator meets that one first. Repeat for each
+    #[arg(long = "depends-on")]
+    depends_on: Vec<String>,
+    /// Comes after the signal you raised last on this canvas; after nothing when you raised none
+    #[arg(long = "depends-on-last")]
+    depends_on_last: bool,
     #[command(flatten)]
     attach: signal_attach::AttachFlags,
     #[command(flatten)]
@@ -33,6 +42,11 @@ struct Common {
 
 impl Common {
     fn raise(self, kind: Kind, form: &signal_form::FormFlags) -> ExitCode {
+        let order = Order {
+            thread: self.thread,
+            depends_on: self.depends_on,
+            depends_on_last: self.depends_on_last,
+        };
         let raise = Raise {
             kind,
             input: &self.input,
@@ -40,6 +54,7 @@ impl Common {
             suggest: &self.suggest,
             attach: &self.attach,
             form,
+            order: &order,
             timeout: self.timeout.into(),
         };
         let answer = signal_input::load(raise)
@@ -120,7 +135,7 @@ mod contract {
     }
 }
 
-/// Read or withdraw this seat's agent signals
+/// Read, raise in order, or withdraw this seat's agent signals
 #[derive(Args)]
 pub struct Signal {
     #[command(subcommand)]
@@ -134,6 +149,14 @@ enum Command {
         /// List every closed signal from here on: an ISO 8601 time or a signal id
         #[arg(long)]
         since: Option<String>,
+        #[command(flatten)]
+        timeout: Timeout,
+    },
+    /// Raise several signals in the order to act, all or none: a JSON list of {kind, text, detail, suggest, form, attach, thread, dependsOn}
+    Batch {
+        /// A JSON list of signals, or {"signals": [...]}: inline, @file, or - for stdin. Each comes after the one before it unless its dependsOn names earlier items by position from 1 or your own signal ids; [] is after nothing
+        #[arg(allow_hyphen_values = true)]
+        input: String,
         #[command(flatten)]
         timeout: Timeout,
     },
@@ -152,6 +175,12 @@ impl Run for Signal {
             Command::List { since, timeout } => (
                 "signal list",
                 wire::call(&ListArgs { since }, timeout.into()).map(Into::into),
+            ),
+            Command::Batch { input, timeout } => (
+                "signal batch",
+                signal_input::load_batch(&input, timeout.into())
+                    .and_then(|args| wire::call(&args, timeout.into()))
+                    .map(Into::into),
             ),
             Command::Clear { id, timeout } => (
                 "signal clear",

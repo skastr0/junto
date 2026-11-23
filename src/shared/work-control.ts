@@ -13,10 +13,12 @@ import {
   WorkMetadata,
 } from "./work-model";
 import { MailEvidenceRef } from "./crew";
+import { ULID_PATTERN } from "./wire/ulid";
 import { NODE_KINDS } from "./model/kinds";
 import { NodeId } from "./physics/schema";
 import { ItemId, OpId, TaskNumber } from "./work-ids";
 import {
+  AGENT_SIGNAL_MAX_DEPENDS_ON,
   AgentSignal,
   AgentSignalAttachmentInput,
   AgentSignalKind,
@@ -127,6 +129,7 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "thread.show",
 /** Universal seat-local: the seat's own agent signals (no edge, no port). */
 "signal.raise",
+"signal.batch",
 "signal.clear",
 "signal.list",
 /** Universal seat-local: what became of this seat's resource writes, by opId (no edge, no port). */
@@ -493,6 +496,11 @@ export type PreambleArgs = typeof PreambleArgs.Type;
  * path ride in this request. What an agent writes to the CLI is another
  * shape (`SignalRaiseCliInput` in the CLI).
  */
+/** The most signals one `junto signal batch` raises. */
+export const SIGNAL_BATCH_MAX = 50;
+/** A signal, thread or mail id as a raise names it: a ULID, as every id a signal carries is. */
+const SignalRef = Schema.String.pipe(Schema.check(Schema.isPattern(ULID_PATTERN)));
+
 export const SignalRaiseArgs = Schema.Struct({
   /** A seat raises its own kinds only: `notice` and `work` are an automation's. */
   kind: SeatRaiseKind,
@@ -511,8 +519,44 @@ export const SignalRaiseArgs = Schema.Struct({
    * answers the signal exactly as a typed reply.
    */
   suggest: Schema.optionalKey(AgentSignalSuggestions),
+  /**
+   * The thread to raise it in: a thread id or the id of any mail in it. Only
+   * a thread between this seat and the operator. The signal and the seat's
+   * next mail in that thread are written both or neither.
+   */
+  thread: Schema.optionalKey(SignalRef),
+  /** The signals it comes after: this seat's own on this canvas, ones that exist. */
+  dependsOn: Schema.optionalKey(Schema.Array(SignalRef).pipe(Schema.check(Schema.isMaxLength(AGENT_SIGNAL_MAX_DEPENDS_ON)))),
+  /** Comes after the signal this seat raised last on this canvas; after nothing when it raised none. */
+  dependsOnLast: Schema.optionalKey(Schema.Boolean),
 });
 export type SignalRaiseArgs = typeof SignalRaiseArgs.Type;
+
+/**
+ * One signal of a batch: a raise, save that what it comes after names
+ * earlier items by position (from 1) or this seat's existing signals by id.
+ * Absent, it comes after the item before it (the first after nothing); an
+ * empty list, after nothing.
+ */
+const { dependsOn: _dependsOn, dependsOnLast: _dependsOnLast, ...SIGNAL_BATCH_ITEM_FIELDS } = SignalRaiseArgs.fields;
+export const SignalBatchItem = Schema.Struct({
+  ...SIGNAL_BATCH_ITEM_FIELDS,
+  dependsOn: Schema.optionalKey(
+    Schema.Array(Schema.Union([Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)), SignalRef])).pipe(
+      Schema.check(Schema.isMaxLength(AGENT_SIGNAL_MAX_DEPENDS_ON)),
+    ),
+  ),
+});
+export type SignalBatchItem = typeof SignalBatchItem.Type;
+
+/** `junto signal batch`: raised in the order given, all or none. */
+export const SignalBatchArgs = Schema.Struct({
+  signals: Schema.Array(SignalBatchItem).pipe(
+    Schema.check(Schema.isMinLength(1)),
+    Schema.check(Schema.isMaxLength(SIGNAL_BATCH_MAX)),
+  ),
+});
+export type SignalBatchArgs = typeof SignalBatchArgs.Type;
 
 /** Withdraw one open signal by id, or every open signal of the seat. */
 export const SignalClearArgs = Schema.Struct({
@@ -531,6 +575,10 @@ export const ListedAgentSignal = Schema.Struct({
   ...AgentSignal.fields,
   level: UrgencyLevel,
   rank: UrgencyRank,
+  /** Every signal it comes after is closed (`signalReadiness`). */
+  ready: Schema.Boolean,
+  /** The signals it comes after that are still open, in order. */
+  waitingOn: Schema.Array(Schema.String),
   /**
    * The operator's answer files as the seat reads them: one line each, with
    * its name, type, size and the local path to open. Absent when none.

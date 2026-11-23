@@ -738,6 +738,15 @@
                 "minimum": 0,
                 "maximum": 12
               },
+              "ready": {
+                "type": "boolean"
+              },
+              "waitingOn": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
               "responseFiles": {
                 "type": "array",
                 "items": {
@@ -754,7 +763,9 @@
               "createdAt",
               "state",
               "level",
-              "rank"
+              "rank",
+              "ready",
+              "waitingOn"
             ],
             "additionalProperties": false
           }

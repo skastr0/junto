@@ -87,6 +87,7 @@ const SEAT_LOCAL_COMMANDS = new Set([
   "signal.escalate",
   "signal.blocked",
   "signal.feedback",
+  "signal.batch",
   "signal.list",
   // A seat reads its own writes by opId: no target, no edge.
   "op.show",

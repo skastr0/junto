@@ -117,6 +117,7 @@ const WORK_OPERATION_CLASSIFICATION = {
   "msg.react": "authorial",
   // Signals write the seat's own durable agent_signals row.
   "signal.raise": "authorial",
+  "signal.batch": "authorial",
   "signal.clear": "authorial",
   "signal.list": "read",
   "op.show": "read",
@@ -175,6 +176,7 @@ const WORK_AUTHORING_LABELS = {
   "msg.reply": "control.work.msg-send",
   "msg.react": "control.work.msg-send",
   "signal.raise": "control.work.signal",
+  "signal.batch": "control.work.signal",
   "signal.clear": "control.work.signal",
   // A staged file is a signal's attachment on its way in: the same
   // authorial family, so it carries the same label.
@@ -208,6 +210,7 @@ const WORK_AUTHORING_LABELS = {
     | "msg.reply"
     | "msg.react"
     | "signal.raise"
+    | "signal.batch"
     | "signal.clear"
     | "content.stage"
     | "offboard"

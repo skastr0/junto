@@ -1,12 +1,12 @@
 import { Argument, Command, Flag } from "effect/cli";
 import { Effect, Option } from "effect";
 import type { SeatRaiseKind } from "../../shared/agent-signals";
-import { SignalClear, SignalList, SignalRaise } from "../../contract/work/discovery";
+import { SignalBatch, SignalClear, SignalList, SignalRaise } from "../../contract/work/discovery";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { executeJsonCommand } from "../core/output";
 import type { AttachFlags } from "../core/signal-attach";
 import type { FormFlags } from "../core/signal-form";
-import { loadSignalRaiseArgs } from "../core/signal-input";
+import { loadSignalBatchArgs, loadSignalRaiseArgs, type OrderFlags, planOrderFlags } from "../core/signal-input";
 import { callWorkRpc } from "../core/socket";
 
 /**
@@ -78,6 +78,24 @@ const attachOptions = {
   ),
 };
 
+/** Where the signal stands: the thread it is raised in, and what it comes after. */
+const orderOptions = {
+  thread: Flag.String("thread").pipe(
+    Flag.optional,
+    Flag.withDescription(
+      "Raise it in a thread you have with the operator: the thread id or the id of any mail in it. The signal is also your next mail there",
+    ),
+  ),
+  dependsOn: Flag.String("depends-on").pipe(
+    Flag.atLeast(0),
+    Flag.withDescription("A signal of yours this one comes after, by id: the operator meets that one first. Repeat for each"),
+  ),
+  dependsOnLast: Flag.Boolean("depends-on-last").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Comes after the signal you raised last on this canvas; after nothing when you raised none"),
+  ),
+};
+
 /**
  * The reply form a blocked or escalate signal asks for (0.11/07, N4): what the
  * operator produces in the signal. One per signal; a text reply needs none.
@@ -109,29 +127,35 @@ const formOptions = {
   ),
 };
 
-const raise = (kind: SeatRaiseKind, input: string, detail: Option.Option<string>, timeout: Option.Option<number>, suggest: ReadonlyArray<string>, attach: AttachFlags, form: FormFlags = {}) =>
+type OrderOptions = { readonly thread: Option.Option<string>; readonly dependsOn: ReadonlyArray<string>; readonly dependsOnLast: boolean };
+
+const raise = (kind: SeatRaiseKind, input: string, detail: Option.Option<string>, timeout: Option.Option<number>, suggest: ReadonlyArray<string>, order: OrderOptions, attach: AttachFlags, form: FormFlags = {}) =>
   executeJsonCommand(
     kind,
     Effect.gen(function* () {
+      const flags: OrderFlags = { ...(Option.isSome(order.thread) ? { thread: order.thread.value } : {}), dependsOn: order.dependsOn, dependsOnLast: order.dependsOnLast };
+      // The ids are checked before anything is read or uploaded.
+      const placed = yield* planOrderFlags(flags);
       const args = yield* loadSignalRaiseArgs(kind, input, toUndefined(detail), attach, toUndefined(timeout), suggest, form);
-      return yield* callWorkRpc(SignalRaise, args, toUndefined(timeout));
+      return yield* callWorkRpc(SignalRaise, { ...args, ...placed }, toUndefined(timeout));
     }),
   );
 
 const raiseCommand = (kind: SeatRaiseKind, description: string) =>
   Command.make(
     kind,
-    { input: sentenceArg, detail: detailOption, ...attachOptions, timeout: timeoutOption },
-    ({ input, detail, timeout, suggest, ...attach }) => raise(kind, input, detail, timeout, suggest, attach),
+    { input: sentenceArg, detail: detailOption, ...attachOptions, ...orderOptions, timeout: timeoutOption },
+    ({ input, detail, timeout, suggest, thread, dependsOn, dependsOnLast, ...attach }) =>
+      raise(kind, input, detail, timeout, suggest, { thread, dependsOn, dependsOnLast }, attach),
   ).pipe(Command.withDescription(description));
 
 /** Blocked and escalate also ask for a reply form. */
 const raiseWithFormCommand = (kind: SeatRaiseKind, description: string) =>
   Command.make(
     kind,
-    { input: sentenceArg, detail: detailOption, ...attachOptions, ...formOptions, timeout: timeoutOption },
-    ({ input, detail, timeout, suggest, askSecret, askArtifact, minWords, label, askProof, ...attach }) =>
-      raise(kind, input, detail, timeout, suggest, attach, {
+    { input: sentenceArg, detail: detailOption, ...attachOptions, ...orderOptions, ...formOptions, timeout: timeoutOption },
+    ({ input, detail, timeout, suggest, thread, dependsOn, dependsOnLast, askSecret, askArtifact, minWords, label, askProof, ...attach }) =>
+      raise(kind, input, detail, timeout, suggest, { thread, dependsOn, dependsOnLast }, attach, {
         askSecret: toUndefined(askSecret),
         askArtifact: toUndefined(askArtifact),
         minWords: toUndefined(minWords),
@@ -172,7 +196,7 @@ const signalListCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "This seat's signals with the operator's answers: open first, most urgent first, each with its urgency level and rank. Every open signal and the newest closed ones; --since pages further back",
+    "This seat's signals with the operator's answers: open first, most urgent first, each with its urgency level and rank, its thread and the signal it follows there, what it comes after, and whether it is ready or what it waits on. Every open signal and the newest closed ones; --since pages further back",
   ),
 );
 
@@ -198,7 +222,28 @@ const signalClearCommand = Command.make(
   Command.withDescription("Withdraw your own open signal once it no longer applies"),
 );
 
+const SIGNAL_BATCH_DESCRIPTION =
+  "Raise several signals in the order the operator should act on them, all or none: a JSON list of {kind, text, detail, suggest, form, attach, thread, dependsOn} inline, @file, or - for stdin. Each comes after the one before it unless its dependsOn names earlier items by position from 1 or your own signal ids; [] is after nothing. Answers the ids in order";
+
+const signalBatchCommand = Command.make(
+  "batch",
+  {
+    input: Argument.String("input").pipe(
+      Argument.withDescription('A JSON list of signals, or {"signals": [...]}: inline, @file, or - for stdin'),
+    ),
+    timeout: timeoutOption,
+  },
+  ({ input, timeout }) =>
+    executeJsonCommand(
+      "signal batch",
+      Effect.gen(function* () {
+        const args = yield* loadSignalBatchArgs(input, toUndefined(timeout));
+        return yield* callWorkRpc(SignalBatch, args, toUndefined(timeout));
+      }),
+    ),
+).pipe(Command.withDescription(SIGNAL_BATCH_DESCRIPTION));
+
 export const signalCommand = Command.make("signal").pipe(
-  Command.withDescription("Read or withdraw this seat's agent signals"),
-  Command.withSubcommands([signalListCommand, signalClearCommand]),
+  Command.withDescription("Read, raise in order, or withdraw this seat's agent signals"),
+  Command.withSubcommands([signalListCommand, signalBatchCommand, signalClearCommand]),
 );

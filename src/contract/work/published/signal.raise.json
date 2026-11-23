@@ -301,6 +301,21 @@
             "maxLength": 80
           },
           "maxItems": 2
+        },
+        "thread": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "maxItems": 8
+        },
+        "dependsOnLast": {
+          "type": "boolean"
         }
       },
       "required": [
