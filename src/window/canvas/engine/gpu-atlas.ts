@@ -388,7 +388,6 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   let landedCount = 0;
   let evictions = 0;
   let failures = 0;
-  let compactions = 0;
   let lostPixels = 0;
   let visibleBlank = 0;
   let visibleBlankTotal = 0;
@@ -554,6 +553,17 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     return true;
   };
 
+  /**
+   * Every write to a row goes through here. The renderer uploads the cell
+   * table only when the revision has moved, so a row that changed without
+   * moving it stayed on the GPU as it was: an index handed to a new key was
+   * drawn with the last key's rect until some unrelated landing moved it.
+   */
+  const touchRow = (index: number): void => {
+    if (!allCellsDirty) dirtyCellSlots.add(index);
+    revision += 1;
+  };
+
   const writeCellUV = (index: number, x: number, y: number, w: number, h: number, pageOrLayer: number, dim: number = pageSize): void => {
     const base = index * ATLAS_CELL_FLOATS;
     cells[base] = x / dim;
@@ -564,7 +574,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     cells[base + 5] = 0;
     cells[base + 6] = 0;
     cells[base + 7] = 0;
-    if (!allCellsDirty) dirtyCellSlots.add(index);
+    touchRow(index);
   };
 
   const copyCellUV = (dstIndex: number, srcIndex: number): void => {
@@ -573,7 +583,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     for (let i = 0; i < ATLAS_CELL_FLOATS; i += 1) {
       cells[d + i] = cells[s + i]!;
     }
-    if (!allCellsDirty) dirtyCellSlots.add(dstIndex);
+    touchRow(dstIndex);
   };
 
   const clearCellUV = (index: number): void => {
@@ -581,7 +591,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     for (let i = 0; i < ATLAS_CELL_FLOATS; i += 1) {
       cells[base + i] = 0;
     }
-    if (!allCellsDirty) dirtyCellSlots.add(index);
+    touchRow(index);
   };
 
   const hasImage = (cell: number): boolean => {
@@ -879,26 +889,17 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
   };
 
-  /** Evict all unreferenced cells in a single plot in one shot (zero fragmentation). */
+  /**
+   * Evict every cell of a plot in one shot (zero fragmentation). The caller
+   * has checked that no quad holds one of them.
+   */
   const evictPlot = (page: Page, plot: Plot): void => {
     for (const idx of [...plot.cells]) {
       const rec = slots[idx];
-      unreferencedLru.delete(idx);
-      standaloneTextures.delete(idx);
-      if (rec !== undefined) {
-        demoteFloor(rec);
-        rec.placed = undefined;
-        if (rec.state === "landed") {
-          landedCount = Math.max(0, landedCount - 1);
-          removeContentLanded(rec.contentKey, idx);
-        }
-        keyToIndex.delete(rec.key);
-        compatHeld.delete(rec.key);
-        clearCellUV(idx);
-        slots[idx] = undefined;
-        freeIndices.push(idx);
-        evictions += 1;
-      }
+      // Only a slot placed in this plot is this plot's to free.
+      if (rec === undefined || rec.placed?.plot !== plot) continue;
+      freeSlot(rec);
+      evictions += 1;
     }
     plot.cells.clear();
     plot.pinnedCount = 0;
@@ -908,6 +909,25 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     plot.rowH = 0;
   };
 
+  /**
+   * True when a quad, or a cell standing in on it, holds a cell of this plot.
+   * Read from the slots themselves at the moment of eviction: `pinnedCount`
+   * is a running count, and a count that ran low would wipe a cell on screen.
+   */
+  const plotIsHeld = (plot: Plot): boolean => {
+    for (const idx of plot.cells) {
+      const rec = slots[idx];
+      if (rec !== undefined && rec.placed?.plot === plot && rec.refCount > 0) return true;
+    }
+    return false;
+  };
+
+  /**
+   * Eviction by last use (Skia's plot atlas, WebRender's texture cache): the
+   * plot touched longest ago that nothing on screen holds is wiped whole.
+   * A floor cell does not hold a plot: it is a spare picture for content that
+   * is off screen, and off-screen content leaves when room is needed.
+   */
   const evictLruUnpinnedPlot = (
     pool: PagePool,
     needW: number,
@@ -920,123 +940,15 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     for (const page of pool.pages) {
       if (page.dead || page.layout !== preferredLayout) continue;
       for (const plot of page.plots) {
-        if (plot.pinnedCount > 0 || plot.floorPinnedCount > 0 || plot.cells.size === 0) continue;
-        if (plot.w < needW || plot.h < needH) continue;
-        if (plot.lastUsedTick < oldest) {
-          oldest = plot.lastUsedTick;
-          bestPage = page;
-          bestPlot = plot;
-        }
+        if (plot.cells.size === 0 || plot.w < needW || plot.h < needH) continue;
+        if (plot.lastUsedTick >= oldest || plotIsHeld(plot)) continue;
+        oldest = plot.lastUsedTick;
+        bestPage = page;
+        bestPlot = plot;
       }
     }
     if (bestPage === undefined || bestPlot === undefined) return undefined;
     evictPlot(bestPage, bestPlot);
-    return { page: bestPage, plot: bestPlot };
-  };
-
-  /**
-   * GPU-side plot compaction (gpucanvas rescue pattern): when no plot is completely
-   * unpinned, rescue live (refCount > 0 or floor) cells out of the most fragmented plot
-   * via `copyTextureToTexture` into other plots, then wipe the victim plot in one shot.
-   */
-  const compactFragmentedPlot = (
-    pool: PagePool,
-    needW: number,
-    needH: number,
-    preferredLayout: PageLayout,
-  ): { readonly page: Page; readonly plot: Plot } | undefined => {
-    if (device === undefined || typeof device.createCommandEncoder !== "function") return undefined;
-    let bestPage: Page | undefined;
-    let bestPlot: Plot | undefined;
-    let bestLive: SlotRecord[] = [];
-    let bestDeadCount = 0;
-    for (const page of pool.pages) {
-      if (page.dead || page.layout !== preferredLayout) continue;
-      for (const plot of page.plots) {
-        if (plot.w < needW || plot.h < needH || plot.cells.size === 0) continue;
-        const live: SlotRecord[] = [];
-        let dead = 0;
-        for (const idx of plot.cells) {
-          const rec = slots[idx];
-          if (rec !== undefined && (rec.refCount > 0 || rec.isFloor)) live.push(rec);
-          else dead += 1;
-        }
-        if (dead === 0 || live.length === 0) continue;
-        // Prefer the plot with the most dead cells and fewest live cells to copy.
-        if (dead > bestDeadCount || (dead === bestDeadCount && live.length < bestLive.length)) {
-          bestDeadCount = dead;
-          bestPage = page;
-          bestPlot = plot;
-          bestLive = live;
-        }
-      }
-    }
-    if (bestPage === undefined || bestPlot === undefined || bestDeadCount === 0) return undefined;
-
-    const encoder = device.createCommandEncoder();
-    if (typeof encoder.copyTextureToTexture !== "function") return undefined;
-    const gutter = gutterFor(pool.kind);
-    const moved: Array<{ readonly rec: SlotRecord; readonly from: Placed; readonly to: Placed }> = [];
-    let allMoved = true;
-    for (const rec of bestLive) {
-      const from = rec.placed;
-      if (from === undefined) continue;
-      const to = tryPlaceOnPages(pool, from.w, from.h, preferredLayout, bestPlot);
-      if (to === undefined) {
-        allMoved = false;
-        break;
-      }
-      moved.push({ rec, from, to });
-    }
-    if (!allMoved) {
-      // Roll back speculative plot cursor moves by leaving dead/live untouched? Better: only commit if all fit.
-      // Because tryPlaceInPlot mutated target plot cursors, free those empty reservations if unused.
-      for (const m of moved) {
-        if (m.to.plot.cells.size === 0) {
-          m.to.plot.cursorX = m.to.page.pageIndex === 0 && m.to.plot.x0 === 0 && m.to.plot.y0 === 0 ? 1 : 0;
-          m.to.plot.cursorY = 0;
-          m.to.plot.rowH = 0;
-        }
-      }
-      return undefined;
-    }
-
-    for (const { rec, from, to } of moved) {
-      const cw = Math.min(from.w + gutter, from.page.size - from.x, to.page.size - to.x);
-      const ch = Math.min(from.h + gutter, from.page.size - from.y, to.page.size - to.y);
-      if (cw > 0 && ch > 0) {
-        encoder.copyTextureToTexture(
-          { texture: from.page.texture, origin: { x: from.x, y: from.y, z: 0 } },
-          { texture: to.page.texture, origin: { x: to.x, y: to.y, z: 0 } },
-          { width: cw, height: ch, depthOrArrayLayers: 1 },
-        );
-      }
-      if (pool.kind === "rgba" && to.page.mipCount > 1) {
-        dirtyMipRects.push({
-          texture: to.page.texture,
-          mipCount: to.page.mipCount,
-          x: to.x,
-          y: to.y,
-          w: from.w,
-          h: from.h,
-          gutter,
-        });
-      }
-      bestPlot.cells.delete(rec.index);
-      to.plot.cells.add(rec.index);
-      if (rec.refCount > 0) to.plot.pinnedCount += 1;
-      if (rec.isFloor) to.plot.floorPinnedCount += 1;
-      to.plot.lastUsedTick = ++plotTick;
-      rec.placed = to;
-      const inBindGroup = to.page.pageIndex < pool.bindLimit;
-      if (inBindGroup) standaloneTextures.delete(rec.index);
-      else standaloneTextures.set(rec.index, to.page.texture);
-      writeCellUV(rec.index, to.x, to.y, from.w, from.h, inBindGroup ? to.page.pageIndex : 0, to.page.size);
-    }
-    device.queue.submit([encoder.finish()]);
-    evictPlot(bestPage, bestPlot);
-    compactions += 1;
-    markDirty();
     return { page: bestPage, plot: bestPlot };
   };
 
@@ -1060,6 +972,37 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     rec.standalone = undefined;
   };
 
+  /**
+   * The one way a slot's index goes back on the free list. Everything that
+   * names the index goes with it: its place in a plot, its dedicated texture,
+   * its floor mark, the reference it holds on a stand-in, its key and its
+   * row. A table that kept the index would apply what it says to the next
+   * key the index is given to: a plot that still listed it freed that key's
+   * slot while a quad held it.
+   */
+  const freeSlot = (rec: SlotRecord): void => {
+    const index = rec.index;
+    if (slots[index] !== rec) return;
+    if (rec.state === "landed") landedCount = Math.max(0, landedCount - 1);
+    removeContentLanded(rec.contentKey, index);
+    demoteFloor(rec);
+    if (rec.placed !== undefined) {
+      if (rec.refCount > 0) rec.placed.plot.pinnedCount = Math.max(0, rec.placed.plot.pinnedCount - 1);
+      freePlaced(rec.placed, index);
+      rec.placed = undefined;
+    }
+    freeStandalone(rec);
+    standaloneTextures.delete(index);
+    releaseAlias(rec);
+    unreferencedLru.delete(index);
+    queuedSet.delete(index);
+    if (keyToIndex.get(rec.key) === index) keyToIndex.delete(rec.key);
+    compatHeld.delete(rec.key);
+    clearCellUV(index);
+    slots[index] = undefined;
+    freeIndices.push(index);
+  };
+
   const alloc = (pool: PagePool, w: number, h: number): Placed | undefined => {
     const gutter = gutterFor(pool.kind);
     const needW = w + gutter;
@@ -1070,21 +1013,18 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     let at = tryPlaceOnPages(pool, w, h, layout);
     if (at !== undefined) return at;
 
-    // Reclaim least-recently-used unpinned non-floor plot in one shot (zero fragmentation).
+    // Reclaim the least-recently-used plot that nothing on screen holds, in one shot.
     const reclaimed = evictLruUnpinnedPlot(pool, needW, needH, layout);
     if (reclaimed !== undefined) {
       at = tryPlaceInPlot(pool, reclaimed.page, reclaimed.plot, w, h);
       if (at !== undefined) return at;
     }
 
-    // Compact a fragmented plot via GPU copyTextureToTexture before growing past bindLimit.
-    const compacted = compactFragmentedPlot(pool, needW, needH, layout);
-    if (compacted !== undefined) {
-      at = tryPlaceInPlot(pool, compacted.page, compacted.plot, w, h);
-      if (at !== undefined) return at;
-    }
-
-    // All plots hold referenced/floor cells: add a new independent page (zero copies!).
+    // Every plot holds a cell that is on screen: add a new independent page.
+    // A cell is never moved once it is placed. Moving one took a GPU copy
+    // inside one texture, which WebGPU rejects whatever the rects are, and the
+    // rejected encoder dropped every copy in it while the rows were already
+    // pointed at the new rects.
     const nextPage = addPage(pool, layout);
     if (nextPage !== undefined) {
       at = tryPlaceInPlot(pool, nextPage, nextPage.plots[0]!, w, h);
@@ -1194,12 +1134,16 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       tex = rec.standalone.texture;
     } else {
       if (rec.placed !== undefined) {
+        if (rec.refCount > 0) rec.placed.plot.pinnedCount = Math.max(0, rec.placed.plot.pinnedCount - 1);
+        demoteFloor(rec);
         freePlaced(rec.placed, rec.index);
         rec.placed = undefined;
       }
       freeStandalone(rec);
       tex = createTexture2DArray(device!, tileW, tileH, layers, pool.format, pool.usage);
       if (tex === undefined) {
+        // The old rect is gone and no texture took its place: the row names nothing.
+        if (rec.aliasOf === undefined) clearCellUV(rec.index);
         rec.state = "failed";
         rec.attempts += 1;
         rec.retryAfter = nowMs() + Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts - 1));
@@ -1254,7 +1198,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     cells[base + 5] = layers > 1 ? tilesX : 0;
     cells[base + 6] = layers > 1 ? tilesY : 0;
     cells[base + 7] = 0;
-    if (!allCellsDirty) dirtyCellSlots.add(rec.index);
+    touchRow(rec.index);
 
     rec.inPlace = false;
     const wasLanded = rec.state === "landed";
@@ -1278,7 +1222,63 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (rec.aliasOf === undefined) return;
     const target = rec.aliasOf;
     rec.aliasOf = undefined;
+    if (rec.state !== "landed") {
+      // Its row was the target's rect, and the reference that kept that rect
+      // in place goes now. Left as it was, the row would show whatever lands
+      // there next, and a dedicated texture could be destroyed under it.
+      clearCellUV(rec.index);
+      standaloneTextures.delete(rec.index);
+    }
     release(target);
+  };
+
+  /** One more holder of `rec`: a quad, or a cell standing in on it. */
+  const retain = (rec: SlotRecord): void => {
+    const wasUnheld = rec.refCount === 0;
+    rec.refCount += 1;
+    if (wasUnheld && rec.placed !== undefined) {
+      rec.placed.plot.pinnedCount += 1;
+      rec.placed.plot.lastUsedTick = ++plotTick;
+    }
+    unreferencedLru.delete(rec.index);
+  };
+
+  /** The cell whose own pixels `rec`'s row shows: `rec`, or the cell it stands in on. */
+  const pictureOwner = (rec: SlotRecord): SlotRecord => {
+    let owner = rec;
+    while (owner.aliasOf !== undefined) {
+      const next = slots[owner.aliasOf];
+      if (next === undefined) break;
+      owner = next;
+    }
+    return owner;
+  };
+
+  /**
+   * `rec` shows `target`'s picture until its own lands. The caller hands over
+   * one reference on `target`.
+   *
+   * A stand-in always names a cell with pixels of its own. Standing in on a
+   * stand-in copied a copy: when the middle cell landed it let go of the
+   * bottom one, whose rect the top cell's row still named, and that rect was
+   * then free to be wiped and reused. The row carries the whole location: a
+   * cell on a page past the bind budget, or in a texture of its own, is drawn
+   * from the texture in the side map, so the stand-in is given that too.
+   */
+  const standInOn = (rec: SlotRecord, target: SlotRecord): void => {
+    const owner = pictureOwner(target);
+    if (owner === rec) {
+      release(target.index);
+      return;
+    }
+    if (owner !== target) retain(owner);
+    rec.aliasOf = owner.index;
+    copyCellUV(rec.index, owner.index);
+    const texture = standaloneTextures.get(owner.index);
+    if (texture !== undefined) standaloneTextures.set(rec.index, texture);
+    else standaloneTextures.delete(rec.index);
+    markDirty();
+    if (owner !== target) release(target.index);
   };
 
   const landPixels = (rec: SlotRecord, pixels: AtlasPixels): boolean => {
@@ -1301,8 +1301,11 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     } else {
       if (rec.placed !== undefined) {
         if (rec.refCount > 0) rec.placed.plot.pinnedCount = Math.max(0, rec.placed.plot.pinnedCount - 1);
+        demoteFloor(rec);
         freePlaced(rec.placed, rec.index);
         rec.placed = undefined;
+        // The old rect is free to be reused from here on, so the row no longer names it.
+        if (rec.aliasOf === undefined) clearCellUV(rec.index);
       }
       at = alloc(pool, w, h);
     }
@@ -1465,11 +1468,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
           if (disposed || rec.jobToken !== token || slots[rec.index] !== rec) return;
           if (rec.refCount === 0 && !rec.inPlace) {
             // Released while in flight: drop without wasting page space.
-            rec.state = "failed";
-            keyToIndex.delete(rec.key);
-            compatHeld.delete(rec.key);
-            slots[rec.index] = undefined;
-            freeIndices.push(rec.index);
+            freeSlot(rec);
             return;
           }
           landPixels(rec, pixels);
@@ -1479,10 +1478,15 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       })
       .catch((error) => {
         if (disposed || rec.jobToken !== token || slots[rec.index] !== rec) return;
+        reportFailure(`atlas raster failed (${rec.key}): ${String(error)}`);
+        if (rec.refCount === 0) {
+          // Released while in flight: nobody is left to retry it.
+          freeSlot(rec);
+          return;
+        }
         rec.state = "failed";
         rec.attempts += 1;
         rec.retryAfter = nowMs() + Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts - 1));
-        reportFailure(`atlas raster failed (${rec.key}): ${String(error)}`);
       })
       .finally(() => {
         inFlightCount = Math.max(0, inFlightCount - 1);
@@ -1512,10 +1516,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       if (rec === undefined || rec.state !== "queued") continue;
       if (rec.refCount === 0) {
         // Cancelled before rasterizing
-        keyToIndex.delete(rec.key);
-        compatHeld.delete(rec.key);
-        slots[idx] = undefined;
-        freeIndices.push(idx);
+        freeSlot(rec);
         continue;
       }
       runJob(rec);
@@ -1614,34 +1615,17 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (rec.state === "landed") {
       if (rec.standalone !== undefined) {
         // Off-screen standalone textures leave immediately so they never hold GPU memory or disable GPU cull.
-        freeStandalone(rec);
-        landedCount = Math.max(0, landedCount - 1);
-        removeContentLanded(rec.contentKey, cell);
-        keyToIndex.delete(rec.key);
-        compatHeld.delete(rec.key);
-        unreferencedLru.delete(cell);
-        clearCellUV(cell);
-        slots[cell] = undefined;
-        freeIndices.push(cell);
+        freeSlot(rec);
         evictions += 1;
         markDirty();
       } else {
         rec.desc = undefined;
         unreferencedLru.set(cell, true);
       }
-    } else if (rec.state === "queued") {
-      queuedSet.delete(cell);
-      keyToIndex.delete(rec.key);
-      compatHeld.delete(rec.key);
-      clearCellUV(cell);
-      slots[cell] = undefined;
-      freeIndices.push(cell);
-    } else if (rec.state === "failed") {
-      keyToIndex.delete(rec.key);
-      compatHeld.delete(rec.key);
-      clearCellUV(cell);
-      slots[cell] = undefined;
-      freeIndices.push(cell);
+    } else if (rec.state === "queued" || rec.state === "failed") {
+      // Nothing is cached under this key: a cell re-keyed in place still has
+      // the last key's pixels at its rect, so the rect goes with the slot.
+      freeSlot(rec);
     }
     // If state === "rasterizing", runJob's .then handler will reclaim when it finishes.
   };
@@ -1654,6 +1638,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
 
     const prevRec = previous !== undefined && previous !== NO_ATLAS_CELL ? slots[previous] : undefined;
+    // A cell of the other pool cannot stand in or be overwritten in place: the
+    // quad samples its own kind's pages, so the other pool's rect would show
+    // whatever sits there on this one.
+    const prevSamePool = prevRec !== undefined && prevRec.desc?.kind === keys.kind;
 
     // Rule 3: Same key -> return previous with net zero ref change.
     if (prevRec !== undefined && prevRec.key === keys.key) {
@@ -1666,7 +1654,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
 
     // Rule 3: In-place status-line overwrite when previous has refCount === 1 and same pixel box.
-    if (prevRec !== undefined && prevRec.refCount === 1 && prevRec.placed !== undefined && prevRec.state === "landed" && !keyToIndex.has(keys.key)) {
+    if (prevRec !== undefined && prevSamePool && prevRec.refCount === 1 && prevRec.placed !== undefined && prevRec.state === "landed" && !keyToIndex.has(keys.key)) {
       const box = expectedBoxFor(quad, scale);
       if (box !== undefined && box.w === prevRec.placed.w && box.h === prevRec.placed.h) {
         keyToIndex.delete(prevRec.key);
@@ -1705,10 +1693,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       if (prevRec !== undefined) {
         if (hasImage(existingIdx)) {
           release(prevRec.index);
-        } else if (rec.aliasOf === undefined && hasImage(prevRec.index)) {
-          rec.aliasOf = prevRec.index; // transfers caller's ref on prevRec to rec.aliasOf
-          copyCellUV(existingIdx, prevRec.index);
-          markDirty();
+        } else if (rec.aliasOf === undefined && prevSamePool && prevRec !== rec && hasImage(prevRec.index)) {
+          standInOn(rec, prevRec); // hands the caller's reference on prevRec to the stand-in
         } else {
           release(prevRec.index);
         }
@@ -1751,22 +1737,12 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     const standIn = findStandIn(keys.contentKey, scale, index);
     if (standIn !== undefined) {
       const sRec = slots[standIn]!;
-      const wasUnpinned = sRec.refCount === 0;
-      sRec.refCount += 1;
-      if (wasUnpinned && sRec.placed !== undefined) {
-        sRec.placed.plot.pinnedCount += 1;
-        sRec.placed.plot.lastUsedTick = ++plotTick;
-      }
-      unreferencedLru.delete(standIn);
-      rec.aliasOf = standIn;
-      copyCellUV(index, standIn);
-      markDirty();
+      retain(sRec);
+      standInOn(rec, sRec);
       if (prevRec !== undefined) release(prevRec.index);
-    } else if (prevRec !== undefined && hasImage(prevRec.index)) {
-      // Transfer caller's reference on previous to rec.aliasOf until rec lands.
-      rec.aliasOf = prevRec.index;
-      copyCellUV(index, prevRec.index);
-      markDirty();
+    } else if (prevRec !== undefined && prevSamePool && hasImage(prevRec.index)) {
+      // Hands the caller's reference on previous to the stand-in until rec lands.
+      standInOn(rec, prevRec);
     } else if (prevRec !== undefined) {
       release(prevRec.index);
     }
@@ -1855,7 +1831,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       decodedSvgCount: decodedSvgs.size,
       floorBytes,
       floorCells: floorByContent.size,
-      compactions,
+      // A cell is never moved once placed; the field stays so proof files keep their shape.
+      compactions: 0,
       lostPixels,
       visibleBlank,
       visibleBlankTotal,
@@ -1905,6 +1882,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         const targetRow = rowOf(rec.aliasOf);
         if (!same(row, targetRow)) {
           flag("alias-row-stale", i, `row ${fmt(row)} target ${rec.aliasOf} (${target.key}) row ${fmt(targetRow)}`);
+        }
+        if (target.aliasOf !== undefined) flag("alias-of-alias", i, `aliasOf ${rec.aliasOf}, which stands in on ${target.aliasOf}`);
+        if (standaloneTextures.get(i) !== standaloneTextures.get(rec.aliasOf)) {
+          flag("alias-texture-stale", i, `drawn from a different texture than its target ${rec.aliasOf}`);
         }
         continue;
       }
@@ -2201,6 +2182,15 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       floorByContent.clear();
       floorBytes = 0;
       landedCount = 0;
+      // No picture survives the device, so a stand-in has nothing to show: it
+      // lets go of its target before the cells are sorted into kept and freed.
+      for (let i = 0; i < highWaterCells; i += 1) {
+        const rec = slots[i];
+        if (rec === undefined || rec.aliasOf === undefined) continue;
+        const target = slots[rec.aliasOf];
+        rec.aliasOf = undefined;
+        if (target !== undefined) target.refCount = Math.max(0, target.refCount - 1);
+      }
       for (let i = 0; i < highWaterCells; i += 1) {
         const rec = slots[i];
         if (rec === undefined) continue;
@@ -2209,10 +2199,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         rec.isFloor = false;
         clearCellUV(i);
         if (rec.refCount === 0) {
-          keyToIndex.delete(rec.key);
-          compatHeld.delete(rec.key);
-          slots[i] = undefined;
-          freeIndices.push(i);
+          freeSlot(rec);
           continue;
         }
         rec.state = "queued";
