@@ -465,9 +465,12 @@ export function ThreadChat({
   useEffect(() => {
     for (const message of messages) {
       if (message.waiting === true || !followed.current.delete(message.messageId)) continue;
-      say(sentArrived(name));
+      // Said only while the thread is on screen. Behind Terminal it is not
+      // said, then or later, and the waiting it answered is let go.
+      if (shown) say(sentArrived(name));
+      else setSpoken(undefined);
     }
-  }, [messages, name, say]);
+  }, [messages, name, say, shown]);
   const subject = thread.subject ? subjectChipOf(thread.subject, thread.title, kindOf) : undefined;
   const count = `${thread.messageCount} ${thread.messageCount === 1 ? "message" : "messages"}`;
   const lastId = messages.at(-1)?.messageId;

@@ -940,6 +940,34 @@ describe("the thread composer", () => {
     }
   });
 
+  it("does not say an arrival for a thread behind Terminal, then or when Threads shows again", async () => {
+    vi.useFakeTimers();
+    try {
+      const { state, change } = await open();
+      reply = { ok: true, messageId: "m9", threadId: "notes", delivery: "waiting_for_seat" };
+      await type("Are you there?");
+      await key("Enter");
+      expect(q("seat-threads-said")!.textContent).toBe("Sent. Waiting for pty-lead. It arrives when the seat is back.");
+
+      // The operator looks at the terminal, and the seat takes the mail meanwhile.
+      await click(q("seat-view-terminal"));
+      state.messages.notes = [
+        ...state.messages.notes,
+        { messageId: "m9", author: "you", mine: true, text: "Are you there?", at: at(1, 6) },
+      ];
+      change();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+      // Nothing is said of a thread that is not on screen, and the waiting it answered is let go.
+      expect(q("seat-threads-said")!.textContent).toBe("");
+      await click(q("seat-view-threads"));
+      expect(q("seat-threads-said")!.textContent).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("says nothing for a send its seat took at once, or one that failed", async () => {
     await open();
     await type("Thanks.");
