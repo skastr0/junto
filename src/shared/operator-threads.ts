@@ -13,7 +13,8 @@
  * takes in its children, the empty path is the open field) and a search (every
  * word, in any case, in the thread's line, its seat's name or any of its mail),
  * a set of seats, and unread only. `regions` counts the filter with its region
- * left out, so a region strip names every region that has threads.
+ * left out, and `seatCounts` the filter with its seats left out, so a region
+ * strip and a seat strip name every region and seat that has threads.
  *
  * Order: newest activity first, always. The read keeps no urgency: each row
  * carries its seat, and the window ranks rows with the one ladder
@@ -123,6 +124,15 @@ export const OperatorThreadsRegionCount = Schema.Struct({
 });
 export type OperatorThreadsRegionCount = typeof OperatorThreadsRegionCount.Type;
 
+/** A seat with threads under the filter, its seats left out: the seat strip's chip, and its counts. A thread counts for each seat in it. */
+export const OperatorThreadsSeatCount = Schema.Struct({
+  seat: OperatorThreadSeat,
+  region: FeedRegion,
+  total: Schema.Number,
+  unread: Schema.Number,
+});
+export type OperatorThreadsSeatCount = typeof OperatorThreadsSeatCount.Type;
+
 /** One page. `next` asks for the page after it, absent at the end; `total` and `unread` count every row the filter holds, never the page. */
 export const OperatorThreadsPage = Schema.Struct({
   rows: Schema.Array(OperatorThreadRow),
@@ -131,6 +141,8 @@ export const OperatorThreadsPage = Schema.Struct({
   unread: Schema.Number,
   /** Each region with threads under the filter with its region left out, the innermost a seat sits in; a parent's count is its children's sum, the reader's to add. */
   regions: Schema.Array(OperatorThreadsRegionCount),
+  /** Each seat with threads under the filter with its seats left out. */
+  seatCounts: Schema.Array(OperatorThreadsSeatCount),
   /** Where the canvas's threads stood when this page was read: a change at or before it is already in the page. */
   generation: Schema.Number,
 });
@@ -147,7 +159,7 @@ export type OperatorThreadsUnwatch = typeof OperatorThreadsUnwatch.Encoded;
  * What changed under one watch: `rows` came into its filter or moved (new
  * mail, a read, a rename, a seat moved region), `gone` left it (a thread the
  * operator is no longer in, a seat removed, a filter it no longer matches).
- * `total`, `unread` and `regions` are the filter's again, so a header and a
+ * `total`, `unread`, `regions` and `seatCounts` are the filter's again, so a header and a
  * region strip never read.
  */
 export const OperatorThreadsChanged = Schema.Struct({
@@ -158,6 +170,7 @@ export const OperatorThreadsChanged = Schema.Struct({
   total: Schema.Number,
   unread: Schema.Number,
   regions: Schema.Array(OperatorThreadsRegionCount),
+  seatCounts: Schema.Array(OperatorThreadsSeatCount),
   /** Where the canvas's threads stand after this change; a reader lays a change only over a page or change older than it. */
   generation: Schema.Number,
 });

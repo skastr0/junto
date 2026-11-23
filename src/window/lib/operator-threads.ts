@@ -27,10 +27,11 @@ import type {
   OperatorThreadsPage,
   OperatorThreadsPageQuery,
   OperatorThreadsRegionCount,
+  OperatorThreadsSeatCount,
 } from "@shared/operator-threads";
 import { getJuntoApi } from "./junto-api";
 
-export type { OperatorThreadRow, OperatorThreadsRegionCount };
+export type { OperatorThreadRow, OperatorThreadsRegionCount, OperatorThreadsSeatCount };
 
 /** What the modal shows: a canvas, narrowed by region and search, and the seats it puts first. */
 export type OperatorThreadsView = {
@@ -41,6 +42,8 @@ export type OperatorThreadsView = {
   readonly search?: string;
   /** Only threads with mail the operator has not read. */
   readonly unread?: boolean;
+  /** Only the threads of this seat: the Seats toggle's one kept seat. */
+  readonly seat?: string;
   /** Seats whose threads come first, in this order: `seatUrgencyOrder` with the calm left out. Absent or empty is newest first. */
   readonly urgentFirst?: ReadonlyArray<string>;
 };
@@ -57,6 +60,8 @@ export type OperatorThreadsState = {
   readonly unread: number;
   /** Each region with threads under the view with its region left out, and its counts: the region strip. */
   readonly regions: ReadonlyArray<OperatorThreadsRegionCount>;
+  /** Each seat with threads under the view with its seat left out, and its counts: the seat strip. */
+  readonly seatCounts: ReadonlyArray<OperatorThreadsSeatCount>;
   /** Older rows wait to be read (`loadMoreOperatorThreads`). */
   readonly hasMore: boolean;
   readonly loadingMore?: true;
@@ -119,12 +124,13 @@ const viewOrder = (place: ReadonlyMap<string, number>) => (a: OperatorThreadRow,
 
 // ---- What is held ----
 
-const filterKey = (view: Pick<OperatorThreadsView, "canvasName" | "region" | "search" | "unread">): string =>
+const filterKey = (view: Pick<OperatorThreadsView, "canvasName" | "region" | "search" | "unread" | "seat">): string =>
   [
     view.canvasName,
     view.region === undefined ? "*" : `r:${view.region.join("\u0001")}`,
     (view.search ?? "").trim().toLowerCase(),
     view.unread === true ? "unread" : "",
+    view.seat ?? "",
   ].join("\u0000");
 
 const filterOf = (view: OperatorThreadsView): OperatorThreadsFilter => {
@@ -134,6 +140,7 @@ const filterOf = (view: OperatorThreadsView): OperatorThreadsFilter => {
     ...(view.region === undefined ? {} : { region: [...view.region] }),
     ...(search === "" ? {} : { search }),
     ...(view.unread === true ? { unread: true as const } : {}),
+    ...(view.seat === undefined ? {} : { seats: [view.seat] }),
   };
 };
 
@@ -156,6 +163,7 @@ type Held = {
   total: number;
   unread: number;
   regions: ReadonlyArray<OperatorThreadsRegionCount>;
+  seatCounts: ReadonlyArray<OperatorThreadsSeatCount>;
   loaded: boolean;
   error: string;
   loadingMore: boolean;
@@ -164,7 +172,7 @@ type Held = {
 };
 
 const held = new Map<string, Held>();
-const NO_ROWS: OperatorThreadsState = { rows: [], loaded: false, error: "", total: 0, unread: 0, regions: [], hasMore: false };
+const NO_ROWS: OperatorThreadsState = { rows: [], loaded: false, error: "", total: 0, unread: 0, regions: [], seatCounts: [], hasMore: false };
 
 export const operatorThreads$ = observable<{ readonly lists: Record<string, OperatorThreadsState | undefined> }>({ lists: {} });
 
@@ -182,6 +190,7 @@ const publish = (key: string, list: Held): void => {
     total: list.total,
     unread: list.unread,
     regions: list.regions,
+    seatCounts: list.seatCounts,
     hasMore: list.next !== undefined,
     ...(list.loadingMore ? { loadingMore: true as const } : {}),
   });
@@ -218,16 +227,20 @@ const lay = (list: Held, change: OperatorThreadsChanged): void => {
   list.total = change.total;
   list.unread = change.unread;
   list.regions = change.regions;
+  list.seatCounts = change.seatCounts;
 };
 
 /** The threads of the seats put first, read whole (up to `URGENT_PAGES_MAX` pages). */
 const readFirst = async (read: OperatorThreadsSource, list: Held): Promise<{ rows: OperatorThreadRow[]; generation: number }> => {
   const rows: OperatorThreadRow[] = [];
-  if (list.urgent.length === 0) return { rows, generation: 0 };
+  // A view kept to some seats puts first only those of them that are urgent.
+  const kept = list.filter.seats;
+  const seats = kept === undefined ? [...list.urgent] : list.urgent.filter((seat) => kept.includes(seat));
+  if (seats.length === 0) return { rows, generation: 0 };
   let after: string | undefined;
   let generation = 0;
   for (let pages = 0; pages < URGENT_PAGES_MAX; pages += 1) {
-    const page = await read.list({ ...list.filter, seats: [...list.urgent], limit: 200, ...(after === undefined ? {} : { after }) });
+    const page = await read.list({ ...list.filter, seats, limit: 200, ...(after === undefined ? {} : { after }) });
     rows.push(...page.rows);
     generation = Math.max(generation, page.generation);
     if (page.next === undefined) break;
@@ -254,6 +267,7 @@ const readHead = async (key: string): Promise<void> => {
     list.total = page.total;
     list.unread = page.unread;
     list.regions = page.regions;
+    list.seatCounts = page.seatCounts;
     // The older of the two reads is where the held rows stand: a change after it is laid.
     list.generation = first.rows.length === 0 ? page.generation : Math.min(page.generation, first.generation);
     list.loaded = true;
@@ -321,6 +335,7 @@ export const retainOperatorThreads = (view: OperatorThreadsView): (() => void) =
       total: 0,
       unread: 0,
       regions: [],
+      seatCounts: [],
       loaded: false,
       error: "",
       loadingMore: false,
