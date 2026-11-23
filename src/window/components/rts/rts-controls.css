@@ -349,12 +349,20 @@
   flex-shrink: 0;
 }
 
+/*
+ * Two rows, filled column by column: beside the agents strip the tally takes
+ * no more height than the strip's keys, and each launch gets the width it
+ * needs before any is cut.
+ */
 .rts-seat-tally {
-  display: flex;
+  display: grid;
   flex: 1 1 0;
-  flex-wrap: nowrap;
-  align-items: baseline;
-  gap: 12px;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(2, auto);
+  grid-auto-columns: minmax(0, max-content);
+  justify-content: start;
+  column-gap: 14px;
+  row-gap: 1px;
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -367,7 +375,7 @@
   align-items: baseline;
   gap: 5px;
   min-width: 0;
-  flex: 0 1 auto;
+  line-height: var(--leading-compact);
 }
 
 .rts-seat-tally__count {
