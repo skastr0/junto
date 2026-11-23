@@ -28,7 +28,7 @@
  */
 import { Schema } from "effect";
 import { CanvasName, NodeId } from "./model/base";
-import { MailParty } from "./wire/mail-threads";
+import { MailParty, ThreadSignalRef } from "./wire/mail-threads";
 import { FeedRegion } from "./wire/operator-feed";
 import { ResourceSubject } from "./wire/thread-subject";
 
@@ -115,6 +115,8 @@ export const OperatorThreadRow = Schema.Struct({
   alsoSeats: Schema.optionalKey(Schema.Array(OperatorThreadSeat)),
   /** The resource it is about; absent for a mailbox thread. */
   subject: Schema.optionalKey(ResourceSubject),
+  /** The earliest signal raised in it that is still open (a thread message's `signal`, paired). */
+  openSignal: Schema.optionalKey(ThreadSignalRef),
 });
 export type OperatorThreadRow = typeof OperatorThreadRow.Type;
 

@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { AgentSignalState, SeatRaiseKind } from "./agent-signals";
 import { ContentRef } from "./content-ref";
 import { ResourceSubject } from "./thread-subject";
 
@@ -14,6 +15,38 @@ export const MailParty = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("seat"), nodeId: Schema.String, name: Schema.String }),
 ]);
 export type MailParty = typeof MailParty.Type;
+
+/** What a signal asks the operator to hand in, when a reply alone does not close it: an artifact form is a document. */
+export const THREAD_SIGNAL_ASKS = ["document", "proof", "secret"] as const;
+export const ThreadSignalAsks = Schema.Literals(THREAD_SIGNAL_ASKS);
+export type ThreadSignalAsks = typeof ThreadSignalAsks.Type;
+
+/**
+ * A signal as a thread carries it, live: its kind, where it stands, its one
+ * sentence, and what it asks for when words alone do not close it.
+ */
+export const ThreadSignal = Schema.Struct({
+  signalId: Schema.String,
+  kind: SeatRaiseKind,
+  state: AgentSignalState,
+  text: Schema.String,
+  asks: Schema.optionalKey(ThreadSignalAsks),
+  /**
+   * The operator's answer and the seat's withdrawal crossed: the seat withdrew
+   * it before the answer reached it. Either closing may have landed first, so
+   * `state` is answered or withdrawn; the other is kept beside it.
+   */
+  crossed: Schema.optionalKey(Schema.Literal(true)),
+});
+export type ThreadSignal = typeof ThreadSignal.Type;
+
+/** The signal that began a thread its answer started: drawn at the thread's head, at the signal's own time. */
+export const ThreadHeadSignal = Schema.Struct({ ...ThreadSignal.fields, at: Schema.Number });
+export type ThreadHeadSignal = typeof ThreadHeadSignal.Type;
+
+/** A signal named by its id, kind and one sentence: what an answer answers, or a thread's open one. Its mail may be on a page not read. */
+export const ThreadSignalRef = Schema.Struct({ signalId: Schema.String, kind: SeatRaiseKind, text: Schema.String });
+export type ThreadSignalRef = typeof ThreadSignalRef.Type;
 
 export const MailThreadMessage = Schema.Struct({
   messageId: Schema.String,
@@ -37,6 +70,15 @@ export const MailThreadMessage = Schema.Struct({
    * seat's mail. A send that failed still waits, so it reads as waiting.
    */
   waiting: Schema.optionalKey(Schema.Literal(true)),
+  /**
+   * The seat's mail that is a signal: one act, two faces. Present only when
+   * this machine holds both and each names the other (the signal's
+   * `messageId`, the row's `metadata.raisedSignalId`), the mail is in that
+   * seat's own mailbox and the seat wrote it. Until then it is a plain reply.
+   */
+  signal: Schema.optionalKey(ThreadSignal),
+  /** The operator's mail that answered a signal of the seat it went to (`metadata.agentSignalId`). */
+  answers: Schema.optionalKey(ThreadSignalRef),
 });
 export type MailThreadMessage = typeof MailThreadMessage.Type;
 
@@ -60,6 +102,8 @@ export const MailThreadSummary = Schema.Struct({
   unread: Schema.Number,
   /** The resource the thread is about, as its mail names it; absent for a mailbox thread. */
   subject: Schema.optionalKey(ResourceSubject),
+  /** The earliest signal raised in it that is still open, paired as a message's `signal` is. */
+  openSignal: Schema.optionalKey(ThreadSignalRef),
 });
 export type MailThreadSummary = typeof MailThreadSummary.Type;
 
@@ -73,4 +117,6 @@ export type MailThreadsPage = {
 export type MailThreadMessagesPage = {
   readonly messages: ReadonlyArray<MailThreadMessage>;
   readonly older?: string;
+  /** The signal whose answer started the thread, on every page: draw it before the first message. */
+  readonly headSignal?: ThreadHeadSignal;
 };

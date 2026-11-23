@@ -40,7 +40,8 @@ import {
   type OperatorThreadSent,
   type ThreadGroup,
 } from "@shared/mail-threads";
-import type { MailThreadMessage } from "@shared/wire/mail-threads";
+import type { MailThreadMessage, MailThreadSummary } from "@shared/wire/mail-threads";
+import { headSignalOf, openSignalOf, signalIdsOf, threadSignalsOf, withSignals, type RowOf, type ThreadSignals } from "./thread-signals";
 import type { Message } from "@shared/work-model";
 import { operatorActorRef } from "@shared/work-reference";
 import { ModelService } from "../model/service";
@@ -324,8 +325,24 @@ const threadsInput = (canvasName: string) =>
       subjectNameOf: (subject) => subjectNames.get(subjectKey(subject)),
       derivedFor: (nodeId) => viewOf(index, nodeId),
     };
-    return { canvas, input, index };
+    const rowOf = (nodeId: string, messageId: string) => rowIn(index, nodeId, messageId);
+    return { canvas, input, index, rowOf };
   });
+
+/** Each held mailbox's rows by id, made once per read of its rows. */
+const rowIds = new WeakMap<ReadonlyArray<Message>, ReadonlyMap<string, Message>>();
+
+/** A row as one seat's mailbox holds it. */
+const rowIn = (index: CanvasThreads, nodeId: string, messageId: string): Message | undefined => {
+  const box = index.boxes.get(nodeId);
+  if (box === undefined) return undefined;
+  let ids = rowIds.get(box.messages);
+  if (ids === undefined) {
+    ids = new Map(box.messages.map((row) => [row.messageId, row]));
+    rowIds.set(box.messages, ids);
+  }
+  return ids.get(messageId);
+};
 
 /**
  * Every thread of a canvas as the index holds it, brought current: by id, its
@@ -335,9 +352,10 @@ const threadsInput = (canvasName: string) =>
  * across every seat (work/thread-rows.ts) and its watches take it.
  */
 export const canvasThreads = (canvasName: string) =>
-  Effect.map(threadsInput(canvasName), ({ canvas, input, index }) => ({
+  Effect.map(threadsInput(canvasName), ({ canvas, input, index, rowOf }) => ({
     canvas,
     input,
+    rowOf,
     threads: (): IterableIterator<readonly [string, ReadonlyArray<MailThreadMessage>]> =>
       (function* () {
         for (const [threadId, mail] of index.threads) yield [threadId, mail.entries] as const;
@@ -348,10 +366,26 @@ export const canvasThreads = (canvasName: string) =>
 export const seatThreadsInput = (canvasName: string) => Effect.map(threadsInput(canvasName), ({ input }) => input);
 
 export const seatThreads = (canvasName: string, nodeId: string) =>
-  Effect.map(threadsInput(canvasName), ({ input }) => seatMailThreads(input, nodeId));
+  Effect.gen(function* () {
+    const { input, rowOf } = yield* threadsInput(canvasName);
+    const signals = yield* threadSignalsOf(canvasName);
+    return withOpenSignals(seatMailThreads(input, nodeId), signals, rowOf);
+  });
+
+/** Each thread's earliest open signal, paired (work/thread-signals.ts). */
+const withOpenSignals = <T extends MailThreadSummary>(threads: ReadonlyArray<T>, signals: ThreadSignals, rowOf: RowOf): ReadonlyArray<T> =>
+  threads.map((thread) => {
+    const openSignal = openSignalOf(thread.threadId, signals, rowOf);
+    return openSignal === undefined ? thread : { ...thread, openSignal };
+  });
 
 export const seatThreadMessages = (canvasName: string, nodeId: string, threadId: string) =>
-  Effect.map(threadsInput(canvasName), ({ input }) => seatMailThreadMessages(input, nodeId, threadId));
+  Effect.gen(function* () {
+    const { input, rowOf } = yield* threadsInput(canvasName);
+    const messages = seatMailThreadMessages(input, nodeId, threadId);
+    const signals = yield* threadSignalsOf(canvasName, signalIdsOf(messages, rowOf));
+    return withSignals(messages, signals, rowOf);
+  });
 
 /**
  * The threads input with the operator's read points joined in by thread id, so
@@ -373,9 +407,12 @@ export const seatThreadsPage = (
   page: { limit?: number; after?: string; group?: ThreadGroup },
   readPoints?: ReadonlyMap<string, MailReadPoint>,
 ) =>
-  Effect.map(threadsInput(canvasName), ({ input }) =>
-    seatMailThreadsPage(readPoints === undefined ? input : withReadPoints(input, readPoints), nodeId, page),
-  );
+  Effect.gen(function* () {
+    const { input, rowOf } = yield* threadsInput(canvasName);
+    const read = seatMailThreadsPage(readPoints === undefined ? input : withReadPoints(input, readPoints), nodeId, page);
+    const signals = yield* threadSignalsOf(canvasName);
+    return { ...read, threads: withOpenSignals(read.threads, signals, rowOf) };
+  });
 
 /** One page of a thread's messages, the newest unless a cursor says otherwise. */
 export const seatThreadMessagesPage = (
@@ -383,7 +420,15 @@ export const seatThreadMessagesPage = (
   nodeId: string,
   threadId: string,
   page: { limit?: number; before?: string },
-) => Effect.map(threadsInput(canvasName), ({ input }) => seatMailThreadMessagesPage(input, nodeId, threadId, page));
+) =>
+  Effect.gen(function* () {
+    const { input, index, rowOf } = yield* threadsInput(canvasName);
+    const read = seatMailThreadMessagesPage(input, nodeId, threadId, page);
+    const root = index.threads.get(threadId)?.entries.slice(0, 1) ?? [];
+    const signals = yield* threadSignalsOf(canvasName, signalIdsOf([...root, ...read.messages], rowOf));
+    const headSignal = headSignalOf(threadId, root, signals, rowOf);
+    return { ...read, messages: withSignals(read.messages, signals, rowOf), ...(headSignal === undefined ? {} : { headSignal }) };
+  });
 
 /** Agent seats wired to this seat by an edge, either way. */
 const mentionableIn = (canvas: Canvas, nodeId: string): ReadonlyArray<MentionableSeat> => {

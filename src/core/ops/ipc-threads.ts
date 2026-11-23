@@ -6,6 +6,7 @@
  * in main. Read points that move and mail held past its wait go out as pushes
  * once the window's watch started them, once per core.
  */
+import { onAgentSignalChanged } from "../signals/changes";
 import { Context, Effect, Predicate, Ref, Scope } from "effect";
 import { SqlClient } from "effect/sql";
 import { ulid } from "ulid";
@@ -68,12 +69,15 @@ export const ThreadsHandlers = ThreadsRpcs.toLayer(
       });
       const stopModel = (yield* ModelService).subscribeChanges((event) => across.changed(event.canvas));
       const stopReads = onReadChanged((change) => across.changed(change.canvasName));
+      // A signal raised, answered, dismissed or withdrawn moves a row's open signal.
+      const stopSignals = onAgentSignalChanged((signal) => across.changed(signal.canvasName));
       yield* Scope.addFinalizer(
         scope,
         Effect.sync(() => {
           stopMail();
           stopModel();
           stopReads();
+          stopSignals();
         }),
       );
     });

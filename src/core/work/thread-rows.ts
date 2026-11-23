@@ -21,6 +21,8 @@
  *
  * Nothing is stored: no table, no column. Mail text never leaves in a log.
  */
+import type { ThreadSignalRef } from "@shared/wire/mail-threads";
+import { openSignalOf, threadSignalsOf, type RowOf, type ThreadSignals } from "./thread-signals";
 import { Effect } from "effect";
 import { SqlClient } from "effect/sql";
 import { ulid } from "ulid";
@@ -79,6 +81,7 @@ type Thread = {
   readonly alsoSeats: ReadonlyArray<OperatorThreadSeat>;
   readonly point: MailReadPoint | undefined;
   readonly unread: number;
+  readonly openSignal: ThreadSignalRef | undefined;
 };
 
 const seatOf = (canvas: Canvas, nodeId: string): OperatorThreadSeat | undefined => {
@@ -158,6 +161,8 @@ type View = {
   readonly canvas: Canvas;
   readonly input: MailThreadsInput;
   readonly threads: () => Iterable<readonly [string, ReadonlyArray<MailThreadMessage>]>;
+  readonly rowOf: RowOf;
+  readonly signals: ThreadSignals;
 };
 
 /** Every thread `who` holds on the canvas, with its seat, region and read state; a thread whose seat left the canvas is not. */
@@ -177,6 +182,7 @@ const threadsOf = (view: View, who: ThreadRowsWho, points: ReadonlyMap<string, M
     });
     const point = points?.get(threadId);
     out.push({
+      openSignal: openSignalOf(threadId, view.signals, view.rowOf),
       threadId,
       entries,
       lastAt: last.at,
@@ -299,13 +305,14 @@ const rowOf = (input: MailThreadsInput, thread: Thread): OperatorThreadRow => {
     ...(thread.point === undefined ? {} : { readAt: thread.point.at }),
     ...(thread.alsoSeats.length === 0 ? {} : { alsoSeats: thread.alsoSeats }),
     ...(summary.subject === undefined ? {} : { subject: summary.subject }),
+    ...(thread.openSignal === undefined ? {} : { openSignal: thread.openSignal }),
   };
 };
 
 /** The canvas's threads, and the operator's read points when asked. */
 const readView = (canvasName: string, readPoints: boolean) =>
   Effect.gen(function* () {
-    const view = yield* canvasThreads(canvasName);
+    const view = { ...(yield* canvasThreads(canvasName)), signals: yield* threadSignalsOf(canvasName) };
     const points = readPoints ? yield* canvasPoints(yield* SqlClient.SqlClient, canvasName) : undefined;
     return { view, points };
   });
@@ -375,6 +382,7 @@ const signOf = (thread: Thread): string =>
     thread.unread,
     thread.seat.name,
     regionKey(thread.region),
+    thread.openSignal?.signalId ?? "",
     thread.alsoSeats.map((seat) => `${seat.nodeId}\u0001${seat.name}`).join("\u0002"),
   ].join("\u0000");
 
