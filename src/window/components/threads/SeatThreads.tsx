@@ -31,7 +31,7 @@ import { AgentPortrait } from "../AgentPortrait";
 import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
 import { ResourceChip, ResourceGlyphMark, mentionMark } from "../ui/ResourceChip";
 import { MessageAttachments } from "./MessageAttachments";
-import { ThreadComposer } from "./ThreadComposer";
+import { ThreadComposer, type SentMail } from "./ThreadComposer";
 import { ThreadHeadline } from "./ThreadHeadline";
 import { sentArrived, sentWaiting, ThreadSaid, WaitingMark, type Said } from "./ThreadSignal";
 import { ThreadTime } from "./ThreadTime";
@@ -155,6 +155,9 @@ function usePortraitOf(canvasName: string): (author: string) => string {
 const LIST_NEAR_END = 400;
 /** How far from the chat's top, in pixels, the next older page is asked for. */
 const CHAT_NEAR_TOP = 240;
+/** How long a chat is in the document before it says how the send that started its thread went. */
+const SAID_AFTER_MOUNT_MS = 150;
+
 /** Two messages from one seat this close together share a head: the second folds. */
 const FOLD_MS = 10 * 60 * 1000;
 
@@ -162,8 +165,8 @@ type Selection =
   | {
       readonly kind: "thread";
       readonly threadId: string;
-      /** Just started here: held while the list has not read it yet. */
-      readonly sent?: true;
+      /** Just started here, by this mail: held while the list has not read it yet. */
+      readonly sent?: SentMail;
     }
   | { readonly kind: "new" };
 
@@ -221,7 +224,7 @@ function SeatThreads({
   // list is let go; one just started here waits for the list to read it.
   const picked: Selection | undefined =
     selection?.kind === "new" ||
-    selection?.sent === true ||
+    selection?.sent !== undefined ||
     (selection && threads.some((thread) => thread.threadId === selection.threadId))
       ? selection
       : (() => {
@@ -330,7 +333,7 @@ function SeatThreads({
             name={name}
             yields={yields}
             onCancel={() => setSelection(undefined)}
-            onSent={(threadId) => setSelection({ kind: "thread", threadId, sent: true })}
+            onSent={(threadId, sent) => setSelection({ kind: "thread", threadId, sent })}
           />
         ) : thread ? (
           <ThreadChat
@@ -341,6 +344,7 @@ function SeatThreads({
             // A row the operator pressed, or a thread they just started. The
             // first of the list, shown because nothing was picked, is not.
             picked={selection?.kind === "thread" && selection.threadId === thread.threadId}
+            started={selection?.kind === "thread" && selection.threadId === thread.threadId ? selection.sent : undefined}
             yields={yields}
           />
         ) : (
@@ -402,6 +406,7 @@ export function ThreadChat({
   thread,
   shown = true,
   picked = true,
+  started,
   yields,
 }: {
   readonly seat: SeatAddress;
@@ -417,6 +422,12 @@ export function ThreadChat({
    * read at the operator's first act in it.
    */
   readonly picked?: boolean;
+  /**
+   * The thread was just started from here, by this mail. Its chat did not
+   * exist when the send came back, so the chat says how it went once it is
+   * in the document.
+   */
+  readonly started?: SentMail;
   /** Asked as the reply field mounts: true leaves the keyboard where the operator has it. */
   readonly yields?: () => boolean;
 }) {
@@ -496,6 +507,23 @@ export function ThreadChat({
       else setSpoken(undefined);
     }
   }, [messages, name, say, shown]);
+  // A thread just started from here whose first mail came back with its seat
+  // away. The region is said reliably only when it is in the document before
+  // its words, so the words come a moment after the chat.
+  const startedWaiting = started?.waiting === true ? started.messageId : undefined;
+  const messagesNow = useRef(messages);
+  messagesNow.current = messages;
+  useEffect(() => {
+    if (startedWaiting === undefined) return;
+    const timer = setTimeout(() => {
+      // Its seat took it meanwhile: there is no waiting to say.
+      const mail = messagesNow.current.find((message) => message.messageId === startedWaiting);
+      if (mail !== undefined && mail.waiting !== true) return;
+      followed.current.add(startedWaiting);
+      say(sentWaiting(name));
+    }, SAID_AFTER_MOUNT_MS);
+    return () => clearTimeout(timer);
+  }, [startedWaiting, name, say]);
   const subject = thread.subject ? subjectChipOf(thread.subject, thread.title, kindOf) : undefined;
   const count = `${thread.messageCount} ${thread.messageCount === 1 ? "message" : "messages"}`;
   const lastId = messages.at(-1)?.messageId;
@@ -630,7 +658,7 @@ export function NewThread({
   /** Asked as the field mounts: true leaves the keyboard where the operator has it. */
   readonly yields?: () => boolean;
   readonly onCancel: () => void;
-  readonly onSent: (threadId: string) => void;
+  readonly onSent: (threadId: string, mail: SentMail) => void;
 }) {
   return (
     <>

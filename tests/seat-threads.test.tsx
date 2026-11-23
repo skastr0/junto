@@ -1175,6 +1175,66 @@ describe("the thread composer", () => {
     expect(q("thread-composer")?.getAttribute("data-mode")).toBe("reply");
   });
 
+  it("says the first send of a new thread that comes back with its seat away, once its chat is in the document", async () => {
+    vi.useFakeTimers();
+    const later = async (ms: number) => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    };
+    try {
+      const { state, change } = await open();
+      await click(q("seat-threads-new"));
+      reply = { ok: true, messageId: "fresh", threadId: "fresh", delivery: "waiting_for_seat" };
+      await type("Are you there?");
+      await click(q("thread-composer-send"));
+      state.threads = [thread({ threadId: "fresh", title: "Are you there?", lastAt: at(2, 0) }), ...state.threads];
+      state.messages.fresh = [{ messageId: "fresh", author: "you", mine: true, text: "Are you there?", at: at(2, 0), waiting: true }];
+      change();
+      await later(600);
+      // The new thread's chat is there, with its one voice, and the send's outcome is said in it.
+      expect(document.querySelector('[data-thread-id="fresh"]')?.getAttribute("data-selected")).toBe("true");
+      expect(q("seat-threads-said")!.textContent).toBe("Sent. Waiting for pty-lead. It arrives when the seat is back.");
+      expect(q("seat-threads-waiting")).not.toBeNull();
+
+      // And when the seat takes it, that too.
+      state.messages.fresh = [{ messageId: "fresh", author: "you", mine: true, text: "Are you there?", at: at(2, 0) }];
+      change();
+      await later(600);
+      expect(q("seat-threads-said")!.textContent).toBe("pty-lead has it.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("puts the words of a new thread's first send into its chat's voice only after the chat is there", async () => {
+    vi.useFakeTimers();
+    try {
+      const { state, change } = await open();
+      await click(q("seat-threads-new"));
+      reply = { ok: true, messageId: "fresh", threadId: "fresh", delivery: "waiting_for_seat" };
+      await type("Are you there?");
+      await click(q("thread-composer-send"));
+      state.threads = [thread({ threadId: "fresh", title: "Are you there?", lastAt: at(2, 0) }), ...state.threads];
+      state.messages.fresh = [{ messageId: "fresh", author: "you", mine: true, text: "Are you there?", at: at(2, 0), waiting: true }];
+      change();
+      // Until the list has read the new thread there is no chat, so nothing can be said.
+      const steps: string[] = [];
+      for (let waited = 0; waited < 800 && steps.at(-1) !== "said"; waited += 10) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(10);
+        });
+        const region = q("seat-threads-said");
+        const step = region === null ? "no chat" : region.textContent === "" ? "empty" : "said";
+        if (steps.at(-1) !== step) steps.push(step);
+      }
+      // The region is in the document, empty, before its words: that is what makes it said.
+      expect(steps.slice(-2)).toEqual(["empty", "said"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows a plain @name as words: only a mention link is a reference", async () => {
     const { state, change } = await open();
     state.messages.notes = [
