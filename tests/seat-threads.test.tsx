@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 /**
- * A seat's threads in its open view: a plain Threads button (mail has no
- * operator read state, so it counts nothing); the popup lists the seat's
- * threads in two groups and shows one as a chat, oldest first, the operator's
- * own on the right. A thread between seats is read only. The data comes
- * from main's threads IPC and is read again on any mail change in the canvas.
+ * A seat's threads in its open view: the header's switch, Terminal and
+ * Threads, whose Threads half counts what the operator has not read; Threads
+ * is laid over the seat's stage, lists the seat's threads in two groups and
+ * shows one as a chat, oldest first, the operator's own on the right. A
+ * thread between seats is read only. The data comes from main's threads IPC
+ * and is read again on any mail change in the canvas.
  */
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailThreadMessage, MailThreadSummary } from "../src/shared/wire/mail-threads";
@@ -26,8 +27,10 @@ import {
   type SeatThreadSummary,
 } from "../src/window/lib/seat-threads";
 import { setOperatorContentPutter } from "../src/window/lib/operator-attachments";
-import { SeatThreadsButton } from "../src/window/components/threads/SeatThreads";
+import { SeatThreadsStage, SeatViewSwitch } from "../src/window/components/threads/SeatThreads";
+import { resetOperatorGesture } from "../src/window/lib/focus-ownership";
 import { asCanvasName } from "../src/shared/model";
+import type { SeatOpenView } from "../src/shared/settings";
 import { modelStore } from "../src/window/lib/use-model";
 import { workDetailOpen$ } from "../src/window/lib/work-detail-open";
 import { seat as seatNode, taskBoard } from "./support/model-nodes";
@@ -142,6 +145,8 @@ let release: () => void;
 
 beforeEach(() => {
   resetSeatThreads();
+  // A press in one test is not the gesture behind the next.
+  resetOperatorGesture();
   // The seats and boards a mention link names: its chip reads the canvas for what it is now.
   release = modelStore.adopt({
     canvas: asCanvasName("factory"),
@@ -170,8 +175,25 @@ const flush = async () => {
   });
 };
 
-const render = async () => {
-  act(() => root.render(<SeatThreadsButton seat={SEAT} name="pty-lead" />));
+/**
+ * The switch and the stage as a seat's open view holds them: one view at a
+ * time, Threads over the stage and the terminal under it (here, its stand-in).
+ */
+function Seat({ opensOn }: { readonly opensOn: SeatOpenView }) {
+  const [view, setView] = useState(opensOn);
+  return (
+    <>
+      <SeatViewSwitch seat={SEAT} view={view} onSelect={setView} controls="stage" />
+      <div id="stage">
+        <textarea data-testid="terminal" inert={view === "threads"} />
+        <SeatThreadsStage seat={SEAT} name="pty-lead" shown={view === "threads"} />
+      </div>
+    </>
+  );
+}
+
+const render = async (opensOn: SeatOpenView = "terminal") => {
+  act(() => root.render(<Seat opensOn={opensOn} />));
   await flush();
 };
 
@@ -181,6 +203,17 @@ const click = async (element: Element | null) => {
   act(() => (element as HTMLElement).click());
   await flush();
 };
+/** A press with the pointer, as the app hears one: the press, which puts the keyboard on a button, then the click. */
+const press = async (element: Element | null) => {
+  act(() => {
+    element?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    (element as HTMLElement).focus();
+    (element as HTMLElement).click();
+  });
+  await flush();
+};
+/** Whether Threads is the view on screen. */
+const threadsShown = () => q("seat-threads")?.hasAttribute("hidden") === false;
 
 describe("the seat's threads, in words", () => {
   it("groups with you and between seats, newest first", () => {
@@ -201,7 +234,7 @@ describe("the seat's threads, in words", () => {
   });
 });
 
-describe("the Threads button", () => {
+describe("the Threads half of the switch", () => {
   it("counts what the operator has not read in a seat, and each row says its own", async () => {
     const fixture = fake();
     fixture.state.threads = [
@@ -211,30 +244,30 @@ describe("the Threads button", () => {
     ];
     setSeatThreadsSource(fixture.source);
     await render();
-    expect(q("seat-threads-button")?.textContent).toBe("Threads3");
-    expect(q("seat-threads-button")?.getAttribute("title")).toBe("Threads, 3 unread");
+    expect(q("seat-view-threads")?.textContent).toBe("Threads3");
+    expect(q("seat-view-threads")?.getAttribute("title")).toBe("Threads, 3 unread");
 
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     const row = (threadId: string) => document.querySelector(`[data-thread-id="${threadId}"]`);
     expect(row("banner")?.querySelector('[data-testid="seat-threads-row-unread"]')?.textContent).toBe("2");
     expect(row("reader")?.querySelector('[data-testid="seat-threads-row-unread"]')?.textContent).toBe("1");
-    // The thread the popup opened on has nothing unread, so its row says nothing.
+    // The thread Threads opened on has nothing unread, so its row says nothing.
     expect(row("notes")?.querySelector('[data-testid="seat-threads-row-unread"]')).toBeNull();
   });
 
-  it("reads the count alone while the popup is shut, and the list once it opens", async () => {
+  it("reads the count alone while Terminal shows, and the list once Threads first shows", async () => {
     const fixture = fake();
     setSeatThreadsSource(fixture.source);
     await render();
     const lists = fixture.state.lists;
     const counts = fixture.state.counts;
-    // A mailbox changed: the button's number follows, and no list is read for a popup that is not showing.
+    // A mailbox changed: the count follows, and no list is read for threads that have not been shown.
     act(() => fixture.change());
     await flush();
     expect(fixture.state.lists).toBe(lists);
     expect(fixture.state.counts).toBeGreaterThan(counts);
 
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     expect(fixture.state.lists).toBeGreaterThan(lists);
   });
 
@@ -247,10 +280,10 @@ describe("the Threads button", () => {
     fixture.state.total = 57;
     setSeatThreadsSource(fixture.source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     // The row says its own two; the header says the seat's fifty-seven.
     expect(q("seat-threads-row-unread")?.textContent).toBe("2");
-    expect(q("seat-threads-button")?.textContent).toBe("Threads57");
+    expect(q("seat-view-threads")?.textContent).toBe("Threads57");
   });
 
   it("keeps the count it had when a count cannot be read, rather than say nothing is waiting", async () => {
@@ -259,12 +292,12 @@ describe("the Threads button", () => {
     fixture.state.total = 3;
     setSeatThreadsSource(fixture.source);
     await render();
-    expect(await act(async () => { await flush(); return q("seat-threads-button")?.textContent; })).toBe("Threads3");
+    expect(await act(async () => { await flush(); return q("seat-view-threads")?.textContent; })).toBe("Threads3");
 
     fixture.state.countFails = true;
     act(() => fixture.change());
     await flush();
-    expect(q("seat-threads-button")?.textContent).toBe("Threads3");
+    expect(q("seat-view-threads")?.textContent).toBe("Threads3");
   });
 
   it("marks the thread it shows as read, and the count goes with it", async () => {
@@ -272,14 +305,14 @@ describe("the Threads button", () => {
     fixture.state.threads = [thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20), unread: 2 })];
     setSeatThreadsSource(fixture.source);
     await render();
-    expect(q("seat-threads-button")?.textContent).toBe("Threads2");
+    expect(q("seat-view-threads")?.textContent).toBe("Threads2");
 
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     expect(fixture.marks[0]).toEqual({ canvasName: "factory", seatId: "seat-1", threadId: "notes" });
     // Every mark is for the thread on screen; main writes nothing once the point has moved.
     expect(new Set(fixture.marks.map((mark) => mark.threadId))).toEqual(new Set(["notes"]));
     expect(q("seat-threads-row-unread")).toBeNull();
-    expect(q("seat-threads-button")?.textContent).toBe("Threads");
+    expect(q("seat-view-threads")?.textContent).toBe("Threads");
   });
 
   it("reads mail that lands in the thread on screen, so the row never counts what is in front of the operator", async () => {
@@ -287,10 +320,10 @@ describe("the Threads button", () => {
     fixture.state.threads = [thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20) })];
     setSeatThreadsSource(fixture.source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     expect(fixture.state.threads[0]?.unread).toBe(0);
 
-    // Mail arrives in the thread the popup is showing: the seat reads again, and the row is read at once.
+    // Mail arrives in the thread on screen: the seat reads again, and the row is read at once.
     fixture.state.threads = [{ ...fixture.state.threads[0]!, unread: 1 }];
     act(() => fixture.change());
     await flush();
@@ -307,13 +340,13 @@ describe("the Threads button", () => {
     ];
     setSeatThreadsSource(fixture.source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     expect(q("seat-threads-row-unread")?.textContent).toBe("4");
 
     act(() => fixture.readElsewhere("banner"));
     await flush();
     expect(q("seat-threads-row-unread")).toBeNull();
-    expect(q("seat-threads-button")?.textContent).toBe("Threads");
+    expect(q("seat-view-threads")?.textContent).toBe("Threads");
   });
 
   it("reads a change for another seat as nothing to do", async () => {
@@ -321,7 +354,7 @@ describe("the Threads button", () => {
     fixture.state.threads = [thread({ threadId: "banner", title: "Cache banner", unread: 4 })];
     setSeatThreadsSource(fixture.source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     const reads = fixture.state.lists;
     act(() => fixture.readElsewhere("banner", ["seat-9"]));
     await flush();
@@ -363,7 +396,7 @@ describe("main's threads IPC as the source", () => {
       },
     };
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     // Each list is read on its own: the operator's, and the one between seats (0.11.5).
     expect(seatThreadsList).toHaveBeenCalledWith({ canvasName: "factory", nodeId: "seat-1", limit: 50, group: "with-you" });
     expect(seatThreadsList).toHaveBeenCalledWith({ canvasName: "factory", nodeId: "seat-1", limit: 50, group: "between" });
@@ -392,12 +425,149 @@ describe("main's threads IPC as the source", () => {
   });
 });
 
-describe("the Threads popup", () => {
+describe("the switch", () => {
+  const tab = (view: SeatOpenView) => q(`seat-view-${view}`) as HTMLButtonElement;
+
+  it("is two tabs that control the stage, Terminal shown first, and opens no dialog", async () => {
+    setSeatThreadsSource(fake().source);
+    await render();
+    const row = document.querySelector('[role="tablist"]');
+    expect(row?.getAttribute("aria-label")).toBe("Seat view");
+    expect([...row!.querySelectorAll('[role="tab"]')].map((half) => half.textContent)).toEqual(["Terminal", "Threads"]);
+    expect(tab("terminal").getAttribute("aria-selected")).toBe("true");
+    expect(tab("threads").getAttribute("aria-selected")).toBe("false");
+    for (const view of ["terminal", "threads"] as const) {
+      expect(tab(view).getAttribute("aria-controls")).toBe("stage");
+      expect(tab(view).hasAttribute("aria-haspopup")).toBe(false);
+    }
+    expect(threadsShown()).toBe(false);
+
+    await click(tab("threads"));
+    expect(tab("threads").getAttribute("aria-selected")).toBe("true");
+    expect(threadsShown()).toBe(true);
+    // Threads is a view of the stage: no dialog, no backdrop, no Close or Maximize of its own.
+    expect(q("seat-threads")?.parentElement?.id).toBe("stage");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(q("seat-threads")?.querySelector('[aria-label="Close threads"], [title="Close"], [aria-label="Maximize"]')).toBeNull();
+
+    await click(tab("terminal"));
+    expect(threadsShown()).toBe(false);
+  });
+
+  it("opens on Threads when the seat opens on it", async () => {
+    setSeatThreadsSource(fake().source);
+    await render("threads");
+    expect(tab("threads").getAttribute("aria-selected")).toBe("true");
+    expect(threadsShown()).toBe(true);
+    expect(all("seat-threads-message")).toHaveLength(2);
+  });
+
+  it("keeps the unread count on its Threads half in both views", async () => {
+    const fixture = fake();
+    fixture.state.threads = [
+      thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20) }),
+      thread({ threadId: "banner", title: "Cache banner", lastAt: at(0, 58), unread: 2 }),
+    ];
+    setSeatThreadsSource(fixture.source);
+    await render();
+    expect(tab("terminal").textContent).toBe("Terminal");
+    expect(tab("threads").textContent).toBe("Threads2");
+    await click(tab("threads"));
+    expect(tab("terminal").textContent).toBe("Terminal");
+    expect(tab("threads").textContent).toBe("Threads2");
+    expect(tab("threads").getAttribute("title")).toBe("Threads, 2 unread");
+  });
+
+  it("moves between its halves on Left and Right, and the keyboard stays on the switch", async () => {
+    setSeatThreadsSource(fake().source);
+    await render();
+    const arrow = async (from: HTMLElement, key: string) => {
+      act(() => void from.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+      await flush();
+    };
+    act(() => tab("terminal").focus());
+    await arrow(tab("terminal"), "ArrowRight");
+    expect(threadsShown()).toBe(true);
+    expect(document.activeElement).toBe(tab("threads"));
+    await arrow(tab("threads"), "ArrowLeft");
+    expect(threadsShown()).toBe(false);
+    expect(document.activeElement).toBe(tab("terminal"));
+    // Round the end: Left of the first is the last.
+    await arrow(tab("terminal"), "ArrowLeft");
+    expect(threadsShown()).toBe(true);
+    expect(document.activeElement).toBe(tab("threads"));
+  });
+
+  it("marks nothing read behind Terminal, and reads what is on screen when Threads shows again", async () => {
+    const fixture = fake();
+    fixture.state.threads = [thread({ threadId: "notes", title: "Session notes", lastAt: at(1, 20), unread: 2 })];
+    setSeatThreadsSource(fixture.source);
+    await render();
+    // Terminal shows: the seat's threads are not on screen, and nothing is read or marked.
+    expect(fixture.marks).toEqual([]);
+    expect(tab("threads").textContent).toBe("Threads2");
+
+    await click(tab("threads"));
+    expect(fixture.marks.length).toBeGreaterThan(0);
+    expect(tab("threads").textContent).toBe("Threads");
+
+    // Back on Terminal, mail lands in the thread that was on screen: it stays unread.
+    await click(tab("terminal"));
+    const marked = fixture.marks.length;
+    fixture.state.threads = [{ ...fixture.state.threads[0]!, unread: 1 }];
+    act(() => fixture.change());
+    await flush();
+    expect(fixture.marks).toHaveLength(marked);
+    expect(fixture.state.threads[0]?.unread).toBe(1);
+    expect(tab("threads").textContent).toBe("Threads1");
+
+    // Threads shows again: the thread is on screen, so it is read.
+    await click(tab("threads"));
+    expect(fixture.marks.length).toBeGreaterThan(marked);
+    expect(fixture.state.threads[0]?.unread).toBe(0);
+    expect(tab("threads").textContent).toBe("Threads");
+  });
+
+  it("keeps the thread picked and the reply half written across a look at the terminal", async () => {
+    setSeatThreadsSource(fake().source);
+    await render();
+    await click(tab("threads"));
+    await click(document.querySelector('[data-thread-id="banner"]'));
+    const field = () => q("thread-composer-input") as HTMLTextAreaElement;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field(), "half a reply");
+      field().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flush();
+
+    await click(tab("terminal"));
+    await click(tab("threads"));
+    expect(document.querySelector('[data-thread-id="banner"]')?.getAttribute("aria-current")).toBe("true");
+    expect(field().value).toBe("half a reply");
+  });
+
+  it("puts the keyboard in the reply on a press of Threads, and never in what Terminal covers", async () => {
+    setSeatThreadsSource(fake().source);
+    await render();
+    await press(tab("threads"));
+    const field = q("thread-composer-input");
+    expect(document.activeElement).toBe(field);
+
+    // Shown again by a press, with the reply already mounted: the keyboard goes back to it.
+    await press(tab("terminal"));
+    expect(document.activeElement).not.toBe(field);
+    await press(tab("threads"));
+    expect(document.activeElement).toBe(field);
+    expect(document.activeElement).not.toBe(q("terminal"));
+  });
+});
+
+describe("Threads in the seat's stage", () => {
   const open = async () => {
     const fixture = fake();
     setSeatThreadsSource(fixture.source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     return fixture;
   };
 
@@ -459,17 +629,14 @@ describe("the Threads popup", () => {
     expect(all("seat-threads-message")).toHaveLength(3);
   });
 
-  it("sits in a workspace focus modal that maximizes and folds its list away", async () => {
+  it("folds its list away and back, under a header that names the list and not the seat", async () => {
     await open();
-    const dialog = document.querySelector('[role="dialog"][aria-label="Threads, pty-lead"]');
-    expect(dialog?.querySelector('[data-measure="workspace"]')).not.toBeNull();
-    const maximize = dialog?.querySelector<HTMLButtonElement>('[aria-label="Maximize"]');
-    await click(maximize ?? null);
-    expect(dialog?.getAttribute("data-maximized")).toBe("true");
-    await click(dialog?.querySelector('[aria-label="Sidebar"]') ?? null);
-    expect(dialog?.querySelector(".two-pane")?.getAttribute("data-sidebar")).toBe("collapsed");
-    await click(dialog?.querySelector('.two-pane__strip [aria-label="Sidebar"]') ?? null);
-    expect(dialog?.querySelector(".two-pane")?.getAttribute("data-sidebar")).toBeNull();
+    const stage = q("seat-threads")!;
+    expect(stage.querySelector(".pane-header")?.textContent).toBe("Threads");
+    await click(stage.querySelector('[aria-label="Sidebar"]'));
+    expect(stage.querySelector(".two-pane")?.getAttribute("data-sidebar")).toBe("collapsed");
+    await click(stage.querySelector('.two-pane__strip [aria-label="Sidebar"]'));
+    expect(stage.querySelector(".two-pane")?.getAttribute("data-sidebar")).toBeNull();
   });
 
   it("reads a mention as its label in a row, never as the address it is written as", () => {
@@ -576,7 +743,7 @@ describe("the Threads popup", () => {
     fixture.state.threads = [thread({ threadId: "notes", title: "Ship **V** with `junto.db` in place, keep __init__" })];
     setSeatThreadsSource(fixture.source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     const title = document.querySelector(".seat-threads__chat-title");
     expect(title?.textContent).toBe("Ship V with junto.db in place, keep __init__");
     expect(title?.getAttribute("title")).toBe("Ship **V** with `junto.db` in place, keep __init__");
@@ -584,10 +751,9 @@ describe("the Threads popup", () => {
     expect(document.querySelector('[data-thread-id="notes"] .seat-threads__row-preview')?.textContent).toBe("notes");
   });
 
-  it("closes and lets go of the source when nothing holds it", async () => {
+  it("lets go of the source when the seat closes", async () => {
     const { listeners } = await open();
-    await click(document.querySelector('[aria-label="Close threads"]'));
-    expect(q("seat-threads")).toBeNull();
+    expect(listeners.size).toBeGreaterThan(0);
     act(() => root.unmount());
     expect(listeners.size).toBe(0);
     root = createRoot(host);
@@ -604,7 +770,7 @@ describe("files on a message", () => {
     ];
     setSeatThreadsSource(fixture.source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     const [thumb, chip] = all("seat-threads-attachment");
     expect(thumb?.getAttribute("data-kind")).toBe("image");
     expect(thumb?.querySelector("img")?.getAttribute("src")).toMatch(/^junto-content:\/\/object\/d{64}\?/u);
@@ -645,7 +811,7 @@ describe("the thread composer", () => {
     const fixture = fake();
     setSeatThreadsSource(fixture.source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     return fixture;
   };
 
@@ -770,13 +936,13 @@ describe("the thread composer", () => {
     ]);
   });
 
-  it("closes the @ list on Escape and leaves the popup open", async () => {
+  it("closes the @ list on Escape and leaves Threads showing", async () => {
     await open();
     await type("@c");
     expect(document.querySelector('[role="listbox"]')).not.toBeNull();
     await key("Escape");
     expect(document.querySelector('[role="listbox"]')).toBeNull();
-    expect(q("seat-threads")).not.toBeNull();
+    expect(threadsShown()).toBe(true);
   });
 
   it("shows a refusal as is and keeps the draft", async () => {
@@ -873,10 +1039,12 @@ describe("the thread composer", () => {
     expect(subject.querySelector(".resource-chip__label")?.textContent).toBe("fix tabs");
     await click(subject);
     expect(workDetailOpen$.get()).toEqual({ nodeId: "board", itemId: task });
-    expect(q("seat-threads")).toBeNull();
+    // Nothing closed first: the thread is where it was.
+    expect(threadsShown()).toBe(true);
+    expect(q("seat-threads-subject")).not.toBeNull();
   });
 
-  it("a task mention is a chip that leaves the threads and opens the task on its board; a gone node is unavailable", async () => {
+  it("a task mention is a chip that opens the task on its board with the threads left as they are; a gone node is unavailable", async () => {
     const { state, change } = await open();
     const task = "01M5ESSJRFWT6RVS5HMWMGJXGD";
     state.messages.notes = [
@@ -898,7 +1066,8 @@ describe("the thread composer", () => {
     expect(gone?.getAttribute("data-missing")).toBe("true");
     await click(taskChip!);
     expect(workDetailOpen$.get()).toEqual({ nodeId: "board", itemId: task });
-    expect(q("seat-threads")).toBeNull();
+    expect(threadsShown()).toBe(true);
+    expect(all("seat-threads-mention")).toHaveLength(2);
   });
 
   it("past main's text bound sends the text as a file, and says so first", async () => {
@@ -937,7 +1106,7 @@ describe("the pace of change-driven reads", () => {
       const fixture = fake();
       setSeatThreadsSource(fixture.source);
       await render();
-      await click(q("seat-threads-button"));
+      await click(q("seat-view-threads"));
       // One round is the seat's two lists read together.
       const before = fixture.state.lists;
       // Fifty changes spread over a hundred milliseconds, two apart.
@@ -958,7 +1127,7 @@ describe("the pace of change-driven reads", () => {
   });
 });
 
-describe("paging in the popup", () => {
+describe("paging in Threads", () => {
   const ROW = 60;
   const VIEW = 600;
   const defined: Array<[PropertyKey, PropertyDescriptor | undefined]> = [];
@@ -987,7 +1156,7 @@ describe("paging in the popup", () => {
   const threadAt = (n: number) => thread({ threadId: `t${String(n).padStart(3, "0")}`, lastAt: at(0, 0) + (TOTAL - n) * 1000 });
   /**
    * The page asks a source saw: a cursor, never the head. The head is read again
-   * as the button counts and as the popup marks the thread it shows read (0.11.3),
+   * as the switch counts and as Threads marks the thread it shows read (0.11.3),
    * so only a cursor says an older page was asked for.
    */
   const pageAsks = (calls: ReadonlyArray<string | undefined>) => calls.filter((after): after is string => after !== undefined);
@@ -1022,7 +1191,7 @@ describe("paging in the popup", () => {
     const { source, asked } = pagedSource(between);
     setSeatThreadsSource(source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     const group = (testId: string) => [...(q(testId)?.querySelectorAll('[data-testid="seat-threads-row"]') ?? [])];
     // Both lists open on their own first page: fifty of each, the operator's not pushed off.
     expect(group("seat-threads-with-you")).toHaveLength(50);
@@ -1049,7 +1218,7 @@ describe("paging in the popup", () => {
     const { source, calls } = pagedSource();
     setSeatThreadsSource(source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     expect(all("seat-threads-row")).toHaveLength(50);
     expect(pageAsks(calls)).toEqual([]);
 
@@ -1076,7 +1245,7 @@ describe("paging in the popup", () => {
     const { source, calls } = pagedSource();
     setSeatThreadsSource(source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     const list = document.querySelector<HTMLElement>(".seat-threads__list")!;
     list.scrollTop = list.scrollHeight - VIEW - 100;
     await click(document.querySelector('[aria-label="Sidebar"]'));
@@ -1096,7 +1265,7 @@ describe("paging in the popup", () => {
     const { source, calls, everything } = pagedSource();
     setSeatThreadsSource(source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     const list = document.querySelector<HTMLElement>(".seat-threads__list")!;
     list.scrollTop = list.scrollHeight - VIEW - 100;
     act(() => list.dispatchEvent(new Event("scroll")));
@@ -1133,7 +1302,7 @@ describe("paging in the popup", () => {
       },
     });
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     failing = true;
     const list = document.querySelector<HTMLElement>(".seat-threads__list")!;
     list.scrollTop = list.scrollHeight - VIEW - 100;
@@ -1151,7 +1320,7 @@ describe("paging in the popup", () => {
     const { source, everything } = pagedSource();
     setSeatThreadsSource(source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     const list = document.querySelector<HTMLElement>(".seat-threads__list")!;
     list.scrollTop = list.scrollHeight - VIEW - 100;
     act(() => list.dispatchEvent(new Event("scroll")));
@@ -1190,7 +1359,7 @@ describe("paging in the popup", () => {
     };
     setSeatThreadsSource(source);
     await render();
-    await click(q("seat-threads-button"));
+    await click(q("seat-view-threads"));
     const stream = q("seat-threads-stream") as HTMLElement;
     const texts = () => all("seat-threads-message").map((message) => message.textContent ?? "");
     expect(texts()).toHaveLength(50);

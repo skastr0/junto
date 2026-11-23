@@ -1,14 +1,25 @@
-/* A seat's threads: a workspace focus modal holding a TwoPane, the list in
-   its sidebar and the chat in its main pane. FocusSurface owns the size,
-   Maximize, the layer, focus and Escape; TwoPane owns the collapse. */
+/* A seat's threads: one of the two views of the seat's stage, a TwoPane with
+   the list in its sidebar and the chat in its main pane. The seat's own
+   surface owns the size, Maximize, Close, the layer and Escape; TwoPane owns
+   the collapse. */
 
-/* The panel's one child: it fills the panel, and the TwoPane fills it. */
+/* Laid over the stage (which is positioned), edge to edge and opaque, above
+   the terminal and the cards the stage lays over it. The terminal under it
+   keeps its box, so its grid never moves on a switch; the TwoPane fills this. */
 .seat-threads__shell {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
   display: flex;
-  flex: 1 1 0;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  background: var(--color-ground);
+}
+
+/* Behind Terminal: out of the layout, the keyboard's reach and the reader's. */
+.seat-threads__shell[hidden] {
+  display: none;
 }
 
 /* The list scrolls under its header and New thread, which stay put. */
@@ -165,8 +176,7 @@
 }
 
 /* What the operator has not read: the needs-you pill, in the lit amber. */
-.seat-threads__row-unread,
-.seat-threads__unread-count {
+.seat-threads__row-unread {
   flex: none;
   min-width: 15px;
   height: 15px;
@@ -186,10 +196,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.seat-threads__unread-count {
-  margin-inline-start: 6px;
-}
-
 .seat-threads__chat {
   display: flex;
   flex: 1 1 0;
@@ -206,16 +212,8 @@
   border-bottom: 1px solid var(--color-stroke);
 }
 
-/* The subject and Close on one line. */
-.seat-threads__chat-line {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 /* One line, cut with an ellipsis; the whole subject is its hover. */
 .seat-threads__chat-title {
-  flex: 1 1 auto;
   min-width: 0;
   margin: 0;
   overflow: hidden;

@@ -6,7 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { Seat, Terminal as TerminalNode } from "@shared/model";
 import type { JuntoTerminalApi } from "@shared/ipc";
 import { terminalBindingOf, type TerminalOutputBatch } from "@shared/terminal";
-import { terminalSettings, type TerminalSettings } from "@shared/settings";
+import { seatOpenView, terminalSettings, type SeatOpenView, type TerminalSettings } from "@shared/settings";
 import { MONO_CELL } from "../../lib/focus-measure";
 import { use$ } from "@legendapp/state/react";
 import {
@@ -51,6 +51,7 @@ import {
   type KillUxPhase,
 } from "../../lib/terminal-kill-ux";
 import { ensureTerminalRunning } from "../../lib/terminal-actions";
+import { answerSeatViewAsk, seatViewAsked$ } from "../../lib/seat-view";
 import { seatDeadReason } from "../../lib/seat-recovery";
 import { decodeAgentSeatStateEvent } from "../../lib/agent-seat-state";
 import { offboardEndedLine, seatOffboardProgressOf } from "../../lib/seat-offboard-state";
@@ -67,6 +68,7 @@ import {
 import { TASKS_ENABLED } from "@shared/features";
 import {
   claimFocus,
+  recentGestureKind,
   shouldClaimFocusOnSurfaceOpen,
 } from "../../lib/focus-ownership";
 import { ActivityMark } from "../ActivityMark";
@@ -85,7 +87,7 @@ import { openAgentEditor } from "../../lib/agent-editor-state";
 import { GRID_CELL_CHROME } from "../../lib/terminal-grid";
 import { reportOperatorTyped } from "../../lib/operator-holds";
 import { SeatCacheDuePopup } from "./SeatCacheDuePopup";
-import { SeatThreadsButton } from "../threads/SeatThreads";
+import { SeatThreadsStage, SeatViewSwitch } from "../threads/SeatThreads";
 
 type AttachResult = {
   readonly ok: boolean;
@@ -816,6 +818,46 @@ export function TerminalSurface({
   const [loadPhase, setLoadPhase] = useState<SessionLoadPhase | null>(() =>
     initialSessionLoadPhase({ agentSeat }),
   );
+  /**
+   * Which of its two views an agent seat's stage shows: the terminal, or the
+   * seat's threads laid over it. A grid cell and a plain terminal have no
+   * switch and are always the terminal.
+   *
+   * Every open starts on the operator's setting, read as the view opens: a
+   * surface shown again after it was parked is a new open. A press on the
+   * header's switch, or a caller that opened the seat on a view
+   * (`openSeatOn`), decides it from then on, and holds until the view closes.
+   */
+  const seatViews = agentSeat && grid === undefined;
+  const viewOffered = seatViews && visible;
+  const viewAsked = use$(seatViewAsked$[node.id]);
+  const [viewOpenedOn, setViewOpenedOn] = useState<SeatOpenView>(() =>
+    seatOpenView(state$.settings.peek()),
+  );
+  const [viewDecided, setViewDecided] = useState<SeatOpenView | undefined>(viewAsked);
+  const [viewOfferedBefore, setViewOfferedBefore] = useState(viewOffered);
+  if (viewOfferedBefore !== viewOffered) {
+    setViewOfferedBefore(viewOffered);
+    if (viewOffered) setViewOpenedOn(seatOpenView(state$.settings.peek()));
+    else setViewDecided(undefined);
+  }
+  // An ask is taken whenever it is seen, open or not: it is for the open that
+  // follows it, or for the one already on screen.
+  if (viewAsked !== undefined && viewDecided !== viewAsked) setViewDecided(viewAsked);
+  useEffect(() => {
+    if (viewAsked !== undefined) answerSeatViewAsk(node.id);
+  }, [viewAsked, node.id]);
+  const seatView = viewDecided ?? viewOpenedOn;
+  const threadsShown = viewOffered && seatView === "threads";
+  /**
+   * Threads is over the terminal. The xterm stays mounted, attached and
+   * streaming under it, in the box it has in the Terminal view, and sizes
+   * nothing: see pushResize.
+   */
+  const coveredRef = useRef(threadsShown);
+  coveredRef.current = threadsShown;
+  /** The switch was pressed with the pointer: the view it shows takes the keyboard. */
+  const viewPressedRef = useRef(false);
   // Attach effect must not re-run on every canvas node identity change.
   const nodeRef = useRef(node);
   nodeRef.current = node;
@@ -840,6 +882,11 @@ export function TerminalSurface({
     const term = termRef.current;
     const host = hostRef.current;
     if (!term || !host) return;
+    // A terminal the operator cannot see sizes nothing: not its own grid, and
+    // not the child. Whatever its box reads under Threads, the process keeps
+    // the size it has, and the one fit on the way back to Terminal settles any
+    // change made meanwhile (a window resized, a font size set).
+    if (coveredRef.current) return;
 
     const fallback = fallbackCell(livePrefs());
     const measured = measureHost(
@@ -1485,6 +1532,10 @@ export function TerminalSurface({
     if (!visible) return;
     if (!term) return;
     const claim = (): boolean => {
+      // Under Threads the terminal is not what opened: a key must never reach
+      // a terminal the operator cannot see. Read at each retry, so a switch
+      // made inside the retry window holds too.
+      if (coveredRef.current) return true;
       const host = hostRef.current;
       if (!host?.closest(".work-focus-shell")) return false;
       // The whole surface is the scope: focus the operator put on its own
@@ -1505,6 +1556,27 @@ export function TerminalSurface({
       window.clearTimeout(settle);
     };
   }, [visible, node.id]);
+
+  // Back from Threads to Terminal: the one fit, before the frame that shows
+  // the terminal again. It repaints the grid, and the child hears of a size
+  // only if the box changed while the terminal was covered. A pointer press on
+  // the switch then puts the keyboard in the terminal; a key on the switch
+  // keeps it there (Tab reaches the view).
+  const coveredBefore = useRef(threadsShown);
+  useLayoutEffect(() => {
+    const uncovered = coveredBefore.current && !threadsShown;
+    coveredBefore.current = threadsShown;
+    const pressed = viewPressedRef.current;
+    viewPressedRef.current = false;
+    // A view that closed under Threads did not come back to Terminal.
+    if (!uncovered || !visibleRef.current) return;
+    pushResize({ forcePaint: true });
+    const term = termRef.current;
+    const host = hostRef.current;
+    if (pressed && term && host) {
+      claimFocus(term.textarea ?? host, "gesture", { via: term, owner: host });
+    }
+  }, [threadsShown]);
 
   // Only a visible view takes the stream; see `showStream` in the attachment.
   useEffect(() => {
@@ -2180,6 +2252,14 @@ export function TerminalSurface({
   // Modal semantics: dismisses the whole chrome-less focus stack (cycled
   // mirror views park behind the front pane), one press. Views only.
   const closeSurface = () => closeFocusModalSurface(surfaceId);
+  /** The stage the switch's two halves control. */
+  const stageId = `seat-stage-${node.id}`;
+  const selectSeatView = (next: SeatOpenView): void => {
+    // The shown half pressed again changes nothing.
+    if (next === seatView) return;
+    viewPressedRef.current = recentGestureKind() === "pointer";
+    setViewDecided(next);
+  };
   const disarmKill = () => {
     if (killArmTimer.current !== null) {
       window.clearTimeout(killArmTimer.current);
@@ -2381,8 +2461,9 @@ export function TerminalSurface({
                 stopping and an ended session are said here, where they are seen;
                 the running state stays for screen readers and the details menu.
                 It is announced from here only when no overlay announces it:
-                the loader and the ended card speak for themselves, and a
-                running session's grid size must not be re-read on every resize. */}
+                the loader and the ended card speak for themselves (unless
+                Threads is over them), and a running session's grid size must
+                not be re-read on every resize. */}
             <span
               className={[
                 "native-terminal-surface__status inline-flex shrink-0 items-center gap-1.5 text-body font-normal text-dim",
@@ -2390,7 +2471,7 @@ export function TerminalSurface({
               ]
                 .filter(Boolean)
                 .join(" ")}
-              role={attached || showLoadOverlay || showDeadOverlay ? undefined : "status"}
+              role={attached || ((showLoadOverlay || showDeadOverlay) && !threadsShown) ? undefined : "status"}
             >
               {showLoadOverlay && loadPresentation ? (
                 <SessionLoadSpinner
@@ -2433,8 +2514,13 @@ export function TerminalSurface({
                 }}
               />
             ) : null}
-            {agentSeat && !grid ? (
-              <SeatThreadsButton seat={{ canvasName, seatId: node.id }} name={label.split("\n")[0] ?? label} />
+            {seatViews ? (
+              <SeatViewSwitch
+                seat={{ canvasName, seatId: node.id }}
+                view={seatView}
+                onSelect={selectSeatView}
+                controls={stageId}
+              />
             ) : null}
             {agentSeat && !grid ? (
               <Button
@@ -2509,9 +2595,20 @@ export function TerminalSurface({
           </Button>
         </div>
       ) : null}
-      {/* Body: the xterm stage and, for an agent, the connected agents rail beside it. */}
+      {/* Body: the stage and, for an agent, the connected agents rail beside it.
+          The stage is the terminal, or for an agent seat the seat's threads
+          laid over it: one box for both views, so the frame never moves. */}
       <div className="native-terminal-surface__body">
-        <div className="native-terminal-surface__stage" data-preamble-frame>
+        <div
+          className="native-terminal-surface__stage"
+          data-preamble-frame
+          {...(seatViews
+            ? { id: stageId, role: "tabpanel", "aria-label": threadsShown ? "Threads" : "Terminal" }
+            : {})}
+        >
+          {/* Under Threads the xterm stays as it is, mounted, attached and in
+              its box, and is inert: no press and no key reaches a terminal
+              the operator cannot see, and no focus claim can land in it. */}
           <div
             ref={hostRef}
             className={[
@@ -2521,7 +2618,8 @@ export function TerminalSurface({
             ]
               .filter(Boolean)
               .join(" ")}
-            aria-hidden={showDeadOverlay || showLoadOverlay || undefined}
+            inert={threadsShown}
+            aria-hidden={showDeadOverlay || showLoadOverlay || threadsShown || undefined}
           />
           {showLoadOverlay && loadPresentation ? (
             <div className="native-terminal-surface__load">
@@ -2535,6 +2633,7 @@ export function TerminalSurface({
               className="native-terminal-surface__dead"
               role="status"
               aria-live="polite"
+              inert={threadsShown}
             >
               <div className="native-terminal-surface__dead-card">
                 <Eyebrow tone="amber">
@@ -2581,6 +2680,14 @@ export function TerminalSurface({
                 ) : null}
               </div>
             </div>
+          ) : null}
+          {/* A parked surface holds no threads: the next open starts over. */}
+          {viewOffered ? (
+            <SeatThreadsStage
+              seat={{ canvasName, seatId: node.id }}
+              name={label.split("\n")[0] ?? label}
+              shown={threadsShown}
+            />
           ) : null}
         </div>
         {agentSeat && !grid ? <ActorRail node={node} /> : null}
