@@ -415,6 +415,22 @@ html[data-theme="bright"] .seat-threads__block {
   color: var(--feed-kind-ink);
 }
 
+/* A signal named inside a sentence, by its headline: one line, cut where the
+   line ends, so the words round it always show. */
+.seat-threads__signal-lead {
+  flex: none;
+  white-space: nowrap;
+}
+
+.seat-threads__signal-headline {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .seat-threads__signal-state {
   display: inline-flex;
   align-items: center;
@@ -430,6 +446,13 @@ html[data-theme="bright"] .seat-threads__block {
   margin-top: 10px;
 }
 
+/* A plain word under a signal's body about what became of it. */
+.seat-threads__signal-note {
+  margin: 8px 0 0;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+
 /* What the operator's message answered, above its block; and under it, that
    it has not reached its seat yet. Both sit on the block's side. */
 .seat-threads__answer-to,
@@ -437,6 +460,8 @@ html[data-theme="bright"] .seat-threads__block {
   display: flex;
   align-items: center;
   gap: 4px;
+  max-width: 100%;
+  min-width: 0;
   margin: 0;
   font-size: var(--text-label);
   color: var(--color-dim);
@@ -663,6 +688,8 @@ html[data-theme="bright"] .seat-threads__block {
   display: flex;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
+  min-width: 0;
   min-height: 24px;
   margin: 0;
   padding: 0;

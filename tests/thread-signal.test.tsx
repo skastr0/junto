@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { AnswerTo, ReplyAnswers, SignalFrame, WaitingMark } = await import("../src/window/components/threads/ThreadSignal");
+const { AnswerTo, ReplyAnswers, RowSignal, SignalFrame, WaitingMark } = await import("../src/window/components/threads/ThreadSignal");
 type ThreadSignal = import("../src/window/components/threads/ThreadSignal").ThreadSignal;
 
 let root: Root;
@@ -39,12 +39,20 @@ const press = (el: Element | null): void => {
   });
 };
 
-const signal = (over: Partial<ThreadSignal> = {}): ThreadSignal => ({ signalId: "s1", kind: "blocked", state: "open", ...over });
+const signal = (over: Partial<ThreadSignal> = {}): ThreadSignal => ({
+  signalId: "s1",
+  kind: "blocked",
+  state: "open",
+  text: "The migration number is taken.",
+  ...over,
+});
+/** Who is in the thread. */
+const KNOWN = ["you", "pty-lead"];
 
 describe("a signal message", () => {
   it("says its kind and that it is open, round the message as it reads", async () => {
     await render(
-      <SignalFrame signal={signal()} onHandIn={() => undefined}>
+      <SignalFrame author="pty-lead" signal={signal()} onHandIn={() => undefined}>
         <p data-testid="message">The migration number is taken.</p>
       </SignalFrame>,
     );
@@ -60,10 +68,10 @@ describe("a signal message", () => {
     expect(q("seat-threads-signal-hand-in")).toBeNull();
   });
 
-  it("names each kind a seat raises in its own word", async () => {
-    for (const [kind, word] of [["blocked", "Blocked"], ["escalate", "Escalate"], ["feedback", "Feedback"]] as const) {
+  it("names each kind a seat raises as the feed's card does, never by its command", async () => {
+    for (const [kind, word] of [["blocked", "Blocked"], ["escalate", "Waiting on you"], ["feedback", "Ready for review"]] as const) {
       await render(
-        <SignalFrame signal={signal({ kind })} onHandIn={() => undefined}>
+        <SignalFrame author="pty-lead" signal={signal({ kind })} onHandIn={() => undefined}>
           <p>text</p>
         </SignalFrame>,
       );
@@ -77,7 +85,7 @@ describe("a signal message", () => {
   it("says a closed signal's state in a word with its glyph, and keeps what was asked", async () => {
     for (const [state, word] of [["answered", "Answered"], ["dismissed", "Dismissed"], ["withdrawn", "Withdrawn"]] as const) {
       await render(
-        <SignalFrame signal={signal({ state })} onHandIn={() => undefined}>
+        <SignalFrame author="pty-lead" signal={signal({ state })} onHandIn={() => undefined}>
           <p data-testid="message">What was asked.</p>
         </SignalFrame>,
       );
@@ -91,7 +99,7 @@ describe("a signal message", () => {
   it("carries Hand in while it is open and asks for work, and opens that signal", async () => {
     const handIn = vi.fn();
     await render(
-      <SignalFrame signal={signal({ signalId: "s7", work: "document" })} onHandIn={handIn}>
+      <SignalFrame author="pty-lead" signal={signal({ signalId: "s7", asks: "document" })} onHandIn={handIn}>
         <p>Write the plan.</p>
       </SignalFrame>,
     );
@@ -101,7 +109,7 @@ describe("a signal message", () => {
 
     // Handed in, the signal is answered and the button is gone.
     await render(
-      <SignalFrame signal={signal({ signalId: "s7", work: "document", state: "answered" })} onHandIn={handIn}>
+      <SignalFrame author="pty-lead" signal={signal({ signalId: "s7", asks: "document", state: "answered" })} onHandIn={handIn}>
         <p>Write the plan.</p>
       </SignalFrame>,
     );
@@ -109,11 +117,41 @@ describe("a signal message", () => {
   });
 });
 
+describe("a signal withdrawn as the answer was on its way", () => {
+  it("says so under its body, in plain words, and only then", async () => {
+    await render(
+      <SignalFrame author="pty-lead" signal={signal({ state: "withdrawn", crossed: true })} onHandIn={() => undefined}>
+        <p>What was asked.</p>
+      </SignalFrame>,
+    );
+    expect(words(q("seat-threads-signal-state"))).toBe("Withdrawn");
+    expect(words(q("seat-threads-signal-crossed"))).toBe("pty-lead withdrew this before your answer reached it.");
+
+    // Withdrawn with no answer on its way: the state word is the whole of it.
+    await render(
+      <SignalFrame author="pty-lead" signal={signal({ state: "withdrawn" })} onHandIn={() => undefined}>
+        <p>What was asked.</p>
+      </SignalFrame>,
+    );
+    expect(q("seat-threads-signal-crossed")).toBeNull();
+  });
+});
+
 describe("the operator's side", () => {
-  it("says what an answer answered, by the kind's word", async () => {
-    await render(<AnswerTo kind="escalate" />);
-    expect(words(q("seat-threads-answer-to"))).toBe("Answer to Escalate");
+  it("says what an answer answered, by that signal's headline", async () => {
+    await render(<AnswerTo text="pty-lead: the migration number is taken." known={KNOWN} />);
+    // The headline as a row draws it: the author's preamble is not part of it.
+    expect(words(q("seat-threads-signal-headline"))).toBe("The migration number is taken.");
+    expect(words(q("seat-threads-answer-to"))).toBe("Answer to The migration number is taken.");
     expect(q("seat-threads-answer-to")!.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("marks a thread's row with its open signal: the kind's glyph, and the feed's words for a screen reader", async () => {
+    await render(<RowSignal kind="escalate" />);
+    const mark = q("seat-threads-row-signal")!;
+    expect(mark.getAttribute("data-signal-kind")).toBe("escalate");
+    expect(mark.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(words(mark.querySelector(".sr-only"))).toBe("open, waiting on you");
   });
 
   it("says mail has not reached its seat, politely, in the one wording", async () => {
@@ -133,7 +171,7 @@ describe("what a reply will answer", () => {
     handIn.mockClear();
   });
   const line = async (open: ReadonlyArray<ThreadSignal>): Promise<void> => {
-    await render(<ReplyAnswers open={open} onShow={show} onHandIn={handIn} />);
+    await render(<ReplyAnswers open={open} known={KNOWN} onShow={show} onHandIn={handIn} />);
   };
 
   it("says nothing when nothing is open", async () => {
@@ -141,12 +179,13 @@ describe("what a reply will answer", () => {
     expect(q("thread-composer-answers")).toBeNull();
   });
 
-  it("names the one open signal a reply answers, and brings it into view", async () => {
-    await line([signal({ signalId: "s3", kind: "feedback" })]);
+  it("names the one open signal a reply answers by its headline, and brings it into view", async () => {
+    await line([signal({ signalId: "s3", kind: "feedback", text: "The switch is ready to look at." })]);
     const plain = q("thread-composer-answers-plain")!;
-    expect(words(plain)).toBe("Your reply answers Feedback");
+    expect(words(plain)).toBe("Your reply answers The switch is ready to look at.");
     expect(plain.tagName).toBe("BUTTON");
-    expect(plain.querySelector(".seat-threads__signal-kind")?.getAttribute("data-signal-kind")).toBe("feedback");
+    // Its name is the sentence, whole.
+    expect(plain.getAttribute("aria-label")).toBe("Your reply answers The switch is ready to look at.");
     press(plain);
     expect(show.mock.calls).toEqual([["s3"]]);
     expect(q("thread-composer-answers-work")).toBeNull();
@@ -155,35 +194,38 @@ describe("what a reply will answer", () => {
   it("counts several, since a reply answers every open plain signal, and shows the earliest", async () => {
     await line([signal({ signalId: "s1" }), signal({ signalId: "s2", kind: "escalate" })]);
     expect(words(q("thread-composer-answers-plain"))).toBe("Your reply answers 2 open signals");
+    expect(q("thread-composer-answers-plain")!.getAttribute("aria-label")).toBe("Your reply answers 2 open signals");
     press(q("thread-composer-answers-plain"));
     expect(show.mock.calls).toEqual([["s1"]]);
   });
 
   it("says a reply leaves a signal that asks for work open, with Hand in", async () => {
-    await line([signal({ signalId: "s4", work: "document" })]);
+    await line([signal({ signalId: "s4", asks: "document" })]);
     expect(q("thread-composer-answers-plain")).toBeNull();
-    expect(words(q("thread-composer-answers-work"))).toBe("Your reply leaves Blocked open: it asks for a document.Hand in");
+    expect(words(q("thread-composer-answers-work"))).toBe(
+      "Your reply leaves The migration number is taken. open: it asks for a document. Hand in",
+    );
     press(q("thread-composer-answers-hand-in"));
     expect(handIn.mock.calls).toEqual([["s4"]]);
   });
 
   it("says each kind of work in its own words", async () => {
     await line([
-      signal({ signalId: "a", work: "document" }),
-      signal({ signalId: "b", work: "proof", kind: "feedback" }),
-      signal({ signalId: "c", work: "secret", kind: "escalate" }),
+      signal({ signalId: "a", asks: "document" }),
+      signal({ signalId: "b", asks: "proof", kind: "feedback" }),
+      signal({ signalId: "c", asks: "secret", kind: "escalate" }),
     ]);
-    expect(all("thread-composer-answers-work").map((el) => words(el.querySelector("span")))).toEqual([
-      "Your reply leaves Blocked open: it asks for a document.",
-      "Your reply leaves Feedback open: it asks for proof.",
-      "Your reply leaves Escalate open: it asks for a secret.",
+    expect(all("thread-composer-answers-work").map((el) => words(el.querySelector(".seat-threads__signal-lead:last-of-type")))).toEqual([
+      "open: it asks for a document.",
+      "open: it asks for proof.",
+      "open: it asks for a secret.",
     ]);
   });
 
   it("says the plain line first, then the one that stays open, when both are open", async () => {
-    await line([signal({ signalId: "w", work: "proof" }), signal({ signalId: "p", kind: "escalate" })]);
+    await line([signal({ signalId: "w", asks: "proof" }), signal({ signalId: "p", kind: "escalate" })]);
     const lines = [...q("thread-composer-answers")!.children].map((el) => el.getAttribute("data-testid"));
     expect(lines).toEqual(["thread-composer-answers-plain", "thread-composer-answers-work"]);
-    expect(words(q("thread-composer-answers-plain"))).toBe("Your reply answers Escalate");
+    expect(words(q("thread-composer-answers-plain"))).toBe("Your reply answers The migration number is taken.");
   });
 });

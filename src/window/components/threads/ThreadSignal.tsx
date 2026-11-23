@@ -1,34 +1,41 @@
 import { Check, Clock, CornerDownRight, Undo2, X, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { FEED_KIND_LABEL } from "@shared/operator-feed";
 import type { AgentSignalState, SeatRaiseKind } from "@shared/wire/agent-signals";
 import { waitingForSeats } from "../../lib/seat-threads";
 import { KIND_ICON } from "../feed/FeedCardView";
 import { Button } from "../ui/Button";
+import { ThreadHeadline, threadHeadlineText } from "./ThreadHeadline";
 
 // How a signal reads inside a thread, from props alone: no store, no IPC. A
 // seat raises a signal as its next message in a thread, so the thread shows
 // it as that message in a frame that says its kind and where it stands, the
 // operator's answer says what it answered, and the reply field says what a
-// reply will answer before it is sent. The glyph and the hue of a kind are
-// the feed's own, so a signal looks the same kind here as on its card.
+// reply will answer before it is sent. The glyph, the hue and the name of a
+// kind are the feed's own, so a signal is the same kind here as on its card.
+// Inside a sentence a signal is named by its own headline, which also says
+// which one when a thread holds several.
 
 /** What a signal asks the operator to hand in, when a reply alone does not close it. */
-export type SignalWork = "document" | "proof" | "secret";
+export type SignalAsks = "document" | "proof" | "secret";
 
 /** A signal as a thread carries it. */
 export type ThreadSignal = {
   readonly signalId: string;
   readonly kind: SeatRaiseKind;
   readonly state: AgentSignalState;
+  /** Its one sentence, as the seat raised it. */
+  readonly text: string;
   /** Present on a signal that asks for work: it stays open until the work is handed in. */
-  readonly work?: SignalWork;
+  readonly asks?: SignalAsks;
+  /** Withdrawn by its seat before the operator's answer reached it. */
+  readonly crossed?: true;
 };
 
-/** The kind, as a thread names it. */
-export const SIGNAL_KIND_WORD: Readonly<Record<SeatRaiseKind, string>> = {
-  blocked: "Blocked",
-  escalate: "Escalate",
-  feedback: "Feedback",
+/** The feed's name for a kind, as it starts a line: "Waiting on you". */
+export const signalKindWord = (kind: SeatRaiseKind): string => {
+  const word = FEED_KIND_LABEL[kind];
+  return `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
 };
 
 /** Where a signal stands. Only an open one is in ink; a closed one carries its glyph. */
@@ -39,17 +46,31 @@ const STATE: Readonly<Record<AgentSignalState, { readonly word: string; readonly
   withdrawn: { word: "Withdrawn", icon: Undo2 },
 };
 
-const WORK_WORD: Readonly<Record<SignalWork, string>> = {
+const ASKS_WORD: Readonly<Record<SignalAsks, string>> = {
   document: "a document",
   proof: "proof",
   secret: "a secret",
 };
 
-/** The kind's word in the kind's ink. */
-function KindWord({ kind }: { readonly kind: SeatRaiseKind }) {
+/** A signal named inside a sentence: its headline, on one line, cut where the line ends. */
+function SignalHeadline({ text, known }: { readonly text: string; readonly known: ReadonlyArray<string> }) {
   return (
-    <span className="seat-threads__signal-kind" data-signal-kind={kind}>
-      {SIGNAL_KIND_WORD[kind]}
+    <span className="seat-threads__signal-headline" data-testid="seat-threads-signal-headline">
+      <ThreadHeadline text={text} known={known} />
+    </span>
+  );
+}
+
+/**
+ * In a thread's list row, before the unread count: the thread has an open
+ * signal. The kind's glyph in its ink, and the words for a screen reader.
+ */
+export function RowSignal({ kind }: { readonly kind: SeatRaiseKind }) {
+  const KindIcon = KIND_ICON[kind];
+  return (
+    <span className="seat-threads__row-signal" data-signal-kind={kind} data-testid="seat-threads-row-signal">
+      <KindIcon size={12} strokeWidth={2.25} aria-hidden />
+      <span className="sr-only">open, {FEED_KIND_LABEL[kind]}</span>
     </span>
   );
 }
@@ -62,10 +83,13 @@ function KindWord({ kind }: { readonly kind: SeatRaiseKind }) {
  */
 export function SignalFrame({
   signal,
+  author,
   onHandIn,
   children,
 }: {
   readonly signal: ThreadSignal;
+  /** The seat that raised it, by name. */
+  readonly author: string;
   /** Open Needs you on this signal, where the work is handed in. */
   readonly onHandIn: (signalId: string) => void;
   /** The message: its head, its words, its files. */
@@ -83,7 +107,7 @@ export function SignalFrame({
     >
       <p className="seat-threads__signal-line">
         <KindIcon size={11} strokeWidth={2.25} aria-hidden />
-        <KindWord kind={signal.kind} />
+        <span className="seat-threads__signal-kind">{signalKindWord(signal.kind)}</span>
         <span className="sr-only">, </span>
         <span className="seat-threads__signal-state" data-testid="seat-threads-signal-state">
           {StateIcon ? <StateIcon size={11} strokeWidth={2.25} aria-hidden /> : null}
@@ -91,7 +115,13 @@ export function SignalFrame({
         </span>
       </p>
       {children}
-      {signal.state === "open" && signal.work !== undefined ? (
+      {signal.state === "withdrawn" && signal.crossed ? (
+        // The answer and the withdrawal crossed. Nothing failed, so it is said plainly, here on the signal.
+        <p className="seat-threads__signal-note" data-testid="seat-threads-signal-crossed">
+          {author} withdrew this before your answer reached it.
+        </p>
+      ) : null}
+      {signal.state === "open" && signal.asks !== undefined ? (
         <Button
           size="sm"
           variant="chrome"
@@ -106,12 +136,21 @@ export function SignalFrame({
   );
 }
 
-/** Above the operator's message that closed a signal: what it answered. */
-export function AnswerTo({ kind }: { readonly kind: SeatRaiseKind }) {
+/** Above the operator's message that closed a signal: what it answered, by that signal's headline. */
+export function AnswerTo({
+  text,
+  known,
+}: {
+  /** The answered signal's sentence. */
+  readonly text: string;
+  /** Who is in the thread, so a name at the head of the sentence is not read as part of it. */
+  readonly known: ReadonlyArray<string>;
+}) {
   return (
     <p className="seat-threads__answer-to" data-testid="seat-threads-answer-to">
       <CornerDownRight size={11} strokeWidth={2.25} aria-hidden />
-      <span>Answer to {SIGNAL_KIND_WORD[kind]}</span>
+      <span className="seat-threads__signal-lead">Answer to</span>{" "}
+      <SignalHeadline text={text} known={known} />
     </p>
   );
 }
@@ -132,24 +171,28 @@ export function WaitingMark({ name }: { readonly name: string }) {
 /**
  * In the reply field's frame, above the field: what a reply will answer. A
  * reply answers every open plain signal in the thread, so they are said as
- * one line, a button that brings the earliest into view. A signal that asks
- * for work is not closed by a reply: it says so, with Hand in. Nothing open,
- * nothing said. It reads the thread's live state, so it goes as the signals
- * close, not when Send is pressed.
+ * one line, a button that brings the earliest into view: the one signal by
+ * its headline, several by their count. A signal that asks for work is not
+ * closed by a reply: it says so, with Hand in. Nothing open, nothing said. It
+ * reads the thread's live state, so it goes as the signals close, not when
+ * Send is pressed.
  */
 export function ReplyAnswers({
   open,
+  known,
   onShow,
   onHandIn,
 }: {
   /** The thread's open signals, earliest first. */
   readonly open: ReadonlyArray<ThreadSignal>;
+  /** Who is in the thread. */
+  readonly known: ReadonlyArray<string>;
   /** Bring this signal's message into view. */
   readonly onShow: (signalId: string) => void;
   readonly onHandIn: (signalId: string) => void;
 }) {
-  const plain = open.filter((signal) => signal.work === undefined);
-  const asking = open.filter((signal) => signal.work !== undefined);
+  const plain = open.filter((signal) => signal.asks === undefined);
+  const asking = open.filter((signal) => signal.asks !== undefined);
   const first = plain[0];
   if (first === undefined && asking.length === 0) return null;
   return (
@@ -159,25 +202,33 @@ export function ReplyAnswers({
           type="button"
           className="thread-composer__answers-line thread-composer__answers-line--show"
           data-testid="thread-composer-answers-plain"
+          // The name as one sentence: the pieces are laid side by side, so a
+          // name read off them could run two words together.
+          aria-label={
+            plain.length === 1
+              ? `Your reply answers ${threadHeadlineText(first.text, known)}`
+              : `Your reply answers ${String(plain.length)} open signals`
+          }
           onClick={() => onShow(first.signalId)}
         >
           <CornerDownRight size={11} strokeWidth={2.25} aria-hidden />
           {plain.length === 1 ? (
-            <span>
-              Your reply answers <KindWord kind={first.kind} />
-            </span>
+            <>
+              <span className="seat-threads__signal-lead">Your reply answers</span>{" "}
+              <SignalHeadline text={first.text} known={known} />
+            </>
           ) : (
-            <span>Your reply answers {plain.length} open signals</span>
+            <span className="seat-threads__signal-lead">Your reply answers {plain.length} open signals</span>
           )}
         </button>
       ) : null}
       {asking.map((signal) =>
-        signal.work === undefined ? null : (
+        signal.asks === undefined ? null : (
           <p key={signal.signalId} className="thread-composer__answers-line" data-testid="thread-composer-answers-work">
             <CornerDownRight size={11} strokeWidth={2.25} aria-hidden />
-            <span>
-              Your reply leaves <KindWord kind={signal.kind} /> open: it asks for {WORK_WORD[signal.work]}.
-            </span>
+            <span className="seat-threads__signal-lead">Your reply leaves</span>{" "}
+            <SignalHeadline text={signal.text} known={known} />{" "}
+            <span className="seat-threads__signal-lead">open: it asks for {ASKS_WORD[signal.asks]}.</span>{" "}
             <Button
               size="sm"
               variant="chrome"
