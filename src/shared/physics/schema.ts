@@ -32,6 +32,7 @@ export const Port = Schema.Literals([
   "msg.prompt",
   "seat.wait",
   "terminal.read",
+  "threads.read",
   "browser.automate",
 ]);
 export type Port = typeof Port.Type;

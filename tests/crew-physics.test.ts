@@ -28,7 +28,7 @@ const decodes = (input: unknown): boolean =>
 describe("crew wire authority", () => {
   it("defaults peer observation and immediate prompt to the messages relationship", () => {
     const canvas = canvasWith([messages()]);
-    for (const port of ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"] as const) {
+    for (const port of ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read", "threads.read"] as const) {
       expect(allows(canvas, "author", "reviewer", port), port).toBe(true);
       expect(allows(canvas, "reviewer", "author", port), port).toBe(true);
     }
@@ -43,6 +43,15 @@ describe("crew wire authority", () => {
     const empty = messages([]);
     expect(Schema.decodeUnknownSync(Wire)(empty).mask).toEqual([]);
     expect(allows(canvasWith([empty]), "author", "reviewer", "msg.send")).toBe(false);
+  });
+
+  it("holds threads read and terminal read each on its own: a mask keeps one without the other", () => {
+    const threadsOnly = canvasWith([messages(["msg.send", "threads.read"])]);
+    expect(allows(threadsOnly, "author", "reviewer", "threads.read")).toBe(true);
+    expect(allows(threadsOnly, "author", "reviewer", "terminal.read")).toBe(false);
+    const terminalOnly = canvasWith([messages(["msg.send", "terminal.read"])]);
+    expect(allows(terminalOnly, "author", "reviewer", "terminal.read")).toBe(true);
+    expect(allows(terminalOnly, "author", "reviewer", "threads.read")).toBe(false);
   });
 
   it("cannot manufacture review, task, input or signal power in a mask", () => {

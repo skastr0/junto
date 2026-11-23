@@ -170,8 +170,8 @@ const nodeOfKind = (id: string, kind: WellKnownKind, x: number): Node => BUILDER
  */
 const AGENT_SINK_GRANTS = {
   agent: {
-    wide: { verb: "messages", ports: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"] },
-    narrow: { verb: "messages", ports: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"] },
+    wide: { verb: "messages", ports: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read", "threads.read"] },
+    narrow: { verb: "messages", ports: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read", "threads.read"] },
   },
 } as const satisfies {
   readonly [K in string]: {

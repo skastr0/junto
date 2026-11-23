@@ -333,6 +333,7 @@
                     "msg.prompt",
                     "seat.wait",
                     "terminal.read",
+                    "threads.read",
                     "browser.automate"
                   ]
                 }

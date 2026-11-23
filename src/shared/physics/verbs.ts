@@ -121,7 +121,7 @@ export type VerbGrant = {
 };
 
 const MSG_PORTS = [
-  "msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read",
+  "msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read", "threads.read",
 ] as const satisfies ReadonlyArray<Port>;
 
 const NO_PORTS: ReadonlyArray<Port> = [];

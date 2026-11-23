@@ -106,6 +106,15 @@ least. The editing machine and the end that opened the link have no special
 reach under this rule. A copied `peer` row can be a mail target, never an
 admitted caller.
 
+A seat reads its own threads with the operator with no edge and no port. It
+reads another seat's threads only through `threads.read` on an edge to that
+seat. The `messages` verb grants it between two seats, and the operator's
+mask removes it like any port. It is a port of its own, not a part of
+`terminal.read`: an edge may hold either one without the other, and holding
+one opens nothing of the other. Across machines it is refused with
+`other_machine`. A read sends nothing and never moves the operator's read
+point in that thread.
+
 Ordinary agents never write the canonical canvas through their work API.
 Own-seat onboarding, references, session notes and signals are narrow local
 facilities; they grant no reach to another seat. Signals may be raised without

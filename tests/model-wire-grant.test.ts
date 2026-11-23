@@ -20,7 +20,7 @@ const kinds = wireKinds([
 describe("wireGrant", () => {
   it("opens the ports its verb grants between the two kinds", () => {
     expect(wireGrant(wire("messages", "lead", "worker"), kinds)?.ports).toEqual([
-      "msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read",
+      "msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read", "threads.read",
     ]);
     expect(wireGrant(wire("flows", "queue", "next"), kinds)).toMatchObject({ ports: [], flow: true });
   });

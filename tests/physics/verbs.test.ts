@@ -94,9 +94,9 @@ describe("verb table", () => {
 });
 
 describe("compiled grants", () => {
-  it("opens the mailbox, prompt, wait and terminal read between two agents", () => {
+  it("opens the mailbox, prompt, wait, terminal read and threads read between two agents", () => {
     expect(compileVerb("messages", "agent", "agent")).toEqual({
-      ports: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"],
+      ports: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read", "threads.read"],
     });
   });
 

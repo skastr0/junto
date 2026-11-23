@@ -404,7 +404,7 @@ describe("physics across machines", () => {
       [agent("here"), agent("there", 200, 0, OTHER_MACHINE)],
       [wire("e1", "here", "there", "messages")],
     );
-    expect(otherPorts).toEqual(["msg.list", "msg.prompt", "seat.wait", "terminal.read"]);
+    expect(otherPorts).toEqual(["msg.list", "msg.prompt", "seat.wait", "terminal.read", "threads.read"]);
     for (const port of otherPorts) {
       for (const [from, to] of [["here", "there"], ["there", "here"]] as const) {
         const result = admits(doc, from, to, port);

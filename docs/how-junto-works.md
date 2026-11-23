@@ -35,7 +35,7 @@ The seat's **Offboard** and **Offboard and continue** buttons in Customize send 
 
 ## Lines and access
 
-An edge compiles into grants. A `messages` edge between two agents gives each one mail, prompt, wait, and read access to the other (`msg.send`, `msg.list`, `msg.prompt`, `seat.wait`, `seat.read`). No edge, no grant: the CLI refuses with a `ScopeError` that names the missing edge.
+An edge compiles into grants. A `messages` edge between two agents gives each one mail, prompt, wait, terminal read and threads read access to the other (`msg.send`, `msg.list`, `msg.prompt`, `seat.wait`, `terminal.read`, `threads.read`). Terminal read and threads read are separate ports: a mask can keep either one without the other. A seat reads its own threads with no edge. No edge, no grant: the CLI refuses with a `ScopeError` that names the missing edge.
 
 ## The CLI
 

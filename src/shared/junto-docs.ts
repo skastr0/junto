@@ -42,6 +42,7 @@ export const PORT_DESCRIPTIONS: Readonly<Partial<Record<Port, string>>> = {
   "msg.prompt": "Mail the peer as a prompt: the full text is typed into its input at once, idle or mid-turn.",
   "seat.wait": "Wait for a connected peer state with a bounded timeout.",
   "terminal.read": "Read settled terminal output from a connected peer; no input, resize or signal authority.",
+  "threads.read": "List and read a connected peer's threads with the operator; sends nothing and marks nothing read.",
   "browser.automate": "Control a granted page session (browser CLI).",
 };
 

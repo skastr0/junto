@@ -32,6 +32,7 @@ export const ACTOR_ACTOR_INBOX_PORTS: ReadonlyArray<Port> = [
   "msg.prompt",
   "seat.wait",
   "terminal.read",
+  "threads.read",
 ];
 
 const msgOffers = portSet(...ACTOR_ACTOR_INBOX_PORTS);
