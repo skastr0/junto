@@ -166,7 +166,9 @@ function ThreadListRow({
           {/* The operator's own last mail, not yet with its seat. */}
           {mine && row.last.waiting === true ? (
             <>
-              <Clock className="operator-threads__waiting" size={11} strokeWidth={2} aria-hidden data-testid="operator-threads-row-waiting" />
+              <span className="operator-threads__waiting" title={waitingForSeats([row.seat.name])} data-testid="operator-threads-row-waiting">
+                <Clock size={11} strokeWidth={2} aria-hidden />
+              </span>
               <span className="sr-only">{waitingForSeats([row.seat.name])} </span>
             </>
           ) : null}

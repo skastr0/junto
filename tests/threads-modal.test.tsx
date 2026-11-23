@@ -260,7 +260,7 @@ it("starts line 3 with the Clock while the operator's own last mail waits for it
   const waiting = { ...rows[1]!, last: { ...rows[1]!.last, waiting: true as const } };
   draw(state([rows[0]!, waiting]));
   const last = q('[data-thread="t2"] .operator-threads__last')!;
-  expect(last.querySelector('[data-testid="operator-threads-row-waiting"]')).not.toBeNull();
+  expect(last.querySelector('[data-testid="operator-threads-row-waiting"]')?.getAttribute("title")).toBe("Waiting for seat b. It arrives when the seat is back.");
   expect(last.querySelector(".sr-only")?.textContent).toBe("Waiting for seat b. It arrives when the seat is back. ");
   expect(q('[data-thread="t1"] [data-testid="operator-threads-row-waiting"]')).toBeNull();
 });
