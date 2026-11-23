@@ -475,6 +475,10 @@ phase, and attention/occupancy are separate planes.
     scripts/run-e2e.sh <spec>` runs it under the mini's own app-run lock, and
     `scripts/mini.sh rm $dir` removes it when you are done. A run that
     measures time takes the book first (`scripts/mini.sh book line`).
+  - The operator's database never leaves this machine, whole or in part, by
+    any means: not to a VM and not to the mini. Both scripts refuse a SQLite
+    file. A real board goes to the mini as its shapes only: the JSON that
+    `JUNTO_FACTORY_JSON` reads, with made-up ids and names.
   - The load never blocks a release. See docs/plans/0.10/10-execution.md.
 - Host-touching code follows Machine safety (above) — fail closed, capability-first.
 - Agent reach follows Canvas physics (above): region reach for resource nodes, edges for seats and pages, ports, and a live generation credential. Region is geography, not a security domain.

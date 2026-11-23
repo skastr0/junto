@@ -170,6 +170,15 @@ case "${1:-}" in
       # new files count and the checkout's own index is never touched.
       GIT_INDEX_FILE="$TMP/index" git -C "$ROOT" read-tree "$target"
       GIT_INDEX_FILE="$TMP/index" git -C "$ROOT" add -A -- "$@"
+      # No database leaves this machine in a patch. A named path can hold a
+      # copy of the operator's junto.db (a "real board" for a proof), and a VM
+      # is somebody else's computer. A fixture rides in its commit.
+      while IFS= read -r -d '' f; do
+        if [ -f "$ROOT/$f" ] && head -c 15 "$ROOT/$f" 2>/dev/null | cmp -s - <(printf 'SQLite format 3'); then
+          echo "vm.sh: $f is a SQLite database, and sync sends none. A copy of the operator's junto.db must never be on a VM, whole or in part. Commit a test fixture; leave a real board here." >&2
+          exit 2
+        fi
+      done < <(GIT_INDEX_FILE="$TMP/index" git -C "$ROOT" diff --cached --name-only -z "$target")
       GIT_INDEX_FILE="$TMP/index" git -C "$ROOT" diff --cached --binary "$target" >"$TMP/own.patch"
       if [ -s "$TMP/own.patch" ]; then
         "$BOAT" scp "$TMP/own.patch" "$id:/home/user/$VM_DIR.own.patch" >/dev/null

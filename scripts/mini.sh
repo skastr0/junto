@@ -3,7 +3,7 @@
 # 60 Hz, display attached) instead of this machine.
 #
 #   scripts/mini.sh at <seat> [ref]           <ref> (default HEAD) in its own checkout on the mini, deps and bundles built; prints its folder
-#   scripts/mini.sh put <folder> <paths…>     copy files that are not in the commit (an untracked spec) into that folder
+#   scripts/mini.sh put <folder> <paths…>     copy files that are not in the commit (an untracked spec) into that folder; never a database
 #   scripts/mini.sh run <folder> <command…>   run a command in that folder on the mini, output streamed
 #   scripts/mini.sh book line <seat> <minutes> "<what>"   join the line for the rig; takes it when you are first and it is free
 #   scripts/mini.sh book take <seat> <minutes> "<what>" | release <seat> | status
@@ -76,6 +76,19 @@ case "${1:-}" in
     dir=${2:?folder}
     shift 2
     [ "$#" -gt 0 ] || { echo "mini.sh: put needs paths" >&2; exit 2; }
+    # No database goes to the mini through put. The rig's README forbids the
+    # operator's junto.db there, and on 2026-11-23 two whole copies of it were
+    # on their way as "the real board". A real board goes as its shapes only:
+    # the JSON that JUNTO_FACTORY_JSON reads. A fixture rides in its commit.
+    for p in "$@"; do
+      case "$p" in /*) from=$p ;; *) from=$ROOT/$p ;; esac
+      while IFS= read -r -d '' f; do
+        if head -c 15 "$f" 2>/dev/null | cmp -s - <(printf 'SQLite format 3'); then
+          echo "mini.sh: $f is a SQLite database, and put sends none. A copy of the operator's junto.db must never be on the mini, whole or in part. Send a real board as its shapes (JUNTO_FACTORY_JSON); commit a test fixture." >&2
+          exit 2
+        fi
+      done < <(find "$from" -type f -print0 2>/dev/null)
+    done
     tar -C "$ROOT" -c -- "$@" | ssh "$MINI" "tar -x -C $dir"
     ;;
   run)
