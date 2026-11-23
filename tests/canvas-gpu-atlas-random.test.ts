@@ -20,7 +20,12 @@
  *   - a quad that showed pixels still shows pixels, unless they sat in a
  *     texture the device made out of memory;
  *   - the gutter round every shown rect is clear, so a smaller mip level and
- *     a linear tap at the edge read nothing of a neighbour.
+ *     a linear tap at the edge read nothing of a neighbour;
+ *   - texel (0, 0) of page 0 of each pool is clear: a row of zeros is still
+ *     drawn, and reads it.
+ *
+ * Every scenario has content exactly as wide as a plot, and as large as one:
+ * the rect that does not fit beside that texel.
  *
  * A run is a seed: the clock, the order rasters land in and every choice come
  * from it, so a failure names the step and replays.
@@ -360,12 +365,9 @@ const run = async (config: Config, collect = false): Promise<Outcome> => {
       fail("texture-of-other-pool", `${who}: cell ${cell} is drawn as ${kind} and carries a ${own.format} texture`);
     }
     if (!(u1 > u0 || v1 > v0)) {
-      // A row of zeros reads texel (0, 0) of page 0, which the atlas keeps clear.
+      // A row of zeros reads texel (0, 0) of page 0, which the atlas keeps
+      // clear: the checker looks at it after every step.
       if (applies) fail("blank-row-with-texture", `${who}: cell ${cell} has no rect and carries texture ${own!.id}`);
-      const first = pages[0];
-      if (first !== undefined && !first.isDestroyed() && first.at(0, 0) !== 0) {
-        fail("reserved-texel-written", `${who}: texel (0, 0) of ${kind} page 0 holds ${first.at(0, 0)}`);
-      }
       return undefined;
     }
     const tiled = gpu[base + 5]! > 0.5;
@@ -493,6 +495,13 @@ const run = async (config: Config, collect = false): Promise<Outcome> => {
         rgba: [...(binding.rgbaPages ?? [])] as unknown as StrictTexture[],
         coverage: [...(binding.coveragePages ?? [])] as unknown as StrictTexture[],
       };
+    }
+    // The texel every empty row reads, in each pool, whether or not a quad has an empty row now.
+    for (const [kind, pages] of [["text", bound.coverage], ["sprite", bound.rgba]] as const) {
+      const first = pages[0];
+      if (first !== undefined && !first.isDestroyed() && first.at(0, 0) !== 0) {
+        fail("reserved-texel-written", `texel (0, 0) of ${kind} page 0 holds ${first.at(0, 0)}`);
+      }
     }
     const cells = binding.cells;
     const cellCount = binding.cellCount ?? Math.floor(cells.length / ATLAS_CELL_FLOATS);
@@ -763,6 +772,10 @@ const scenarios: ReadonlyArray<Config> = [
       { kind: "sprite", w: 16, h: 16, count: 8 },
       { kind: "sprite", w: 12, h: 12, count: 6, cold: true },
       { kind: "sprite", w: 40, h: 40, count: 2 },
+      // At scale 1 with the gutter (1 for text, 8 for sprites): the plot's whole width, and a whole plot.
+      { kind: "text", w: 63, h: 10, count: 2 },
+      { kind: "sprite", w: 56, h: 20, count: 2 },
+      { kind: "sprite", w: 56, h: 56, count: 1 },
     ]),
   },
   {
@@ -782,6 +795,12 @@ const scenarios: ReadonlyArray<Config> = [
       { kind: "sprite", w: 16, h: 16, count: 10 },
       { kind: "sprite", w: 200, h: 120, count: 2 },
       { kind: "sprite", w: 120, h: 200, count: 2, cold: true },
+      // With the gutter: a square plot's width at scale 1, a whole plot at
+      // scale 4, a strip's width at scale 1, a full page's width at scale 4.
+      { kind: "text", w: 511, h: 9, count: 2 },
+      { kind: "sprite", w: 126, h: 126, count: 2 },
+      { kind: "text", w: 1023, h: 9, count: 1 },
+      { kind: "sprite", w: 254, h: 130, count: 1 },
     ]),
   },
   {
@@ -801,6 +820,10 @@ const scenarios: ReadonlyArray<Config> = [
       { kind: "sprite", w: 24, h: 24, count: 8 },
       { kind: "sprite", w: 100, h: 30, count: 3, cold: true },
       { kind: "sprite", w: 30, h: 100, count: 2 },
+      // With the gutter: the page's width at scale 1 and at scale 4, and a whole page at scale 4.
+      { kind: "text", w: 255, h: 10, count: 2 },
+      { kind: "sprite", w: 62, h: 20, count: 2 },
+      { kind: "sprite", w: 62, h: 62, count: 1 },
     ]),
   },
   {
@@ -817,6 +840,10 @@ const scenarios: ReadonlyArray<Config> = [
       { kind: "text", w: 22, h: 9, count: 8 },
       { kind: "sprite", w: 20, h: 20, count: 10, cold: true },
       { kind: "sprite", w: 14, h: 14, count: 6 },
+      // With the gutter: the plot's width at scale 1 and at scale 2, and a whole plot at scale 2.
+      { kind: "text", w: 127, h: 9, count: 2 },
+      { kind: "sprite", w: 60, h: 14, count: 2 },
+      { kind: "sprite", w: 60, h: 60, count: 1 },
     ]),
   },
   {
@@ -836,6 +863,10 @@ const scenarios: ReadonlyArray<Config> = [
       { kind: "sprite", w: 20, h: 20, count: 8 },
       { kind: "sprite", w: 14, h: 14, count: 6, cold: true },
       { kind: "sprite", w: 90, h: 40, count: 2 },
+      // With the gutter: the plot's width at scale 1 and at scale 4, and a whole plot at scale 4.
+      { kind: "text", w: 127, h: 9, count: 2 },
+      { kind: "sprite", w: 30, h: 12, count: 2 },
+      { kind: "sprite", w: 30, h: 30, count: 1 },
     ]),
   },
 ];

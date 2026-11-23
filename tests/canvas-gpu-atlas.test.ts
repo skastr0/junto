@@ -833,3 +833,104 @@ describe("the atlas's revision covers its mip levels (issue 915)", () => {
     expect(atlas.revision()).toBeGreaterThan(submits.at(-1)!);
   });
 });
+
+describe("texel (0,0) of page 0, which every empty row reads, is no cell's", () => {
+  /** A text raster is exactly as large as its run says: `width` by `size`, at scale 1. */
+  const boxed = (size: number) => atlasWith({ size, rasterizeText: async (run) => pixels(run.width, run.size) });
+  const line = (text: string, width: number, height: number): Quad => textQuad({ ...textRun, text, width, size: height });
+  /** Where a cell's rect starts, in texels of its page, and the page. */
+  const placeOf = (atlas: ReturnType<typeof boxed>["atlas"], cell: number, size: number) => {
+    const row = atlas.binding.cells.subarray(cell * ATLAS_CELL_FLOATS, cell * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS);
+    return { x: Math.round(row[0]! * size), y: Math.round(row[1]! * size), page: row[4]! };
+  };
+  const landed = async (): Promise<void> => {
+    await settle();
+    await settle();
+  };
+
+  // 1024 px pages: square plots of 512, strips of 1024 by 512, and a full page of 1024.
+  // The coverage gutter is 1, so 511 and 1023 px are a whole plot's width.
+  it.each([
+    ["a square plot", 511, 10],
+    ["a strip", 1023, 10],
+    ["a whole page", 1023, 600],
+  ])("the first raster of a pool, as wide as %s, lands on the row below it", async (_plot, width, height) => {
+    const { atlas } = boxed(1024);
+    atlas.attach(fakeDevice().device);
+    const cell = atlas.acquire(line("wide", width, height), 1);
+    await landed();
+    expect(atlas.hasImage(cell)).toBe(true);
+    expect(placeOf(atlas, cell, 1024)).toEqual({ x: 0, y: 1, page: 0 });
+    expect(atlas.audit().counts).toEqual({});
+  });
+
+  it("a plot emptied for room starts over past it: the next raster as wide as the plot lands below", async () => {
+    const { atlas } = boxed(64);
+    atlas.attach(fakeDevice().device);
+    // A small line takes page 0's one plot, beside the texel, and is let go.
+    const small = atlas.acquire(line("small", 20, 10), 1);
+    await landed();
+    expect(placeOf(atlas, small, 64)).toEqual({ x: 1, y: 0, page: 0 });
+    atlas.release(small);
+
+    // 63 px and the gutter are the plot's 64, and 60 rows do not fit under
+    // the small line, so the plot is wiped for it and starts over.
+    const wide = atlas.acquire(line("wide", 63, 60), 1);
+    await landed();
+    expect(atlas.stats().evictions).toBe(1);
+    expect(atlas.stats().pages).toBe(1);
+    expect(atlas.hasImage(wide)).toBe(true);
+    expect(placeOf(atlas, wide, 64)).toEqual({ x: 0, y: 1, page: 0 });
+    expect(atlas.audit().counts).toEqual({});
+  });
+
+  it("a raster as large as a whole plot wipes a plot it fits in, not the plot that holds the texel", async () => {
+    const { atlas } = boxed(1024);
+    atlas.attach(fakeDevice().device);
+    // The plot at the origin holds a small line; it is the plot used longest ago.
+    const small = atlas.acquire(line("small", 20, 10), 1);
+    await landed();
+    atlas.release(small);
+    // Three rasters of 511 by 511, a plot each with the gutter, fill the page's other plots.
+    const filling = ["a", "b", "c"].map((text) => atlas.acquire(line(text, 511, 511), 1));
+    await landed();
+    expect(filling.map((cell) => placeOf(atlas, cell, 1024))).toEqual([
+      { x: 512, y: 0, page: 0 },
+      { x: 0, y: 512, page: 0 },
+      { x: 512, y: 512, page: 0 },
+    ]);
+    for (const cell of filling) atlas.release(cell);
+    expect(atlas.stats().pages).toBe(1);
+
+    // A fourth cannot go beside the texel or below it. Wiping that plot would
+    // make no room: the plot wiped is the oldest one the raster fits in.
+    const fourth = atlas.acquire(line("d", 511, 511), 1);
+    await landed();
+    expect(atlas.hasImage(fourth)).toBe(true);
+    expect(placeOf(atlas, fourth, 1024)).toEqual({ x: 512, y: 0, page: 0 });
+    expect(atlas.stats().pages).toBe(1);
+    expect(atlas.stats().evictions).toBe(1);
+    // The small line is still there: asking it again needs no raster.
+    const requests = atlas.stats().requests;
+    expect(atlas.hasImage(atlas.acquire(line("small", 20, 10), 1))).toBe(true);
+    expect(atlas.stats().requests).toBe(requests);
+    expect(atlas.audit().counts).toEqual({});
+  });
+
+  it("a raster as large as page 0's only plot lands at once, on a second page", async () => {
+    const { atlas, failureMessages } = boxed(64);
+    atlas.attach(fakeDevice().device);
+    // 63 by 63 and the gutter are the whole 64 px page: it fits neither beside the texel nor below it.
+    const whole = atlas.acquire(line("whole", 63, 63), 1);
+    await landed();
+    expect(atlas.hasImage(whole)).toBe(true);
+    expect(placeOf(atlas, whole, 64)).toEqual({ x: 0, y: 0, page: 1 });
+    expect(failureMessages).toEqual([]);
+    // Page 0 was made for it and is still the next small raster's.
+    const small = atlas.acquire(line("small", 20, 10), 1);
+    await landed();
+    expect(placeOf(atlas, small, 64)).toEqual({ x: 1, y: 0, page: 0 });
+    expect(atlas.stats().pages).toBe(2);
+    expect(atlas.audit().counts).toEqual({});
+  });
+});

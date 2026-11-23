@@ -175,14 +175,40 @@ export interface GpuAtlas {
 type PoolKind = "rgba" | "coverage";
 type PageLayout = "grid" | "strip" | "full";
 
+/**
+ * Where a plot's next cell goes: at (x, y) in the plot, on a row `rowH` high
+ * so far. Cells fill a row from the left and rows fill the plot from the top,
+ * so a cursor never goes back over what it passed.
+ */
+interface Cursor {
+  readonly x: number;
+  readonly y: number;
+  readonly rowH: number;
+}
+
+const PLOT_START: Cursor = { x: 0, y: 0, rowH: 0 };
+const PAST_RESERVED_TEXEL: Cursor = { x: 1, y: 0, rowH: 1 };
+
+/**
+ * The cursor of an empty plot at (x0, y0) of a pool's page `pageIndex`.
+ *
+ * A row of zeros is still drawn, and reads texel (0,0) of page 0 of its
+ * pool, so that texel is reserved: it is no cell's, and stays clear. The
+ * plot that holds it starts as it would stand after a 1 by 1 cell with no
+ * gutter had been placed there: one texel in, on a row one texel high. This
+ * is the only thing that knows the texel. Placement has no case for it: a
+ * rect that does not fit beside the texel starts the row below it, as it
+ * would below any cell.
+ */
+const emptyPlotCursor = (pageIndex: number, x0: number, y0: number): Cursor =>
+  pageIndex === 0 && x0 === 0 && y0 === 0 ? PAST_RESERVED_TEXEL : PLOT_START;
+
 interface Plot {
   readonly x0: number;
   readonly y0: number;
   readonly w: number;
   readonly h: number;
-  cursorX: number;
-  cursorY: number;
-  rowH: number;
+  cursor: Cursor;
   /** The slots placed here. `place` and `unplace` are its only writers. */
   readonly cells: Set<SlotRecord>;
   lastUsedTick: number;
@@ -835,55 +861,25 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (tex === undefined) return undefined;
     clearNewPageMips(tex, mips);
 
+    // A grid page is cut into square plots, a strip page into bands as wide
+    // as the page, and a full page is one plot.
     const pSize = plotSizeFor(pool);
+    const plotW = layout === "grid" ? pSize : dim;
+    const plotH = layout === "full" ? dim : pSize;
     const plots: Plot[] = [];
-    if (layout === "grid") {
-      const cols = Math.max(1, Math.floor(dim / pSize));
-      for (let py = 0; py < cols; py += 1) {
-        for (let px = 0; px < cols; px += 1) {
-          plots.push({
-            x0: px * pSize,
-            y0: py * pSize,
-            w: pSize,
-            h: pSize,
-            cursorX: pageIndex === 0 && px === 0 && py === 0 ? 1 : 0, // reserve (0,0) on page 0 as transparent
-            cursorY: 0,
-            rowH: 0,
-            cells: new Set(),
-            lastUsedTick: ++plotTick,
-            written: false,
-          });
-        }
-      }
-    } else if (layout === "strip") {
-      const rows = Math.max(1, Math.floor(dim / pSize));
-      for (let py = 0; py < rows; py += 1) {
+    for (let y0 = 0; y0 + plotH <= dim; y0 += plotH) {
+      for (let x0 = 0; x0 + plotW <= dim; x0 += plotW) {
         plots.push({
-          x0: 0,
-          y0: py * pSize,
-          w: dim,
-          h: pSize,
-          cursorX: pageIndex === 0 && py === 0 ? 1 : 0,
-          cursorY: 0,
-          rowH: 0,
+          x0,
+          y0,
+          w: plotW,
+          h: plotH,
+          cursor: emptyPlotCursor(pageIndex, x0, y0),
           cells: new Set(),
           lastUsedTick: ++plotTick,
           written: false,
         });
       }
-    } else {
-      plots.push({
-        x0: 0,
-        y0: 0,
-        w: dim,
-        h: dim,
-        cursorX: pageIndex === 0 ? 1 : 0,
-        cursorY: 0,
-        rowH: 0,
-        cells: new Set(),
-        lastUsedTick: ++plotTick,
-        written: false,
-      });
     }
 
     const baseBytes = dim * dim * pool.bytesPerPixel;
@@ -905,28 +901,37 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     return page;
   };
 
+  /**
+   * Where a rect of `needW` by `needH`, gutter included, goes from a cursor
+   * of `plot`, and the cursor after it: beside what the row holds, or at the
+   * start of a row below it. Undefined when the plot has no room from there.
+   */
+  const roomAt = (
+    plot: Plot,
+    from: Cursor,
+    needW: number,
+    needH: number,
+  ): { readonly x: number; readonly y: number; readonly next: Cursor } | undefined => {
+    if (needW > plot.w || needH > plot.h) return undefined;
+    const below = from.x + needW > plot.w;
+    const x = below ? 0 : from.x;
+    const y = below ? from.y + from.rowH : from.y;
+    if (y + needH > plot.h) return undefined;
+    return { x, y, next: { x: x + needW, y, rowH: below ? needH : Math.max(from.rowH, needH) } };
+  };
+
+  /** The plot would take the rect if it were empty: wiping it makes room. */
+  const fitsEmptied = (page: Page, plot: Plot, needW: number, needH: number): boolean =>
+    roomAt(plot, emptyPlotCursor(page.pageIndex, plot.x0, plot.y0), needW, needH) !== undefined;
+
   const tryPlaceInPlot = (pool: PagePool, page: Page, plot: Plot, w: number, h: number): Placed | undefined => {
     const gutter = gutterFor(pool.kind);
-    const needW = w + gutter;
-    const needH = h + gutter;
-    if (needW > plot.w || needH > plot.h) return undefined;
-    let cx = plot.cursorX;
-    let cy = plot.cursorY;
-    let rh = plot.rowH;
-    if (cx + needW > plot.w) {
-      cx = 0;
-      cy += rh;
-      rh = 0;
-    }
-    if (cy + needH > plot.h) return undefined;
-    const x = plot.x0 + cx;
-    const y = plot.y0 + cy;
-    plot.cursorX = cx + needW;
-    plot.cursorY = cy;
-    plot.rowH = Math.max(rh, needH);
+    const room = roomAt(plot, plot.cursor, w + gutter, h + gutter);
+    if (room === undefined) return undefined;
+    plot.cursor = room.next;
     plot.lastUsedTick = ++plotTick;
     plot.written = true;
-    return { pool: pool.kind, page, plot, x, y, w, h };
+    return { pool: pool.kind, page, plot, x: plot.x0 + room.x, y: plot.y0 + room.y, w, h };
   };
 
   const tryPlaceOnPages = (
@@ -982,12 +987,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
   };
 
-  /** An emptied plot starts over: its cursor at the origin, its texels clear. */
+  /** An emptied plot starts over: its cursor where an empty plot's is, its texels clear. */
   const resetPlot = (pool: PagePool, page: Page, plot: Plot): void => {
-    // (0,0) of page 0 stays transparent: a row of zeros samples it.
-    plot.cursorX = page.pageIndex === 0 && plot.x0 === 0 && plot.y0 === 0 ? 1 : 0;
-    plot.cursorY = 0;
-    plot.rowH = 0;
+    plot.cursor = emptyPlotCursor(page.pageIndex, plot.x0, plot.y0);
     wipePlot(pool, page, plot);
   };
 
@@ -1048,6 +1050,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
    * plot touched longest ago that nothing on screen holds is wiped whole.
    * No cell is kept past that as a floor: content that is off screen leaves
    * when room is needed, and comes back by a raster when it is asked again.
+   * Only a plot the rect fits in once it is empty is wiped: the plot that
+   * holds the reserved texel has no room for a rect as large as itself.
    */
   const evictLruUnpinnedPlot = (
     pool: PagePool,
@@ -1061,7 +1065,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     for (const page of pool.pages) {
       if (page.dead || page.layout !== preferredLayout) continue;
       for (const plot of page.plots) {
-        if (plot.cells.size === 0 || plot.w < needW || plot.h < needH) continue;
+        if (plot.cells.size === 0 || !fitsEmptied(page, plot, needW, needH)) continue;
         if (plot.lastUsedTick >= oldest || plotIsHeld(plot)) continue;
         oldest = plot.lastUsedTick;
         bestPage = page;
@@ -1137,15 +1141,22 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       if (at !== undefined) return at;
     }
 
-    // Every plot holds a cell that is on screen: add a new independent page.
-    // A cell is never moved once it is placed. Moving one took a GPU copy
-    // inside one texture, which WebGPU rejects whatever the rects are, and the
-    // rejected encoder dropped every copy in it while the rows were already
-    // pointed at the new rects.
-    const nextPage = addPage(pool, layout);
-    if (nextPage !== undefined) {
-      at = tryPlaceInPlot(pool, nextPage, nextPage.plots[0]!, w, h);
-      if (at !== undefined) return at;
+    // Every plot the rect fits in holds a cell that is on screen: add a new
+    // independent page. A cell is never moved once it is placed. Moving one
+    // took a GPU copy inside one texture, which WebGPU rejects whatever the
+    // rects are, and the rejected encoder dropped every copy in it while the
+    // rows were already pointed at the new rects.
+    //
+    // The new page's first plot takes the rect, unless it is the plot of the
+    // reserved texel and the rect is as large as a plot. Then the next plot
+    // does, or, when page 0 is a single plot, the page after it.
+    for (let added = 0; added < 2; added += 1) {
+      const nextPage = addPage(pool, layout);
+      if (nextPage === undefined) return undefined;
+      for (const plot of nextPage.plots) {
+        at = tryPlaceInPlot(pool, nextPage, plot, w, h);
+        if (at !== undefined) return at;
+      }
     }
     return undefined;
   };
@@ -1869,8 +1880,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
    * shows, texture included. A slot is landed exactly when it owns pixels,
    * and exists unlanded only while held. What a slot shows meanwhile is a
    * referenced, landed cell of its own pool. A plot lists exactly the slots
-   * placed in it, no two rects share texels or a gutter, and every name
-   * finds its slot. `held` counts the references draw records hold per cell.
+   * placed in it, no two rects share texels or a gutter, no rect is on the
+   * reserved texel an empty row reads, and every name finds its slot. `held`
+   * counts the references draw records hold per cell.
    */
   const audit = (held?: ReadonlyMap<number, number>): AtlasAudit => {
     const counts: Record<string, number> = {};
@@ -1954,6 +1966,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
               continue;
             }
             rects.push({ i: rec.index, x: rec.placed.x, y: rec.placed.y, w: rec.placed.w, h: rec.placed.h });
+            if (page.pageIndex === 0 && rec.placed.x === 0 && rec.placed.y === 0) {
+              flag("cell-on-reserved-texel", rec.index, `${pool.kind} page 0: cell ${rec.index} ${rec.placed.w}x${rec.placed.h} is placed on texel 0,0, which every empty row reads`);
+            }
           }
         }
         rects.sort((a, b) => a.x - b.x);
