@@ -517,14 +517,12 @@ export class MessageDeliveryService {
     }
     const flying = this.flights.get(key);
     if (flying !== undefined) return flying;
-    const generation = this.lifecycleGeneration;
     const flight = this.deliverOnce(canvas, nodeId, messageId, key)
-      // An authority read failed: the message stays in the mailbox, kept in
-      // `unresolved` until its reads answer; any seat's next live event and
-      // its canvas's resume try it again, and the boot scan after a restart.
+      // The attempt failed: the message stays in the mailbox. A failed read
+      // held it in `unresolved` (deliverOnce), tried again on any seat's next
+      // live event and its canvas's resume; the boot scan after a restart.
       .catch((error: unknown): MailDeliveryState => {
         console.error(`[delivery] attempt failed for ${canvas}/${nodeId}/${messageId}: ${String(error)}`);
-        if (this.active(generation)) this.holdUnresolved(key, canvas, nodeId, messageId);
         return "waiting";
       })
       .finally(() => {
@@ -549,7 +547,14 @@ export class MessageDeliveryService {
     };
     if (!this.active(generation)) return waiting("delivery generation ended");
     if (!transport || !store) return waiting("delivery not configured: store or transport missing");
-    const doc = await store.readModel(canvas, "attempt");
+    // A read that fails holds the mail to be tried again: its seat is not known
+    // yet. A failure after both reads is the indexed mail's, not held here.
+    const holding = <T>(read: Promise<T>): Promise<T> =>
+      read.catch((error: unknown) => {
+        if (this.active(generation)) this.holdUnresolved(key, canvas, nodeId, messageId);
+        throw error;
+      });
+    const doc = await holding(store.readModel(canvas, "attempt"));
     if (!this.active(generation)) return waiting("delivery generation ended during model read");
     if (!doc) {
       // No seat to index it under yet: held as a failed read is, and tried again.
@@ -557,9 +562,10 @@ export class MessageDeliveryService {
       return waiting("model unavailable");
     }
     const node = doc?.nodes.get(asNodeId(nodeId));
-    const message = await store.readMessage(canvas, nodeId, messageId);
-    // Both reads answered: what follows delivers it, indexes it or finds it not pending.
-    this.unresolved.delete(key);
+    const message = await holding(store.readMessage(canvas, nodeId, messageId));
+    // Both reads answered: what follows delivers it, indexes it or finds it not
+    // pending. An older flight never lets go of a newer generation's hold.
+    if (this.active(generation)) this.unresolved.delete(key);
     const target = node === undefined ? undefined : this.targetHere(node);
     if (target === "elsewhere") {
       this.waiting.delete(key);

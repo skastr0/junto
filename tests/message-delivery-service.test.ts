@@ -76,6 +76,8 @@ const rig = (
     readThrows?: (what: "model" | "message", messageId?: string) => boolean;
     /** Whether this read of the model finds none, without a throw. */
     noModel?: () => boolean;
+    /** Whether this write into the seat rejects. */
+    writeThrows?: () => boolean;
   } = {},
 ) => {
   const messages: Message[] = [];
@@ -110,7 +112,11 @@ const rig = (
     },
   };
   const service = new MessageDeliveryService(() => THIS_MACHINE, options.batching ?? { quietMs: 10, maxWaitMs: 50 });
-  service.configure({
+  const configure = (input: Parameters<MessageDeliveryService["configure"]>[0]) => {
+    service.configure(input);
+    return input;
+  };
+  const configured = configure({
     store,
     transport: {
       seatLive: (id) => id === bindingId && live,
@@ -122,6 +128,7 @@ const rig = (
         return options.wake?.() ?? false;
       },
       writeMail: async (_id, text) => {
+        if (options.writeThrows?.() === true) throw new Error("the write failed");
         writing += 1;
         if (writing > 1) overlapped = true;
         await new Promise((resolve) => setTimeout(resolve, options.writeMs ?? 2));
@@ -135,6 +142,11 @@ const rig = (
     },
   });
   services.push(service);
+  /** Suspend and configure again, as a restart of delivery in the same process. */
+  const restart = (): void => {
+    service.suspend();
+    service.configure(configured);
+  };
   return {
     service,
     writes,
@@ -146,6 +158,7 @@ const rig = (
     },
     overlapped: () => overlapped,
     modelReads: () => modelReads,
+    restart,
   };
 };
 
@@ -166,6 +179,25 @@ describe("mail delivery", () => {
       [],
       "crew",
     );
+
+    it("takes this branch when a held mail is tried again, and is neither typed nor held after", async () => {
+      let failing = true;
+      const away = rig({ canvas: elsewhere, readThrows: (what) => failing && what === "message" });
+      away.append(mail("01A", "first"));
+      expect(await away.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+      failing = false;
+      const reads = away.modelReads();
+      away.service.onSeatLive(bindingId);
+      await settle();
+      expect(away.modelReads()).toBe(reads + 1);
+      expect(away.writes).toHaveLength(0);
+      expect(away.wakes).toHaveLength(0);
+      expect(away.messages[0]!.metadata?.deliveredAt).toBeUndefined();
+      // It left the hold on that attempt: the next live event reads nothing for it.
+      away.service.onSeatLive(bindingId);
+      await settle();
+      expect(away.modelReads()).toBe(reads + 1);
+    });
 
     it("is not typed, and does not start the seat or stamp a receipt", async () => {
       const away = rig({ canvas: elsewhere, live: true, wake: () => true });
@@ -406,16 +438,15 @@ describe("mail delivery", () => {
   });
 
   it("tries mail whose first attempt threw again on the seat's next live event", async () => {
-    // The model read throws for the first mail, the message read for the second: both before the mail is indexed.
-    let failing: "model" | "message" | undefined = "model";
-    const seat = rig({ live: false, readThrows: (what) => what === failing });
+    // The message read throws, before the mail is indexed. (The store answers a failed model read as no model.)
+    let failing = true;
+    const seat = rig({ live: false, readThrows: (what) => failing && what === "message" });
     seat.append(mail("01A", "first"));
     seat.append(mail("01B", "second"));
 
     expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
-    failing = "message";
     expect(await seat.service.deliver(canvas, nodeId, "01B")).toBe("waiting");
-    failing = undefined;
+    failing = false;
     expect(seat.writes).toHaveLength(0);
 
     seat.setLive(true);
@@ -429,7 +460,7 @@ describe("mail delivery", () => {
 
   it("keeps mail that throws again for the next live event, and types it once when it reads", async () => {
     let failing = true;
-    const seat = rig({ live: false, readThrows: (what) => failing && what === "model" });
+    const seat = rig({ live: false, readThrows: (what) => failing && what === "message" });
     seat.append(mail("01A", "first"));
     expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
 
@@ -441,15 +472,19 @@ describe("mail delivery", () => {
     failing = false;
     seat.service.onSeatLive(bindingId);
     await settle();
-    seat.service.onSeatLive(bindingId);
-    await settle();
     expect(seat.writes).toHaveLength(1);
     expect(seat.writes[0]).toMatch(/^mail from Claude Code, id 01A\b/u);
+    // Typed, it is no longer held: the next live event reads nothing for it.
+    const reads = seat.modelReads();
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    expect(seat.modelReads()).toBe(reads);
+    expect(seat.writes).toHaveLength(1);
   });
 
   it("tries mail whose first attempt threw again when its canvas plays, and leaves another canvas's", async () => {
     let failing = true;
-    const seat = rig({ readThrows: (what) => failing && what === "model" });
+    const seat = rig({ readThrows: (what) => failing && what === "message" });
     seat.append(mail("01A", "first"));
     expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
     failing = false;
@@ -481,7 +516,7 @@ describe("mail delivery", () => {
   it("holds at most MAIL_UNRESOLVED_MAX unresolved mail, and says which oldest one it let go", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     let failing = true;
-    const seat = rig({ live: false, readThrows: (what) => failing && what === "model" });
+    const seat = rig({ live: false, readThrows: (what) => failing && what === "message" });
     const ids = Array.from({ length: MAIL_UNRESOLVED_MAX + 1 }, (_, index) => `01U${String(index).padStart(4, "0")}`);
     for (const id of ids) seat.append(mail(id, `mail ${id}`));
     await Promise.all(ids.map((id) => seat.service.deliver(canvas, nodeId, id)));
@@ -501,6 +536,30 @@ describe("mail delivery", () => {
     expect(delivered.has(ids[0]!)).toBe(false);
     expect(delivered.has(ids[1]!)).toBe(true);
     expect(delivered.has(ids.at(-1)!)).toBe(true);
+  });
+
+  it("lets go of held mail when delivery is suspended, and the next live event tries nothing", async () => {
+    const seat = rig({ readThrows: (what) => what === "message" });
+    seat.append(mail("01A", "first"));
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    seat.restart();
+    const reads = seat.modelReads();
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    expect(seat.modelReads()).toBe(reads);
+  });
+
+  it("holds no mail whose attempt failed after both reads, as a write that rejects", async () => {
+    let throwing = true;
+    const seat = rig({ writeThrows: () => throwing });
+    seat.append(mail("01A", "a prompt", "prompt"));
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    throwing = false;
+    // Another seat's live event: a held mail would be read again here.
+    const reads = seat.modelReads();
+    seat.service.onSeatLive("bind-other");
+    await settle();
+    expect(seat.modelReads()).toBe(reads);
   });
 
   it("starts a down seat once for all the mail waiting on it", async () => {
