@@ -34,9 +34,7 @@ import { openCoreSurface, type SurfaceOpenMessage } from "./ops/term-surface";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import { armMainThreadBudget } from "../node/observability/main-thread-budget";
 import { startSqlTimingLog } from "./observability/sql-timing-log";
-import { createLogger } from "../node/observability/logger";
-import { registeredSecretValues } from "./credentials/known-secrets";
-import { observabilityRing } from "./observability/ring";
+import { openCoreLog } from "./core-log";
 import type { TerminalPortMain } from "./terminals/over-ports";
 
 export type CoreBoot = {
@@ -75,13 +73,8 @@ const main = async (parent: ParentPort): Promise<void> => {
   // startCore stays a library function; its callers in tests are not entries.
   enforceBootRefusal({ juntoHome: boot.home });
   // Every row this process writes lands in its ring, the one the panel reads,
-  // and is scrubbed with the secrets this core holds.
-  const log = createLogger({
-    process: "core",
-    echo: true,
-    sink: (row) => observabilityRing.append(row),
-    knownSecrets: registeredSecretValues,
-  });
+  // and in the machine's core log file, scrubbed with the secrets this core holds.
+  const log = openCoreLog({ home: boot.home, echo: true });
   // The core's own pid, first in its log: whoever runs it (main, a test, the
   // operator reading the log) learns which process is the core from here.
   console.info(`[core] pid ${String(process.pid)}`);

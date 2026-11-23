@@ -53,15 +53,17 @@ it("core reads: only the core holds them, installed by startCore; main asks the 
 });
 
 it("log rows: each boot builds its log and hands it its sink; loading the ring installs nothing", () => {
-  // The core's two entries build the core's log with the ring as its sink and
-  // the registry as its known values; a headless core opens its file and hook.
-  for (const source of [ENTRY, HEADLESS]) {
-    expect(source).toContain("createLogger({");
-    expect(source).toContain("sink: (row) => observabilityRing.append(row)");
-    expect(source).toContain("knownSecrets: registeredSecretValues");
-  }
-  expect(HEADLESS).toContain("log.openFile({ home })");
-  expect(HEADLESS).toContain("log.installConsoleHook({ echo: false })");
+  // The core's two entries build the core's log through one helper, with the
+  // ring as its sink and the registry as its known values; each opens its file
+  // and hook (tests/core-log-file.test.ts), and only the app's core echoes.
+  const coreLog = read("src/core/core-log.ts");
+  expect(coreLog).toContain("createLogger({");
+  expect(coreLog).toContain("sink: (row) => observabilityRing.append(row)");
+  expect(coreLog).toContain("knownSecrets: registeredSecretValues");
+  expect(coreLog).toContain("log.openFile({ home: options.home })");
+  expect(coreLog).toContain("log.installConsoleHook({ echo: options.echo })");
+  expect(ENTRY).toContain("openCoreLog({ home: boot.home, echo: true })");
+  expect(HEADLESS).toContain("openCoreLog({ home, echo: false })");
   // Main builds its own log over the forwarder to the core's ring: each row
   // waits on its queue until main's client of the core sends it.
   expect(read("src/app/observability/main-log.ts")).toContain("createLogger({");

@@ -19,8 +19,10 @@ import {
  * The machine log on disk: `<home>/.junto/logs/<process>.jsonl`, one JSON row
  * per line, rotated to `<process>.1.jsonl` .. `<process>.4.jsonl`. The
  * directory is 0700 and every file 0600 (docs/security-doctrine.md, Logs).
- * One process writes each file: the app writes `app`, a windowless core
- * writes `core`, so rotation never races another writer.
+ * One process writes each file: the app writes `app`, and the machine's one
+ * core writes `core`, whether it runs inside the app or windowless (its
+ * control socket lease holds one core per home), so rotation never races
+ * another writer.
  */
 
 export const MACHINE_LOG_FILE_BYTES = 4 * 1024 * 1024;

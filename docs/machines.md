@@ -528,12 +528,17 @@ this section removes.
 - **One operation id.** Every operation that touches another machine mints an
   id at the start and carries it on every frame, log row and failure it
   causes, at both ends.
-- **Every machine keeps a log.** The app and every windowless core write
-  structured JSON lines under `~/.junto/logs/`, rotated and size-bounded, from
-  the one Effect logger. Each row has time, level, machine, area, operation
-  id, message, and the encoded failure when there is one. `console.*` in main
-  goes through the same logger. A failure that reaches a person was logged on
-  the machine where it happened and on the machine that asked.
+- **Every machine keeps a log.** The app writes `app.jsonl` and every core
+  writes `core.jsonl`, the core inside the app as well as a windowless one,
+  through one helper (`src/core/core-log.ts`, locked by
+  `tests/core-log-file.test.ts`). They are structured JSON lines under
+  `~/.junto/logs/`, rotated and size-bounded, from the one Effect logger.
+  Until 2026-11-23 the app's core logged to its ring alone, so the end that
+  dials every link kept no record of it on disk. Each row has time, level,
+  machine, area, operation id, message, and the encoded failure when there is
+  one. `console.*` in main and in each core goes through the same logger. A
+  failure that reaches a person was logged on the machine where it happened
+  and on the machine that asked.
 - **An agent can read all of it.** `junto logs` reads this machine's log and
   runs from a seat. `junto machine logs` reads a linked machine's log over the
   link; it is an owner command, refused from a seat, and returns only rows for

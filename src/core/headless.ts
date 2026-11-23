@@ -8,9 +8,7 @@ import { HostClientsNoWindow } from "./host-clients";
 import { enforceBootRefusal } from "../node/boot-guard";
 import { declareMachineCoreOwnsSessions } from "./term/managed-spawn-plan";
 import { armMainThreadBudget } from "../node/observability/main-thread-budget";
-import { createLogger } from "../node/observability/logger";
-import { registeredSecretValues } from "./credentials/known-secrets";
-import { observabilityRing } from "./observability/ring";
+import { openCoreLog } from "./core-log";
 import { machineLogDir } from "../node/observability/log-file";
 import { LinkUnavailable } from "./link/types";
 
@@ -29,14 +27,7 @@ const main = async (): Promise<void> => {
   // The log file is this core's record, and every row lands in its ring, as
   // the app core's do. Its service stdio is an unbounded file, so nothing is
   // echoed there but the fixed lines below.
-  const log = createLogger({
-    process: "core",
-    echo: false,
-    sink: (row) => observabilityRing.append(row),
-    knownSecrets: registeredSecretValues,
-  });
-  log.openFile({ home });
-  log.installConsoleHook({ echo: false });
+  const log = openCoreLog({ home, echo: false });
   // The 4ms assertion is a development instrument. Bun's bundler inlines
   // NODE_ENV as "development", so without this every installed core reports
   // each kernel pass to stderr. JUNTO_BUDGET still arms it by hand.
