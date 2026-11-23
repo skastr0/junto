@@ -14,6 +14,7 @@
 import { Schema } from "effect";
 import type { ActorSeatId } from "./actor-seat";
 import {
+  AGENT_SIGNAL_MAX_DEPENDS_ON,
   AgentSignalAttachment,
   AgentSignalDetail,
   AgentSignalKind,
@@ -30,6 +31,7 @@ import { InstallationId } from "./installation-id";
 import { purgeReaches } from "./shot-purge";
 import { AUTOMATION_SEAT_ID, mailAuthorOf, type MailAuthor } from "./mail-author";
 import { Seq } from "./model";
+import { ULID_PATTERN } from "./ulid";
 import { WorkCanvasName } from "./work-reference";
 import { WorkFact } from "./work-protocol";
 
@@ -177,6 +179,9 @@ export const EXCHANGE_SIGNALS_FRAME_BUDGET = 768 * 1024;
 
 const Epoch = Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
+/** A signal's thread, its mail, and the signals it names: each one ULID, so its length is fixed. */
+const SignalLink = Schema.String.pipe(Schema.check(Schema.isPattern(ULID_PATTERN)));
+
 /**
  * A seat's signal to the operator, as its writer states it. The machine the
  * seat lives on writes the raise and a withdrawal; the machine that edits the
@@ -220,7 +225,21 @@ export const ExchangeSignal = Schema.Struct({
       }),
     ]),
   ),
-});
+  /**
+   * Where the seat raised it and what it comes after, stated by the seat's
+   * machine and judged again by the editing machine before it is stored
+   * (docs/security-doctrine.md). The editing machine states only `threadId`
+   * back, for the thread an answer started.
+   */
+  threadId: Schema.optionalKey(SignalLink),
+  messageId: Schema.optionalKey(SignalLink),
+  followsSignalId: Schema.optionalKey(SignalLink),
+  dependsOn: Schema.optionalKey(Schema.Array(SignalLink).pipe(Schema.check(Schema.isMaxLength(AGENT_SIGNAL_MAX_DEPENDS_ON)))),
+}).pipe(
+  Schema.check(
+    Schema.makeFilter((signal) => signal.messageId === undefined || signal.threadId !== undefined || "a signal names its mail only in a thread"),
+  ),
+);
 export type ExchangeSignal = typeof ExchangeSignal.Type;
 
 /** Signals of the seats of one canvas, each as the sender of this frame may state it. */
@@ -308,8 +327,10 @@ export const signalStatedTo = (
     return closing?.state === "withdrawn" ? signal : raised;
   }
   if (from === placement.editor && to === home) {
-    // The seat's machine wrote what was attached; the operator's closing is all it lacks.
-    const { attachments: _attachments, ...closed } = signal;
+    // The seat's machine wrote what was attached, its mail and what it comes
+    // after, and holds them already: the operator's closing is all it lacks,
+    // with the thread an answer started.
+    const { attachments: _attachments, messageId: _messageId, followsSignalId: _follows, dependsOn: _dependsOn, ...closed } = signal;
     return closing !== undefined && closing.state !== "withdrawn" ? closed : undefined;
   }
   return undefined;

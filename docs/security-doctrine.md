@@ -126,7 +126,8 @@ mailbox, written by the machine the seat lives on, and it crosses to the
 machine that edits the canvas like any of that seat's mail. That machine takes
 it only as a reply: it names, as the mail it answers, a row the operator wrote
 in that same mailbox, outside any task or resource thread, and its thread is
-that mail's thread. It carries text and nothing else. A row that names no such
+that mail's thread. It carries text and nothing else, save one id: the
+signal it is the mail of, when the seat raised one in that thread. A row that names no such
 mail, that starts a thread, or that carries a file closes the link. The
 operator's window names the seat from its own canvas, never from what the row
 says of its sender. A mention opens only what the canvas holds, and a

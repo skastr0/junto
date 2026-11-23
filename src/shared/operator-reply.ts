@@ -11,6 +11,7 @@
  */
 import { mailThreadOf } from "./crew";
 import { THREAD_SUBJECT_KEY, threadSubjectOf } from "./thread-subject";
+import { isUlid } from "./ulid";
 import { OPERATOR_SEAT_ID } from "./work-reference";
 import type { Message } from "./work-model";
 
@@ -54,7 +55,9 @@ export type OperatorReplyFault =
  *  c) the mail it answers is held in that mailbox, written by the operator;
  *  d) that mail is in no task or resource thread;
  *  e) its thread is that mail's thread;
- *  f) it carries text and nothing else: no other part, no attachments.
+ *  f) it carries text and nothing else: no other part, no attachments. The
+ *     one exception is `metadata.raisedSignalId`, the signal this mail is the
+ *     face of, and only as one ULID.
  */
 export const operatorReplyFault = (
   row: { readonly mailbox: string; readonly author: string; readonly message: Message },
@@ -79,5 +82,7 @@ export const operatorReplyFault = (
   }
   if (mailThreadOf(message) !== mailThreadOf(parent.message)) return "not_parent_thread";
   if (message.parts.some((part) => part.kind !== "text") || metadata.attachments !== undefined) return "not_text";
+  const raised = metadata.raisedSignalId;
+  if (raised !== undefined && (typeof raised !== "string" || !isUlid(raised))) return "not_text";
   return undefined;
 };

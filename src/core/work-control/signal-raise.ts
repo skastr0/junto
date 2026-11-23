@@ -26,8 +26,6 @@ import type { SignalBatchItem, SignalRaiseArgs, WorkErrorBody } from "@shared/wo
 import type { Message } from "@shared/work-model";
 import type { ActorRef } from "@shared/work-reference";
 import { ContentService } from "../content/service";
-import { MachineRepository } from "../machines/repository";
-import { ModelRecords } from "../model/records";
 import { claimSignalAttachments, signalAttachmentOwner } from "../signals/attachments";
 import { resolveSignalForm, signalKindTakesForm } from "../signals/form-rule";
 import { AgentSignalRepository, type AgentSignalRepositoryError, type RaiseAgentSignal } from "../signals/repository";
@@ -87,44 +85,6 @@ const raiseFailure = (error: AgentSignalRepositoryError): WorkErrorBody =>
   error._tag === "AgentSignalNotFound"
     ? { type: "ScopeError", message: NOT_RAISED_BY_THIS_SEAT, details: { retryable: false, next_step: "junto signal list shows this seat's signals; name one you raised, or none" } }
     : storeFailure(error);
-
-/** The words the seat gave for this signal, if any ask for an order or a thread. */
-const linkFlags = (asked: ReadonlyArray<Asked>): ReadonlyArray<string> => {
-  const used = new Set<string>();
-  for (const one of asked) {
-    if (one.args.thread !== undefined) used.add("--thread");
-    if (one.after.length > 0) used.add("--depends-on");
-    if (one.afterLast) used.add("--depends-on-last");
-  }
-  return [...used];
-};
-
-/**
- * Until Remote carries a signal's thread and order to the machine that edits
- * the canvas, a seat on another machine raises plain signals only: a mail row
- * that names its signal would be refused there by the reply rule, and a
- * refused row closes that machine's link. Remote removes this in the commit
- * that makes them cross. Unknown is this machine, as the onboard reads it.
- */
-export const signalLinksOnlyOnTheEditor = (canvasName: string, flags: ReadonlyArray<string>, batch: boolean) =>
-  Effect.gen(function* () {
-    if (flags.length === 0 && !batch) return;
-    const records = yield* Effect.serviceOption(ModelRecords);
-    const machines = yield* Effect.serviceOption(MachineRepository);
-    if (Option.isNone(records) || Option.isNone(machines)) return;
-    const editor = yield* records.value.canvasEditor(canvasName).pipe(Effect.orElseSucceed(() => undefined));
-    if (editor === undefined) return;
-    const here = yield* machines.value.installationId.pipe(Effect.orElseSucceed(() => undefined));
-    if (here === undefined || here === editor) return;
-    const named = batch ? "junto signal batch" : flags.join(", ");
-    return yield* refused("ScopeError", `${named} is not available yet for a seat whose canvas another machine edits`, {
-      retryable: false,
-      reason: "other_machine",
-      next_step: batch
-        ? "raise each signal on its own with junto feedback, escalate or blocked, without --thread or --depends-on"
-        : "raise the signal without --thread, --depends-on and --depends-on-last",
-    });
-  });
 
 /** The words, the detail, the form and the replies of one signal, judged. */
 const judgeWords = (board: Canvas, caller: WorkCaller, asked: Asked) =>
@@ -275,7 +235,6 @@ export const raiseSignals = (asked: ReadonlyArray<Asked>, batch: boolean) =>
     if (Option.isNone(signalsOption)) return yield* Effect.fail(unavailable("agent signals"));
     const signals = signalsOption.value;
     const seat: Seat = { canvasName: caller.canvasName, nodeId: caller.nodeId };
-    yield* signalLinksOnlyOnTheEditor(seat.canvasName, linkFlags(asked), batch);
 
     // Judged first, all of them: a bad item writes none.
     const sentBy = actor;

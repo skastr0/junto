@@ -336,7 +336,7 @@ describe("junto signal batch", () => {
 });
 
 describe("a seat whose canvas another machine edits", () => {
-  it("raises plain signals, and is refused, writing nothing, a thread, an order or a batch", async () => {
+  it("raises in a thread, after its own signals and as a batch, as on the machine that edits it: that machine checks them again", async () => {
     const threadId = await operatorWrites(ME, "A question.");
     await run(
       Effect.flatMap(Effect.service(SqlClient.SqlClient), (sql) => sql`UPDATE canvases SET editor_installation_id = ${"another-installation"} WHERE canvas_name = ${CANVAS}`),
@@ -349,9 +349,8 @@ describe("a seat whose canvas another machine edits", () => {
       ["signal.raise", { kind: "escalate", text: "After the last.", dependsOnLast: true }],
       ["signal.batch", { signals: [{ kind: "escalate", text: "One." }] }],
     ] as const) {
-      const error = await refusedWritingNothing(op, args);
-      expect(error).toMatchObject({ type: "ScopeError", details: { reason: "other_machine" } });
-      expect(error.details?.next_step).toBeDefined();
+      const raised = await call(op, args);
+      expect(raised.ok, JSON.stringify(raised)).toBe(true);
     }
   });
 });

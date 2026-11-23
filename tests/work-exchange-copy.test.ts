@@ -39,6 +39,11 @@ import { makeMessageDeliveryStore } from "../src/core/work/message-delivery-stor
 import { unjournaledWorkMutationEffect } from "../src/core/work/mutation-seam";
 import { WorkRepository, WorkRepositoryLive } from "../src/core/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
+import { ulid } from "ulid";
+import { SIGNAL_ORDER_REFUSAL, SIGNAL_THREAD_REFUSAL } from "../src/shared/signal-thread";
+import { threadSubjectMetadata } from "../src/shared/thread-subject";
+import { signalStatedTo } from "../src/shared/work-exchange";
+import { operatorActorRef } from "../src/shared/work-reference";
 import type { CanvasCopy } from "../src/shared/canvas-copy";
 import { Command, asCanvasName, type Node } from "../src/shared/model";
 import { seat, wire } from "./support/model-nodes";
@@ -680,6 +685,163 @@ describe("a seat's signal to the operator", () => {
       closing: { state: "answered", closedAt: 2, response: { text: "With a file.", at: 2, attachments: [] } },
     } as never;
     expect((await Effect.runPromise(crossingSignals([drifted, good]))).map((signal) => signal.signalId)).toEqual(["good"]);
+  });
+
+  /** The operator writes into the peer's mailbox on the editing machine, as the window does. */
+  const operatorWrites = async (on: Machine, messageId: string, metadata: Record<string, unknown> = {}) => {
+    const held = (await header(on))!;
+    await on.runtime.runPromise(
+      Effect.flatMap(WorkRepository, (repository) =>
+        repository.appendMessage({
+          sink: { canvasName: "factory", nodeId: "peer" },
+          basis: { kind: "canvas", canvasName: "factory", seq: held.seq },
+          message: {
+            messageId,
+            role: "user",
+            parts: [{ kind: "text", text: "what is left?" }],
+            contextId: "factory",
+            metadata: { factoryMail: true, senderName: "operator", ...metadata },
+          },
+          sentBy: operatorActorRef("factory"),
+          destination: { kind: "mailbox" },
+          originAt: at,
+          receivedAt: at,
+        }),
+      ),
+    );
+    await on.runtime.runPromise(on.exchange.committed("factory"));
+    await quiet();
+  };
+
+  it("raised in a thread on the seat's machine, crosses with its thread and order before any thread is read, and its answer keeps them", async () => {
+    const failed: InstallationId[] = [];
+    const macbook = await boot("macbook", MACBOOK, [["mini", MINI]], (peer) => failed.push(peer));
+    const mini = await boot("mini", MINI, [["macbook", MACBOOK]], (peer) => failed.push(peer));
+    await factoryOn(macbook);
+    const stop = await following([macbook, mini]);
+    try {
+      await link(macbook, mini);
+      await settle();
+      const thread = ulid();
+      await operatorWrites(macbook, thread);
+      await settle();
+      const raise = (text: string, order: { followsSignalId?: string; dependsOn?: ReadonlyArray<string> } = {}) =>
+        signals(mini, (store) => store.raise({ canvasName: "factory", nodeId: "peer", kind: "blocked", text, threadId: thread, messageId: ulid(), ...order }));
+      const first = await raise("First.");
+      const second = await raise("Second.", { followsSignalId: first.signalId, dependsOn: [first.signalId] });
+      await pushed();
+      await settle();
+      expect(failed).toEqual([]);
+      const stated = { threadId: thread, messageId: second.messageId, followsSignalId: first.signalId, dependsOn: [first.signalId] };
+      expect(await signals(macbook, (store) => store.get(second.signalId))).toMatchObject(stated);
+
+      await macbook.runtime.runPromise(Effect.flatMap(AgentSignalRepository, (store) => store.answer(second.signalId, "Go.")));
+      await pushed();
+      await settle();
+      expect(failed).toEqual([]);
+      expect(await signals(mini, (store) => store.get(second.signalId))).toMatchObject({ state: "answered", ...stated });
+    } finally {
+      stop();
+    }
+  });
+
+  it("is stated back by the editing machine with only the thread, which an answer may have started", () => {
+    const placement = { editor: MACBOOK, seatOf: () => ({ machine: MINI }) } as never;
+    const answered = {
+      signalId: ulid(),
+      nodeId: "peer",
+      kind: "blocked",
+      text: "Asked.",
+      createdAt: 1,
+      threadId: ulid(),
+      messageId: ulid(),
+      followsSignalId: ulid(),
+      dependsOn: [ulid()],
+      closing: { state: "answered", closedAt: 2, response: { text: "Go.", at: 2 } },
+    } as const;
+    expect(Object.keys(signalStatedTo(MACBOOK, MINI, answered, placement)!).sort()).toEqual(
+      ["closing", "createdAt", "kind", "nodeId", "signalId", "text", "threadId"],
+    );
+    expect(Object.keys(signalStatedTo(MINI, MACBOOK, answered, placement)!)).toContain("dependsOn");
+  });
+
+  describe("forged by the seat's machine, closes the link before anything is stored", () => {
+    /** A pair with the operator's thread and another seat's and an automation's signal held on the editing machine. */
+    const forging = async () => {
+      const { macbook, mini } = await pair();
+      await link(macbook, mini);
+      await settle();
+      const thread = ulid();
+      const task = ulid();
+      const seats = ulid();
+      await operatorWrites(macbook, thread);
+      await operatorWrites(macbook, task, threadSubjectMetadata({ kind: "task", nodeId: "board", taskId: "01M5ESR42S7P9YNR8FEH0TD2QC" } as never));
+      await mail(macbook, { id: "lead", bindingId: "binding-lead" }, "peer", seats);
+      const lead = await signals(macbook, (store) => store.raise({ canvasName: "factory", nodeId: "lead", kind: "blocked", text: "Lead's own." }));
+      const automation = ulid();
+      await signals(macbook, (store) =>
+        store.take({
+          signalId: automation,
+          canvasName: "factory",
+          nodeId: "peer",
+          kind: "notice",
+          text: "An automation's.",
+          createdAt: 1,
+          source: { kind: "automation", automationId: ulid(), nodeId: "peer" },
+          raises: true,
+        }),
+      );
+      // Held as an automation's, or the case below proves nothing.
+      expect((await signals(macbook, (store) => store.get(automation))).source?.kind).toBe("automation");
+      const sent = (await header(macbook))!;
+      const frame = (signal: Record<string, unknown>) => ({ kind: "signals", canvasName: "factory", canvasId: sent.canvas_id, signals: [signal] });
+      const take = (signal: Record<string, unknown>) =>
+        macbook.runtime.runPromise(macbook.channel.handleEvent(contextOf(macbook, mini), macbook.channel.decodeEvent(frame(signal))));
+      const forgedHeld = async () => (await feed(macbook)).filter((line) => line.includes("Forged."));
+      return { macbook, thread, task, seats, lead: lead.signalId, automation, frame, take, forgedHeld };
+    };
+    const raise = (extra: Record<string, unknown>) => ({ signalId: ulid(), nodeId: "peer", kind: "blocked", text: "Forged.", createdAt: 1, ...extra });
+
+    const taken: ReadonlyArray<readonly [string, (held: Awaited<ReturnType<typeof forging>>) => Record<string, unknown>, string]> = [
+      ["a thread the operator never wrote in", () => ({ threadId: ulid(), messageId: ulid() }), SIGNAL_THREAD_REFUSAL],
+      ["a thread in which only seats wrote", (held) => ({ threadId: held.seats }), SIGNAL_THREAD_REFUSAL],
+      ["a task's thread the operator wrote in", (held) => ({ threadId: held.task }), SIGNAL_THREAD_REFUSAL],
+      ["following another seat's signal", (held) => ({ threadId: held.thread, followsSignalId: held.lead }), SIGNAL_ORDER_REFUSAL],
+      ["coming after another seat's signal", (held) => ({ dependsOn: [ulid(), held.lead] }), SIGNAL_ORDER_REFUSAL],
+      ["coming after an automation's signal", (held) => ({ dependsOn: [held.automation] }), SIGNAL_ORDER_REFUSAL],
+    ];
+    it.each(taken)("in its fields: %s", async (_case, fields, refusal) => {
+      const held = await forging();
+      await expect(held.take(raise(fields(held)))).rejects.toThrow(refusal);
+      expect(await held.forgedHeld()).toEqual([]);
+    });
+
+    const undecodable: ReadonlyArray<readonly [string, (held: Awaited<ReturnType<typeof forging>>) => Record<string, unknown>]> = [
+      ["a thread that is not an id", () => ({ threadId: "not-a-thread" })],
+      ["its mail with no thread", () => ({ messageId: ulid() })],
+      ["a signal it follows that is not an id", () => ({ followsSignalId: "x".repeat(64) })],
+      ["nine signals it comes after", () => ({ dependsOn: Array.from({ length: 9 }, () => ulid()) })],
+    ];
+    it.each(undecodable)("at the decode: %s", async (_case, fields) => {
+      const held = await forging();
+      expect(() => held.macbook.channel.decodeEvent(held.frame(raise(fields(held))))).toThrow();
+      expect(await held.forgedHeld()).toEqual([]);
+    });
+
+    it("keeps a signal it comes after that is not held as a pointer, passes over itself, and never closes the link when that pointer later arrives as another seat's", async () => {
+      const held = await forging();
+      const pointer = ulid();
+      const signalId = ulid();
+      const signal = raise({ signalId, threadId: held.thread, messageId: ulid(), followsSignalId: pointer, dependsOn: [pointer, signalId] });
+      await held.take(signal);
+      expect(await signals(held.macbook, (store) => store.get(signalId))).toMatchObject({ threadId: held.thread, followsSignalId: pointer });
+      // The pointer arrives as another seat's; the raise, stated again on the next open, is held already.
+      await signals(held.macbook, (store) =>
+        store.take({ signalId: pointer, canvasName: "factory", nodeId: "lead", kind: "blocked", text: "Lead's.", createdAt: 2, raises: true }),
+      );
+      await held.take(signal);
+      expect(await held.forgedHeld()).toHaveLength(1);
+    });
   });
 
   it("closes the link when stated by a machine that may not: a raise for another machine's seat, an answer from the seat's machine", async () => {

@@ -24,6 +24,7 @@ import type { InstallationId } from "@shared/installation-id";
 import { asCanvasName, type HostId, type Seat } from "@shared/model";
 import { APP_REFERENCE_PLACE, type ReferencePlace, type StoredReference } from "@shared/references";
 import type { AgentSignal } from "@shared/agent-signals";
+import { SIGNAL_ORDER_REFUSAL, SIGNAL_THREAD_REFUSAL, signalThreadFault, type SignalThreadRow } from "@shared/signal-thread";
 import { EXCHANGE_MAX_SIGNAL_ATTACHMENTS, ExchangeSignal, signalAttachmentCrosses, type CanvasPlacement } from "@shared/work-exchange";
 import type { Message } from "@shared/work-model";
 import { deriveActorSeatId } from "../../actor-seat-id";
@@ -76,6 +77,10 @@ const stated = (signal: AgentSignal): ExchangeSignal => ({
     ? {}
     : { attachments: signal.attachments.filter(signalAttachmentCrosses).slice(0, EXCHANGE_MAX_SIGNAL_ATTACHMENTS) }),
   createdAt: signal.createdAt,
+  ...(signal.threadId === undefined ? {} : { threadId: signal.threadId }),
+  ...(signal.threadId === undefined || signal.messageId === undefined ? {} : { messageId: signal.messageId }),
+  ...(signal.followsSignalId === undefined ? {} : { followsSignalId: signal.followsSignalId }),
+  ...(signal.dependsOn === undefined || signal.dependsOn.length === 0 ? {} : { dependsOn: signal.dependsOn }),
   ...(signal.state === "open" || signal.closedAt === undefined
     ? {}
     : signal.state === "answered"
@@ -157,6 +162,64 @@ export const makeLiveRowExchange = (
     const automationStore = yield* Effect.serviceOption(AutomationRepository);
 
     const installations = machineInstallations.pipe(Effect.provideService(MachineRepository, machines));
+
+    /** A signal held here, or none: a store that fails fails the take, never reads as a miss. */
+    const heldSignal = (signalId: string) =>
+      signals.get(signalId).pipe(
+        Effect.map(Option.some),
+        Effect.catchTag("AgentSignalNotFound", () => Effect.succeed(Option.none<AgentSignal>())),
+      );
+
+    /**
+     * The rows of one thread in a seat's own mailbox, read from the store, so
+     * a miss is never an index that has not loaded yet. The inbox index
+     * (canvas, node) serves it.
+     */
+    const threadRows = (canvasName: string, nodeId: string, threadId: string) =>
+      sql<{ message_id: string; actor_seat_id: string; metadata_json: string | null }>`
+        SELECT message_id, actor_seat_id, metadata_json FROM work_messages
+        WHERE canvas_name = ${canvasName} AND node_id = ${nodeId}
+          AND (message_id = ${threadId} OR json_extract(metadata_json, '$.threadId') = ${threadId})
+      `.pipe(
+        Effect.map((rows): ReadonlyArray<SignalThreadRow> =>
+          rows.map((row) => ({
+            messageId: row.message_id,
+            actorSeatId: row.actor_seat_id,
+            metadata: row.metadata_json === null ? undefined : (JSON.parse(row.metadata_json) as Record<string, unknown>),
+          })),
+        ),
+      );
+
+    /**
+     * Why the editing machine will not keep a raise the seat's machine stated,
+     * or undefined. Judged once, when the signal first arrives: one already
+     * held is stated again on every open, and a pointer that has since arrived
+     * as another seat's never closes the link late. Then the thread is one the
+     * operator wrote in, to that seat, outside any task or resource thread;
+     * and every signal it follows or comes after that is held here is that
+     * seat's own on this canvas, raised by no automation. One not held is
+     * kept as a pointer, and one naming itself holds nothing back: the order
+     * is read later, by signalOrderOf.
+     */
+    const raiseRefusal = (canvasName: string, signal: Omit<ExchangeSignal, "attachments">) =>
+      Effect.gen(function* () {
+        if (Option.isSome(yield* heldSignal(signal.signalId))) return undefined;
+        if (signal.threadId !== undefined) {
+          const rows = yield* threadRows(canvasName, signal.nodeId, signal.threadId);
+          if (signalThreadFault(signal.threadId, rows) !== undefined) return SIGNAL_THREAD_REFUSAL;
+        }
+        for (const named of new Set([...(signal.followsSignalId === undefined ? [] : [signal.followsSignalId]), ...(signal.dependsOn ?? [])])) {
+          if (named === signal.signalId) continue;
+          const other = yield* heldSignal(named);
+          if (
+            Option.isSome(other) &&
+            (other.value.canvasName !== canvasName || other.value.nodeId !== signal.nodeId || other.value.source !== undefined)
+          ) {
+            return SIGNAL_ORDER_REFUSAL;
+          }
+        }
+        return undefined;
+      });
 
     const placement = (canvasName: string): Effect.Effect<CanvasPlacement | undefined, unknown> =>
       Effect.gen(function* () {
@@ -502,7 +565,9 @@ export const makeLiveRowExchange = (
           Effect.flatMap((held) => crossingSignals(held.map(stated))),
         ),
       takeSignal: (canvasName, { attachments, ...signal }, raises) =>
-        signals.take({
+        (raises ? raiseRefusal(canvasName, signal) : Effect.succeed(undefined)).pipe(
+          Effect.flatMap((refusal) => (refusal === undefined ? Effect.void : Effect.fail(new Error(refusal)))),
+        ).pipe(Effect.andThen(signals.take({
           ...signal,
           canvasName,
           raises,
@@ -514,7 +579,7 @@ export const makeLiveRowExchange = (
             if (taken === undefined) return;
             options.signalTaken?.(taken);
           }),
-        ),
+        ))),
     });
   });
 

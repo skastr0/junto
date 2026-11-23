@@ -17,6 +17,12 @@ import { OPERATOR_SEAT_ID } from "./work-reference";
 export const SIGNAL_THREAD_REFUSAL = "a signal names a thread in which the operator wrote nothing to that seat";
 
 /**
+ * The refusal when a signal from a peer names, as one it follows or comes
+ * after, a signal held as another seat's, another canvas's or an automation's.
+ */
+export const SIGNAL_ORDER_REFUSAL = "a signal comes after a signal that is not its seat's own";
+
+/**
  * One row of the seat's own mailbox. `actorSeatId` is the row's stored author
  * (the `actor_seat_id` column, which the repository also stamps as
  * `metadata.fromSeat` on every mailbox row), never what its sender wrote.

@@ -307,6 +307,8 @@ describe("a row that is no answer to the operator's mail: the mini refuses to wr
       "carries a part that is not text",
       () => [peer(), "peer", answer(ASKED.peer, {}, { parts: [{ kind: "text", text: "see" }, { kind: "url", url: "https://example.com/a" }] })],
     ],
+    ["names the signal it is the mail of by an id that is not one", () => [peer(), "peer", answer(ASKED.peer, { raisedSignalId: "not-a-signal" })]],
+    ["names the signal it is the mail of by more than one id", () => [peer(), "peer", answer(ASKED.peer, { raisedSignalId: [ASKED.peer] })]],
     ["names the operator from another seat's mailbox", () => [actor("peer-two"), "peer", answer(ASKED.peer)]],
     ["is user mail that names the operator", () => [peer(), "peer", answer(ASKED.peer, {}, { role: "user" })]],
   ];
@@ -329,6 +331,12 @@ describe("a row that is no answer to the operator's mail: the mini refuses to wr
       actorSeatId: OPERATOR_SEAT_ID,
       message: (await mailbox(mini, "peer")).find((message) => message.messageId === ASKED.peer)!,
     })).toBeUndefined();
+    expect(await editorTakes(actor("peer"), "peer", reply)).toEqual({ taken: true });
+  });
+
+  it("takes an answer that is the mail of a signal, named by one id", async () => {
+    const reply = answer(ASKED.peer, { raisedSignalId: ulid() });
+    expect((await write(mini, actor("peer"), "peer", reply))._tag).toBe("Success");
     expect(await editorTakes(actor("peer"), "peer", reply)).toEqual({ taken: true });
   });
 });
