@@ -480,8 +480,10 @@ const fromRow = (row: typeof SignalRow.Type): AgentSignal => {
 const notFound = (signalId: string, message: string) =>
   AgentSignalNotFound.make({ signalId, message });
 
-const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | AgentSignalNotFound) =>
-  error instanceof AgentSignalNotFound
+const persistence = (operation: string) => (
+  error: SqlError.SqlError | Schema.SchemaError | AgentSignalNotFound | AgentSignalPersistenceError,
+) =>
+  error instanceof AgentSignalNotFound || error instanceof AgentSignalPersistenceError
     ? error
     : AgentSignalPersistenceError.make({
         operation,
@@ -737,6 +739,15 @@ export const AgentSignalRepositoryLive: Layer.Layer<
 
     const takeRow = Effect.fn("agent-signals.take")(function* (input: TakenAgentSignal) {
       let changed = false;
+      // The caller checks what crosses; a raise past the bound is its mistake, said aloud, never trimmed.
+      const dependsOn = dependsOnOf(input.signalId, input.dependsOn);
+      if (dependsOn.length > AGENT_SIGNAL_MAX_DEPENDS_ON) {
+        return yield* AgentSignalPersistenceError.make({
+          operation: "take",
+          message: `signal ${input.signalId} comes after ${dependsOn.length} signals, more than ${AGENT_SIGNAL_MAX_DEPENDS_ON}`,
+          cause: undefined,
+        });
+      }
       const held = yield* readOne(input.signalId);
       if (held === undefined) {
         if (!input.raises) return yield* notFound(input.signalId, `no signal ${input.signalId} to close`);
@@ -747,8 +758,7 @@ export const AgentSignalRepositoryLive: Layer.Layer<
             ${jsonOf(input.source)}, ${jsonOf(input.work)}, ${jsonOf(input.form)}, ${input.createdAt}, 'open',
             ${input.threadId ?? null}, ${input.messageId ?? null}, ${input.followsSignalId ?? null})
         `;
-        // Another machine's raise keeps no more than the bound; a local raise past it is refused by the store.
-        yield* insertDepends(input.signalId, dependsOnOf(input.signalId, input.dependsOn).slice(0, AGENT_SIGNAL_MAX_DEPENDS_ON));
+        yield* insertDepends(input.signalId, dependsOn);
         // What it attached lands as parts by reference, then the suggestions behind them, as a raise stores them.
         for (const [position, attachment] of (input.attachments ?? []).entries()) {
           const part = partOf(attachment);

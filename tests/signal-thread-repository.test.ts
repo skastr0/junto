@@ -199,6 +199,33 @@ describe("a signal that comes after others", () => {
     expect(nine._tag).toBe("AgentSignalPersistenceError");
   });
 
+  it(`refuses to take another machine's signal past ${AGENT_SIGNAL_MAX_DEPENDS_ON}, and drops a self-reference`, async () => {
+    const { refused, held, selfNamed } = await run(
+      Effect.gen(function* () {
+        const r = yield* repo;
+        const named = Array.from({ length: AGENT_SIGNAL_MAX_DEPENDS_ON + 1 }, () => ulid());
+        const id = ulid();
+        const refused = yield* r.take({ ...seatA, signalId: id, kind: "feedback", text: "nine", createdAt: 1, raises: true, dependsOn: named }).pipe(Effect.flip);
+        const held = yield* r.listSeat(seatA);
+        const self = ulid();
+        const selfNamed = yield* r.take({
+          ...seatA,
+          signalId: self,
+          kind: "feedback",
+          text: "eight and itself",
+          createdAt: 2,
+          raises: true,
+          dependsOn: [self, ...named.slice(0, AGENT_SIGNAL_MAX_DEPENDS_ON)],
+        });
+        return { refused, held, selfNamed };
+      }),
+    );
+    expect(refused._tag).toBe("AgentSignalPersistenceError");
+    expect(held).toEqual([]);
+    expect(selfNamed?.dependsOn).toHaveLength(AGENT_SIGNAL_MAX_DEPENDS_ON);
+    expect(selfNamed?.dependsOn).not.toContain(selfNamed?.signalId);
+  });
+
   it("reads a seat's newest signal, for a batch raised in order", async () => {
     const { none, newest, last } = await run(
       Effect.gen(function* () {
