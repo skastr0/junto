@@ -299,7 +299,11 @@ ${PLACE_QUAD}@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_ind
       let tiles = select(vec2f(1.0), cell.page.yz, cell.page.y > 0.5);
       let texels = abs(cell.uv.zw - cell.uv.xy) * tiles * dims;
       let covered = max(size * u.camera.z * u.view.z, vec2f(1.0));
-      lod = max(0.0, log2(max(texels.x / covered.x, texels.y / covered.y)));
+      // The clamp is inside the logarithm. An empty row's cell is the zero
+      // rect, so its ratio is 0, and WGSL lets an implementation give any
+      // value where a result would be an infinity. A level that is not 0
+      // reads the mips of texel 0,0, which the first cell's mips write.
+      lod = log2(max(max(texels.x / covered.x, texels.y / covered.y), 1.0));
     }
   }
   out.geo = vec4f(size * 0.5, lod, ringPhase);

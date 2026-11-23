@@ -50,6 +50,19 @@ describe("the quad shader's names", () => {
     for (const fetch of ["quads[", "owners[", "styles[", "cells[", "phaseOfQuad("]) expect(fragment).not.toContain(fetch);
   });
 
+  it("never takes the logarithm of zero for a sprite's mip level", () => {
+    // An empty row's cell is the zero rect, so its texels over its covered
+    // pixels is 0 and log2 of it is minus infinity. WGSL lets an implementation
+    // that assumes no infinities give any value there, max() included, and a
+    // level other than 0 reads the mips of texel 0,0: not the clear texel, but
+    // what the first cell's mips wrote over it. log2(max(ratio, 1)) is the
+    // same number for every ratio above zero, with no logarithm of zero.
+    expect(QUAD_SHADER).toContain("lod = log2(max(max(texels.x / covered.x, texels.y / covered.y), 1.0));");
+    expect(QUAD_SHADER).not.toContain("max(0.0, log2(");
+    // One logarithm in the shader. A second one comes here to say what bounds it.
+    expect(QUAD_SHADER.match(/\blog2?\(/gu)).toHaveLength(1);
+  });
+
   it("binds every table the pipeline layout gives it", () => {
     for (const binding of ["order", "quads", "owners", "styles", "shadowMeta", "shadowLayers"]) {
       expect(QUAD_SHADER).toContain(`var<storage, read> ${binding}`);
