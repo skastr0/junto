@@ -12,7 +12,8 @@
 # On a shared VM set VM_SEAT=<your seat name> on every sync and run: you then
 # work in a clone of your own (~/$VM_DIR-<seat>), made on your first sync, so
 # no seat's sync moves the tree another seat's run is reading. Never stop a
-# shared VM: it stops itself 3 hours after the last `pool` that named it.
+# shared VM: it stops itself 1 hour after the last `pool` that named it, so
+# run `pool` before each check, not once a session.
 #
 # A VM lives for a working session, not for one check: every start costs, so
 # reuse it for every check while you work, and stop it when you are done.
@@ -97,11 +98,11 @@ case "${1:-}" in
     # stops itself. A stopped one is not resumed: it is left to expire.
     id=$("$BOAT" list --filter rp --json | jq -r --arg name "$name" '[.sandboxes[] | select(.name == $name)] | sort_by(.createdAt) | first | .id // empty')
     if [ -n "$id" ]; then
-      "$BOAT" extend "$id" --hours 3 --json >/dev/null
+      "$BOAT" extend "$id" --hours 1 --json >/dev/null
     else
       may_start
       # Shared by a whole region, so the 8-core size unless VM_TYPE says otherwise.
-      id=$("$BOAT" new --from "$VM_BASE" --ttl 10800 --name "$name" --type "${VM_TYPE:-large}" --json | jq -r 'select(.event == "ready") | .id' | tail -1)
+      id=$("$BOAT" new --from "$VM_BASE" --ttl 3600 --name "$name" --type "${VM_TYPE:-large}" --json | jq -r 'select(.event == "ready") | .id' | tail -1)
       [ -n "$id" ] || { echo "vm.sh: boat new did not report a ready VM" >&2; exit 1; }
     fi
     echo "$id"
