@@ -442,8 +442,58 @@ export const AgentSignal = Schema.Struct({
   response: Schema.optionalKey(AgentSignalResponse),
   /** Epoch ms of the last state change (answer, dismiss, withdraw). */
   closedAt: Schema.optionalKey(Schema.Number),
+  /**
+   * The thread between the seat and the operator this signal was raised in.
+   * Absent on a signal raised outside a thread, which is every signal before
+   * signals could be raised in one.
+   */
+  threadId: Schema.optionalKey(Schema.String),
+  /**
+   * The seat's mail in `threadId` that is this signal: one act, two faces.
+   * That mail carries `metadata.raisedSignalId`; `metadata.agentSignalId`
+   * stays the operator's answer. Present only with `threadId`.
+   */
+  messageId: Schema.optionalKey(Schema.String),
+  /**
+   * The nearest earlier signal in the same thread, counting the signal whose
+   * answer started it. Provenance, not order: see `dependsOn`.
+   */
+  followsSignalId: Schema.optionalKey(Schema.String),
+  /**
+   * The signals this one comes after, the task's word for it: the order to
+   * act. Given when the signal is raised, so it names only earlier signals
+   * and a loop cannot be made. Absent or empty: it comes after nothing.
+   * Ready or waiting is read, never stored: `signalReadiness`.
+   */
+  dependsOn: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 export type AgentSignal = typeof AgentSignal.Type;
+
+/** Whether a signal can be acted on now, read from the signals it comes after. */
+export interface SignalReadiness {
+  /** Every signal it comes after is closed, however it closed. */
+  readonly ready: boolean;
+  /** The signals it comes after that are still open, in `dependsOn` order. */
+  readonly waitingOn: ReadonlyArray<string>;
+}
+
+/**
+ * Ready or waiting, never stored. A signal is ready when every signal it
+ * comes after is closed (answered, dismissed or withdrawn); until then it
+ * waits on the ones still open. A signal that names none is ready, so every
+ * signal written before this reads ready. An id the lookup does not know
+ * holds nothing back: the order advises, it never locks the operator out.
+ */
+export const signalReadiness = (
+  signal: Pick<AgentSignal, "dependsOn">,
+  stateOf: (signalId: string) => AgentSignalState | undefined,
+): SignalReadiness => {
+  const waitingOn: Array<string> = [];
+  for (const id of signal.dependsOn ?? []) {
+    if (stateOf(id) === "open" && !waitingOn.includes(id)) waitingOn.push(id);
+  }
+  return { ready: waitingOn.length === 0, waitingOn };
+};
 
 /** Live renderer event: the signal as it now stands (upsert by signalId). */
 export const AgentSignalEvent = Schema.Struct({
