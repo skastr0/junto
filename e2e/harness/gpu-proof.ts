@@ -270,6 +270,8 @@ export interface AtlasStats {
   readonly landed: number;
   readonly evictions: number;
   readonly failures: number;
+  /** Slots failed now and waiting for their retry (canvas-services P1): a settled atlas holds none. */
+  readonly failedCells: number;
   readonly pages: number;
   readonly pageSize: number;
   readonly bytesInUse: number;
@@ -452,22 +454,24 @@ const pendingKeys = async (page: Page): Promise<{ hist: Record<string, number>; 
 export const settleAtlas = async (page: Page, timeoutMs = 180_000, stallMs = 20_000): Promise<ProofState> => {
   const deadline = Date.now() + timeoutMs;
   let pending = -1;
-  let progress = { at: Date.now(), pending: -1, landed: -1, requests: -1 };
+  let progress = { at: Date.now(), pending: -1, landed: -1, requests: -1, failed: -1 };
   for (;;) {
     const state = await readProofState(page);
     const now = state.atlas?.pending ?? state.pending ?? 0;
     const landed = state.atlas?.landed ?? null;
     const requests = state.atlas?.requests ?? state.requests ?? null;
-    if (landed !== progress.landed || requests !== progress.requests || now !== progress.pending) {
-      progress = { at: Date.now(), pending: now, landed: landed ?? -1, requests: requests ?? -1 };
+    // A failed slot retries within 8 s (the longest back-off): settled is pending 0 and failedCells 0 together.
+    const failed = state.atlas?.failedCells ?? 0;
+    if (landed !== progress.landed || requests !== progress.requests || now !== progress.pending || failed !== progress.failed) {
+      progress = { at: Date.now(), pending: now, landed: landed ?? -1, requests: requests ?? -1, failed };
     }
-    if (now === 0) {
+    if (now === 0 && failed === 0) {
       await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
       return readProofState(page);
     }
     if (Date.now() - progress.at >= stallMs) {
       throw new Error(
-        `atlas stalled for ${String(Math.round(stallMs / 1000))}s: pending ${String(now)}, landed ${String(landed)}, requests ${String(requests)}, failures ${String(state.atlas?.failures ?? "?")}, blank ${String(state.atlas?.visibleBlank ?? "?")}`,
+        `atlas stalled for ${String(Math.round(stallMs / 1000))}s: pending ${String(now)}, failedCells ${String(failed)}, landed ${String(landed)}, requests ${String(requests)}, failures ${String(state.atlas?.failures ?? "?")}, blank ${String(state.atlas?.visibleBlank ?? "?")}`,
       );
     }
     if (Date.now() >= deadline) {
