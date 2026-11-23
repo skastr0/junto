@@ -7,13 +7,11 @@
  * the numbers come from the shipped `window.__juntoCanvas` test hook and the
  * screenshots and traces from Electron itself.
  *
- * The factory shape is read from a COPY of a Junto database
- * (`loadFactoryShapeCanvas`, which refuses the live one). A copy is made with
- *
- *   sqlite3 "file:$HOME/.junto/state/junto.db?mode=ro" ".backup '/tmp/junto-factory.db'"
- *
- * and named by `JUNTO_FACTORY_DB`. The fixture is scratch data: its labels
- * are the operator's board and never enter the repo.
+ * The factory shape is the board JSON named by `JUNTO_FACTORY_JSON`
+ * (`loadFactoryFixture`), made as the gpu-proof.spec.ts header says: the
+ * board alone (factory-board.sql), then the JSON (factory-json.ts), with
+ * every id, name and text made up. No whole copy of a Junto database is made
+ * or kept, and the fixture never enters the repo.
  */
 
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
@@ -163,10 +161,8 @@ export const loadFactoryBoard = (dbPath: string): { readonly fixture: NestedCanv
 };
 
 /**
- * The same shape from a saved fixture (the `nestedCanvas` JSON a probe writes):
- * `{ model, stats, signalRows }`. Used on a machine without a copy of the
- * operator's database, so the scale arms can run there; the proof on the
- * operator's Mac reads the database copy itself.
+ * The same shape from the board JSON factory-json.ts writes:
+ * `{ model, stats, signalRows }`. It is the only fixture the Mac mini holds.
  */
 export const loadFactoryFixture = (jsonPath: string): NestedCanvasFixture => {
   const parsed = JSON.parse(readFileSync(jsonPath, "utf8")) as {

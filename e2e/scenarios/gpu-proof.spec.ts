@@ -5,8 +5,10 @@
  * Scope: the Proof section of artifact 01M81DHBBYRVN3MKJMR3MMCZ31 v5 and
  * operator rulings 1 to 7. Nothing here fakes a device, a hook or a pixel:
  * every number is read from the shipped `window.__juntoCanvas` hook and every
- * image is an Electron screenshot or a CDP screencast frame. The fixture is a
- * copy of a Junto database named by JUNTO_FACTORY_DB (never the live one).
+ * image is an Electron screenshot or a CDP screencast frame. The fixture is
+ * the factory board's shape as JSON, named by JUNTO_FACTORY_JSON: its rects,
+ * z order, region colours, card kinds and wires, every id, name and text in it
+ * made up.
  *
  * What is measured
  *   - boot and a zoom sweep through every tier on 1x, 10x and 100x boards:
@@ -24,10 +26,24 @@
  *   - ruling 6: visibleBlank stays 0 across pans, zooms, flings, camera jumps,
  *     text churn and theme switches, with a screencast recorded frame by frame.
  *
- * Run (the fixture must be a copy, the live database is refused):
- *   sqlite3 "file:$HOME/.junto/state/junto.db?mode=ro" ".backup '/tmp/junto-factory.db'"
- *   JUNTO_GPU_PROOF=1 JUNTO_FACTORY_DB=/tmp/junto-factory.db \
- *     bun run test:e2e:fast e2e/scenarios/gpu-proof.spec.ts
+ * The fixture. No whole copy of junto.db is made, and none is kept anywhere:
+ *   1. On the operator's Mac, the board alone, read from the live database
+ *      read-only into a new file (factory-board.sql says what it keeps):
+ *        sqlite3 /tmp/junto-board.db \
+ *          "ATTACH 'file:$HOME/.junto/state/junto.db?mode=ro' AS src" \
+ *          ".read e2e/harness/factory-board.sql"
+ *   2. The JSON, made on the Mac mini in your checkout there, the board-only
+ *      file removed from both machines as soon as the JSON exists:
+ *        scp /tmp/junto-board.db mac-mini:<checkout>/factory-board.db && rm /tmp/junto-board.db
+ *        scripts/mini.sh run <checkout> \
+ *          'bun e2e/harness/factory-json.ts $PWD/factory-board.db $PWD/factory-board.json; rm -f $PWD/factory-board.db'
+ *   The mini keeps only the JSON. Board data never goes to the cloud VM.
+ *
+ * Run, on the mini:
+ *   scripts/mini.sh run <checkout> \
+ *     'JUNTO_GPU_PROOF=1 JUNTO_FACTORY_JSON=$PWD/factory-board.json scripts/run-e2e.sh e2e/scenarios/gpu-proof.spec.ts'
+ * JUNTO_FACTORY_DB reads a board-only file in place of the JSON, on the
+ * machine that made it; the loader refuses the live database.
  *
  * Scales: JUNTO_GPU_PROOF_SCALES (default "1,10,100"); images and raw traces
  * land in JUNTO_GPU_PROOF_OUT (default /tmp/junto-gpu-proof).
@@ -89,7 +105,7 @@ const OUT = process.env["JUNTO_GPU_PROOF_OUT"] ?? join("/tmp", "junto-gpu-proof"
 const DB = process.env["JUNTO_FACTORY_DB"] ?? "";
 const JSON_FIXTURE = process.env["JUNTO_FACTORY_JSON"] ?? "";
 
-test.skip(!ENABLED, "set JUNTO_GPU_PROOF=1 and JUNTO_FACTORY_DB=<copy of junto.db> (or JUNTO_FACTORY_JSON=<saved fixture>) to run the proof");
+test.skip(!ENABLED, "set JUNTO_GPU_PROOF=1 and JUNTO_FACTORY_JSON=<the board JSON> (the header makes it) to run the proof");
 
 /** The tiers, at a zoom inside each one, with hysteresis safely past the edge. */
 const TIERS = [
@@ -127,7 +143,7 @@ const boardFixture = ((): NestedCanvasFixture | null => {
     return loadFactoryBoard(DB).fixture;
   } catch (error) {
     throw new Error(
-      `JUNTO_FACTORY_DB=${DB} is not a readable COPY of a Junto database with a "${PROOF_CANVAS}" canvas: ${String(error)}`,
+      `JUNTO_FACTORY_DB=${DB} is not a readable board-only file (e2e/harness/factory-board.sql) with a "${PROOF_CANVAS}" canvas: ${String(error)}`,
     );
   }
 })();
