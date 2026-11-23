@@ -833,6 +833,9 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
       const centre = { x: pane.x + pane.width / 2, y: pane.y + pane.height / 2 };
       const overlay = await overlayMask(page, pane, dpr);
       log("overlay", { share: Math.round(overlay.share * 1000) / 1000 });
+      // The scale this run drew at, read from the page and the screenshot itself.
+      const probe = await shot(page, pane);
+      log("display", { devicePixelRatio: dpr, pane: { width: pane.width, height: pane.height }, shot: { width: probe.width, height: probe.height }, window: process.env["JUNTO_GPU_PROOF_WINDOW"] ?? "operator" });
       if (overlay.share > 0.5) fail(`the DOM overlay mask covers ${String(Math.round(overlay.share * 100))}% of the pane: it would hide the canvas`);
       const launchState = await readProofState(page);
       const seen = {

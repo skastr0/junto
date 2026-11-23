@@ -238,12 +238,15 @@ export const launchProofArm = async (
   // The operator's display by default. On the Mac mini the pane is a
   // 1920x1080 screen: a 1726x1083 window does not fit, so the shakedown arm
   // asks for a smaller window without the forced scale factor.
+  // "mini-2x" is the same window drawn at the operator's 2x scale factor.
   const display =
     process.env["JUNTO_GPU_PROOF_WINDOW"] === "mini"
       ? { windowContentSize: { width: 1440, height: 900 } }
-      : process.env["JUNTO_GPU_PROOF_WINDOW"] === "full"
-        ? { windowContentSize: { width: 1920, height: 1080 } }
-        : OPERATOR_DISPLAY;
+      : process.env["JUNTO_GPU_PROOF_WINDOW"] === "mini-2x"
+        ? { windowContentSize: { width: 1440, height: 900 }, electronArgs: ["--force-device-scale-factor=2"] }
+        : process.env["JUNTO_GPU_PROOF_WINDOW"] === "full"
+          ? { windowContentSize: { width: 1920, height: 1080 } }
+          : OPERATOR_DISPLAY;
   const seed = await preparedSeed(board);
   rememberSeed({ scale: board.scale, builtMs: seed.builtMs, cached: seed.cached });
   console.log(
