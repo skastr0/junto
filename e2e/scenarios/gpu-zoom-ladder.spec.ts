@@ -44,9 +44,13 @@
  *   - CSS animations in the DOM (rings in the bars): paused at phase 0;
  *   - the DOM minimap: hidden, because it frames to the camera's travel, not
  *     to the camera;
+ *   - the DOM hotbar (the top bar's group slots): hidden, because it leases
+ *     slots by the recency of seat activity, which is the churn's history;
  *   - the pointer: parked at the same pane corner in both launches;
- *   - churned content: every seat is forced back to the baseline state
- *     before the shot, the state the reference launch was given.
+ *   - churned content: every seat gets the baseline event again before the
+ *     shot, the one the reference launch was given: idle from a freshly bound
+ *     state machine, with no unseen turn. An idle from the churn's own machine
+ *     would carry the churned turn as unseen ("done, not read yet").
  * A frame captured during a gesture cannot hold its clocks (a transition
  * started under a held clock never ends), so it skips the pixels that moved
  * across four unheld reference shots: the board's own motion.
@@ -271,11 +275,11 @@ const atlasCounters = async (page: Page): Promise<{ evictions: number; compactio
 
 // --- what differs between launches, held for the shot -------------------------
 
-/** Hide the DOM minimap for the whole run: it frames to the camera's travel. */
+/** Hide the DOM minimap and hotbar for the whole run: they show the travel and the churn's history. */
 const hideMinimap = (page: Page): Promise<void> =>
   page.evaluate(() => {
     const style = document.createElement("style");
-    style.textContent = ".react-flow__minimap { visibility: hidden !important; }";
+    style.textContent = ".react-flow__minimap, .group-bar { visibility: hidden !important; }";
     document.head.append(style);
   });
 
@@ -332,8 +336,14 @@ const seatChurn = (board: ProofBoard) => {
   for (const b of bindings) machine.bind(b, { harness: "codex", epoch: "ladder" });
   let turn = 0;
   return {
-    /** The content every shot is taken with: each seat idle. */
-    baseline: (app: ElectronApplication) => send(app, bindings.map((b) => machine.force(b, "idle", "ladder:baseline"))),
+    /** The content every shot is taken with: each seat idle, freshly bound, no unseen turn. */
+    baseline: async (app: ElectronApplication): Promise<void> => {
+      const fresh = new SeatStateMachine({ now: () => Date.now() });
+      for (const b of bindings) fresh.bind(b, { harness: "codex", epoch: "ladder" });
+      await send(app, bindings.map((b) => fresh.force(b, "idle", "ladder:baseline")));
+      fresh.dispose();
+      for (const b of bindings) machine.force(b, "idle", "ladder:baseline");
+    },
     /** A share of seats change their line and their expression. */
     churn: (app: ElectronApplication) => {
       turn += 1;
@@ -584,6 +594,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           await waitGpuReady(page, board);
           await hideMinimap(page);
           await churn.baseline(junto.app);
+          await page.waitForTimeout(1_500);
           const pane = await paneRect(page);
           const camera = cameraAt(pane, place, zoom);
           await placeCamera(page, camera, 400);
@@ -630,6 +641,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
         const ref = references.get(refKey(place.name, zoom))!;
         // Churned content back to the baseline, then the exact camera.
         await churn.baseline(junto.app);
+        await page.waitForTimeout(1_500);
         await placeCamera(page, ref.camera, 300);
         await parkPointer(page, pane);
         await settleAtlas(page);
