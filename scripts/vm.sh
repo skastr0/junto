@@ -28,7 +28,8 @@
 # Another repository uses this same script from its own root, with its own
 # snapshot: VM_BASE (default junto-base) names the snapshot, and VM_DIR
 # (default junto) the clone's folder under /home/user on the VM. VM_TYPE
-# (small, default or large) sizes a VM that `new` or `pool` starts.
+# (small, default or large) sizes a VM that `new` or `pool` starts: `pool`
+# starts a large one (8 cores, twice the rate) when it is not set.
 set -euo pipefail
 
 # The whole script is one block, parsed before any of it runs: a seat whose
@@ -99,7 +100,8 @@ case "${1:-}" in
       "$BOAT" extend "$id" --hours 3 --json >/dev/null
     else
       may_start
-      id=$("$BOAT" new --from "$VM_BASE" --ttl 10800 --name "$name" ${VM_TYPE:+--type "$VM_TYPE"} --json | jq -r 'select(.event == "ready") | .id' | tail -1)
+      # Shared by a whole region, so the 8-core size unless VM_TYPE says otherwise.
+      id=$("$BOAT" new --from "$VM_BASE" --ttl 10800 --name "$name" --type "${VM_TYPE:-large}" --json | jq -r 'select(.event == "ready") | .id' | tail -1)
       [ -n "$id" ] || { echo "vm.sh: boat new did not report a ready VM" >&2; exit 1; }
     fi
     echo "$id"
