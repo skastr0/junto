@@ -72,6 +72,20 @@ describe("the inspector tab row", () => {
     expect(tab.hasAttribute("data-testid")).toBe(false);
   });
 
+  it("is one stop in the Tab order: the shown tab, or the first when none is shown", async () => {
+    const stops = () => [...document.querySelectorAll<HTMLElement>('[role="tab"]')].map((tab) => tab.tabIndex);
+    await act(async () => root.render(<InspectorTabs tabs={TABS} active="mood" onSelect={() => undefined} />));
+    expect(stops()).toEqual([-1, 0]);
+    await act(async () => root.render(<InspectorTabs tabs={TABS} active="look" onSelect={() => undefined} />));
+    expect(stops()).toEqual([0, -1]);
+    await act(async () => root.render(<InspectorTabs tabs={TABS} active="gone" onSelect={() => undefined} />));
+    expect(stops()).toEqual([0, -1]);
+    await act(async () =>
+      root.render(<InspectorTabs frame="chrome" tabs={TABS} active="mood" onSelect={() => undefined} />),
+    );
+    expect(stops()).toEqual([-1, 0]);
+  });
+
   it("walks the row on Left and Right, round the ends, with the keyboard on the tab it shows", async () => {
     const picked: string[] = [];
     const three = [...TABS, { id: "voice", label: "voice" }];
@@ -111,7 +125,7 @@ describe("the tab row in a header", () => {
     const el = row();
     expect(el.getAttribute("aria-label")).toBe("Seat view");
     expect(el.className).toContain("inline-flex");
-    expect(el.className).toContain("rounded border border-stroke");
+    expect(el.className).toContain("rounded-sm border border-stroke");
     expect(el.className).not.toContain("overflow");
     expect(el.style.borderBottom).toBe("");
     // A row that would be cut in a panel fades there; here it has no edge to fade.
@@ -128,6 +142,9 @@ describe("the tab row in a header", () => {
       expect(half.className).toContain("before:h-6");
       expect(half.className).toContain("focus-visible:shadow-[inset_0_0_0_2px_var(--color-cyan)]");
       expect(half.className).not.toContain("rounded-t-md");
+      // The pill's radius token, never a bare number.
+      expect(half.className).toContain("first:rounded-l-sm last:rounded-r-sm");
+      expect(half.className).not.toMatch(/rounded[a-z-]*-\[/);
       expect(half.getAttribute("aria-controls")).toBe("stage");
     }
   });

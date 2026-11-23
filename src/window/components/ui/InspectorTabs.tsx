@@ -42,14 +42,15 @@ const fadeEdges = (row: HTMLElement): void => {
 const ROW = {
   panel: "flex items-end gap-0.5 overflow-x-auto [scrollbar-width:none]",
   // The chrome Button's look round the pair. Nothing clips: each half keeps
-  // its 24px hit area, and rounds its own outer corners inside the border.
-  chrome: "inline-flex shrink-0 items-stretch rounded border border-stroke bg-ink/[0.04]",
+  // its 24px hit area, and rounds its own outer corners inside the border,
+  // on the same radius token as the pill.
+  chrome: "inline-flex shrink-0 items-stretch rounded-sm border border-stroke bg-ink/[0.04]",
 } as const;
 
 const TAB = {
   panel: `relative flex items-center gap-1.5 whitespace-nowrap rounded-t-md px-2 py-1.5 text-label font-medium uppercase tracking-label outline-none transition ${FOCUS_RING_INSET}`,
   // The xs Button's box and type, so the pill stands exactly as tall as one.
-  chrome: `flex items-center gap-1.5 whitespace-nowrap px-1.5 py-0.5 text-label font-medium uppercase tracking-label outline-none transition-colors first:rounded-l-[3px] last:rounded-r-[3px] ${FOCUS_RING_INSET} ${HIT_24}`,
+  chrome: `flex items-center gap-1.5 whitespace-nowrap px-1.5 py-0.5 text-label font-medium uppercase tracking-label outline-none transition-colors first:rounded-l-sm last:rounded-r-sm ${FOCUS_RING_INSET} ${HIT_24}`,
 } as const;
 
 export function InspectorTabs({
@@ -92,6 +93,9 @@ export function InspectorTabs({
     };
   }, [count, frame]);
   if (tabs.length === 0) return null;
+  // One stop in the Tab order, the shown tab (the first when none is shown):
+  // Tab leaves the row for what it shows, Left and Right move within it.
+  const stop = tabs.some((tab) => tab.id === active) ? active : tabs[0]?.id;
   // Left and Right walk the row and show the tab they land on, round the ends.
   // The keyboard stays on the row: what a tab shows is reached with Tab.
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number): void => {
@@ -122,6 +126,7 @@ export function InspectorTabs({
             role="tab"
             aria-selected={isActive}
             aria-controls={controls}
+            tabIndex={tab.id === stop ? 0 : -1}
             title={tab.title}
             data-testid={testId === undefined ? undefined : `${testId}-${tab.id}`}
             onClick={() => onSelect(tab.id)}
