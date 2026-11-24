@@ -503,3 +503,46 @@ bytes); local copies at `release/Junto-0.11.12-arm64-mac.dmg` and
 and the downloaded zip hashes to the stapled sha256. Not yet installed: waits
 for the operator's moment.
 
+
+## 0.11.15 receipt (product-lead, 2026-11-24)
+
+Cut on the operator's word during the pause, for the re-seat of several seats,
+with no other seat awake. Not the full lane: read the differences before
+copying this cut.
+
+Published from tag `v0.11.15` = `4f93660e7` on branch `release/0.11.15`, which
+is `4f91cc515` plus the bump `4265f0388` and one build commit. Main was two
+unfinished commits past `4f91cc515` (`cb609259e`, `258f7dd2d`); they are not in
+this release. Nothing was pushed to origin.
+
+- Lanes: `lint:product-name` and the build's own type check (`tsrs --noEmit`)
+  pass. The unit lanes and `test:features:ship` were NOT run, on the operator's
+  word ("We can even release with failing tests"): `build-app.sh --target mac
+  --notarize`, without `--verify`. `tests/urgency-law.test.ts` was known to
+  fail twice at this commit (from `bb9ef4948`).
+- The first build stopped at the package audit: the app's own text in the
+  archive is 33.8 MB and the retired-state scan bound was 32 MiB (0.11.14
+  shipped at 33.5 MB). `4f93660e7` raises the bound to 40 MiB; the scan still
+  reads every byte, and `tests/audit-retired-state-signatures.test.ts` passes
+  (78 tests). Not reviewed by the audit's owner.
+- `packaged-runtime-smoke` run by hand on the stapled app: ok, exit 0, the
+  four process roles, real roots untouched.
+- Database 75 to 76. Proof on a read-only `.backup` of the live v75 file with
+  the cut's state engine: 75 to 76 in 16 s with the backup, only
+  `agent_signal_depends` is new (0 rows), the other 140 tables equal,
+  `quick_check` ok, `foreign_key_check` 0 rows, one v75 backup written before
+  the stamp, a second open runs no step. The copy and its backup were deleted.
+- Machine build
+  `230f463302a8249424d91caddc2206077057e7dd4d8a0c7e3426f6918c3b6d46`.
+  Notarization submission `e9f3dd6d-b770-4511-8d32-3dfe9a2e8eb9` Accepted,
+  stapled, `spctl` "Notarized Developer ID" (team `4452968868`).
+- Stapled zip sha256
+  `8f6b4f77e31a937e1170e4022568cd055e32f155ff400b577d6c82a7469bbeeb`
+  (134,060,224 bytes), dmg sha256
+  `197532edd9b7d8c18607a091bcf566fbc4247f4b9bfd02a7a9f966cc28a11b5d`
+  (135,411,954 bytes). The feed `latest-mac.yml` says 0.11.15 and the
+  downloaded zip hashes to the stapled sha256.
+- Open: the public download page still redirected to the 0.11.3 dmg after the
+  publish (`juntoagents.com/download/latest`); the feed is right. The real-app
+  pass of the thread features, and the fix for a refused re-seat of several
+  seats leaving them stopped (`src/window/lib/agent-reseat.ts:226`).
