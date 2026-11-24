@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+## 0.11.15 — 2026-11-24
+
+Opening the database with 0.11.15 moves it to version 76, and 0.11.14 then
+refuses it as newer than supported. To go back to 0.11.14, open the backup
+taken at the upgrade. The step adds three empty columns to stored signals,
+three indexes and one empty table. It only adds; no existing row changes.
+
+Cut early, for the re-seat of several seats. The build type checks and the
+packaged app starts; the unit suite was not run at the cut, and the thread
+features below have not had a full pass in the real app.
+
+- Several selected seats re-seat at once: "Re-seat agents" on the command
+  card of a selection, one confirm for the seats that move, then a line that
+  says how many moved, how many were already on that pick, and which failed.
+- The bar says what a selected seat was started with: its harness, each dial,
+  profile and provider, extra arguments, machine and folder. Several selected
+  seats show a tally by launch.
+- A re-seat launches like a new seat of the same pick: its permission mode,
+  its extra arguments and the Settings, Agents defaults now reach the launch.
+- A seat has a Terminal and Threads switch, and "Seat opens on" in Settings,
+  Terminal chooses the view it opens on.
+- Threads (Cmd+U): the operator's threads with every seat in one place, newest
+  or most urgent first, by region, seat and unread.
+- Quick thread (Cmd+Shift+U): a new thread to a seat, or the same one to
+  several, from anywhere.
+- A seat can raise a signal inside a thread, where it reads as a signal and
+  takes its answer. Signals can name the ones they come after, and Needs you
+  shows them in the order to act.
+- CLI: `junto thread list` and `junto thread show`; `--thread`,
+  `--depends-on` and `--depends-on-last` on a raise; `junto signal batch`.
+
+Known: if the canvas refuses a re-seat of several seats, the picked seats are
+left stopped on their old agent.
+
 ## 0.11.14 — 2026-11-22
 
 No database change: 0.11.14 opens the same version 75 as 0.11.13.
