@@ -90,7 +90,8 @@ export const RETIRED_STATE_SIGNATURE_AUDIT_LIMITS: Readonly<
   maxAsarEntries: 32_768,
   maxFirstPartyTextEntries: 4_096,
   maxAsarEntryBytes: 8 * 1024 * 1024,
-  maxAsarTextBytes: 32 * 1024 * 1024,
+  // The app's own text measured 33.5 MB at 0.11.14 and 33.8 MB at 0.11.15; use a finite 40 MiB bound.
+  maxAsarTextBytes: 40 * 1024 * 1024,
   maxExecutableBytes: 96 * 1024 * 1024,
 });
 
