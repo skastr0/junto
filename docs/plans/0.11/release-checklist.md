@@ -513,7 +513,7 @@ copying this cut.
 Published from tag `v0.11.15` = `4f93660e7` on branch `release/0.11.15`, which
 is `4f91cc515` plus the bump `4265f0388` and one build commit. Main was two
 unfinished commits past `4f91cc515` (`cb609259e`, `258f7dd2d`); they are not in
-this release. Nothing was pushed to origin.
+this release. Main (`973b380d1`) and the tag were pushed to origin after the publish, on the operator's word.
 
 - Lanes: `lint:product-name` and the build's own type check (`tsrs --noEmit`)
   pass. The unit lanes and `test:features:ship` were NOT run, on the operator's
