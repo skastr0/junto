@@ -10,3 +10,14 @@ export const crossedClosing = (signal: AgentSignal): boolean =>
   signal.crossed === true ||
   (signal.state === "answered" && signal.withdrawnAt !== undefined) ||
   (signal.state === "withdrawn" && signal.response !== undefined);
+
+/**
+ * The sentence for an answer and a withdrawal that crossed, everywhere it is
+ * said: the thread's signal frame, the feed's pane and its exchange row. It is
+ * the seat's own statement, not a fact the operator's machine can check.
+ */
+export const crossedWords = (seat: string): string => `${seat} says it withdrew this before your answer reached it.`;
+
+/** The same said alone, where the card is out of sight: it names the signal, its headline last after a colon. */
+export const crossedLiveWords = (seat: string, headline: string): string =>
+  `${seat} says it withdrew a signal before your answer reached it: ${headline}`;

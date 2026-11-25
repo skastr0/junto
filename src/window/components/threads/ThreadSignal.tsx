@@ -1,8 +1,8 @@
 import { Check, Clock, CornerDownRight, Undo2, X, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { FEED_KIND_LABEL } from "@shared/operator-feed";
+import { crossedWords } from "@shared/signal-crossing";
 import type { AgentSignalState, SeatRaiseKind } from "@shared/wire/agent-signals";
-import { crossedWords } from "../../lib/feed-exchange";
 import { waitingForSeats } from "../../lib/seat-threads";
 import { KIND_ICON } from "../feed/FeedCardView";
 import { Button } from "../ui/Button";

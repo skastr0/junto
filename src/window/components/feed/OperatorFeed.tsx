@@ -64,7 +64,6 @@ import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { SIGNALS_SECTION, useSignalActions } from "../../lib/agent-signals-view";
 import { agentSignals$ } from "../../lib/agent-signals-state";
-import { crossedClosing } from "@shared/signal-crossing";
 import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 import {
   clearFeedFilters,
@@ -117,7 +116,7 @@ import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
 import { Button, Dropdown, Kbd } from "../ui";
 import { FeedExchange } from "./FeedExchange";
-import { crossedLiveWords, crossedWords } from "../../lib/feed-exchange";
+import { crossedClosing, crossedLiveWords, crossedWords } from "@shared/signal-crossing";
 import { FeedRegionStrip } from "./FeedRegionStrip";
 import { FeedEmpty, FeedSeatChosen, FeedSeatsRow, FeedSeatsToggle } from "./FeedFilterParts";
 import { feedTasksByNumber, type FeedTaskRef } from "./feed-text";
