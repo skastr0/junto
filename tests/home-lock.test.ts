@@ -30,10 +30,11 @@ const take = async (at: string): Promise<HomeLock> => {
 };
 const stateOf = (at: string): string => join(at, ".junto", "state");
 
-/** A core's lock in its own process; answers its first line. */
-const run = (mode: "hold" | "orphan", at: string): { process: ChildProcess; line: Promise<string> } => {
+/** A core's lock in its own process; answers its first line, and its exit, watched from the spawn so a fast exit is never missed. */
+const run = (mode: "hold" | "orphan", at: string): { process: ChildProcess; line: Promise<string>; exited: Promise<void> } => {
   const holder = spawn("bun", [child, mode, at], { stdio: ["ignore", "pipe", "inherit"] });
   cleanups.push(() => { holder.kill("SIGKILL"); });
+  const exited = new Promise<void>((resolve) => { holder.once("exit", () => resolve()); });
   const line = new Promise<string>((resolve, reject) => {
     let out = "";
     holder.stdout!.on("data", (chunk: Buffer) => {
@@ -43,7 +44,7 @@ const run = (mode: "hold" | "orphan", at: string): { process: ChildProcess; line
     holder.once("exit", () => resolve(out.split("\n")[0] ?? ""));
     holder.once("error", reject);
   });
-  return { process: holder, line };
+  return { process: holder, line, exited };
 };
 
 describe("the home lock", () => {
@@ -67,7 +68,7 @@ describe("the home lock", () => {
     const orphan = run("orphan", at);
     const seat = Number(/^SEAT (\d+)$/u.exec(await orphan.line)?.[1]);
     cleanups.push(() => { try { process.kill(seat, "SIGKILL"); } catch { /* gone */ } });
-    await new Promise((resolve) => orphan.process.once("exit", resolve));
+    await orphan.exited;
     expect(() => process.kill(seat, 0)).not.toThrow();
     expect((await take(at)).held()).toBe(true);
   });
