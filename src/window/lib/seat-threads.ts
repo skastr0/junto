@@ -972,6 +972,26 @@ export type HeldThreadDraft = {
   readonly files: AttachmentHold;
 };
 
+/**
+ * What was typed in a thread's reply field and not sent, kept per canvas, seat
+ * and thread for the app session: a close, a switch to another panel or
+ * another thread, and the way back, find it as it was left. It goes when the
+ * mail is sent or the operator clears the field.
+ */
+const replyDrafts = new Map<string, string>();
+
+/** A thread's reply draft: read as it was left, written as the operator types. */
+export const replyDraftOf = (seat: SeatAddress, threadId: string): { readonly text: () => string; readonly keepText: (text: string) => void } => {
+  const key = threadKey(seat, threadId);
+  return {
+    text: () => replyDrafts.get(key) ?? "",
+    keepText: (text) => {
+      if (text.trim() === "") replyDrafts.delete(key);
+      else replyDrafts.set(key, text);
+    },
+  };
+};
+
 /** A seat a new thread goes to, with the name the operator reads. */
 export type ThreadRecipient = { readonly seatId: string; readonly name: string };
 
@@ -1162,6 +1182,7 @@ export const resetSeatThreads = (): void => {
   paces.clear();
   flights.clear();
   closedOn.clear();
+  replyDrafts.clear();
   for (const timer of holdTimers) clearTimeout(timer);
   holdTimers.clear();
   heldSince.clear();

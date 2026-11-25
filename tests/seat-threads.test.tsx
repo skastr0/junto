@@ -1650,6 +1650,49 @@ describe("the thread composer", () => {
     }
   });
 
+  it("keeps a half-typed reply per thread, through another thread and back, until it is sent", async () => {
+    await open();
+    const row = (threadId: string) => document.querySelector(`[data-thread-id="${threadId}"]`) as HTMLElement;
+    await type("half a thought");
+    await click(row("banner"));
+    // Another thread has its own field, empty.
+    expect(field().value).toBe("");
+    await type("for the banner");
+    await click(row("notes"));
+    expect(field().value).toBe("half a thought");
+    await click(row("banner"));
+    expect(field().value).toBe("for the banner");
+    // Sent, it is gone: coming back finds nothing.
+    await click(row("notes"));
+    await key("Enter");
+    expect(sends).toHaveLength(1);
+    expect(field().value).toBe("");
+    await click(row("banner"));
+    await click(row("notes"));
+    expect(field().value).toBe("");
+  });
+
+  it("keeps a half-typed reply through the panel closing and coming back, and lets go of it when the field is cleared", async () => {
+    const fixture = fake();
+    setSeatThreadsSource(fixture.source);
+    await render();
+    await click(q("seat-view-threads"));
+    await type("not sent yet");
+    // The chat unmounts, as when the panel closes or the operator goes to another panel.
+    act(() => root.unmount());
+    root = createRoot(host);
+    await render();
+    await click(q("seat-view-threads"));
+    expect(field().value).toBe("not sent yet");
+    // Cleared by the operator: nothing is kept.
+    await type("");
+    act(() => root.unmount());
+    root = createRoot(host);
+    await render();
+    await click(q("seat-view-threads"));
+    expect(field().value).toBe("");
+  });
+
   it("says nothing for a send that failed", async () => {
     await open();
     await type("Thanks.");

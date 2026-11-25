@@ -57,6 +57,8 @@ type ToOneSeat = Shared & {
   readonly above?: ReactNode;
   /** Reply: the id of what `above` says, so the field is described by it. Pass it only while that block is in the document. */
   readonly describedBy?: string;
+  /** Reply: the thread's draft, kept past this composer's own life (what was typed and not sent). */
+  readonly heldText?: { readonly text: () => string; readonly keepText: (text: string) => void };
 };
 
 /** New threads to the seats the operator chose, one each (Quick thread). */
@@ -115,6 +117,8 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
   const recipients: ReadonlyArray<ThreadRecipient> = several ? props.recipients : [{ seatId: props.seat.seatId, name: props.name }];
   const seatIds = recipients.map((recipient) => recipient.seatId);
   const held = several ? props.held : undefined;
+  // Where the text is kept past this composer: Quick thread's draft, or a reply's own thread draft.
+  const kept = several ? props.held : props.heldText;
   const connected = useSeatsConnectedToAll(canvasName, seatIds);
   const inReach = useResourcesInReachOfAll(canvasName, seatIds, useMentionItems(canvasName));
   const candidates = useMemo(() => [...connected, ...inReach], [connected, inReach]);
@@ -123,10 +127,10 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
   // A held draft is read back as it was written, whoever may be mentioned now: its links name nodes of this canvas.
   const canvas = useCanvas(canvasName);
   const kindOnCanvas = useCallback((nodeId: NodeId): NodeKind | undefined => canvas.nodes.get(nodeId)?.kind, [canvas]);
-  const [draft, setDraft] = useState(() => held?.text() ?? "");
+  const [draft, setDraft] = useState(() => kept?.text() ?? "");
   const write = (next: string): void => {
     setDraft(next);
-    held?.keepText(next);
+    kept?.keepText(next);
   };
   const [sending, setSending] = useState(false);
   const onSending = useRef(several ? props.onSending : undefined);
@@ -289,7 +293,7 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
           }}
           canvasName={canvasName}
           candidates={candidates}
-          {...(held === undefined ? {} : { nodeKindOf: kindOnCanvas })}
+          {...(kept === undefined ? {} : { nodeKindOf: kindOnCanvas })}
           listLabel={(trigger) => {
             const whose = only ?? "every seat chosen";
             return trigger === "@" ? `Seats connected to ${whose}, and pages in reach` : `Tasks and artifacts in reach of ${whose}`;

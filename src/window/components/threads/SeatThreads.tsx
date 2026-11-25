@@ -13,6 +13,7 @@ import {
   previewText,
   useSeatThreadMessages,
   useSeatThreads,
+  replyDraftOf,
   speakSignalsFor,
   useSeatUnread,
   waitingHoldLeft,
@@ -654,6 +655,8 @@ export function ThreadChat({
   // The signal at the thread's head is not among them: its answer is what
   // started the thread.
   const answersId = useId();
+  // What was typed here and not sent stays for the app session: a close, a panel switch, another thread and back.
+  const replyDraft = useMemo(() => replyDraftOf({ canvasName, seatId }, threadId), [canvasName, seatId, threadId]);
   const openSignals = useMemo(
     () => messages.flatMap((message) => (!message.mine && message.signal?.state === "open" ? [message.signal] : [])),
     [messages],
@@ -831,6 +834,7 @@ export function ThreadChat({
           mode="reply"
           threadId={thread.threadId}
           inReplyTo={lastId}
+          heldText={replyDraft}
           yields={yields}
           above={<ReplyAnswers id={answersId} open={openSignals} known={thread.participants} onShow={showSignal} onHandIn={openNeedsYouOn} />}
           // The block is there exactly while a signal is open: ReplyAnswers says nothing with none.
