@@ -15,6 +15,12 @@
 # first (scripts/mini.sh --gpu run <folder> ...) or set MINI_GPU=1. Every other
 # real-app run goes to a VM (scripts/vm.sh), under the Linux display.
 #
+# One more way in, only for a non-GPU run the operator approved by name in a
+# signal: MINI_APPROVED=<signal id> in front (01 and 24 more characters). The
+# call passes, and one line goes to the mini's book log (~/junto-perf/book.log)
+# before it runs: time, approved, VM_SEAT, the signal id, the command. A GPU
+# call (--gpu, MINI_GPU=1) needs no signal and is not logged.
+#
 # A checkout holds exactly one commit: git worktree of the mini's rig repo
 # (~/junto-perf/repo.git), never the shared checkout's working tree. A sync
 # sends only the commits the mini lacks, as a git bundle. node_modules is an
@@ -50,11 +56,21 @@ remote() { # remote <shell…>: run on the mini with its tools on PATH
   ssh "$MINI" "export PATH=\$HOME/.local/share/mise/shims:/opt/homebrew/bin:\$PATH JUNTO_E2E_SHOW=\${JUNTO_E2E_SHOW:-1}; $*"
 }
 
-# --gpu first, or MINI_GPU=1: the call says it needs the real GPU.
+# --gpu first, or MINI_GPU=1: the call says it needs the real GPU. Or
+# MINI_APPROVED=<signal id>: an operator-approved run, logged on the mini.
 if [ "${1:-}" = "--gpu" ]; then MINI_GPU=1; shift; fi
 case "${1:-}" in
   at|put|run)
-    if [ "${MINI_GPU:-}" != 1 ]; then
+    approved=
+    if [ -n "${MINI_APPROVED:-}" ]; then
+      # A signal id is a ULID: 01 and 24 characters of Crockford base32.
+      if [[ ! "$MINI_APPROVED" =~ ^01[0-9A-HJKMNP-TV-Z]{24}$ ]]; then
+        echo "mini.sh: refused. MINI_APPROVED='$MINI_APPROVED' is not a signal id (01 and 24 more characters, as junto signal list prints it)." >&2
+        exit 2
+      fi
+      [ "${MINI_GPU:-}" = 1 ] || approved=$MINI_APPROVED
+    fi
+    if [ "${MINI_GPU:-}" != 1 ] && [ -z "$approved" ]; then
       seat=${2:-<seat>}; [ "${1}" = at ] || seat='<seat>'
       cat >&2 <<REFUSED
 mini.sh: refused. The Mac mini is for GPU checks only (operator, 2026-11-25): the GPU canvas
@@ -65,8 +81,16 @@ the Linux display:
   VM_SEAT=$seat scripts/vm.sh sync \$id HEAD [your uncommitted paths]
   VM_SEAT=$seat scripts/vm.sh run \$id 'bun run cli:build && scripts/run-e2e.sh <spec>'
 If this run does need the real GPU, say so: scripts/mini.sh --gpu $* , or MINI_GPU=1 in front.
+If the operator approved this run by name in a signal, and only then: MINI_APPROVED=<signal id> in
+front. The call is logged in the mini's book log with the signal id.
 REFUSED
       exit 2
+    fi
+    if [ -n "$approved" ]; then
+      cmdline="$*"; cmdline=${cmdline//$'\n'/ }
+      seatname=${VM_SEAT:-unset}; seatname=${seatname//[[:space:]]/_}
+      printf '%s approved %s %s %s\n' "$(date -u +%FT%TZ)" "$seatname" "$approved" "$cmdline" |
+        ssh "$MINI" "cat >> $RIG/book.log" || { echo "mini.sh: refused. The approved call could not be logged on the mini." >&2; exit 1; }
     fi
     ;;
 esac

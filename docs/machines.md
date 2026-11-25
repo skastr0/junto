@@ -808,6 +808,11 @@ still open.
   is one: `scripts/mini.sh --gpu run <folder> ...`, or `MINI_GPU=1` in front.
   The refusal names the rule and the VM commands to use instead. `book`, `rm`
   and `status` need no mark. A run that measures time still takes the book.
+  The one other way in is `MINI_APPROVED=<signal id>` (a signal id: `01` and 24
+  more characters) in front, **only for a run the operator approved by name in a
+  signal**. Such a call passes and appends one line to the mini's book log
+  (`~/junto-perf/book.log`: time, `approved`, `VM_SEAT`, the signal id, the
+  command) before it runs. A GPU call needs no signal and is not logged.
 
 ### Committing in the shared checkout
 
