@@ -47,6 +47,9 @@ pub struct Refused {
     pub running_seats: Option<u32>,
     pub running_seats_unknown: bool,
     pub check: Option<Check>,
+    /// The installation id the started core answered on the branch where it
+    /// differs from the pin; only `installation-changed` carries it.
+    pub started_installation_id: Option<String>,
 }
 
 impl Refused {
@@ -56,6 +59,7 @@ impl Refused {
             running_seats: None,
             running_seats_unknown: false,
             check: None,
+            started_installation_id: None,
         }
     }
 
@@ -79,6 +83,28 @@ impl Refused {
         self.check = Some(check);
         self
     }
+
+    /// The started core's own installation id, admitted only in the near
+    /// side's shape: 1 to 128 characters of [A-Za-z0-9._:-], starting with a
+    /// letter or digit. An id outside it is left off rather than sent.
+    pub fn with_started_installation_id(mut self, value: &str) -> Self {
+        if admitted_installation_id(value) {
+            self.started_installation_id = Some(value.to_string());
+        }
+        self
+    }
+}
+
+/// The near side's InstallationId shape, checked here so nothing else is sent.
+fn admitted_installation_id(value: &str) -> bool {
+    (1..=128).contains(&value.len())
+        && value
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric())
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
 }
 
 impl From<std::io::Error> for Refused {
@@ -675,7 +701,8 @@ fn install_flow_with(
                             .is_some_and(|expected| observed.installation_id != expected)
                         {
                             return Err(Refused::new("candidate installation identity changed")
-                                .with_check(Check::CoreMismatch));
+                                .with_check(Check::InstallationChanged)
+                                .with_started_installation_id(&observed.installation_id));
                         }
                         if observed.ready {
                             return Ok(observed);
@@ -772,6 +799,11 @@ fn install_flow_with(
                         let _ = service.start();
                     }
                     flow.disposition = Disposition::RolledBack;
+                    // The identity branch keeps its own code and the started
+                    // id through the rollback; the near side prints them.
+                    if error.check == Some(Check::InstallationChanged) {
+                        return Err(error);
+                    }
                     let said = if diagnostics.is_empty() {
                         scrub(&error.message).chars().take(1000).collect()
                     } else {
@@ -783,6 +815,9 @@ fn install_flow_with(
                 }
                 let _ = service.remove_definition();
                 flow.disposition = Disposition::Activated;
+                if error.check == Some(Check::InstallationChanged) {
+                    return Err(error);
+                }
                 let said = if diagnostics.is_empty() {
                     scrub(&error.message).chars().take(1000).collect()
                 } else {
@@ -1154,6 +1189,12 @@ fn install_failure(
     }
     if let (Some(target), Some(check)) = (details.as_object_mut(), refused.check) {
         target.insert("check".into(), json!(check));
+    }
+    if let (Some(target), Some(started)) = (
+        details.as_object_mut(),
+        refused.started_installation_id.as_deref(),
+    ) {
+        target.insert("startedInstallationId".into(), json!(started));
     }
     Failure::new(ErrorType::MachineInstallError, &refused.message).with(details)
 }
@@ -1601,6 +1642,9 @@ mod tests {
         lease_calls: Vec<bool>,
         status: Option<OwnStatus>,
         status_error: Option<String>,
+        /// The installation id the candidate answers with, when a test makes
+        /// it differ from the pin; consumed by the next start.
+        next_installation_id: Option<String>,
         readiness: Duration,
     }
 
@@ -1624,23 +1668,24 @@ mod tests {
                 lease_calls: Vec::new(),
                 status: None,
                 status_error: None,
+                next_installation_id: None,
                 readiness: Duration::from_secs(30),
             }))
         }
 
-        fn status_of(&self, build: &str, pid: u32) -> OwnStatus {
+        fn status_of(&self, build: &str, pid: u32, installation_id: &str) -> OwnStatus {
             OwnStatus {
                 build: build.to_string(),
                 junto_home: self.home.to_string_lossy().into_owned(),
                 pid: i64::from(pid),
                 ready: true,
-                installation_id: "install-one".to_string(),
+                installation_id: installation_id.to_string(),
                 machine_name: "mini".to_string(),
             }
         }
 
         fn ready(&mut self, build: &str) {
-            self.status = Some(self.status_of(build, 71));
+            self.status = Some(self.status_of(build, 71, "install-one"));
         }
     }
 
@@ -1700,7 +1745,11 @@ mod tests {
             fixture.matches = true;
             fixture.stopped = false;
             if let Some(manifest) = manifest {
-                fixture.status = Some(fixture.status_of(&manifest.build, 71));
+                let installation_id = fixture
+                    .next_installation_id
+                    .take()
+                    .unwrap_or_else(|| "install-one".to_string());
+                fixture.status = Some(fixture.status_of(&manifest.build, 71, &installation_id));
             }
             Ok(())
         }
@@ -1903,6 +1952,66 @@ mod tests {
             .iter()
             .map(|transition| transition.step.as_str())
             .collect()
+    }
+
+    #[test]
+    fn a_started_core_with_a_changed_installation_id_keeps_that_code_and_id() {
+        let machine = Machine::new("installation-changed", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        let first = machine.install(None).expect("the first install");
+        // The database the rollback has to put back.
+        let state = machine.state();
+        private(&state);
+        fs::write(state.join("junto.db"), "before").expect("a database");
+        fs::set_permissions(state.join("junto.db"), fs::Permissions::from_mode(0o600))
+            .expect("private");
+        let second_bundle = machine.root.join("bundle-b");
+        let mut manifest = shipped_bundle(&second_bundle);
+        manifest.build = "b".repeat(64);
+        fs::write(
+            second_bundle.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("json"),
+        )
+        .expect("the second manifest");
+        machine.fixture.borrow_mut().next_installation_id = Some("install-two".to_string());
+        let mut input = machine.input(None);
+        input.bundle = second_bundle.display().to_string();
+        input.expected_installation_id = Some(first.installation_id.clone());
+        let (refused, disposition, _) =
+            install_flow_with(input, &machinery(machine.fixture.clone()))
+                .err()
+                .expect("the changed identity refuses");
+        assert_eq!(refused.check, Some(Check::InstallationChanged));
+        assert_eq!(
+            refused.started_installation_id.as_deref(),
+            Some("install-two")
+        );
+        assert_eq!(disposition, Disposition::RolledBack);
+        assert!(
+            refused
+                .message
+                .contains("candidate installation identity changed"),
+            "{}",
+            refused.message
+        );
+        assert!(machine.current().contains(&first.build));
+        assert_eq!(
+            fs::read_to_string(state.join("junto.db")).expect("the restored database"),
+            "before"
+        );
+    }
+
+    #[test]
+    fn a_started_installation_id_outside_the_near_shape_is_left_off() {
+        assert!(admitted_installation_id("install-two"));
+        assert!(admitted_installation_id("A0._:-"));
+        for bad in ["", "-start", "has space", "plus+name", &"a".repeat(129)] {
+            assert!(!admitted_installation_id(bad), "{bad:?} is not admitted");
+        }
+        let refused = Refused::new("x")
+            .with_check(Check::InstallationChanged)
+            .with_started_installation_id("has space");
+        assert_eq!(refused.started_installation_id, None);
     }
 
     #[test]
