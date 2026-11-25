@@ -460,9 +460,14 @@ new build, started it, met a different installation, and stopped it.
   answers as a different install of Junto, so Junto stopped it. Preview a
   take-over with junto machine takeover to see which seats and automations
   move.`
-- `so Junto stopped it` only when the stop is confirmed on this side;
-  otherwise the clause is dropped and the rest stays. The same printed
-  preview line follows, under the same three conditions.
+- That sentence only when the stop is confirmed on this side. When it is
+  not, a sentence of its own (remote-security's term 4), which says
+  neither that Junto stopped it nor that nothing changed: `The new build
+  is installed there but answers as a different install of Junto, and it
+  may still be running. Preview a take-over with junto machine takeover to
+  see which seats and automations move.`
+- Either way the same printed preview line follows, under the same three
+  conditions.
 
 ## 6. The far install's refusal codes
 
