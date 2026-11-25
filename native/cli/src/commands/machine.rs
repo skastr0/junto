@@ -147,6 +147,39 @@ fn takeover(args: TakeoverInput) -> Answer {
     operator::call("machine.takeover", &input, bound("machine.takeover")).map(Into::into)
 }
 
+/// The S4 preview line runs with one positional name and sends exactly `{name}`.
+/// A JSON object, `@file` or `-` is the confirm form and is left to the core.
+fn takeover_remote(input: &Input) -> Answer {
+    let text = input.input.trim();
+    let json = text.starts_with('{')
+        || text.starts_with('@')
+        || text == "-"
+        || text.starts_with('[')
+        || text.starts_with('"');
+    if json {
+        let args: Value = input::load(&input.input)?;
+        return operator::call(
+            "machine.takeover-remote",
+            &args,
+            bound("machine.takeover-remote"),
+        )
+        .map(Into::into);
+    }
+    if !envelope::machine_name_is_valid(text) {
+        return Err(Failure::new(
+            ErrorType::InputError,
+            "The take-over preview needs a machine name in Junto's shape",
+        ));
+    }
+    let args = serde_json::json!({ "name": text });
+    operator::call(
+        "machine.takeover-remote",
+        &args,
+        bound("machine.takeover-remote"),
+    )
+    .map(Into::into)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SeatArgs<'a> {
@@ -198,7 +231,9 @@ impl Run for Machine {
             Command::Configure(i) => owned("configure", "machine.configure", &i),
             Command::Setup(i) => owned("setup", "machine.setup", &i),
             Command::Takeover(i) => envelope::print("machine takeover", takeover(i)),
-            Command::TakeoverRemote(i) => owned("takeover-remote", "machine.takeover-remote", &i),
+            Command::TakeoverRemote(i) => {
+                envelope::print("machine takeover-remote", takeover_remote(&i))
+            }
             Command::Exchange(i) => owned("exchange", "machine.exchange", &i),
             Command::BoatConnect(i) => owned("boat-connect", "machine.boat-connect", &i),
             Command::BoatDisconnect(i) => owned("boat-disconnect", "machine.boat-disconnect", &i),

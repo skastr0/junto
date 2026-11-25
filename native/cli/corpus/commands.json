@@ -134,6 +134,17 @@
           ]
         },
         {
+          "name": "takeover-remote",
+          "description": "Preview taking over the far pin with a machine name, or confirm one with a JSON object",
+          "args": [
+            {
+              "name": "input",
+              "kind": "string",
+              "description": "A machine name for a preview, or a JSON object for a confirm"
+            }
+          ]
+        },
+        {
           "name": "exchange",
           "args": [
             {

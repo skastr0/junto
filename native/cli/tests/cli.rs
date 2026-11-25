@@ -1579,6 +1579,114 @@ fn a_takeover_preview_from_the_printed_line_sends_the_two_fields_with_no_confirm
     assert_eq!(operator.frames().len(), 1, "refused before the socket");
 }
 
+#[test]
+fn a_takeover_remote_preview_from_the_printed_line_sends_only_the_name() {
+    let operator = Operator::start(|frame| {
+        serde_json::json!({
+            "protocol": "junto-operator/v1",
+            "id": frame["id"],
+            "op": frame["op"],
+            "ok": true,
+            "data": {
+                "machineName": "mini",
+                "installationId": "this-install",
+                "previousInstallationId": "old-install",
+                "seats": 2,
+                "automations": 1,
+                "takenOver": false,
+            },
+        })
+    });
+    let output = operator.run(&["machine", "takeover-remote", "mini"]);
+    assert_eq!(
+        code(&output),
+        0,
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let frames = operator.frames();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0]["op"], "machine.takeover-remote");
+    assert_eq!(
+        frames[0]["args"],
+        serde_json::json!({"name": "mini"}),
+        "the printed line is a preview: the name only, no confirm"
+    );
+
+    let refused = operator.run(&["machine", "takeover-remote", "local"]);
+    assert_eq!(code(&refused), 1);
+    assert_eq!(stderr_json(&refused)["error"]["type"], "InputError");
+    assert_eq!(operator.frames().len(), 1, "refused before the socket");
+}
+
+#[test]
+fn an_s4_refusal_with_a_takeover_remote_prints_its_command() {
+    let operator = Operator::start(|frame| {
+        serde_json::json!({
+            "protocol": "junto-operator/v1",
+            "id": frame["id"],
+            "op": frame["op"],
+            "ok": false,
+            "error": {
+                "type": "conflict",
+                "message": "It already trusts a different install of Junto under this machine's name, so nothing changed.",
+                "details": { "takeoverRemote": { "machineName": "mini" } },
+            },
+        })
+    });
+    let output = operator.run(&["machine", "send", "{}"]);
+    assert_eq!(
+        code(&output),
+        1,
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert_eq!(lines.len(), 2, "{stderr}");
+    let envelope: Value = serde_json::from_str(lines[0]).expect("the refusal envelope");
+    assert_eq!(
+        envelope["error"]["message"],
+        "It already trusts a different install of Junto under this machine's name, so nothing changed."
+    );
+    assert_eq!(lines[1], "junto machine takeover-remote mini");
+}
+
+#[test]
+fn a_malformed_takeover_remote_prints_no_command() {
+    for hint in [
+        serde_json::json!({"machineName": "mini", "extra": true}),
+        serde_json::json!({}),
+        serde_json::json!({"machineName": "local"}),
+        serde_json::json!({"machineName": "bad name"}),
+        serde_json::json!({"machineName": 42}),
+        serde_json::json!(null),
+    ] {
+        let label = hint.to_string();
+        let answer = hint;
+        let operator = Operator::start_with(move |frame| {
+            serde_json::json!({
+                "protocol": "junto-operator/v1",
+                "id": frame["id"],
+                "op": frame["op"],
+                "ok": false,
+                "error": {
+                    "type": "conflict",
+                    "message": "fixed words",
+                    "details": { "takeoverRemote": answer.clone() },
+                },
+            })
+        });
+        let output = operator.run(&["machine", "send", "{}"]);
+        assert_eq!(code(&output), 1);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(stderr.lines().count(), 1, "{label}: {stderr}");
+        let printed: Value =
+            serde_json::from_str(stderr.lines().next().expect("a line")).expect("the envelope");
+        assert_eq!(printed["error"]["message"], "fixed words");
+    }
+}
+
 /// A stand-in operator socket at `$HOME/.junto/operator/control.sock`.
 struct Operator {
     home: PathBuf,

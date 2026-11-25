@@ -97,6 +97,9 @@ pub fn refuse_with(command: Option<&str>, error: &Failure, code: ExitCode) -> Ex
     if let Some(next) = takeover_command(error) {
         warn(&next);
     }
+    if let Some(next) = takeover_remote_command(error) {
+        warn(&next);
+    }
     code
 }
 
@@ -124,6 +127,21 @@ fn takeover_command(error: &Failure) -> Option<String> {
         "junto machine takeover {} {}",
         takeover.machine_name, takeover.installation_id
     ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct TakeoverRemoteHint {
+    machine_name: String,
+}
+
+/// `junto machine takeover-remote <machineName>`, only for the S4 refusal's
+/// one-field shape: anything else prints nothing.
+fn takeover_remote_command(error: &Failure) -> Option<String> {
+    let hint = error.details.as_ref()?.get("takeoverRemote")?;
+    let hint: TakeoverRemoteHint = serde_json::from_value(hint.clone()).ok()?;
+    machine_name_is_valid(&hint.machine_name)
+        .then(|| format!("junto machine takeover-remote {}", hint.machine_name))
 }
 
 pub(crate) fn machine_name_is_valid(value: &str) -> bool {
