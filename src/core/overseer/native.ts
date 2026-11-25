@@ -708,15 +708,19 @@ const handleAgent = async (
       }
       const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
-      await ctx.termPlane.router.kill(binding.bindingId, binding.hostId);
-      const stillAfterKill = await requireGrant(ctx, caller);
-      if (stillAfterKill) return stillAfterKill;
+      // The canvas takes the reseat first, and the old generation is stopped
+      // only once it has: a refusal stops nothing. The stop names the binding
+      // read above, never `parts.bindingId`, which the model refuses to equal
+      // it, so the late stop cannot reach the new process. A taken reseat is
+      // stopped even if the grant was revoked meanwhile, so no old process is
+      // left running unbound.
       const committed = await ctx.commitAgentReseat({
         caller,
         canvasName,
         nodeId: node.id,
         parts,
       }, ctx.signal);
+      if (committed.ok) await ctx.termPlane.router.kill(binding.bindingId, binding.hostId);
       const still = await requireGrant(ctx, caller);
       if (still) return still;
       if (!committed.ok) {
