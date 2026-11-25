@@ -1,9 +1,10 @@
 /** Hardened owner-local lifecycle for Unix control sockets and bearer tokens. */
-import { createHash, randomBytes } from "node:crypto";
-import { closeSync, constants, fchmodSync, fsyncSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import { accessSync, closeSync, constants, fchmodSync, fsyncSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, Socket, type Server } from "node:net";
+import { userInfo } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { ownerPrivateFile } from "./owner-secret-file";
+import { ownerPrivateFile, ownerSecretFile } from "./owner-secret-file";
 
 export const CONTROL_DIRECTORY_MODE = 0o700;
 export const CONTROL_FILE_MODE = 0o600;
@@ -142,8 +143,144 @@ export const acquireLinuxAbstractAddress = async (
   };
 };
 
-const acquireLinuxAbstractLease = (leaseKey: string): Promise<KernelListenerLease> =>
-  acquireLinuxAbstractAddress(`\0junto-control-${createHash("sha256").update(leaseKey).digest("hex")}`);
+/**
+ * Linux control lease names. Abstract names carry no permissions, so a name
+ * any local user can compute can be taken first, and every core's control
+ * socket then refuses to start. Each name is HMAC-SHA256 under a key only
+ * this uid can read, kept under its passwd home, which every start of the uid
+ * agrees on and a relinked Junto home does not change:
+ * `<account home>/.local/state/junto/control-lease.key`. The input is a
+ * domain tag and the absolute normalized path, through one function for the
+ * resolved path and the written one. Only the core binds these names; any
+ * other reader derives them the same way from the same key.
+ *
+ * The fallback is decided from facts about the account home alone, before the
+ * key is touched: no passwd home, one not this uid's, or one it cannot write,
+ * as in a container with no home. Then the names are the sha256 of the path,
+ * logged once: the relink is still refused, and only the squat protection is
+ * given up. Once the home is usable, any fault on the key or its directories
+ * refuses the start and never falls back, so a passing error cannot give one
+ * core the other set of names. (remote-security, 25 November.)
+ */
+const CONTROL_LEASE_KEY_BYTES = 32;
+const CONTROL_LEASE_DOMAIN = "junto-control-lease\0";
+const CONTROL_LEASE_KEY_PATH = [".local", "state", "junto"] as const;
+const CONTROL_LEASE_KEY_FILE = "control-lease.key";
+
+/** The control lease key or its directories cannot be used: the start refuses rather than fall back. */
+export class ControlLeaseKeyRefused extends Error {
+  readonly path: string;
+  constructor(path: string, options?: ErrorOptions) {
+    super(`The control lease key at ${path} cannot be used: it, or a directory above it, is not this user's alone. Junto does not start until it is`, options);
+    this.name = "ControlLeaseKeyRefused";
+    this.path = path;
+  }
+}
+
+type ControlLeaseNaming = Readonly<{ keyed: boolean; name: (leaseKey: string) => string }>;
+let controlLeaseNaming: ControlLeaseNaming | undefined;
+let accountHomeForTests: string | undefined;
+
+/** Tests only: the account home the key lives under, in place of the passwd home. */
+export const setControlLeaseAccountHomeForTests = (home: string | undefined): void => {
+  if (process.env.VITEST === undefined) throw new Error("the control lease account home is set only by tests");
+  accountHomeForTests = home;
+  controlLeaseNaming = undefined;
+};
+
+const ownUid = (): bigint | undefined => (typeof process.getuid === "function" ? BigInt(process.getuid()) : undefined);
+const errorCode = (error: unknown): string | undefined => (error as NodeJS.ErrnoException | undefined)?.code;
+
+/** The account home when it is usable for the key, or why not; any other fault on it refuses. */
+const usableAccountHome = (): { home: string } | { fallback: string } => {
+  let home: string | undefined = accountHomeForTests;
+  if (home === undefined) {
+    try {
+      home = userInfo().homedir;
+    } catch {
+      return { fallback: "this user has no passwd home" };
+    }
+  }
+  if (home === "") return { fallback: "this user has no passwd home" };
+  let stat;
+  try {
+    stat = lstatSync(home, { bigint: true });
+    if (stat.isSymbolicLink()) stat = fstatHome(home);
+  } catch (error) {
+    if (errorCode(error) === "ENOENT" || errorCode(error) === "ENOTDIR") return { fallback: `the passwd home ${home} does not exist` };
+    throw new ControlLeaseKeyRefused(home, { cause: error });
+  }
+  const uid = ownUid();
+  if (!stat.isDirectory()) return { fallback: `the passwd home ${home} is not a directory` };
+  if (uid !== undefined && stat.uid !== uid) return { fallback: `the passwd home ${home} is not this user's` };
+  try {
+    accessSync(home, constants.W_OK);
+  } catch (error) {
+    if (errorCode(error) === "EACCES" || errorCode(error) === "EROFS" || errorCode(error) === "EPERM") return { fallback: `the passwd home ${home} cannot be written` };
+    throw new ControlLeaseKeyRefused(home, { cause: error });
+  }
+  if ((stat.mode & 0o022n) !== 0n) throw new ControlLeaseKeyRefused(home);
+  return { home };
+};
+
+/** The home through a symlink to it, as the passwd entry may name one. */
+const fstatHome = (home: string) => {
+  const fd = openSync(home, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0));
+  try {
+    return fstatSync(fd, { bigint: true });
+  } finally {
+    closeSync(fd);
+  }
+};
+
+/** `.local`, `.local/state` and `junto` under the home: real directories of this uid that no group or other user can write. */
+const controlLeaseKeyDirectory = (home: string): string => {
+  let directory = home;
+  for (const part of CONTROL_LEASE_KEY_PATH) {
+    directory = join(directory, part);
+    try {
+      mkdirSync(directory, { mode: CONTROL_DIRECTORY_MODE });
+    } catch (error) {
+      if (errorCode(error) !== "EEXIST") throw new ControlLeaseKeyRefused(directory, { cause: error });
+    }
+    let stat;
+    try {
+      stat = lstatSync(directory, { bigint: true });
+    } catch (error) {
+      throw new ControlLeaseKeyRefused(directory, { cause: error });
+    }
+    const uid = ownUid();
+    if (!stat.isDirectory() || stat.isSymbolicLink() || (uid !== undefined && stat.uid !== uid) || (stat.mode & 0o022n) !== 0n) {
+      throw new ControlLeaseKeyRefused(directory);
+    }
+  }
+  return directory;
+};
+
+const resolveControlLeaseNaming = (): ControlLeaseNaming => {
+  if (controlLeaseNaming !== undefined) return controlLeaseNaming;
+  const account = usableAccountHome();
+  if ("fallback" in account) {
+    console.warn(`[control] control lease names come from their paths: ${account.fallback}`);
+    controlLeaseNaming = { keyed: false, name: (leaseKey) => createHash("sha256").update(leaseKey).digest("hex") };
+    return controlLeaseNaming;
+  }
+  const path = join(controlLeaseKeyDirectory(account.home), CONTROL_LEASE_KEY_FILE);
+  let key: Buffer;
+  try {
+    key = ownerSecretFile(path, CONTROL_LEASE_KEY_BYTES);
+  } catch (error) {
+    throw new ControlLeaseKeyRefused(path, { cause: error });
+  }
+  controlLeaseNaming = {
+    keyed: true,
+    name: (leaseKey) => createHmac("sha256", key).update(CONTROL_LEASE_DOMAIN, "utf8").update(leaseKey, "utf8").digest("hex"),
+  };
+  return controlLeaseNaming;
+};
+
+const acquireLinuxAbstractLease = (naming: ControlLeaseNaming, leaseKey: string): Promise<KernelListenerLease> =>
+  acquireLinuxAbstractAddress(`\0junto-control-${naming.name(leaseKey)}`);
 
 /**
  * Darwin `open(2)` flags that Node does not expose as constants: `O_EXLOCK`
@@ -228,11 +365,12 @@ const listenerLeaseKeys = (socketPath: string): ReadonlyArray<string> => {
 
 /** Every key's abstract address, or none: one held by another listener refuses the lease. */
 const acquireLinuxAbstractLeases = async (
+  naming: ControlLeaseNaming,
   leaseKeys: ReadonlyArray<string>,
 ): Promise<KernelListenerLease> => {
   const leases: KernelListenerLease[] = [];
   try {
-    for (const leaseKey of leaseKeys) leases.push(await acquireLinuxAbstractLease(leaseKey));
+    for (const leaseKey of leaseKeys) leases.push(await acquireLinuxAbstractLease(naming, leaseKey));
   } catch (error) {
     await Promise.all(leases.map((lease) => lease.release()));
     throw error;
@@ -263,11 +401,13 @@ export const acquireControlListenerLease = async (
   socketPath: string,
 ): Promise<ControlListenerLease> => {
   const leaseKeys = listenerLeaseKeys(socketPath);
+  // A key fault refuses here, in its own words, not as a held lease.
+  const naming = process.platform === "linux" ? resolveControlLeaseNaming() : undefined;
   let kernel: KernelListenerLease;
   try {
     kernel =
-      process.platform === "linux"
-        ? await acquireLinuxAbstractLeases(leaseKeys)
+      naming !== undefined
+        ? await acquireLinuxAbstractLeases(naming, leaseKeys)
         : process.platform === "darwin"
           ? await acquireDarwinFileLock(`${leaseKeys[0]!}.lease`)
           : (() => {

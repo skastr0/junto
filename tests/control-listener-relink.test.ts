@@ -9,7 +9,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -88,7 +88,9 @@ describe.skipIf(process.platform !== "linux")("a control listener under a relink
     // A bind mount does not resolve to its source, so the lease keys differ;
     // the live listener seen through the second view refuses it.
     const child = `
-      const { acquireControlListenerLease, prepareControlDirectory, removeObservedSocket } = await import(${JSON.stringify(pathToFileURL(fileURLToPath(new URL("../src/node/control-filesystem.ts", import.meta.url))).href)});
+      const { acquireControlListenerLease, prepareControlDirectory, removeObservedSocket, setControlLeaseAccountHomeForTests } = await import(${JSON.stringify(pathToFileURL(fileURLToPath(new URL("../src/node/control-filesystem.ts", import.meta.url))).href)});
+      // Inside the user namespace this uid is root, whose passwd home is not its own: name the account it is.
+      setControlLeaseAccountHomeForTests(${JSON.stringify(userInfo().homedir)});
       const path = process.argv[1] + "/.junto/operator/control.sock";
       try {
         prepareControlDirectory(process.argv[1] + "/.junto/operator");
@@ -97,7 +99,7 @@ describe.skipIf(process.platform !== "linux")("a control listener under a relink
         console.log("STARTED");
       } catch (error) { console.log("REFUSED " + error.message); }`;
     const run = spawnSync("unshare", ["-rm", "sh", "-c", 'mount --bind "$1" "$2" && exec "$3" -e "$4" "$2"', "sh",
-      join(base, "real"), join(base, "view"), "bun", child], { encoding: "utf8", timeout: 20_000 });
+      join(base, "real"), join(base, "view"), "bun", child], { encoding: "utf8", env: { ...process.env, VITEST: "true" }, timeout: 20_000 });
     expect(run.stderr).toBe("");
     expect(run.stdout.trim()).toBe("REFUSED refusing to replace control socket with a live listener");
   });
