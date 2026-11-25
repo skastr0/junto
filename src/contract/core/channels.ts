@@ -192,6 +192,8 @@ export const CORE_PUSHES = {
   [IPC_CHANNELS.coreRestarted]: EmptyRecord,
   // A canvas's authority list changed (fleet/host.ts); the window reads it again.
   [IPC_CHANNELS.authorityChanged]: EmptyRecord,
+  // What machine.list answers may have changed (hosts/machine-pushes.ts); the window reads it again.
+  [IPC_CHANNELS.machinesChanged]: EmptyRecord,
 } as const;
 
 /** Every channel on the core bus. */

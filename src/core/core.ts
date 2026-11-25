@@ -43,6 +43,7 @@ import { watchSeatReadiness } from "./term/onboard-nudge-interject";
 import { termPlane } from "./term/plane";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { CorePushes } from "./push";
+import { publishMachinesChanged } from "./hosts/machine-pushes";
 import { AgentSignalRepository } from "./signals/repository";
 import { onAgentSignalChanged } from "./signals/changes";
 import { mainAuthoringGate } from "../node/main-authoring-gate";
@@ -158,6 +159,7 @@ export const startCore = async (options: CoreOptions) => {
   let stopCompanion: (() => void) | undefined;
   let seatProcesses: Awaited<ReturnType<typeof startCoreSeats>> | undefined;
   let unbindTermIpcPlane: (() => void) | undefined;
+  let stopMachinePushes: (() => void) | undefined;
   let mail: Context.Service.Shape<typeof MachineCoreMail> | undefined;
   let sessions: SeatSessions | undefined;
   let stopSeatReports: (() => void) | undefined;
@@ -217,6 +219,7 @@ export const startCore = async (options: CoreOptions) => {
         },
         async () => {
           unbindTermIpcPlane?.();
+          stopMachinePushes?.();
         },
         async () => {
           await seatProcesses?.close();
@@ -305,6 +308,7 @@ export const startCore = async (options: CoreOptions) => {
     // collide with a PTY that is still running there.
     await adoptCoreTerminals();
     const pushes = await runtime.runPromise(CorePushes);
+    stopMachinePushes = publishMachinesChanged(pushes);
     if (windowTerminals !== undefined) {
       unbindTermIpcPlane = bindTermIpcPlane(termPlane, pushes, await runtime.runPromise(RemoteSeatState));
     }

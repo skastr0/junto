@@ -1136,7 +1136,13 @@ needed, so it costs nothing while idle. The trust rules are in
   build) ask the operator to confirm with the live preflight count before
   re-running with `stopRunningSeats: true`. When a remote seat stops because of
   its machine, its terminal overlay shows an inline recovery card with in-place
-  progress steps and reopens the seat when the fix finishes.
+  progress steps and reopens the seat when the fix finishes. It reads the
+  list again when the core says it may have changed: the core publishes
+  `machinesChanged` on its push bus, one push for every turn of changes
+  (`src/core/hosts/machine-pushes.ts`, locked by
+  `tests/machine-changes-window.test.ts`), and main relays it to the window.
+  A link closing is not one of those changes, because the window's read asks
+  every machine again and a failing dial would ask forever.
 - **Not in v1.** Ports opened on a sandbox, joining the tailnet, and a key
   given on stdin instead of the CLI.
 

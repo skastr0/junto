@@ -342,6 +342,7 @@ export const registerJuntoIpc = (boot: MainBoot): void => {
     IPC_CHANNELS.kernelChanged,
     IPC_CHANNELS.coreRestarted,
     IPC_CHANNELS.authorityChanged,
+    IPC_CHANNELS.machinesChanged,
   ]) onCorePush(channel, (payload) => broadcast(channel, payload));
   registerModelWatches(boot.core);
 

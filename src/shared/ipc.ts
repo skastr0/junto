@@ -376,6 +376,8 @@ export const IPC_CHANNELS = {
   authorityRead: "junto:authority-read",
   /** The authority read changed (a commit, a list edit, alone): read it again. */
   authorityChanged: "junto:authority-changed",
+  /** Something `machine.list` answers may have changed (core/hosts/machine-pushes.ts): read it again. */
+  machinesChanged: "junto:machines-changed",
   /** Declared keys of a harness's own config, read on the machine that holds it. */
   nativeSettingsRead: "junto:native-settings-read",
   /** One declared key written by the machine's own Junto, answered as read back. */
