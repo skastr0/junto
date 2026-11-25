@@ -318,7 +318,7 @@ test("[fake-tui] Quick thread from the canvas", async () => {
       return `receipt "${sentLine}", "${waitingLine}", ${clock} icon(s) on the seat; Done focused, described as "${doneDescription}"; live region "${spoken}" (accessibility tree, not a VoiceOver run); Cyd holds exactly 1 copy`;
     });
 
-    // 6. Escape with an unsent draft, open again: seats, text and files are back.
+    // 6. Escape with an unsent draft, open again: the chosen seats are cleared, the text and files stay (operator ruling, 50c03bc9c and 904e3da1e).
     await check("q6-draft-kept", async (frames) => {
       await emptyCanvas();
       await openQuickThread(page);
@@ -337,12 +337,11 @@ test("[fake-tui] Quick thread from the canvas", async () => {
       await page.mouse.click(20, page.viewportSize() ? page.viewportSize()!.height - 20 : 700);
       await expect(frameOf(page)).toHaveCount(0, { timeout: 5_000 });
       await openQuickThread(page);
-      const back2 = { seats: await chosen(page), files: await frameOf(page).getByTestId("attachment-chip").count() };
+      const back2 = { seats: await chosen(page), text: await message(page).inputValue().catch(async () => (await message(page).textContent()) ?? ""), files: await frameOf(page).getByTestId("attachment-chip").count() };
       frames.push(await shot("q6b-draft-back-after-press-outside"));
-      if (back.seats.join() !== seats.bea.id || !back.text.includes("Draft that must survive") || back.files !== 1 || back2.seats.join() !== seats.bea.id || back2.files !== 1)
-        throw new Error(`after Escape ${JSON.stringify(back)}; after a press outside ${JSON.stringify(back2)}`);
-      // Clear the draft for line 7: take Bea off and empty the text and file.
-      await frameOf(page).getByTestId("quick-thread-seat").first().getByRole("button").first().click();
+      if (back.seats.length !== 0 || !back.text.includes("Draft that must survive") || back.files !== 1 || back2.seats.length !== 0 || !back2.text.includes("Draft that must survive") || back2.files !== 1)
+        throw new Error(`after Escape ${JSON.stringify(back)}; after a press outside ${JSON.stringify(back2)}; wanted no seats, the text and 1 file each time`);
+      // Clear the draft for line 7: no seat is chosen, so empty the text and file.
       await message(page).fill("");
       await frameOf(page).getByRole("button", { name: /^Remove / }).first().click().catch(() => undefined);
       await page.keyboard.press("Escape");

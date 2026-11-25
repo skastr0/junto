@@ -54,20 +54,26 @@ const unreadTotal = async (page: Page): Promise<number> => Number(((await unread
 const pane = (page: Page): Locator => page.getByTestId("operator-threads-pane");
 const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-type Ears = { said: Array<{ text: string; t: number }>; marks: Array<{ text: string; t: number }> };
+type Ears = { said: Array<{ text: string; t: number }>; marks: Array<{ text: string; t: number }>; gone: Array<{ t: number }> };
 /** Records each saying added to a thread's live region and each waiting mark drawn, with its time. */
 const installEars = (page: Page) =>
   page.evaluate(() => {
     const w = window as unknown as { __ears: Ears };
-    w.__ears = { said: [], marks: [] };
+    w.__ears = { said: [], marks: [], gone: [] };
     new MutationObserver((records) => {
-      for (const record of records)
+      for (const record of records) {
+        for (const node of record.removedNodes) {
+          if (!(node instanceof Element)) continue;
+          const dropped = node.matches('[data-testid="seat-threads-waiting"]') ? [node] : [...node.querySelectorAll('[data-testid="seat-threads-waiting"]')];
+          for (const _mark of dropped) w.__ears.gone.push({ t: performance.now() });
+        }
         for (const node of record.addedNodes) {
           if (!(node instanceof Element)) continue;
           if (node.parentElement?.matches('[data-testid="seat-threads-said"]')) w.__ears.said.push({ text: node.textContent ?? "", t: performance.now() });
           const marks = node.matches('[data-testid="seat-threads-waiting"]') ? [node] : [...node.querySelectorAll('[data-testid="seat-threads-waiting"]')];
           for (const mark of marks) w.__ears.marks.push({ text: mark.textContent ?? "", t: performance.now() });
         }
+      }
     }).observe(document.body, { subtree: true, childList: true });
   });
 const ears = (page: Page): Promise<Ears> => page.evaluate(() => (window as unknown as { __ears: Ears }).__ears);
@@ -75,11 +81,15 @@ const clearEars = (page: Page) => page.evaluate(() => {
   const w = window as unknown as { __ears: Ears };
   w.__ears.said.length = 0;
   w.__ears.marks.length = 0;
+  w.__ears.gone.length = 0;
 });
 
 const openThreads = async (page: Page): Promise<void> => {
   await page.keyboard.press("Meta+U");
   await expect(modal(page)).toBeVisible({ timeout: 10_000 });
+};
+const ensureThreads = async (page: Page): Promise<void> => {
+  if ((await modal(page).count()) === 0) await openThreads(page);
 };
 const closeThreads = async (page: Page): Promise<void> => {
   for (let i = 0; i < 3 && (await modal(page).count()) > 0; i += 1) await page.keyboard.press("Escape");
@@ -200,23 +210,27 @@ test("[fake-tui] Global threads", async () => {
 
     // 4. A reply sends from the pane.
     await check("g4-reply-sends", async (frames) => {
+      await ensureThreads(page);
       const text = "Thanks, go ahead with Delta.";
       const input = pane(page).getByTestId("thread-composer-input");
       await input.click();
       await input.fill(text);
       await clearEars(page);
+      const sentAt = await page.evaluate(() => performance.now());
       await pane(page).getByTestId("thread-composer-send").click();
       await expect(pane(page).getByTestId("seat-threads-message").filter({ hasText: text })).toBeVisible({ timeout: 15_000 });
       await expect.poll(async () => (await readSeatMailbox(page, CANVAS, s.dov.id)).some((m) => JSON.stringify(m).includes(text)), { timeout: 15_000 }).toBe(true);
       await settle(1500);
       frames.push(await shot("g4-replied"));
       const heard = await ears(page);
-      if (heard.marks.length > 0 || heard.said.length > 0) throw new Error(`reply to a running seat: waiting marks ${JSON.stringify(heard.marks)}, said ${JSON.stringify(heard.said)}`);
+      const lived = heard.marks.map((m, i) => `"${m.text}" drawn ${Math.round(m.t - sentAt)} ms after the press, gone ${heard.gone[i] ? `${Math.round(heard.gone[i]!.t - m.t)} ms later` : "never"}`);
+      if (heard.marks.length > 0 || heard.said.length > 0) throw new Error(`reply to a running seat (Dov, started by the harness): waiting mark ${lived.join("; ")}; said ${JSON.stringify(heard.said)}`);
       return "reply drawn in Dov's thread and stored in Dov's mailbox; no waiting mark flashed under it (DOM watched from send to 1.5 s after delivery) and nothing said";
     });
 
     // 5. Region picker, unread filter and search narrow the list; Clear restores it.
     await check("g5-narrowing", async (frames) => {
+      await ensureThreads(page);
       const notes: string[] = [];
       await page.getByTestId("feed-region-chip").filter({ hasText: "North" }).first().click();
       await expect.poll(async () => (await rowTexts(page)).length, { timeout: 5_000 }).toBe(2);
@@ -247,6 +261,7 @@ test("[fake-tui] Global threads", async () => {
 
     // 6. Both orders.
     await check("g6-orders", async (frames) => {
+      await ensureThreads(page);
       const newest = (await rowTexts(page)).map((t) => t.match(/Ada|Bea|Dov|Eve/)?.[0]);
       frames.push(await shot("g6a-newest"));
       await page.locator('button[aria-label="Order threads"]').click();
@@ -289,19 +304,20 @@ test("[fake-tui] Global threads", async () => {
       const said = after.said.map((x) => x.text);
       const want = ["Sent. Waiting for Eve. It arrives when the seat is back.", "Eve has it."];
       if (markText !== "Waiting for Eve. It arrives when the seat is back." || JSON.stringify(said) !== JSON.stringify(want))
-        throw new Error(`mark "${String(markText)}"; said ${JSON.stringify(said)} (before start ${JSON.stringify(before.said.map((x) => x.text))})`);
+        throw new Error(`mark "${String(markText)}"; said ${JSON.stringify(said)} (before start ${JSON.stringify(before.said.map((x) => x.text))}); live regions in the pane ${await pane(page).getByTestId("seat-threads-said").count()}, text now "${await pane(page).getByTestId("seat-threads-said").first().textContent().catch(() => "none")}"`);
       return `mark "${markText}" under the reply, ${clock} svg (clock), align ${align}; said in order ${JSON.stringify(said)}, each once; Eve started and the mark went without a reload`;
     });
     await closeThreads(page).catch(() => undefined);
 
     // 8. Waiting line in the seat's Threads view: stop Dov, reply, start Dov.
     await check("g8-waiting-line-seat-view", async (frames) => {
-      await page.evaluate(async ([canvas, id]) => window.junto!.modelStop({ canvas, id }), [CANVAS, s.dov.id] as const);
-      await settle(1500);
+      // Opening a seat starts it, so Dov is opened on Threads first and stopped there.
       await card(page, s.dov.id).dblclick();
       const surface = page.locator('[data-testid="native-terminal-surface"]:has(#seat-stage-seat-dov)');
       await expect(surface).toBeVisible({ timeout: 20_000 });
       await surface.getByTestId("seat-view-threads").click();
+      await page.evaluate(async ([canvas, id]) => window.junto!.modelStop({ canvas, id }), [CANVAS, s.dov.id] as const);
+      await expect(surface.getByRole("button", { name: /stop process/i })).toHaveCount(0, { timeout: 20_000 });
       await surface.getByTestId("seat-threads-row").first().click();
       const text = "Dov, after the restart please confirm.";
       const input = surface.getByTestId("thread-composer-input");
@@ -360,8 +376,9 @@ test("[fake-tui] Global threads", async () => {
       const listed = await rowTexts(page);
       const unreadRows = await page.getByTestId("operator-threads-row-unread").count();
       frames.push(await shot("g10a-opened-unread-on-untouched"));
-      if (total < 3 || listed.length !== total || unreadRows !== total)
-        throw new Error(`opened with Unread on, untouched 2 s: total ${total}, rows ${listed.length}, unread rows ${unreadRows}: ${JSON.stringify(listed)}`);
+      // The tally counts unread messages (Ada has two); the list is one row per thread.
+      if (total < 3 || listed.length < 3 || unreadRows !== listed.length)
+        throw new Error(`opened with Unread on, untouched 2 s: unread ${total}, rows ${listed.length}, unread rows ${unreadRows}: ${JSON.stringify(listed)}`);
       await rows(page).filter({ hasText: "Bea" }).first().click();
       await expect(pane(page)).toContainText("Bravo copy reviewed.", { timeout: 10_000 });
       await settle(1_000);
@@ -371,8 +388,8 @@ test("[fake-tui] Global threads", async () => {
       frames.push(await shot("g10b-one-pick"));
       await unreadChip(page).click();
       await closeThreads(page);
-      if (after !== total - 1 || afterUnread !== total - 1) throw new Error(`after one pick: total ${total} -> ${after}, unread rows ${afterUnread}, rows ${JSON.stringify(afterRows)}`);
-      return `opened with Unread on, untouched 2 s: ${total} unread, ${listed.length} rows listed, all unread; one pick (Bea): ${after} unread, ${afterRows.length} rows still listed`;
+      if (after !== total - 1 || afterUnread !== listed.length - 1 || afterRows.length !== listed.length) throw new Error(`after one pick: unread ${total} -> ${after}, unread rows ${listed.length} -> ${afterUnread}, rows ${listed.length} -> ${afterRows.length}: ${JSON.stringify(afterRows)}`);
+      return `opened with Unread on, untouched 2 s: ${total} unread in ${listed.length} rows, all unread; one pick (Bea): ${after} unread, ${afterUnread} unread rows, ${afterRows.length} rows still listed`;
     });
 
     // 11. Opens Most urgent first in the urgent order, not newest first (4b62ed661).
