@@ -226,7 +226,8 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
     build. Every attempt is latched by the pin's installation id before any
     byte moves, so success and failure both block a second automatic push of
     that build; a new own build, or an operator's update, is the only way to
-    try again. A peer's version and build time only decide whether to push,
+    try again. A refused-busy at the copy's own recount also latches that
+    build, so once those seats stop it needs the operator's click. A peer's version and build time only decide whether to push,
     never what is installed: no byte is fetched from the peer, and a peer that
     claims newer makes this machine show behind instead. Downloaded bytes
     require a signed release; source and Preview builds install only their own
