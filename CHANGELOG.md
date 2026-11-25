@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Deleting a canvas reaches every other machine that holds a copy of it, a
+  seat or a Files node: that machine drops its copy, stops its seats, and an
+  older copy cannot bring the canvas back. The removal is sent again on each
+  link until the machine takes it. A hold left on a far seat by 0.12.0 or an
+  earlier build now clears.
+
 ## 0.12.0 — 2026-11-25
 
 Opening the database with 0.12.0 moves it from version 76 to 79, and 0.11.15
