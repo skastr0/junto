@@ -20,12 +20,13 @@
  */
 import { Schema, SchemaTransformation } from "effect";
 import type { ActorSeatId } from "./actor-seat";
-import { productNodeKindEnabled } from "./features";
+import { FILES_REMOTE_ENABLED, productNodeKindEnabled } from "./features";
 import { InstallationId } from "./installation-id";
 import {
   Artifacts,
   Automations,
   CanvasName,
+  Files,
   HostId,
   Label,
   NodeId,
@@ -113,7 +114,14 @@ const CopiedLabel = Schema.Struct({ kind: Label.fields.kind, ...geometry, text: 
 /** The Automations node, so every machine places the automations on it; its automations ride rulings. */
 const CopiedAutomations = Schema.Struct({ kind: Automations.fields.kind, ...geometry, label: Automations.fields.label });
 
-const CopiedResource = Schema.Union([CopiedTask, CopiedArtifacts, CopiedLabel, CopiedAutomations, Stub]);
+/**
+ * A Files node, whole, for the one machine its folder is on (0.12.1, X6): that
+ * machine serves the folder, so it holds the host and root it checks every op
+ * against. Every other machine gets the stub.
+ */
+const CopiedFiles = Schema.Struct({ kind: Files.fields.kind, ...geometry, label: Files.fields.label, host: Files.fields.host, root: Files.fields.root });
+
+const CopiedResource = Schema.Union([CopiedTask, CopiedArtifacts, CopiedLabel, CopiedAutomations, CopiedFiles, Stub]);
 export type CopiedResource = typeof CopiedResource.Type;
 
 
@@ -216,7 +224,8 @@ export type CanvasCopyRefusal =
 export const CANVAS_COPY_FRAME_BUDGET = 1024 * 1024;
 
 export type CanvasCopyResult =
-  | { readonly ok: true; readonly copy: CanvasCopy }
+  /** `filesOnly`: the machine's only reason is a Files node on it (X6, C1), so the copy carries no seat. */
+  | { readonly ok: true; readonly copy: CanvasCopy; readonly filesOnly?: true }
   | { readonly ok: false; readonly refusal: CanvasCopyRefusal };
 
 const namesNoMachine = (node: Node): boolean => {
@@ -250,8 +259,15 @@ const staysHome = (_kind: Exclude<Node["kind"], CrossingKind>): undefined => und
  * Absent for a note, for what fires on its own host, for the kinds 0.10
  * deletes, and for a kind this build has switched off.
  */
-const resourceOf = (node: Node, editorMachineName: HostId): CopiedResource | undefined => {
+/** A Files node whose folder is on that machine, with files over SSH on. */
+const filesServedBy = (node: Node, target: CanvasCopyTarget): boolean =>
+  FILES_REMOTE_ENABLED && node.kind === "files" && node.host === target.machineName;
+
+const resourceOf = (node: Node, editorMachineName: HostId, target: CanvasCopyTarget): CopiedResource | undefined => {
   if (!productNodeKindEnabled(node.kind)) return undefined;
+  if (node.kind === "files" && filesServedBy(node, target)) {
+    return { kind: "files", ...placed(node), ...(node.label === undefined ? {} : { label: node.label }), host: node.host, root: node.root };
+  }
   switch (node.kind) {
     case "task":
       return { kind: "task", ...placed(node), ...(node.name === undefined ? {} : { name: node.name }) };
@@ -360,7 +376,7 @@ export const exportCanvasCopy = (
   const notes: Note[] = [];
   const resources: CopiedResource[] = [];
   for (const node of source.nodes) {
-    const resource = resourceOf(node, source.editorMachineName);
+    const resource = resourceOf(node, source.editorMachineName, target);
     if (resource !== undefined) resources.push(resource);
     if (node.kind === "agent") {
       if (keeper || node.host === target.machineName) {
@@ -389,8 +405,29 @@ export const exportCanvasCopy = (
   }
   // A machine with automations and no seat holds the canvas too: it runs them.
   // A keeper keeps the canvas whole whether a seat or an automation is on it.
+  // With files over SSH, so does a machine a Files node's folder is on: it serves the folder.
   if (!keeper && seats.length === 0 && !source.automations.some((automation) => automation.machine === target.machineName)) {
-    return { ok: false, refusal: { reason: "no-seat-or-automation-on-that-machine" } };
+    const served = resources.filter((resource) => resource.kind === "files");
+    if (served.length === 0) return { ok: false, refusal: { reason: "no-seat-or-automation-on-that-machine" } };
+    // remote-security C1: a folder is a smaller reason than a seat. The machine
+    // learns the header and the Files nodes on it, and nothing else of the canvas.
+    const copy: CanvasCopy = {
+      canvasName: source.canvasName,
+      canvasId: source.canvasId,
+      seq: source.seq,
+      editor: source.editor,
+      target: target.installationId,
+      seats: [],
+      peers: [],
+      terminals: [],
+      regions: [],
+      resources: served,
+      wires: [],
+      guidance: [],
+      references: [],
+      playing: source.playing,
+    };
+    return { ok: true, copy, filesOnly: true };
   }
 
   const placed = { nodes: new Map(source.nodes.map((node) => [node.id, node])) };
@@ -399,8 +436,9 @@ export const exportCanvasCopy = (
     for (const region of regionStack(placed, seat.id)) mine.add(region.id);
   }
   // No wire to a stub: the receiving machine keeps no stub to end it on, and
-  // a wire to a page would be something to drive it with.
-  const wired = resources.filter((resource) => resource.kind !== "stub");
+  // a wire to a page would be something to drive it with. None to a Files
+  // node either, whole or not: 0.12 gives a seat no Files node (C3).
+  const wired = resources.filter((resource) => resource.kind !== "stub" && resource.kind !== "files");
   const held = new Set<string>([...seats, ...peers, ...terminals, ...regions, ...wired].map((node) => node.id));
   const copy: CanvasCopy = {
     canvasName: source.canvasName,

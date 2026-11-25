@@ -12,6 +12,7 @@
  * keeps them where its own are kept, so a seat reads them the one way.
  */
 import { Cause, Effect, Option, Result, Schema } from "effect";
+import { FILES_REMOTE_ENABLED } from "../../../shared/features";
 import { SqlClient } from "effect/sql";
 import {
   CANVAS_COPY_FRAME_BUDGET,
@@ -321,6 +322,20 @@ export const makeLiveRowExchange = (
      * machine are read as one state, so no move committed between the reads
      * is sent as standing at the count before it.
      */
+    /**
+     * With files over SSH (0.12.1, X6, remote-security C2): the canvases each
+     * machine was last sent a Files node of whole. Once it has no reason left
+     * it is sent the departure copy, so the node and its root go from it; the
+     * mark goes with that copy. In memory: a restart loses it, and a node
+     * moved away after the restart stays on that machine, unserved, until its
+     * next copy (named to remote-security).
+     */
+    const filesCarriedTo = new Map<InstallationId, Set<string>>();
+    /** The copies cut for a machine whose only reason is a Files node: they carry no seat to read placements from. */
+    const filesOnlyCopies = new WeakSet<CanvasCopy>();
+    const mayHoldFiles = (canvasName: string, peer: InstallationId): boolean =>
+      FILES_REMOTE_ENABLED && filesCarriedTo.get(peer)?.has(canvasName) === true;
+
     const cutCopy = (canvasName: string, peer: InstallationId): Effect.Effect<{ readonly copy: CanvasCopy; readonly departing: boolean } | undefined, unknown> =>
       Effect.gen(function* () {
         const header = yield* records.getCanvas(canvasName);
@@ -365,13 +380,16 @@ export const makeLiveRowExchange = (
           { installationId: peer, machineName: target.machineName },
           keeper ? "keeper" : "cut",
         );
-        if (!cut.ok && cut.refusal.reason === "no-seat-or-automation-on-that-machine") {
+        // A machine still in its seat-departing window gets the departure copy
+        // first, as before files over SSH: its Files node follows on the next cut.
+        const seatDeparting = cut.ok && cut.filesOnly === true && (yield* repository.seatDepartingFrom(canvasName)).has(peer);
+        if (seatDeparting || (!cut.ok && cut.refusal.reason === "no-seat-or-automation-on-that-machine")) {
           // A machine in its departing window is still owed one copy — the
           // header-only departure copy — so the delete that cost it its last
           // seat reaches it and the window can close. Only the editing
           // machine ever cuts one: this path already returned for non-editors.
           const departing = yield* repository.seatDepartingFrom(canvasName);
-          if (departing.has(peer)) {
+          if (departing.has(peer) || mayHoldFiles(canvasName, peer)) {
             const departure = exportCanvasCopy(
               {
                 canvasName: asCanvasName(canvasName),
@@ -409,13 +427,12 @@ export const makeLiveRowExchange = (
         // it (0.11/06 F3): the receiver admits the sender before this list,
         // keeps the newer position, and never unions an older one back.
         const listPosition = yield* records.canvasListPosition(canvasName);
-        return {
-          copy: {
-            ...cut.copy,
-            authorities: { members: authorities, term: listPosition?.term ?? 0, index: listPosition?.log_index ?? 0 },
-          },
-          departing: false,
+        const copy: CanvasCopy = {
+          ...cut.copy,
+          authorities: { members: authorities, term: listPosition?.term ?? 0, index: listPosition?.log_index ?? 0 },
         };
+        if (cut.filesOnly === true) filesOnlyCopies.add(copy);
+        return { copy, departing: false };
       }).pipe(sql.withTransaction, Effect.provideService(StateTransactionOperation, "exchange.cut-copy"));
 
     /**
@@ -435,7 +452,8 @@ export const makeLiveRowExchange = (
         // own rows, never from its empty content, so recording it closes the
         // departing machine's window without closing one placement still open.
         // The mode comes from the cutter, never inferred from the copy's shape.
-        const seats = departing
+        // A Files-only copy (X6, C1) carries no seat either: its placements are read back the same way.
+        const seats = departing || filesOnlyCopies.has(copy)
           ? (yield* records.listNodes(copy.canvasName)).flatMap((node) => {
               if (node.kind !== "agent") return [];
               const machine = byName.get(node.host);
@@ -473,6 +491,13 @@ export const makeLiveRowExchange = (
           const byCanvas = departureCopiesSent.get(copy.target) ?? new Map<string, number>();
           byCanvas.set(copy.canvasName, copy.seq);
           departureCopiesSent.set(copy.target, byCanvas);
+          filesCarriedTo.get(copy.target)?.delete(copy.canvasName);
+        } else if (copy.resources.some((resource) => resource.kind === "files")) {
+          const carried = filesCarriedTo.get(copy.target) ?? new Set<string>();
+          carried.add(copy.canvasName);
+          filesCarriedTo.set(copy.target, carried);
+        } else {
+          filesCarriedTo.get(copy.target)?.delete(copy.canvasName);
         }
       });
 
