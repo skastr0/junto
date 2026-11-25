@@ -23,7 +23,13 @@ export default defineConfig(({ command, mode }) => ({
   main: mainBuildSection({
     command,
     mode,
-    input: { "core-process": resolve("src/core/entry.ts"), "terminal-process": resolve("src/terminal/entry.ts") },
+    // The live overseer host is a seat's occupant program, run on Junto's
+    // Node from out/main beside the core (src/core/term/templates/node-host.ts).
+    input: {
+      "core-process": resolve("src/core/entry.ts"),
+      "terminal-process": resolve("src/terminal/entry.ts"),
+      "overseer-host": resolve("src/node/overseer-host/entry.ts"),
+    },
     emptyOutDir: false,
   }),
 }));

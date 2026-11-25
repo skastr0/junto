@@ -59,6 +59,12 @@ export type ArgvSpec = {
   /** Binary name resolved via PATH (or absolute when the host injects one). */
   readonly binary: string;
   /**
+   * The binary is a program of this Junto build, not one on PATH: the entry
+   * `out/main/<binary>.js` beside the core, run on the Node Junto runs on
+   * (src/core/term/templates/node-host.ts), with the rest of the argv after it.
+   */
+  readonly nodeHost?: true;
+  /**
    * Fixed argv prefix after the binary — STRUCTURAL ONLY (Hermes: `chat --tui`
    * selects the interactive TUI; without it the binary is headless).
    *
@@ -1729,8 +1735,9 @@ export const JUNTO_OVERSEER_TEMPLATE: ManagedTerminalTemplate = {
   displayName: "Junto Overseer",
   featureGate: "liveOverseer",
   argvSpec: {
-    binary: "junto",
-    prefix: ["overseer-host"],
+    binary: "overseer-host",
+    nodeHost: true,
+    prefix: [],
     promptMode: "none",
     modelFlag: "--model",
   },

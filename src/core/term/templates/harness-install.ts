@@ -21,13 +21,12 @@ import {
   type IsolationSpec,
 } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/managed-terminal-templates";
-import { isOverseerHarness } from "@shared/harness-records";
 import { harnessRuntimeRecordFor } from "../harness-record";
 import { parseHelpFlags } from "@shared/launch-extra-args";
 import type { ManagedTerminalFlagsResult } from "@shared/ipc";
 import { configuredToolDirectories } from "../../shell-environment";
 import { shellEnvironment } from "../../shell-environment";
-import { juntoCliPathPrefixes } from "./seat-env";
+import { nodeHostLaunch } from "./node-host";
 import { e2eHarnessRefusal } from "@shared/e2e-sandbox";
 
 /**
@@ -231,6 +230,8 @@ export const harnessLaunchFlags = async (
   if (!managedHarnessEnabled(harness)) return { installed: false, flags: [] };
   const template = templateFor(harness);
   const spec = template.argvSpec;
+  // A program of this build has no --help to read flags from.
+  if (spec.nodeHost) return { installed: nodeHostLaunch(spec.binary) !== undefined, flags: [] };
   const executable = resolveHarnessExecutable(spec.binary);
   if (!executable || !e2eSandboxAdmits(harness, executable)) return { installed: false, flags: [] };
   const subcommand = spec.prefix.filter((token) => !token.startsWith("-"));
@@ -312,9 +313,7 @@ export const harnessBinaryInstalled = (
   binary: string,
   options?: HarnessExecutableResolution,
 ): boolean => {
-  const executable = resolveHarnessExecutable(binary, isOverseerHarness(harness) ? {
-    ...options, extraDirs: [...juntoCliPathPrefixes(), ...(options?.extraDirs ?? configuredToolDirectories())],
-  } : options);
+  const executable = resolveHarnessExecutable(binary, options);
   return executable !== undefined && e2eSandboxAdmits(harness, executable);
 };
 
@@ -362,12 +361,10 @@ const shimRunsLiveAsync = async (candidate: string, pathEnv: string): Promise<bo
 const discoverManagedHarnessInstalls = async (
   templates: readonly ManagedTerminalTemplate[],
   options: HarnessExecutableResolution,
-  cliDirs: ReadonlyArray<string>,
 ): Promise<readonly HarnessInstallProbe[]> => {
   const sep = options.pathSep ?? delimiter;
   const searchPath = mergeHarnessSearchPath(options);
-  const overseerPath = mergeHarnessSearchPath({ ...options, extraDirs: [...cliDirs, ...(options.extraDirs ?? [])] });
-  const dirs = [...new Set([...searchPath.split(sep), ...overseerPath.split(sep)])];
+  const dirs = [...new Set(searchPath.split(sep))];
   // Read each candidate directory once for all harnesses. Only names actually
   // present pay an executable check, and a shim still has to run successfully.
   const entries = new Map(await Promise.all(dirs.map(async (dir) => {
@@ -375,13 +372,16 @@ const discoverManagedHarnessInstalls = async (
     catch { return [dir, new Set<string>()] as const; }
   })));
   return Promise.all(templates.map(async (template) => {
-    const pathEnv = isOverseerHarness(template.harness) ? overseerPath : searchPath;
-    for (const dir of pathEnv.split(sep)) {
+    if (template.argvSpec.nodeHost) {
+      const host = nodeHostLaunch(template.argvSpec.binary);
+      return host === undefined ? probeOne(template, false) : { ...probeOne(template, true), executable: host.file };
+    }
+    for (const dir of searchPath.split(sep)) {
       if (!entries.get(dir)?.has(template.argvSpec.binary)) continue;
       const candidate = join(dir, template.argvSpec.binary);
       try { await access(candidate, constants.X_OK); }
       catch { continue; }
-      if (SHIM_ROOT.test(dir) && !await shimRunsLiveAsync(candidate, pathEnv)) continue;
+      if (SHIM_ROOT.test(dir) && !await shimRunsLiveAsync(candidate, searchPath)) continue;
       if (!e2eSandboxAdmits(template.harness, candidate)) continue;
       return { ...probeOne(template, true), executable: candidate };
     }
@@ -400,16 +400,15 @@ export const probeManagedHarnessInstalls = (
     extraDirs: [...(options.extraDirs ?? configuredToolDirectories())],
   };
   const templates = allTemplates();
-  // Presence is checked asynchronously in the shared directory inventory.
-  const cliDirs = [join(process.cwd(), "dist"), ...(typeof process.resourcesPath === "string"
-    ? [join(process.resourcesPath, "bin")] : [])];
-  const key = JSON.stringify([resolved, cliDirs, process.cwd(), templates.map((template) => template.harness)]);
+  // Presence is checked asynchronously in the shared directory inventory; a
+  // node host's build is read from the working folder.
+  const key = JSON.stringify([resolved, process.cwd(), templates.map((template) => template.harness)]);
   // A refresh still joins a scan already in flight; it only skips a settled one.
   if (installDiscovery?.key === key && (installDiscovery.at === undefined
     || (options.refresh !== true && Date.now() - installDiscovery.at < INSTALL_DISCOVERY_CACHE_MS))) {
     return installDiscovery.pending;
   }
-  const pending = discoverManagedHarnessInstalls(templates, resolved, cliDirs);
+  const pending = discoverManagedHarnessInstalls(templates, resolved);
   const entry: NonNullable<typeof installDiscovery> = { key, pending };
   installDiscovery = entry;
   pending.then(() => { entry.at = Date.now(); }, () => {
@@ -427,5 +426,6 @@ export const resetManagedHarnessInstallCacheForTests = (): void => {
 export const isManagedHarnessInstalled = (harness: HarnessId): boolean => {
   if (!managedHarnessEnabled(harness)) return false;
   const template = templateFor(harness);
+  if (template.argvSpec.nodeHost) return nodeHostLaunch(template.argvSpec.binary) !== undefined;
   return harnessBinaryInstalled(harness, template.argvSpec.binary);
 };

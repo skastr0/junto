@@ -51,7 +51,7 @@ describe("Live Overseer product gate", () => {
 
   it.runIf(!LIVE_OVERSEER_ENABLED)("refuses new native seats and the executable entry point", () => {
     expect(() => newSeat({ x: 0, y: 0, z: 0 }, { harness: "junto-overseer", host: THIS_MACHINE })).toThrow(/disabled/u);
-    const process = spawnSync("bun", ["src/cli/main.ts", "overseer-host"], {
+    const process = spawnSync("bun", ["src/node/overseer-host/entry.ts"], {
       encoding: "utf8",
       timeout: 15_000,
       env: { ...globalThis.process.env, JUNTO_LIVE_OVERSEER: "0" },
@@ -79,7 +79,7 @@ describe("Live Overseer product gate", () => {
       harness: "junto-overseer",
       agentKey: "local:junto-overseer",
       spawnIntent: {
-        documentLaunch: { kind: "harness", argv: ["junto", "overseer-host"] },
+        documentLaunch: { kind: "harness", argv: ["overseer-host"] },
         resumeRequested: false,
       },
     }))).rejects.toThrow(/disabled/u);

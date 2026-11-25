@@ -129,6 +129,7 @@ import {
 import { launchSecretValues } from "../../node/credentials/scrub";
 import { registerKnownSecrets, releaseKnownSecrets } from "../credentials/known-secrets";
 import { buildManagedSeatInject, resolveWorkHomeForSeat } from "./templates/seat-env";
+import { nodeHostLaunch } from "./templates/node-host";
 import {
   PROGRAM_STATUS_ENV,
   PROGRAM_STATUS_QUERY_REPLY,
@@ -903,6 +904,23 @@ export const resolveLaunch = (
           launchRefusalCopy.homeFolder(displayPath(os.homedir())),
         ),
       );
+    }
+    // A program of this build (the live overseer host) runs on Junto's own
+    // Node, not from PATH: it takes no probed flags, and the E2E sandbox rule
+    // below is for agents installed outside Junto.
+    const nodeHostTemplate = isHarnessId(seat.harness) ? templateFor(seat.harness) : undefined;
+    if (nodeHostTemplate?.argvSpec.nodeHost === true && file === nodeHostTemplate.argvSpec.binary) {
+      const host = nodeHostLaunch(file);
+      if (host === undefined) {
+        return Result.fail(
+          unresolvable(
+            `this build has no ${file} entry or no Node to run it on`,
+            `"${file}" is not part of this Junto build`,
+            true,
+          ),
+        );
+      }
+      return Result.succeed({ file: host.file, args: [...host.args, ...argv.slice(1)], cwd, env: { ...env, ...host.env } });
     }
     // Path-like argv (`./tool`, `dir/tool`) resolves against the seat cwd so
     // resolution and spawn name the same target.
