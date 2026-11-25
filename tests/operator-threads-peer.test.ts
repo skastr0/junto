@@ -57,13 +57,16 @@ const makeRuntime = (root: string) => {
 let root: string;
 let runtime: ReturnType<typeof makeRuntime>;
 
-/** The operator's mail into a seat's mailbox, a new thread, as the desktop writes it; returns its id. */
+/** The operator's mail into a seat's mailbox, a new thread, as the desktop writes it (a peer's, as sync writes it); returns its id. */
 const write = (to: string, text: string) =>
   runtime.runPromise(
     Effect.flatMap(WorkService, (work) => {
       const sender = operatorActorRef(CANVAS);
       const extension = mailExtensionMetadata({ mailKind: "prompt", fromSeat: sender.seatId, senderNodeId: sender.nodeId, senderName: "operator", senderGeneration: "operator", senderHarness: "unknown" });
-      return work.workSystemMailboxNotify(CANVAS, to, makeUserMessage({ messageId: ulid(), text, contextId: CANVAS, metadata: { factoryMail: true, ...extension } }));
+      const message = makeUserMessage({ messageId: ulid(), text, contextId: CANVAS, metadata: { factoryMail: true, ...extension } });
+      // A copy machine never tells a peer (workSystemMailboxNotify refuses): the row reaches it as sync writes it,
+      // an append to the peer's own mailbox, which workSubjectNotice is.
+      return to === PEER ? work.workSubjectNotice(CANVAS, to, message, sender) : work.workSystemMailboxNotify(CANVAS, to, message);
     }).pipe(Effect.flatMap((appended) => (appended.ok ? Effect.succeed(appended.data.messageId) : Effect.die(appended.message)))),
   );
 
