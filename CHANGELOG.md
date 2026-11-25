@@ -5,8 +5,8 @@
 - Deleting a canvas reaches every other machine that holds a copy of it, a
   seat or a Files node: that machine drops its copy, stops its seats, and an
   older copy cannot bring the canvas back. The removal is sent again on each
-  link until that machine answers. A hold left on a far seat by 0.12.0 or an
-  earlier build now clears.
+  link until that machine answers. A hold that 0.12.0 or an earlier build
+  left on a far seat clears once both machines run this version.
 
 Known: a canvas deleted by 0.12.0 or an earlier build, whose name was then
 used again for a new canvas here, is not removed from the other machines.
