@@ -1078,6 +1078,11 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           await pinch(page, centre, camera.zoom, to > from ? mid * 1.01 : mid / 1.01);
           camera = await stillCamera(page);
         }
+        // The pointer parks where a fresh launch parks it before the frame:
+        // the wheel gesture left it at the pane centre, over whatever card sits
+        // there, and hover handles on that card are a difference the reference
+        // never has.
+        await parkPointer(page, pane);
         // The frame and the camera it is mapped with are one moment: the camera holds across the shot.
         let frame = await shot(page, pane);
         for (let retry = 0; retry < 4; retry += 1) {
