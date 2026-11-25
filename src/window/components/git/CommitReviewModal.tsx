@@ -37,6 +37,7 @@ export function CommitReviewModal() {
       fill
       // As wide as the review the seat header opens: a diff needs two columns.
       width={1320}
+      belowBar
     >
       <div className="flex min-h-0 flex-1 flex-col" data-testid="git-detail">
         {asked && node && folder ? (

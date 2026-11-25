@@ -391,6 +391,7 @@ export function QuickCapture() {
       label="Quick capture"
       width={1280}
       fill
+      belowBar
       panelClassName="quick-capture"
       onKeyDown={onKeyDown}
     >

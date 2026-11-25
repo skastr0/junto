@@ -124,6 +124,17 @@ it("opens under the top bar on every width, so the whole bar stays pressable", (
   expect(rule?.[2]).toMatch(/padding-top:\s*calc\(var\(--bar-height,\s*64px\)\s*\+\s*\d+px\)/);
 });
 
+it("gives every wide operator panel the under-the-bar place, and the small frames none", () => {
+  // The panels are 1100 px or wider and would lie over the bar's right-hand buttons; the command bar and Quick thread sit in the bar's band by design.
+  const source = (file: string): string => readFileSync(join(__dirname, "..", "src/window/components", file), "utf8");
+  for (const file of ["feed/ThreadsModal.tsx", "feed/OperatorFeed.tsx", "capture/QuickCapture.tsx", "git/CommitReviewModal.tsx"]) {
+    expect(source(file), file).toMatch(/^\s*belowBar$/m);
+  }
+  for (const file of ["command-bar/CommandBar.tsx", "quick-thread/QuickThreadModal.tsx"]) {
+    expect(source(file), file).not.toContain("belowBar");
+  }
+});
+
 it("shows the first thread's chat on the right, and only it", () => {
   draw(state(rows));
   expect(all('[data-testid="chat"]').map((chat) => chat.textContent)).toEqual(["t1"]);

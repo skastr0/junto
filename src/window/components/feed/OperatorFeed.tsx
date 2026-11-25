@@ -1089,6 +1089,7 @@ const feed = useOperatorFeed();
       }
       width={1180}
       fill
+      belowBar
       panelClassName="operator-feed__panel"
       onEscape={onEscape}
       onKeyDown={onKeyDown}
