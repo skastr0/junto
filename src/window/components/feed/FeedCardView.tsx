@@ -21,7 +21,7 @@ import { AgentPortrait } from "../AgentPortrait";
 import { ResourceChip } from "../ui/ResourceChip";
 import { QuickReplies } from "../signals/QuickReplies";
 import { StatusDot } from "../ui/StatusDot";
-import { Kbd } from "../ui";
+import { Kbd } from "../ui/Kbd";
 import { feedTextPieces, type FeedTaskRef } from "./feed-text";
 import "./operator-feed.css";
 
