@@ -76,14 +76,19 @@ export const verbHandleId = (verb: Verb): string =>
 
 /**
  * Remove wires, once the operator has confirmed with what removing them does
- * to tasks on their way. The removal is one act, undone as one.
+ * to tasks on their way. The removal is one act, undone as one. A `quiet`
+ * caller (the Connections list) removes without the question, because undo
+ * restores what it removed or because it asked the operator itself. A removal
+ * that would touch tasks on their way still asks. Resolves true when the
+ * wires were removed, false when a question was declined or there was
+ * nothing left to remove.
  */
-export const deleteEdges = async (ids: ReadonlyArray<string>): Promise<void> => {
+export const deleteEdges = async (ids: ReadonlyArray<string>, options: { readonly quiet?: boolean } = {}): Promise<boolean> => {
   const going = new Set(ids);
-  if (going.size === 0) return;
+  if (going.size === 0) return false;
   const canvas = canvasAsItStands();
   const wires = [...canvas.wires.values()].filter((wire) => going.has(wire.id));
-  if (wires.length === 0) return;
+  if (wires.length === 0) return false;
   const label = wires.length === 1 ? "this relation" : `${wires.length} relations`;
   const canvasName = state$.canvasName.peek();
   const docEpoch = state$.docEpoch.peek();
@@ -92,14 +97,16 @@ export const deleteEdges = async (ids: ReadonlyArray<string>): Promise<void> => 
   // Another canvas opened while the tasks were read: the question would be
   // about a canvas the operator is no longer looking at. An edit elsewhere on
   // this one leaves the wires to remove as they were named.
-  if (state$.canvasName.peek() !== canvasName || state$.docEpoch.peek() !== docEpoch) return;
+  if (state$.canvasName.peek() !== canvasName || state$.docEpoch.peek() !== docEpoch) return false;
   const impactWarnings = removalWarnings(canvas, new Set(), wires, tasksOf);
   const impactCopy = impactWarnings.length === 0 ? "" : ` ${impactWarnings.join(" ")}`;
-  if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Delete ${label}?${impactCopy}`)) return;
+  const ask = options.quiet !== true || impactWarnings.length > 0;
+  if (ask && typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Delete ${label}?${impactCopy}`)) return false;
   // Only the named wires still on the canvas go: one removed meanwhile is gone already.
   const still = [...canvasAsItStands().wires.values()].filter((wire) => going.has(wire.id)).map((wire) => wire.id);
   removeEdgesFromSelection(going);
   if (still.length > 0) commitCommands((now) => removed(now, [], still));
+  return still.length > 0;
 };
 
 /** What the operator reads when two cards cannot be joined, for each way that can be. */

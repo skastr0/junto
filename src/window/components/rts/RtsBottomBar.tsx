@@ -16,6 +16,7 @@ import {
   Eye,
   Hash,
   Link2,
+  Waypoints,
   LocateFixed,
   Lock,
   LockOpen,
@@ -62,6 +63,8 @@ import { focusBlockerCause, resolveBlockerCause } from "../../lib/blocker-cause"
 import { executionGraphForImpact } from "../../lib/impact-mode";
 import { ConnectEditor } from "./ConnectEditor";
 import { SeatsReseatPick, useSeatsReseat } from "./SeatsReseat";
+import { ConnectionsPanel } from "./ConnectionsPanel";
+import { connectionCount } from "../../lib/seat-connections";
 import { EdgeCommandCard } from "./RtsControls";
 import { KindSurface } from "./KindSurface";
 import { RollCall } from "./RollCall";
@@ -83,6 +86,8 @@ function CmdKey({
   style,
   keepFocus,
   buttonRef,
+  ariaExpanded,
+  ariaHasPopup,
   onClick,
   children,
 }: {
@@ -91,6 +96,8 @@ function CmdKey({
   readonly active?: boolean;
   readonly danger?: boolean;
   readonly disabled?: boolean;
+  readonly ariaExpanded?: boolean;
+  readonly ariaHasPopup?: "dialog";
   readonly style?: React.CSSProperties;
   /** Pressing the key leaves focus where it is, so an open field is not blurred into a commit. */
   readonly keepFocus?: boolean;
@@ -105,6 +112,8 @@ function CmdKey({
       className={`rts-key${active ? " is-active" : ""}${danger ? " is-danger" : ""}`}
       aria-label={label}
       aria-pressed={active}
+      aria-expanded={ariaExpanded}
+      aria-haspopup={ariaHasPopup}
       title={title ?? label}
       disabled={disabled}
       style={style}
@@ -372,6 +381,14 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const node = useRtsNodes(canvasName, [nodeId])[0];
   const modelKind = use$(() => modelStore.node$(canvasName, nodeId).kind.get());
   const [connectOpen, setConnectOpen] = useState(false);
+  // The seat's connections list: it and Connect share the one pop, each replacing the other.
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const connections = useRtsValue(() => {
+    // A wire whose other end is gone is not listed, so the count follows nodes too.
+    modelStore.canvas$(canvasName).wires.get();
+    modelStore.canvas$(canvasName).nodes.get();
+    return connectionCount(modelStore.canvasOf(canvasName), nodeId);
+  });
   const rename = useRename(nodeId);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [copyDetail, setCopyDetail] = useState("");
@@ -383,6 +400,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     setCopyStatus("idle");
     setCopyDetail("");
     setConnectOpen(false);
+    setConnectionsOpen(false);
   }, [canvasName, nodeId]);
 
   const blockerCause = useRtsValue(() => {
@@ -545,10 +563,28 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
             <CmdKey
               label={connectOpen ? "Close connect" : "Connect"}
               active={connectOpen}
-              onClick={() => setConnectOpen((open) => !open)}
+              onClick={() => {
+                setConnectionsOpen(false);
+                setConnectOpen((open) => !open);
+              }}
             >
               <Link2 size={ICON} />
             </CmdKey>
+            {entityKind === "agent" ? (
+              <CmdKey
+                label={connectionsOpen ? "Close connections" : "Connections"}
+                title={`Connections, ${connections}`}
+                active={connectionsOpen}
+                ariaExpanded={connectionsOpen}
+                ariaHasPopup="dialog"
+                onClick={() => {
+                  setConnectOpen(false);
+                  setConnectionsOpen((open) => !open);
+                }}
+              >
+                <Waypoints size={ICON} />
+              </CmdKey>
+            ) : null}
             <CmdKey
               label={copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy reference"}
               title={copyDetail || "Copy node reference"}
@@ -576,6 +612,11 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
         {connectOpen ? (
           <div className="rts-cmd-pop">
             <SelectedConnectEditor nodeId={nodeId} onClose={() => setConnectOpen(false)} />
+          </div>
+        ) : null}
+        {connectionsOpen && entityKind === "agent" ? (
+          <div className="rts-cmd-pop connections-pop">
+            <ConnectionsPanel nodeId={nodeId} onClose={() => setConnectionsOpen(false)} />
           </div>
         ) : null}
       </div>

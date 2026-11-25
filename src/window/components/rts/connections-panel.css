@@ -1,0 +1,257 @@
+/* A seat's connections, in the bar's own pop: a fixed head and foot, the list scrolling between. */
+.rts-cmd-pop.connections-pop {
+  right: auto;
+  width: 440px;
+  max-width: calc(100vw - 24px);
+  max-height: 60vh;
+}
+
+.connections-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.connections-panel__head {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  border-bottom: 1px solid var(--color-stroke);
+}
+
+.connections-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 6px;
+}
+
+.connections-panel__count {
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.connections-panel__add { margin-left: auto; }
+
+.connections-panel__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-top: 1px solid var(--color-stroke);
+  color: var(--color-faint);
+}
+
+.connections-panel__search input {
+  min-width: 0;
+  flex: 1;
+  height: 32px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: var(--text-body);
+}
+
+.connections-panel__search input::placeholder { color: var(--color-faint); opacity: 1; }
+.connections-panel__search:focus-within { box-shadow: inset 0 0 0 2px var(--color-cyan); }
+
+.connections-panel__list {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 4px 4px;
+}
+
+/* The feed's region head, drawn smaller: swatch, name, path, the rule, the count. */
+.connections-panel__group {
+  --connections-region-ink: color-mix(in oklab, var(--connections-region) 72%, var(--color-ink));
+}
+
+.connections-panel__group-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 6px 6px;
+  background: var(--color-raise);
+}
+
+.connections-panel__swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--connections-region);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--connections-region) 20%, transparent);
+}
+
+.connections-panel__group-name {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: var(--text-body);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--connections-region-ink);
+}
+
+.connections-panel__group-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+
+.connections-panel__rule {
+  flex: 1 1 16px;
+  min-width: 16px;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    color-mix(in oklab, var(--connections-region) 55%, transparent),
+    color-mix(in oklab, var(--connections-region) 0%, transparent)
+  );
+}
+
+.connections-panel__group-count {
+  flex: none;
+  color: var(--connections-region-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A row in the ListRow look: no edges, overlay-2 when chosen, the inset focus ring. */
+.connections-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  outline: none;
+}
+
+.connections-panel__row:hover { background: var(--color-overlay-1); }
+.connections-panel__row[data-selected="true"] { background: var(--color-overlay-2); }
+/* The row is a listitem; the keyboard lands on its checkbox, and the ring follows it. */
+.connections-panel__row:focus-within { box-shadow: inset 0 0 0 2px var(--color-cyan); }
+
+/* The box is drawn at 14px, hit across 24px: a click a pixel off still lands. */
+.connections-panel__check-hit {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: 0 -5px;
+  cursor: pointer;
+}
+
+.connections-panel__check {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--color-cyan);
+}
+
+.connections-panel__check:focus-visible { outline: none; }
+
+.connections-panel__lines {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.connections-panel__line,
+.connections-panel__sentence {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.connections-panel__mark {
+  display: flex;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The path truncates first, then the name. */
+.connections-panel__name {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  font-weight: 500;
+}
+
+.connections-panel__path {
+  min-width: 0;
+  flex: 0 100 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-dim);
+  font-size: var(--text-label);
+}
+
+.connections-panel__sentence {
+  padding-left: 26px;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+}
+
+.connections-panel__way { flex: none; }
+
+.connections-panel__sentence-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connections-panel__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 10px;
+  color: var(--color-faint);
+  font-size: var(--text-label);
+}
+
+.connections-panel__foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--color-stroke);
+  padding: 6px 10px;
+}
+
+.connections-panel__chosen,
+.connections-panel__ask {
+  margin-right: auto;
+  color: var(--color-ink);
+  font-size: var(--text-body);
+}
