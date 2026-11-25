@@ -997,6 +997,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     pick,
     rectOf: (id) => scene.rectOf(id),
     surfaceOf: (id) => scene.surfaceOf(id),
+    gatheredInto: (id) => scene.gatheredInto(id),
+    gatheringChanged: () => scene.gatheringChanged(),
     anchor: (id) => {
       anchored.add(id);
       invalidate();

@@ -231,6 +231,47 @@ describe("seat clusters at far and overview", () => {
     expect(scene.seatStats()).toMatchObject({ inView: 2, unshown: 1, unshownIds: ["c"], portraitsMissing: 1 });
   });
 
+  it("says which badge a seat is gathered into, and where its disc is, at far and overview only", () => {
+    const { scene } = clustered(0.3, "far");
+    const a = scene.gatheredInto("a");
+    expect(a).toBeDefined();
+    // One badge for the three seats, on their centroid (a, b, c centres at 108, 148, 188 and y 28).
+    expect(scene.gatheredInto("b")).toEqual(a);
+    expect(scene.gatheredInto("c")).toEqual(a);
+    expect(a!.rect).toEqual({ x: 148 - CLUSTER.disc / 2, y: 28 - CLUSTER.disc / 2, width: CLUSTER.disc, height: CLUSTER.disc });
+    scene.prepare(VIEW, "overview");
+    expect(scene.gatheredInto("a")).toEqual(a);
+    // Near and mid draw the seats themselves.
+    scene.prepare(VIEW, "mid");
+    expect(scene.gatheredInto("a")).toBeUndefined();
+    scene.prepare(VIEW, "near");
+    expect(scene.gatheredInto("b")).toBeUndefined();
+    expect(scene.gatheredInto("nobody")).toBeUndefined();
+  });
+
+  it("reports the seats whose gathering changed once, and a repaint, a hover or a repeat frame is not a change", () => {
+    const { scene } = clustered(0.3, "far");
+    // The first plan gathered all three.
+    expect([...scene.gatheringChanged()].sort()).toEqual(["a", "b", "c"]);
+    expect(scene.gatheringChanged()).toEqual([]);
+    scene.prepare(VIEW, "far");
+    expect(scene.gatheringChanged()).toEqual([]);
+    // A ring that changes form without calling repaints the badge and regroups nothing.
+    scene.apply({ kind: "seat", id: "a", live: { ...work(), ring: ringState({ glyph: "done", tone: "green" }), ringSince: 2_000 } });
+    scene.prepare(VIEW, "far");
+    expect(scene.gatheringChanged()).toEqual([]);
+    // A selected seat stands apart: it leaves, and the other two move to a new centre.
+    scene.apply({ kind: "selection", fact: { nodeIds: ["a"] } });
+    scene.prepare(VIEW, "far");
+    expect([...scene.gatheringChanged()].sort()).toEqual(["a", "b", "c"]);
+    expect(scene.gatheredInto("a")).toBeUndefined();
+    expect(scene.gatheredInto("b")?.rect.x).toBe(168 - CLUSTER.disc / 2);
+    // Leaving for near ungathers the rest.
+    scene.prepare(VIEW, "near");
+    expect([...scene.gatheringChanged()].sort()).toEqual(["b", "c"]);
+    expect(scene.gatheringChanged()).toEqual([]);
+  });
+
   it("a selected seat stays apart, so the rest regroup around it", () => {
     const { scene, facts } = clustered(0.3, "far");
     scene.apply({ kind: "selection", fact: { nodeIds: ["a"] } });

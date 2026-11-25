@@ -665,6 +665,16 @@ export type Part =
   | { readonly kind: "wire" }
   | { readonly kind: "cluster"; readonly memberIds: ReadonlyArray<NodeId> };
 
+/**
+ * Where a gathered seat stands at far and overview: the key of the badge it is
+ * gathered into, and that badge's disc in board units (the box its ring grows
+ * about). Wires into the seat end on the disc.
+ */
+export type Gathering = {
+  readonly key: string;
+  readonly rect: Rect;
+};
+
 export type Hit = {
   /** The card the part belongs to; absent for the pane, a wire and a cluster. */
   readonly nodeId?: NodeId;
@@ -832,6 +842,18 @@ export interface Engine {
    * Absent when the card draws its whole box, so a wire's end is already on it.
    */
   readonly surfaceOf?: (id: NodeId) => Rect | undefined;
+  /**
+   * The badge a seat is gathered into and its disc, at far and overview.
+   * Undefined at near and mid, and for a seat nothing gathers. It reads the
+   * last frame's plan, which `prepare` runs before the wire frame.
+   */
+  readonly gatheredInto?: (id: NodeId) => Gathering | undefined;
+  /**
+   * The seats whose gathering changed since the last call: joined a badge,
+   * left one, changed badge, or whose badge's centre moved. Drained once a
+   * frame; a repaint, a hover or a zoom alone is not a change.
+   */
+  readonly gatheringChanged?: () => ReadonlyArray<NodeId>;
   /** Ask for a card's screen rectangle in every frame's facts. */
   readonly anchor: (id: NodeId) => () => void;
   readonly onIntent: (listener: (intent: Intent) => void) => () => void;

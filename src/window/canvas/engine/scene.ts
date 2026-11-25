@@ -49,6 +49,7 @@ import type {
   HandleSide,
   DrawnCluster,
   DrawnPart,
+  Gathering,
   MotionPeaks,
   Hit,
   NodeId,
@@ -572,6 +573,8 @@ export const createScene = (options: {
   let motionTestedAt = 0;
   /** The empty set a board with no clusters gathers. */
   const NO_SEATS: ReadonlySet<NodeId> = new Set();
+  const NO_GATHERING: ReadonlyMap<NodeId, Gathering> = new Map();
+  const NO_NODE_IDS: ReadonlyArray<NodeId> = [];
   /** Badge slots by cluster key: their quads and owner entries. */
   const clusterSlots = new Map<string, ClusterSlot>();
   /** The badges this frame draws, hovered last. */
@@ -1267,6 +1270,32 @@ export const createScene = (options: {
 
   /** The badge each gathered seat stands in, from the last plan. */
   let badgeOfSeat = new Map<NodeId, string>();
+  /**
+   * Where each gathered seat stands, from the last plan: its badge's key and
+   * disc. The wire layer reads it (`gatheredInto`) to end a wire on the disc
+   * and to refold a wire when a seat joins, leaves or moves its badge. A seat
+   * is listed from the plan, not from what is built, so a seat whose badge is
+   * off the view still answers.
+   */
+  let gatherOfSeat: ReadonlyMap<NodeId, Gathering> = NO_GATHERING;
+  /** The seats whose gathering changed since the wire layer last asked. */
+  const gatheringPending = new Set<NodeId>();
+
+  /**
+   * Take a new plan's gathering and note who changed: a seat that joined a
+   * badge, left one, changed badge, or whose badge's centre moved. A repaint,
+   * a hover or a zoom that keeps the plan changes nothing here.
+   */
+  const setGathering = (next: ReadonlyMap<NodeId, Gathering>): void => {
+    const was = gatherOfSeat;
+    if (was === next) return;
+    for (const [id, now] of next) {
+      const before = was.get(id);
+      if (before === undefined || before.key !== now.key || before.rect.x !== now.rect.x || before.rect.y !== now.rect.y) gatheringPending.add(id);
+    }
+    for (const id of was.keys()) if (!next.has(id)) gatheringPending.add(id);
+    gatherOfSeat = next;
+  };
   /** Badges a member's ring or portrait changed under, repainted at the next frame. */
   const badgeDirty = new Set<string>();
 
@@ -1355,6 +1384,7 @@ export const createScene = (options: {
       badgeArea = undefined;
       // Every near and mid frame passes here: a new map only when one is held.
       if (badgeOfSeat.size > 0) badgeOfSeat = new Map();
+      setGathering(NO_GATHERING);
       badgeDirty.clear();
       return clusterVersion;
     }
@@ -1418,12 +1448,18 @@ export const createScene = (options: {
     const plan = clustersFor(cache.index, held);
     const byKey = new Map<string, SeatCluster>();
     const seatsToBadge = new Map<NodeId, string>();
+    const seatsToGathering = new Map<NodeId, Gathering>();
     for (const cluster of plan.clusters) {
       byKey.set(cluster.key, cluster);
-      for (const id of cluster.members) seatsToBadge.set(id, cluster.key);
+      const gathering: Gathering = { key: cluster.key, rect: clusterRect(cluster) };
+      for (const id of cluster.members) {
+        seatsToBadge.set(id, cluster.key);
+        seatsToGathering.set(id, gathering);
+      }
     }
     clusterPlan = { byKey };
     badgeOfSeat = seatsToBadge;
+    setGathering(seatsToGathering);
     const input = clusterInput(cache, zoom, screen);
     // Only the badges whose disc meets the view and its lookahead are built;
     // the rest are built when the view comes near them.
@@ -1630,6 +1666,8 @@ export const createScene = (options: {
     clusterPlan = undefined;
     badgeArea = undefined;
     badgeOfSeat = new Map();
+    gatherOfSeat = NO_GATHERING;
+    gatheringPending.clear();
     badgeDirty.clear();
     hoveredCluster = null;
     clusterCache = undefined;
@@ -1852,6 +1890,27 @@ export const createScene = (options: {
     const body = card?.midBody;
     if (card === undefined || body === undefined) return undefined;
     return { x: card.rect.x + body.x, y: card.rect.y + body.y, width: body.width, height: body.height };
+  };
+
+  /**
+   * The badge a seat is gathered into, and its disc in board units: the box
+   * the badge's ring grows about. Defined at far and overview while the seat
+   * stands in a badge; undefined at near and mid, and for a seat nothing
+   * gathers. Wires into a gathered seat end on this disc.
+   */
+  const gatheredInto = (id: NodeId): Gathering | undefined => gatherOfSeat.get(id);
+
+  /**
+   * The seats whose gathering changed since the last call: joined a badge,
+   * left one, changed badge, or whose badge's centre moved. The wire layer
+   * drains it once a frame, after `prepare` regrouped. A repaint, a hover or
+   * a zoom alone is not a change.
+   */
+  const gatheringChanged = (): ReadonlyArray<NodeId> => {
+    if (gatheringPending.size === 0) return NO_NODE_IDS;
+    const changed = [...gatheringPending];
+    gatheringPending.clear();
+    return changed;
   };
 
   /**
@@ -3083,6 +3142,8 @@ export const createScene = (options: {
     rectOf,
     cardOf,
     surfaceOf,
+    gatheredInto,
+    gatheringChanged,
     ringAngle,
     /** The members of the badge under a board point, if any (the pointer's cluster hit). */
     clusterAt: (at: Point) => clusterSlotAt(at)?.members,
