@@ -16,8 +16,7 @@ import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Effect, Schema } from "effect";
 import { Argument, Command } from "effect/cli";
 import { inspectMachineBundle } from "../src/node/hosts/bundle";
-import { loadJsonInput } from "../src/cli/core/json";
-import { executeJsonCommandWithVerdict } from "../src/cli/core/output";
+import { executeJsonCommandWithVerdict, loadJsonInput } from "./json-command";
 
 const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
 const Input = Schema.Struct({
