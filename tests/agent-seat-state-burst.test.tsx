@@ -16,6 +16,8 @@
  *
  * These tests drive the real store through its IPC listener, one task per
  * message, queued together as Electron queues a burst.
+ *
+ * The fix they lock is dc81c9552, which landed this file with it.
  */
 import { useEffect, useState } from "react";
 import { observe } from "@legendapp/state";
