@@ -5,8 +5,10 @@ import { HashMap, HashSet, Option } from "effect";
 import type { RegionDefaults } from "@shared/model/region";
 import {
   BROWSER_ENABLED,
+  FILES_REMOTE_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
+import { resolveRegionCwd } from "@shared/region-defaults";
 import {
   asNodeId,
   type FactoryRoleName,
@@ -14,16 +16,16 @@ import {
 import { canvasToCapabilityView } from "@shared/physics/view";
 import { releaseFocus } from "../lib/focus-ownership";
 import { regionEdited } from "../lib/model-edits";
-import { commitCommands, editLink, editText, setFilesRoot, setGitCwd, setPageBinding, setRegionDefaults } from "../lib/mutations";
+import { commitCommands, editLink, editText, setFilesPlace, setFilesRoot, setGitCwd, setPageBinding, setRegionDefaults } from "../lib/mutations";
 import { isAbsoluteFolder } from "../lib/model-factories";
 import { AgentMessagesPane } from "./work/WorkSurfaces";
 import { state$ } from "../lib/state";
-import { isOnMachine, machineLabelIn, useMachines, useThisMachineName } from "../lib/machines";
+import { isOnMachine, machineLabelIn, useFilesMachineChoices, useMachines, useThisMachineName } from "../lib/machines";
 import { physicsKind, roleOfKind } from "../lib/model-kind";
-import { useCanvas, useNode, useNodeOf, useNodeValue } from "../lib/use-model";
+import { useCanvas, useNode, useNodeOf, useNodeValue, modelStore } from "../lib/use-model";
 import { asNodeId as asModelNodeId } from "@shared/model";
 import { titleOf } from "@shared/model/title";
-import { Chip } from "./ui";
+import { Chip, Select } from "./ui";
 import { RegionRules } from "./rules";
 import { BrowserProfileSelect } from "./HostPickers";
 import { BriefingDocument } from "./briefing/BriefingDocument";
@@ -125,19 +127,45 @@ export function NodeFieldEditors({ nodeId }: { readonly nodeId: string }) {
   const textValue = node && "text" in node ? node.text : node && "label" in node ? node.label ?? "" : "";
   const gitCwdValue = node?.kind === "git" ? node.cwd : "";
   const filesRootValue = node?.kind === "files" ? node.root : "";
+  const filesHostValue = node?.kind === "files" ? node.host : "";
   const [textDraft, setTextDraft] = useState(textValue);
   const [gitCwdDraft, setGitCwdDraft] = useState(gitCwdValue);
   const [filesRootDraft, setFilesRootDraft] = useState(filesRootValue);
+  const [filesHostDraft, setFilesHostDraft] = useState(filesHostValue);
+  const thisMachine = useThisMachineName();
+  const machines = useMachines();
+  const filesMachines = useFilesMachineChoices();
   useEffect(() => {
     setTextDraft(textValue);
     setGitCwdDraft(gitCwdValue);
     setFilesRootDraft(filesRootValue);
-  }, [filesRootValue, gitCwdValue, nodeId, textValue]);
+    setFilesHostDraft(filesHostValue);
+  }, [filesHostValue, filesRootValue, gitCwdValue, nodeId, textValue]);
   // A Files node holds an absolute folder; anything else goes back to the one it had.
   const commitFilesRoot = () => {
     if (isAbsoluteFolder(filesRootDraft)) setFilesRoot(nodeId, filesRootDraft);
     else setFilesRootDraft(filesRootValue);
   };
+  // The machine a node already names stays a choice, even after it left the list.
+  const filesHostChoices = useMemo(() => {
+    const known = filesMachines.map((machine) => ({ value: machine.id, label: machine.label }));
+    if (filesHostDraft === "" || known.some((choice) => choice.value === filesHostDraft)) return known;
+    return [{ value: filesHostDraft, label: machineLabelIn(machines, filesHostDraft) }, ...known];
+  }, [filesHostDraft, filesMachines, machines]);
+  const changeFilesHost = (next: string) => {
+    if (node?.kind !== "files") return;
+    setFilesHostDraft(next);
+    // A folder stamped for that machine in the region is the starting place.
+    const seeded = resolveRegionCwd(
+      modelStore.canvasOf(state$.canvasName.peek()),
+      node.x + node.width / 2,
+      node.y + node.height / 2,
+      next,
+    );
+    if (seeded !== undefined) setFilesRootDraft(seeded);
+    setFilesPlace(nodeId, { host: next, ...(seeded === undefined ? {} : { root: seeded }) });
+  };
+  const filesOnAnother = FILES_REMOTE_ENABLED && node?.kind === "files" && !isOnMachine(filesHostDraft, thisMachine);
 
   const commitText = () => { if (node && ["note", "label", "agent", "terminal"].includes(node.kind) && textDraft !== textValue) editText(nodeId, textDraft); };
 
@@ -184,6 +212,18 @@ export function NodeFieldEditors({ nodeId }: { readonly nodeId: string }) {
         />
       </label>
     ) : null}
+    {node?.kind === "files" && FILES_REMOTE_ENABLED ? (
+      <div className="inspector-editor">
+        <span>machine</span>
+        <Select
+          dense
+          aria-label="Files machine"
+          value={filesHostDraft}
+          options={filesHostChoices}
+          onChange={changeFilesHost}
+        />
+      </div>
+    ) : null}
     {node?.kind === "files" ? (
       <label className="inspector-editor">
         <span>folder</span>
@@ -205,6 +245,9 @@ export function NodeFieldEditors({ nodeId }: { readonly nodeId: string }) {
             }
           }}
         />
+        {filesOnAnother ? (
+          <span className="inspector-detail normal-case tracking-normal">A folder path on {machineLabelIn(machines, filesHostDraft)}.</span>
+        ) : null}
       </label>
     ) : null}
     {node?.kind === "agent"

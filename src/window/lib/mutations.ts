@@ -15,6 +15,7 @@ import type { TasksContract } from "@shared/work-model";
 import { authoring } from "./authoring";
 import type { Canvas } from "@shared/model/canvas";
 import { added, filesEdited, gitEdited, pageEdited, recolored, regionEdited, removed as nodesRemoved, renamed, retexted, taskBoardEdited, titled, topZ } from "./model-edits";
+import { isAbsoluteFolder } from "./model-factories";
 import { modelStore } from "./use-model";
 import {
   removeEdgesFromSelection,
@@ -771,6 +772,27 @@ export const setFilesRoot = (id: string, input: string): void => {
   const root = input.trim();
   if (!root) return;
   commitCommands((canvas) => filesEdited(canvas, id, { root }));
+};
+
+/**
+ * Point a Files node at a folder on another machine, or at another folder on
+ * its own. Host and root change in one command, so a machine change never
+ * leaves the old folder on the new machine.
+ */
+export const setFilesPlace = (
+  id: string,
+  input: { readonly host?: string; readonly root?: string },
+): void => {
+  const host = input.host?.trim();
+  const root = input.root?.trim();
+  if (host === undefined && root === undefined) return;
+  if (root !== undefined && !isAbsoluteFolder(root)) return;
+  commitCommands((canvas) =>
+    filesEdited(canvas, id, {
+      ...(host === undefined || host === "" ? {} : { host }),
+      ...(root === undefined || root === "" ? {} : { root }),
+    }),
+  );
 };
 
 /** Name any node from the bottom bar, the way its kind holds a name (see `titled`). */

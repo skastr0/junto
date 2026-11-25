@@ -12,7 +12,7 @@
  * canvas was switched on.
  */
 import { useEffect, useState } from "react";
-import { FLEET_UI_ENABLED } from "@shared/features";
+import { FILES_REMOTE_ENABLED, FLEET_UI_ENABLED } from "@shared/features";
 import { featureOnNow } from "../lib/experimental-features";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
 import { GitWizard, createGitFromRegion } from "./git/GitWizard";
@@ -58,7 +58,9 @@ export function CanvasCreationHosts() {
     const openFiles = (event: Event) => {
       if (!featureOnNow("files")) return;
       const anchor = (event as CustomEvent<{ x: number; y: number }>).detail;
-      if (createFilesFromRegion(anchor)) return;
+      // Files over SSH adds a machine choice, so it always opens the wizard.
+      // Off, a region's folder still stamps one in a click.
+      if (!FILES_REMOTE_ENABLED && createFilesFromRegion(anchor)) return;
       setFilesAnchor(anchor);
     };
     window.addEventListener("junto:new-files", openFiles);

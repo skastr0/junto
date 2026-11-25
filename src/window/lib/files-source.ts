@@ -209,6 +209,10 @@ export const fileViewOf = (path: FilePath, read: FileRead): FileView => {
   return "other";
 };
 
+// remote-design, 01M89YM5N4GJHGGGYAR26XD79C: the node card names the machine, so this line does not.
+export const FILES_MACHINE_GONE_LINE =
+  "This folder is on a machine that is not in your machines. Add it and send Junto to it, then open this folder again.";
+
 /** A refusal in the operator's words. */
 export const filesErrorLine = (error: FilesError): string => {
   switch (error) {
@@ -218,9 +222,8 @@ export const filesErrorLine = (error: FilesError): string => {
       return "This folder lives on another machine. Open it there.";
     case "unreachable":
       return "This folder's machine is offline.";
-    // remote-design, 01M89YM5N4GJHGGGYAR26XD79C: the node card names the machine, so this line does not.
     case "not-set-up":
-      return "This folder is on a machine that is not in your machines. Add it and send Junto to it, then open this folder again.";
+      return FILES_MACHINE_GONE_LINE;
     case "root-missing":
       return "This node's folder is missing on this machine.";
     case "invalid-path":

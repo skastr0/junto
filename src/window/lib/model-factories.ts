@@ -81,10 +81,11 @@ export const newGit = (spot: Spot, cwd: string, label?: string): NodeOf<"git"> =
 export const isAbsoluteFolder = (path: string): boolean => path.trim().startsWith("/");
 
 /**
- * A Files node: the folder `root` on the machine `host`, which is the editing
- * machine's real name. It has no label when new: a label is only what the
- * operator writes, and it crosses to other machines where the root may not.
- * Experimental: made only while the operator has the files feature on.
+ * A Files node: the folder `root` on the machine `host`. That is this machine
+ * or, with Files over SSH on, a machine this one has pinned. It has no label
+ * when new: a label is only what the operator writes, and it crosses to other
+ * machines where the root may not. Experimental: made only while the operator
+ * has the files feature on.
  */
 export const newFiles = (
   spot: Spot,

@@ -1,5 +1,6 @@
 import { use$ } from "@legendapp/state/react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { FILES_REMOTE_ENABLED } from "@shared/features";
 import { isThisMachine } from "@shared/machine-identity";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import type { RemoteHost } from "@shared/remote-hosts";
@@ -222,6 +223,56 @@ export const useSeatMachineLine = (
   return useMemo(
     () => (host === undefined ? undefined : seatMachineLine({ host, harness, thisName, machines, facts })),
     [host, harness, thisName, machines, facts],
+  );
+};
+
+/**
+ * The machines a Files node may name with Files over SSH on: this machine
+ * first, then each active pin by name. A retired pin, a bare host record and
+ * a Boat machine are not choices; the owner refuses all three.
+ */
+export const filesMachineChoices = (
+  machines: ReadonlyArray<RemoteHost>,
+  facts: Readonly<Record<string, MachineFacts>>,
+  boatNames: ReadonlySet<string>,
+  thisName: string,
+): ReadonlyArray<MachineChoice> => {
+  const own = machines.find((machine) => machine.isThisMachine);
+  const ownName = thisName.trim() || own?.id || "";
+  const first = ownName === "" ? [] : [{ id: ownName, label: own?.label.trim() || ownName }];
+  const pinned = machines
+    .filter((machine) => !machine.isThisMachine && machine.id !== ownName && facts[machine.id]?.setUp === true && !boatNames.has(machine.id))
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((machine) => ({ id: machine.id, label: machine.label.trim() || machine.id }));
+  return [...first, ...pinned];
+};
+
+/**
+ * The same list, kept to date: the machine list and Boat's names are read
+ * once, then follow every later list read. Off, only this machine is offered.
+ */
+export const useFilesMachineChoices = (): ReadonlyArray<MachineChoice> => {
+  const thisName = useThisMachineName();
+  const machines = useMachines();
+  const facts = use$(state$.machineFacts);
+  const [boatNames, setBoatNames] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    if (!FILES_REMOTE_ENABLED) return;
+    let live = true;
+    void loadMachines();
+    void import("./machine-list")
+      .then(({ readBoatMachineNames }) => readBoatMachineNames())
+      .then((names) => {
+        if (live) setBoatNames(names);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  return useMemo(
+    () => filesMachineChoices(machines, facts, boatNames, thisName),
+    [machines, facts, boatNames, thisName],
   );
 };
 

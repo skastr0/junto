@@ -43,6 +43,12 @@ export const readMachineList = async (): Promise<MachineCommandAnswer<"machine.l
   return listed;
 };
 
+/** The machine names Boat holds. A Files node may not name one; the owner refuses it. */
+export const readBoatMachineNames = async (): Promise<ReadonlySet<string>> => {
+  const boat = await machineCommand("machine.boat-status", {});
+  return new Set(boat.ok ? boat.data.machines.map((machine) => machine.machineName) : []);
+};
+
 /** Keep Boat's asleep state in the canvas machine facts so sleeping seats never read unreachable. */
 export const noteBoatPower = (boat: BoatStatusData | undefined): void => {
   const asleepByName = new Map<string, boolean>();

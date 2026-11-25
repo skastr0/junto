@@ -6,6 +6,7 @@ import { CircleAlert, ExternalLink, Search, FileCode, FilePlus, FileQuestion, Fi
 import type { NodeId } from "@shared/physics/schema";
 import type { FilePlaceAnchor } from "@shared/thread-subject";
 import { titleOf } from "@shared/model/title";
+import { FLEET_UI_ENABLED } from "@shared/features";
 import { baseName, parentOf, parseFilePath, ROOT_PATH, sameStamp, type FilePath, type FileRead, type FilesNodeRef, type FilesResult, type FileStamp } from "@shared/files";
 import { nodeAt, useNode } from "../../lib/use-model";
 import { useFollowOpen } from "../../lib/work-detail-open";
@@ -18,6 +19,7 @@ import {
   fileViewOf,
   saveErrorLine,
   setFileDraft,
+  FILES_MACHINE_GONE_LINE,
   unreachableLine,
   useDraftsVersion,
   useFilesRoot,
@@ -26,6 +28,7 @@ import {
   type Loaded,
 } from "../../lib/files-source";
 import { machineLabel, onThisMachine } from "../../lib/machines";
+import { openMachines } from "../../lib/machines-window";
 import { useSubjectThreads, type SubjectThread } from "../../lib/subject-threads-source";
 import { boxAnchorOf, filePlaceOf, lineAnchorOf, lineDraftOf, placeLabel, placedFileThreads, type LineDraft } from "../../lib/file-comments";
 import { FileCommentsRail, FileThreadRow, type FileCommentContext } from "./FileComments";
@@ -99,6 +102,8 @@ export function FilesNode({
   // Read live: the folder reopens when the node's host or root changes under the open modal.
   const node = useNode(canvasName, nodeId);
   const root = useFilesRoot(ref, node?.kind === "files" ? `${node.host}\u0000${node.root}` : "");
+  // The core refuses a node whose machine has no active pin here, before any request reaches it.
+  const notSetUp = root.state === "refused" && root.error === "not-set-up";
   const kept = useFilesNodeView(canvasName, nodeId);
   const keptRef = useRef(kept);
   keptRef.current = kept;
@@ -430,7 +435,7 @@ export function FilesNode({
         eyebrow={<span className="files-eyebrow">{folderName}</span>}
         actions={quickOpen.trigger}
       />
-      {offline !== undefined ? null : (
+      {offline !== undefined || notSetUp ? null : (
         <>
           {/* New file and New folder sit by the filter, so the header keeps its width for the folder's name. */}
           <div className="files-filter">
@@ -482,7 +487,24 @@ export function FilesNode({
   useEffect(() => registerFileEditorSave(() => save.current?.()), []);
 
   const empty =
-    root.state === "refused" ? (
+    notSetUp ? (
+      // The machine left this machine's list: the folder is refused before any open is sent.
+      <div role="alert" className="files-refused">
+        <PaneEmpty
+          glyph={<FileQuestion size={20} />}
+          title={FILES_MACHINE_GONE_LINE}
+          {...(FLEET_UI_ENABLED
+            ? {
+                action: (
+                  <Button size="sm" variant="chrome" onClick={() => openMachines()}>
+                    Open Machines
+                  </Button>
+                ),
+              }
+            : {})}
+        />
+      </div>
+    ) : root.state === "refused" ? (
       // The folder cannot open: said as an alert, so a reader hears why the tree is empty.
       <div role="alert" className="files-refused">
         <PaneEmpty
