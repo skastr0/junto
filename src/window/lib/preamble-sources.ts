@@ -218,6 +218,7 @@ const HELD_REASON = {
   busy: "waits: this seat is starting, compacting or retrying",
   stopped: "waits: this seat is stopped by a usage limit or an error",
   unsupported: "waits: this seat's harness cannot take mail right now",
+  unstarted: "waits: Junto could not start this seat",
 } as const satisfies Record<MailHold, string>;
 
 /** How long a held message has waited, once that is worth saying: ten minutes on. */
