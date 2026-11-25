@@ -441,9 +441,12 @@ describe("operator threads", () => {
     expect(message!.attachments).toEqual([expect.objectContaining({ sha256: staged_ref.sha256, displayName: "shot.png" })]);
     const [thread] = await threadsOf("agent");
     expect(thread!.title).toBe("shot.png");
-    // A staged file is claimed once.
+    // The upload stays staged for the send, since one send reaches several seats (one mail each) and a send
+    // again after a partial one is the same upload: a second mail carries it too, held on its own.
     const again = await send({ nodeId: "agent", text: "again", attachments: [staged_ref] });
-    expect(again).toMatchObject({ ok: false, reason: "invalid" });
+    expect(again).toMatchObject({ messageId: expect.any(String), threadId: expect.any(String) });
+    const [second] = (await mailbox("agent")).filter((message) => message.messageId === again.messageId);
+    expect(second!.metadata!.attachments).toEqual([expect.objectContaining({ sha256: staged_ref.sha256, displayName: "shot.png" })]);
   });
 
   it("refuses mail with neither text nor files, and files that were never staged", async () => {
