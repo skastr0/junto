@@ -130,9 +130,10 @@ describe("one send to several seats", () => {
     const outcome = await sendNewThreads(CANVAS, [A.seatId, B.seatId, C.seatId], { text: "status?" });
     expect(sends.map((send) => send.nodeId)).toEqual([A.seatId, B.seatId, C.seatId]);
     expect(sends.every((send) => send.text === "status?")).toBe(true);
+    // Each sent thread carries the root mail it wrote, for the first row painted before the reread.
     expect(outcome.sent).toEqual([
-      { seatId: A.seatId, threadId: "t-seat-a", arrival: "arrived" },
-      { seatId: C.seatId, threadId: "t-seat-c", arrival: "waiting" },
+      { seatId: A.seatId, threadId: "t-seat-a", arrival: "arrived", messageId: `m-${A.seatId}`, text: "status?", at: expect.any(Number) },
+      { seatId: C.seatId, threadId: "t-seat-c", arrival: "waiting", messageId: `m-${C.seatId}`, text: "status?", at: expect.any(Number) },
     ]);
     expect(outcome.failed).toEqual([{ seatId: B.seatId, message: "cli-lead is not reachable." }]);
   });
@@ -181,8 +182,8 @@ describe("the thread input with a row of recipients", () => {
     expect(outcomes).toEqual([
       {
         sent: [
-          { seatId: A.seatId, threadId: "t-seat-a", arrival: "arrived" },
-          { seatId: B.seatId, threadId: "t-seat-b", arrival: "arrived" },
+          { seatId: A.seatId, threadId: "t-seat-a", arrival: "arrived", messageId: `m-${A.seatId}`, text: "status?", at: expect.any(Number) },
+          { seatId: B.seatId, threadId: "t-seat-b", arrival: "arrived", messageId: `m-${B.seatId}`, text: "status?", at: expect.any(Number) },
         ],
         failed: [],
       },
