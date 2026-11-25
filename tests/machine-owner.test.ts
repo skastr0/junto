@@ -86,7 +86,16 @@ it("joins active pins on the list and retires the pin with route removal", async
   if (!changed.ok) {
     expect(changed.error.message).toContain("choose another name");
     expect(changed.error.message.match(/choose another name/g)).toHaveLength(1);
+    // The sender reads the rule typed, never from the words (receipt 22, S4).
+    expect(changed.error.details?.pinRefused).toBe("name-pinned-elsewhere");
   }
+  const elsewhere = await f.call("machine.setup", { machineName: "renamed", installationId: "mini-install" });
+  expect(elsewhere.ok).toBe(false);
+  if (!elsewhere.ok) expect(elsewhere.error.details?.pinRefused).toBe("installation-pinned-elsewhere");
+  // Any other refusal carries no pin rule.
+  const self = await f.call("machine.setup", { machineName: "macbook", installationId: "own-install" });
+  expect(self.ok).toBe(false);
+  if (!self.ok) expect(self.error.details?.pinRefused).toBeUndefined();
 });
 
 it("answers setup on a pin a link bound to its key with the pin's contract, and keeps the binding in the store", async () => {
