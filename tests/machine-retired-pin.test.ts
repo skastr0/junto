@@ -204,12 +204,15 @@ describe("a first send to a reinstalled machine", () => {
       const home = await mkdtemp(`/tmp/junto-retired-pin-${name}-`);
       const status = name === "macbook" ? JSON.stringify({ ok: true, command: "machine status", data: {
         build: "c".repeat(64), installationId: NEW, machineName: "mini", juntoHome: "/home/mini/junto", pid: 72, ready: true, form: "mac-mini" } }) : undefined;
-      const runtime = ManagedRuntime.make(Layer.provideMerge(machineLinkLayer("c".repeat(64), home), Layer.mergeAll(
-        noBoatRoutesLayer,
-        Layer.provide(makeMachineRepositoryLive({ defaultName: () => name, ...(installationId === undefined ? {} : { makeInstallationId: () => installationId }) }), makeStateEngineLive(join(home, "junto.db"))),
-        Layer.succeed(SshTransport, relayTo(() => miniHome, status)),
-        ...(owned ? [HostRegistryRows.layer, HostsServiceLive, testLog.log.loggerLayer] : []),
-      )));
+      const machines = makeMachineRepositoryLive({ defaultName: () => name, ...(installationId === undefined ? {} : { makeInstallationId: () => installationId }) })
+        .pipe(Layer.provideMerge(makeStateEngineLive(join(home, "junto.db"))));
+      const ssh = Layer.succeed(SshTransport, relayTo(() => miniHome, status));
+      const ownedServices = Layer.mergeAll(HostRegistryRows.layer, HostsServiceLive)
+        .pipe(Layer.provideMerge(testLog.log.loggerLayer), Layer.provideMerge(machines), Layer.provideMerge(ssh));
+      const runtime = ManagedRuntime.make(Layer.mergeAll(
+        machineLinkLayer("c".repeat(64), home), noBoatRoutesLayer, machines, ssh,
+        ...(owned ? [ownedServices] : []),
+      ));
       cleanups.push(async () => { await runtime.dispose(); await rm(home, { recursive: true, force: true }); });
       const self = await runtime.runPromise(Effect.flatMap(MachineRepository, (repository) => repository.installationId));
       await runtime.runPromise(Effect.gen(function* () {
