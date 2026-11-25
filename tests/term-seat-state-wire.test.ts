@@ -116,9 +116,9 @@ describe("term seat-state placement wiring", () => {
     );
     // The snapshot the Command Center reads is the core's since e92f443b4:
     // the window asks ThreadsSeatStates, and the core merges the hops it
-    // kept with the events its own plane saw.
+    // kept, each served with whether it is current, with the events its own plane saw.
     expect(readFileSync("src/core/ops/ipc-threads.ts", "utf8")).toContain(
-      "ThreadsSeatStates: () => Effect.sync(() => mergeSeatStateSnapshot(seatStateRuntime.currentEvents(), remoteState.events()))",
+      "ThreadsSeatStates: () => Effect.sync(() => mergeSeatStateSnapshot(seatStateRuntime.currentEvents(), servedRemoteEvents(remoteState)))",
     );
   });
 
