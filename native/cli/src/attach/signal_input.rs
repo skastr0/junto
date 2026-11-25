@@ -31,7 +31,7 @@ fn is_ulid(text: &str) -> bool {
 
 fn not_ulid(path: &str, what: &str) -> Failure {
     Failure::input(
-        &format!("{path} takes {what}: a ULID, 26 characters of Crockford base32"),
+        format!("{path} takes {what}: a ULID, 26 characters of Crockford base32"),
         path,
     )
     .and(
@@ -193,7 +193,7 @@ fn plan_order(order: &Order) -> Result<(Option<String>, Vec<String>)> {
     }
     if depends_on.len() > MAX_DEPENDS_ON {
         return Err(Failure::input(
-            &format!("a signal comes after at most {MAX_DEPENDS_ON} others"),
+            format!("a signal comes after at most {MAX_DEPENDS_ON} others"),
             "--depends-on",
         ));
     }
@@ -397,7 +397,7 @@ pub fn load_batch(input: &str, timeout: Timeout) -> Result<BatchArgs> {
     };
     if items.is_empty() || items.len() > MAX_BATCH {
         return Err(Failure::input(
-            &format!("a batch raises 1 to {MAX_BATCH} signals"),
+            format!("a batch raises 1 to {MAX_BATCH} signals"),
             "input",
         ));
     }
@@ -410,8 +410,8 @@ pub fn load_batch(input: &str, timeout: Timeout) -> Result<BatchArgs> {
             .is_some_and(|s| s.len() > MAX_SUGGESTIONS)
         {
             return Err(Failure::input(
-                &format!("at most {MAX_SUGGESTIONS} suggested replies"),
-                &format!("{path}.suggest"),
+                format!("at most {MAX_SUGGESTIONS} suggested replies"),
+                format!("{path}.suggest"),
             ));
         }
         let form = item
@@ -438,7 +438,7 @@ pub fn load_batch(input: &str, timeout: Timeout) -> Result<BatchArgs> {
             match after {
                 After::Id(id) if !is_ulid(id) => {
                     return Err(Failure::input(
-                        &format!(
+                        format!(
                             "{place} is not a signal id: a ULID, as junto signal list prints it"
                         ),
                         &place,
@@ -446,7 +446,7 @@ pub fn load_batch(input: &str, timeout: Timeout) -> Result<BatchArgs> {
                 }
                 After::Position(position) if *position < 1 || *position > index as i64 => {
                     return Err(Failure::input(
-                        &format!(
+                        format!(
                             "item {} can come only after an earlier item, counted from 1",
                             index + 1
                         ),
@@ -461,8 +461,8 @@ pub fn load_batch(input: &str, timeout: Timeout) -> Result<BatchArgs> {
             .is_some_and(|refs| refs.len() > MAX_DEPENDS_ON)
         {
             return Err(Failure::input(
-                &format!("a signal comes after at most {MAX_DEPENDS_ON} others"),
-                &format!("{path}.dependsOn"),
+                format!("a signal comes after at most {MAX_DEPENDS_ON} others"),
+                format!("{path}.dependsOn"),
             ));
         }
         let plans = item
@@ -472,7 +472,7 @@ pub fn load_batch(input: &str, timeout: Timeout) -> Result<BatchArgs> {
         if signal_attach::stdin_uses(&plans) > 0 {
             return Err(Failure::input(
                 "stdin feeds the batch only: attach a text from a file or inline",
-                &format!("{path}.attach"),
+                format!("{path}.attach"),
             ));
         }
         planned.push((
