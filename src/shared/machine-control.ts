@@ -171,41 +171,6 @@ export type MachineCopyInput = typeof MachineCopyInput.Type;
 export const MachineRemoved = Schema.Struct({ machineName: MachineName, removed: Schema.Literal(true) });
 export type MachineRemoved = typeof MachineRemoved.Type;
 export const MachineEmptyInput = Schema.Struct({});
-/** The operator's confirm counts: zero is still shown and still confirmed. */
-export const MachineTakeoverConfirm = Schema.Struct({
-  seats: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
-  automations: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
-});
-export type MachineTakeoverConfirm = typeof MachineTakeoverConfirm.Type;
-/**
- * Replace the active pin named `machineName` on this machine, held by
- * `expectedInstallationId`, with the new installation. Without `confirm` the
- * request only answers the counts the window must show.
- */
-export const MachineTakeoverInput = Schema.Struct({
-  machineName: MachineName,
-  installationId: InstallationId,
-  /** Omitted on a preview: the far end answers the id it holds now. */
-  expectedInstallationId: Schema.optionalKey(InstallationId),
-  confirm: Schema.optionalKey(MachineTakeoverConfirm),
-});
-export type MachineTakeoverInput = typeof MachineTakeoverInput.Type;
-export const MachineTakeoverData = Schema.Struct({
-  machineName: MachineName,
-  installationId: InstallationId,
-  previousInstallationId: InstallationId,
-  seats: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
-  automations: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
-  takenOver: Schema.Boolean,
-});
-export type MachineTakeoverData = typeof MachineTakeoverData.Type;
-/** Start a take-over on the far machine that holds the old pin. */
-export const MachineTakeoverRemoteInput = Schema.Struct({
-  name: MachineName,
-  expectedInstallationId: Schema.optionalKey(InstallationId),
-  confirm: Schema.optionalKey(MachineTakeoverConfirm),
-});
-export type MachineTakeoverRemoteInput = typeof MachineTakeoverRemoteInput.Type;
 /** A Boat machine made and sent: where it stands, and the install's receipt. */
 export const BoatAddData = Schema.Struct({ machine: BoatMachineView, installed: InstallResult });
 export type BoatAddData = typeof BoatAddData.Type;
@@ -217,7 +182,7 @@ export const MachineOpName = Schema.Literals([
   "machine.boat-connect", "machine.boat-disconnect", "machine.boat-status", "machine.boat-add", "machine.boat-delete",
   "machine.wake", "machine.sleep",
   "machine.link", "machine.link-key", "machine.link-accept", "machine.link-open", "machine.link-revoke",
-  "machine.vault-token", "machine.vault-receive", "machine.takeover", "machine.takeover-remote",
+  "machine.vault-token", "machine.vault-receive",
 ]);
 export type MachineOpName = typeof MachineOpName.Type;
 export interface MachineArgsByOp {
@@ -249,8 +214,6 @@ export interface MachineArgsByOp {
   readonly "machine.link-revoke": MachineLinkRevokeInput;
   readonly "machine.vault-token": MachineVaultTokenInput;
   readonly "machine.vault-receive": VaultTokenDelivery;
-  readonly "machine.takeover": MachineTakeoverInput;
-  readonly "machine.takeover-remote": MachineTakeoverRemoteInput;
 }
 export interface MachineDataByOp {
   readonly "machine.add": RemoteHost;
@@ -281,6 +244,4 @@ export interface MachineDataByOp {
   readonly "machine.link-revoke": MachineLinkRevokeData;
   readonly "machine.vault-token": MachineVaultTokenData;
   readonly "machine.vault-receive": MachineVaultTokenData;
-  readonly "machine.takeover": MachineTakeoverData;
-  readonly "machine.takeover-remote": MachineTakeoverData;
 }

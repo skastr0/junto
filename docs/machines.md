@@ -244,16 +244,6 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
     installed: no byte is fetched from the peer, and a peer that claims newer
     makes this machine show behind instead. Downloaded bytes require a signed
     release; source and Preview builds install only their own build.
-    A take-over replaces a stale pin at a name with a new installation, and the
-    far machine runs it only as the operator's own command over SSH. The
-    replacing installation counts the seats it runs and the automations it
-    placed on that machine; the confirm shows both counts, zero included, and a
-    nonzero count runs only after that confirm. The take-over removes the old
-    link key and closes the old live sessions, then one retire transaction
-    sweeps the old pin's owed deletes by name, deletes its vault token row,
-    writes the new pin, and returns. Nothing runs for the new installation
-    until that transaction commits, and the old pin's owed deletes are never
-    delivered to the installation that follows it.
     An update whose machine reports any running seat, or no seat count at all,
     changes nothing unless the operator confirmed stopping them: the install
     takes the maintenance lease on the incumbent's term control socket and

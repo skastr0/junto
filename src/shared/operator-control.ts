@@ -10,7 +10,7 @@ import { AgentSignal } from "./agent-signals";
 import { CompanionArtifactChanged } from "./wire/companion-artifacts";
 import {
   MachineOpName, MachineAddInput, MachineEmptyInput, MachineCopyInput, MachineStatusInput,
-  MachineTargetInput, MachinePeerIdentity, MachineConfigured, MachinePeerPin, MachineTakeoverInput, MachineTakeoverData, MachineTakeoverRemoteInput,
+  MachineTargetInput, MachinePeerIdentity, MachineConfigured, MachinePeerPin,
   MachineListData, MachineStatusData, MachineRemoved, MachineHarnesses, BoatAddData,
   type MachineArgsByOp, type MachineDataByOp,
 } from "./machine-control";
@@ -154,8 +154,6 @@ export const OperatorMachineRemoveRequest = request("machine.remove", MachineTar
 export const OperatorMachineHarnessesRequest = request("machine.harnesses", MachineStatusInput);
 export const OperatorMachineConfigureRequest = request("machine.configure", MachineTargetInput);
 export const OperatorMachineSetupRequest = request("machine.setup", MachinePeerIdentity);
-export const OperatorMachineTakeoverRequest = request("machine.takeover", MachineTakeoverInput);
-export const OperatorMachineTakeoverRemoteRequest = request("machine.takeover-remote", MachineTakeoverRemoteInput);
 export const OperatorMachineExchangeRequest = request("machine.exchange", MachineExchangeInput);
 export const OperatorMachineLogsRequest = request("machine.logs", MachineLogsInput);
 export const OperatorMachineSeatStartRequest = request("machine.seat-start", MachineSeatStartInput);
@@ -191,8 +189,6 @@ OperatorMachineRemoveRequest,
 OperatorMachineHarnessesRequest,
 OperatorMachineConfigureRequest,
 OperatorMachineSetupRequest,
-OperatorMachineTakeoverRequest,
-OperatorMachineTakeoverRemoteRequest,
 OperatorMachineExchangeRequest,
 OperatorMachineLogsRequest,
 OperatorMachineSeatStartRequest,
@@ -246,8 +242,6 @@ export const OperatorMachineRemoveResponse = response("machine.remove", MachineR
 export const OperatorMachineHarnessesResponse = response("machine.harnesses", MachineHarnesses);
 export const OperatorMachineConfigureResponse = response("machine.configure", MachineConfigured);
 export const OperatorMachineSetupResponse = response("machine.setup", MachinePeerPin);
-export const OperatorMachineTakeoverResponse = response("machine.takeover", MachineTakeoverData);
-export const OperatorMachineTakeoverRemoteResponse = response("machine.takeover-remote", MachineTakeoverData);
 export const OperatorMachineExchangeResponse = response("machine.exchange", MachineExchangeData);
 export const OperatorMachineLogsResponse = response("machine.logs", MachineLogRead);
 export const OperatorMachineSeatStartResponse = response("machine.seat-start", MachineSeatStarted);
@@ -325,8 +319,6 @@ OperatorMachineRemoveResponse,
 OperatorMachineHarnessesResponse,
 OperatorMachineConfigureResponse,
 OperatorMachineSetupResponse,
-OperatorMachineTakeoverResponse,
-OperatorMachineTakeoverRemoteResponse,
 OperatorMachineExchangeResponse,
 OperatorMachineLogsResponse,
 OperatorMachineSeatStartResponse,
