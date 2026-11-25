@@ -244,6 +244,15 @@ it("says an answer and the card that takes its place, or that nothing else waits
   expect(q(".operator-feed__announce")?.textContent).toBe("Answered. Next: bravo, ready for review: Bravo wants a look");
 });
 
+it("does not say the feed is clear when a filter hides what still waits", async () => {
+  await open(feedOf(1));
+  await act(async () => feedView$.seat.set("seat-atlas"));
+  expect(rows()).toEqual(["s10"]);
+  await key("1");
+  await act(async () => live.set(feedOf(0)));
+  expect(q(".operator-feed__announce")?.textContent).toBe("Answered. Nothing else shown with these filters");
+});
+
 it("draws a batch of 50 raised in order as three rows, and walks it one by one with the next always on top", async () => {
   await open(feedOf(50, 50));
   expect(rows()).toEqual(["s1", "s2", "48 more in this order", "other"]);

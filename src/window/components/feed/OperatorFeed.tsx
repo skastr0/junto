@@ -867,12 +867,21 @@ const feed = useOperatorFeed();
     if (closedBy === null || items.some((candidate) => candidate.itemId === closedBy.itemId)) return;
     if (items.length > 0 && (selectedItem === undefined || selected === closedBy.itemId)) return;
     setClosedBy(null);
+    // A seat filter drops with its last need, in the same beat: that is no narrowing by the operator, so it keeps this note.
+    if (filtering || activeRegion !== undefined) clearedForAsk.current = true;
     setAnnounceNote(
       selectedItem === undefined
-        ? `${closedBy.word}. Nothing else waiting`
+        ? // The list is what the filters show: with some on and the feed still holding needs, others wait out of sight.
+          `${closedBy.word}. ${
+            feed.count === 0 || (!filtering && activeRegion === undefined)
+              ? "Nothing else waiting"
+              : filtering
+                ? "Nothing else shown with these filters"
+                : "Nothing else shown in this region"
+          }`
         : `${closedBy.word}. Next: ${feedCardSpeech(selectedItem, chainPlaces.get(selectedItem.itemId))}`,
     );
-  }, [closedBy, items, selected, selectedItem, chainPlaces]);
+  }, [closedBy, items, selected, selectedItem, chainPlaces, filtering, activeRegion, feed.count]);
 
   const answer = async (item: FeedItem, chosen: SignalAnswer): Promise<void> => {
     if (!item.signalId || sendingRef.current.has(item.itemId)) return;
