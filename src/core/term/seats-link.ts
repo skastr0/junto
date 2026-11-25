@@ -27,14 +27,14 @@ import {
 import { addOperatorHoldSource, type OperatorHoldSource } from "./operator-holds";
 import { readLocalWindow, type SeatGrid, SeatsRead } from "./seat-read-window";
 import {
-  SeatsActivate, SeatsEvent, SeatsGet, SeatsGetAnswer, SeatsLink, SeatsReadAnswer, SeatsStart,
+  SeatsActivate, SeatsDeleteReleased, SeatsEvent, SeatsGet, SeatsGetAnswer, SeatsLink, SeatsReadAnswer, SeatsReleaseDelete, SeatsStart,
   SeatsStarted, SeatsStateEvent, SeatsStop, SeatsStopAnswer, SeatsViewed, SeatsViewedAnswer,
 } from "./seats-contract";
 import {
   asSeatsFailure, clipText, type SeatsFailureWhere, SeatAttachLimit, SeatAttachObserveOnly, SeatAttachRefused,
   SeatAttachUnknown, SeatCacheQuestionUnknown, SeatCanvasEditorMismatch, SeatChangedWhilePreparing, SeatEpochChanged, SeatExited,
   SeatLinkClosed, SeatMissing, SeatNotOnThisMachine, SeatOccupantChanged, SeatPeerNotPinned,
-  SeatSessionUnavailable, SeatsFailure, SeatSpawnFailed, SeatStateNotFromItsMachine, SeatStatusInvalid, SeatStopping,
+  SeatSessionUnavailable, SeatsFailure, SeatSpawnFailed, SeatStartRefused, SeatStateNotFromItsMachine, SeatStatusInvalid, SeatStopping,
   SeatStopRefused,
 } from "./seats-failure";
 import {
@@ -63,6 +63,7 @@ type SeatRequest =
   | (typeof SeatsGet.Type & { readonly _tag: "Get" })
   | (typeof SeatsActivate.Type & { readonly _tag: "Activate" })
   | (typeof SeatsStop.Type & { readonly _tag: "Stop" })
+  | (typeof SeatsReleaseDelete.Type & { readonly _tag: "ReleaseDelete" })
   | (typeof SeatsViewed.Type & { readonly _tag: "Viewed" })
   | (typeof SeatsRead.Type & { readonly _tag: "Read" });
 /** An attach request as its handler reads it. */
@@ -124,7 +125,7 @@ export type SeatsChannelOptions = {
    * The delete fence a for-delete Stop holds and every start must pass. The
    * live node-delete service by default; a test may leave it unset.
    */
-  readonly nodeDelete?: Pick<TerminalNodeDeleteService, "admitCreate" | "assertCreate" | "holdDelete">;
+  readonly nodeDelete?: Pick<TerminalNodeDeleteService, "admitCreate" | "assertCreate" | "holdDelete" | "releaseHeldDeleteFor">;
 };
 
 /** The peer names a seat; its own machine derives the whole launch. */
@@ -349,9 +350,30 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
     if (request._tag === "Stop") {
       // A delete stop holds the binding's create lock from here until the next
       // installed copy of this canvas decides — vacant or not, so nothing can
-      // start in between. An ordinary stop takes no lock.
-      if (request.forDelete === true)
-        nodeDelete.holdDelete(initial.seat.bindingId, initial.name, { canvas: request.canvas, seatId: request.seatId });
+      // start in between. An ordinary stop takes no lock. The row is durable
+      // before the lock, the stop and the answer: clean is never answered for
+      // a hold a crash could lose.
+      if (request.forDelete === true) {
+        if (request.deleteSeq === undefined) {
+          yield* Effect.logInfo("terminal delete refused").pipe(Effect.annotateLogs({
+            seat: request.seatId, canvas: request.canvas, machine, reason: "delete-seq-missing",
+          }));
+          return yield* new SeatStartRefused({ ...where, causeTag: "DeleteSeqMissing",
+            message: "A delete stop carries the editor's canvas seq; without it the stop is refused." });
+        }
+        yield* Effect.tryPromise({
+          try: () => nodeDelete.holdDelete(initial.seat.bindingId, initial.name, {
+            canvas: request.canvas, seatId: request.seatId,
+            editorInstallationId: context.peer.installationId,
+            editorCanvasSeq: request.deleteSeq as number,
+          }),
+          catch: (cause) => asSeatsFailure(where, cause),
+        });
+        yield* Effect.logInfo("terminal delete held").pipe(Effect.annotateLogs({
+          seat: request.seatId, canvas: request.canvas, machine,
+          seq: request.deleteSeq, editor: context.peer.installationId,
+        }));
+      }
       const live = host.get(initial.seat.bindingId);
       if (live === undefined || live.status === "exited" || live.status === "missing")
         return { _tag: "Vacant", canvas: request.canvas, seatId: request.seatId, machine: initial.name };
@@ -363,6 +385,24 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
           message: "This machine refused to stop the seat's occupant; it may be shutting down." });
       return { _tag: "Stopping", canvas: request.canvas, seatId: request.seatId, machine: initial.name,
         generation: live.epoch };
+    }
+    if (request._tag === "ReleaseDelete") {
+      // The editor states its abort. Only the admitted peer that took the hold
+      // releases it, and only an exact seq match: a late release from a first
+      // attempt never frees a retry's hold. Idempotent, and it never starts or
+      // stops an occupant.
+      const released = yield* Effect.tryPromise({
+        try: () => nodeDelete.releaseHeldDeleteFor(initial.seat.bindingId, initial.name, {
+          canvas: request.canvas, seatId: request.seatId,
+          editorInstallationId: context.peer.installationId,
+          editorCanvasSeq: request.deleteSeq,
+        }),
+        catch: (cause) => asSeatsFailure(where, cause),
+      });
+      yield* Effect.logInfo("terminal delete release").pipe(Effect.annotateLogs({
+        seat: request.seatId, canvas: request.canvas, machine, seq: request.deleteSeq, released,
+      }));
+      return { canvas: request.canvas, seatId: request.seatId, machine: initial.name, released };
     }
     if (request._tag !== "Start") {
       const live = host.get(initial.seat.bindingId);
@@ -607,6 +647,12 @@ export const makeSeatsChannel = Effect.fn("SeatsLink.make")(function* (options: 
        * Vacant or Stopping for what is left.
        */
       Stop: (payload, context) => serveSeat(context, { _tag: "Stop", ...payload }).pipe(Effect.flatMap(replyOf(SeatsStopAnswer))),
+      /**
+       * Idempotent: an exact seq match releases the hold once, and a repeat
+       * or a mismatched release answers released false, changing nothing. No
+       * occupant is started or stopped either way.
+       */
+      ReleaseDelete: (payload, context) => serveSeat(context, { _tag: "ReleaseDelete", ...payload }).pipe(Effect.flatMap(replyOf(SeatsDeleteReleased))),
       /**
        * Not idempotent: clears the occupant's unseen finished turn. A half
        * run clears it or not; a repeat answers Seen with changed false.

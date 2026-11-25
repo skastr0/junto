@@ -7,6 +7,7 @@
  */
 
 import { EventEmitter } from "node:events";
+import { coreRunner } from "../core-runner";
 import { isThisMachine } from "@shared/machine-name";
 import { thisMachineName } from "./machine-name";
 import { randomBytes } from "node:crypto";
@@ -26,6 +27,7 @@ import {
   type TermMaintenanceQuiescenceEvidence,
 } from "@shared/term-control";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import type { DeleteBindingUnprovenReason } from "@shared/terminal-delete";
 import type { RegionRect } from "@shared/graph";
 import { EMPTY_LAUNCH_RECORD } from "@shared/region-environment";
 import type { SeatViews } from "./seat-views";
@@ -235,7 +237,7 @@ export type DeleteBindingReceipt =
   | { readonly kind: "refused" }
   | {
       readonly kind: "unproven";
-      readonly reason: "refused" | "epoch-changed" | "unreachable" | "timeout";
+      readonly reason: DeleteBindingUnprovenReason;
     };
 
 /**
@@ -556,10 +558,27 @@ export class TerminalRouter extends EventEmitter {
    * Stopping or Vacant is the clean receipt and anything else is unproven,
    * never refused: the operator confirms an unproven delete each time.
    */
-  async deleteBinding(bindingId: string, hostId?: string): Promise<DeleteBindingReceipt> {
-    if (this.quiescing) return { kind: "refused" };
+  /** One line for a delete the router itself refused, so the machine's log says why. Best effort, never throws. */
+  private logDeleteGate(bindingId: string, hostId: string | undefined, reason: string): Promise<void> {
+    return coreRunner.runPromise(
+      (Effect.logInfo("terminal delete refused") as Effect.Effect<void, never, never>).pipe(Effect.annotateLogs({
+        seat: bindingId,
+        machine: hostId?.trim() ?? "",
+        reason,
+      })),
+    ).then(() => undefined, () => undefined);
+  }
+
+  async deleteBinding(bindingId: string, hostId?: string, deleteSeq?: number): Promise<DeleteBindingReceipt> {
+    if (this.quiescing) {
+      void this.logDeleteGate(bindingId, hostId, "quiescing");
+      return { kind: "refused" };
+    }
     const normalizedHostId = hostId?.trim();
-    if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) return { kind: "refused" };
+    if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) {
+      void this.logDeleteGate(bindingId, hostId, "maintenance cut");
+      return { kind: "refused" };
+    }
     if (!hostId || this.isLocalHostId(hostId)) {
       return (await this.local.deleteBinding(bindingId))
         ? { kind: "clean" }
@@ -567,9 +586,23 @@ export class TerminalRouter extends EventEmitter {
     }
     try {
       const { makeSeatsProcessClient } = await import("./seats-client");
-      return await makeSeatsProcessClient(normalizedHostId || hostId).stopForDelete(bindingId);
+      return await makeSeatsProcessClient(normalizedHostId || hostId).stopForDelete(bindingId, undefined, deleteSeq);
     } catch {
       return { kind: "unproven", reason: "unreachable" };
+    }
+  }
+
+  /** Best-effort abort release for a remote delete hold. False only means no exact release was answered. */
+  async releaseDeletedBinding(bindingId: string, hostId: string | undefined, deleteSeq: number): Promise<boolean> {
+    if (this.quiescing) return false;
+    const normalizedHostId = hostId?.trim();
+    if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) return false;
+    if (!hostId || this.isLocalHostId(hostId)) return true;
+    try {
+      const { makeSeatsProcessClient } = await import("./seats-client");
+      return await makeSeatsProcessClient(normalizedHostId || hostId).releaseDelete(bindingId, deleteSeq);
+    } catch {
+      return false;
     }
   }
 

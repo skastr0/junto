@@ -63,6 +63,7 @@ import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema
 import { SEAT_CONTROLS_STATE_SCHEMA_SQL } from "../work/seat-controls-state-schema";
 import { FLEET_CONSENSUS_STATE_SCHEMA_SQL, FLEET_COPY_LIST_STATE_SCHEMA_SQL, FLEET_STRUCTURE_LOG_STATE_SCHEMA_SQL } from "../fleet/state-schema";
 import { MACHINE_VAULT_TOKENS_SQL } from "../vault/state-schema";
+import { TERMINAL_DELETE_STATE_SCHEMA_SQL } from "../term/node-delete-state-schema";
 
 /**
  * Schema identity table: `actual_schema_sha256` is the sole witness (live DDL
@@ -160,6 +161,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   FLEET_STRUCTURE_LOG_STATE_SCHEMA_SQL,
   FLEET_COPY_LIST_STATE_SCHEMA_SQL,
   MACHINE_VAULT_TOKENS_SQL,
+  TERMINAL_DELETE_STATE_SCHEMA_SQL,
   VIEW_CAPTURE_DESK_SCHEMA_SQL,
   OPEN_PROJECTIONS_STATE_SCHEMA_SQL,
   LOOM_SEEDS_STATE_SCHEMA_SQL,

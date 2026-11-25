@@ -170,13 +170,14 @@ describe("seat start and stop", () => {
 
   it("refuses an operator start already under a held delete", async () => {
     const f = await fixture();
-    const held = f.nodeDelete.holdDelete(localSeat.bindingId, THIS_MACHINE, { canvas, seatId: localSeat.id });
+    const held = await f.nodeDelete.holdDelete(localSeat.bindingId, THIS_MACHINE,
+      { canvas, seatId: localSeat.id, editorInstallationId: "editor-test", editorCanvasSeq: 0 });
     try {
       const refused = await f.runtime.runPromise(Effect.flip(startSeat({ canvas, seatId: localSeat.id }, f.options)));
       expect(refused).toMatchObject({ _tag: "SeatChangedWhileStarting" });
       expect(f.fake.controllers).toHaveLength(0);
     } finally {
-      f.nodeDelete.releaseHeldDelete(held.key);
+      await f.nodeDelete.releaseHeldDelete(held.key);
     }
   });
 
@@ -185,7 +186,8 @@ describe("seat start and stop", () => {
     let heldKey: string | undefined;
     const environment: typeof noSeatEnvironment = async (seat) => {
       if (nodeDelete === undefined) throw new Error("fixture is not ready");
-      heldKey = nodeDelete.holdDelete(localSeat.bindingId, THIS_MACHINE, { canvas, seatId: localSeat.id }).key;
+      heldKey = (await nodeDelete.holdDelete(localSeat.bindingId, THIS_MACHINE,
+        { canvas, seatId: localSeat.id, editorInstallationId: "editor-test", editorCanvasSeq: 0 })).key;
       return noSeatEnvironment(seat);
     };
     const f = await fixture([localSeat, plainTerminal], environment);
@@ -195,7 +197,7 @@ describe("seat start and stop", () => {
       expect(refused).toMatchObject({ _tag: "SeatChangedWhileStarting" });
       expect(f.fake.controllers).toHaveLength(0);
     } finally {
-      if (heldKey !== undefined) f.nodeDelete.releaseHeldDelete(heldKey);
+      if (heldKey !== undefined) await f.nodeDelete.releaseHeldDelete(heldKey);
     }
   });
 });

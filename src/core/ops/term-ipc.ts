@@ -163,7 +163,7 @@ export const TermPlaneHandlers = TermRpcs.toLayer(
           : routed(() => plane.router.get(bindingId, hostId)),
       TermBeginNodeDelete: ({ resources }) => routed(() => plane.nodeDelete.beginNodeDelete(resources)),
       TermFinishNodeDelete: ({ leaseId, outcome }) =>
-        Effect.try({ try: () => plane.nodeDelete.finishNodeDelete(leaseId, outcome), catch: refusal }),
+        routed(() => plane.nodeDelete.finishNodeDelete(leaseId, outcome)),
       TermAttach: ({ input }) =>
         Effect.gen(function* () {
           const hostId = input.hostId?.trim() || plane.router.thisMachineName();

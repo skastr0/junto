@@ -351,6 +351,10 @@ export const startCore = async (options: CoreOptions) => {
     // The durable delete holds come back before any seat path can admit a
     // start: row written, lock taken, stop, then answer — and a restart
     // never reopens the window the hold closed.
+    // The durable delete holds come back before any seat path can admit a
+    // start: row written, lock taken, stop, then answer — and a restart
+    // never reopens the window the hold closed.
+    await termPlane.nodeDelete.loadHeldDeletes();
     seatProcesses = await startCoreSeats({ home: options.home });
     // The window's terminal ops ask this plane by name, and its events reach the window as core pushes.
     // The terminals the last core left running come back first: a new client

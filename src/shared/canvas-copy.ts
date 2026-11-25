@@ -192,7 +192,7 @@ export type CanvasCopySource = {
  * machine that holds part of the canvas; `"keeper"` is the whole canvas for a
  * machine the committed authority list names.
  */
-export type CanvasCopyMode = "cut" | "keeper";
+export type CanvasCopyMode = "cut" | "keeper" | "departing";
 
 export type CanvasCopyTarget = {
   readonly installationId: InstallationId;
@@ -332,6 +332,27 @@ export const exportCanvasCopy = (
     return { ok: false, refusal: { reason: "a-row-names-no-machine", nodeId: unnamed.id } };
   }
   const keeper = mode === "keeper";
+  if (mode === "departing") {
+    // A departure copy is the header and nothing else: the machine learns the
+    // count its seats were dropped at, and nothing more of the canvas.
+    const copy: CanvasCopy = {
+      canvasName: source.canvasName,
+      canvasId: source.canvasId,
+      seq: source.seq,
+      editor: source.editor,
+      target: target.installationId,
+      seats: [],
+      peers: [],
+      terminals: [],
+      regions: [],
+      resources: [],
+      wires: [],
+      guidance: [],
+      references: [],
+      playing: source.playing,
+    };
+    return { ok: true, copy };
+  }
   const seats: Seat[] = [];
   const peers: Peer[] = [];
   const terminals: Terminal[] = [];

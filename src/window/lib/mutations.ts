@@ -498,10 +498,10 @@ const deleteNodesInternal = async (
   // distinct seats, and duplicate references to one seat must stop it once.
   const managedTerminalBindings = new Map<
     string,
-    { readonly bindingId: string; readonly hostId: string }
+    { readonly bindingId: string; readonly hostId: string; readonly canvas: string; readonly seatId: string; readonly canvasSeq: number }
   >();
   for (const node of agentNodes) {
-    managedTerminalBindings.set(`${node.host}\0${node.bindingId}`, { bindingId: node.bindingId, hostId: node.host });
+    managedTerminalBindings.set(`${node.host}\0${node.bindingId}`, { bindingId: node.bindingId, hostId: node.host, canvas: canvasName, seatId: node.id, canvasSeq: canvas.seq });
   }
   let terminalDeleteLeaseId: string | undefined;
   const finishDeleteLeases = async (

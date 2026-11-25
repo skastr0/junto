@@ -182,6 +182,9 @@ export const TermAttachInput = Schema.Struct({
 export const TerminalNodeDeleteResource = Schema.Struct({
   bindingId: Schema.String,
   hostId: Schema.optional(Schema.String),
+  canvas: Schema.optional(Schema.String),
+  seatId: Schema.optional(Schema.String),
+  canvasSeq: Schema.optional(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
   confirmedUnreachable: Schema.optional(Schema.Literal(true)),
 });
 

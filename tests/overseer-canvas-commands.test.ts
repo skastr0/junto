@@ -780,7 +780,7 @@ describe("executeOverseerCanvas", () => {
     });
     await expectOk({ operation: "node.delete", args: { nodeIds: ["peer"] } });
     expect(planned).toEqual([[
-      { kind: "terminal", bindingId: "bind-peer", hostId: THIS_MACHINE },
+      { kind: "terminal", bindingId: "bind-peer", hostId: THIS_MACHINE, canvasName: "ops", canvasSeq: 2, nodeId: "peer" },
     ]]);
   });
 });

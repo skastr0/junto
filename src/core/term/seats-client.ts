@@ -16,13 +16,14 @@ import { fromSeatsLaunch, type RemoteSeatLaunch } from "./seats-launch";
 import { remoteSeatLaunch } from "./remote-seat-launch";
 import { RemoteSeatState } from "./remote-seat-state";
 import { type SeatSpawnFailed } from "./seats-failure";
+import type { DeleteBindingUnprovenReason } from "@shared/terminal-delete";
 
 type Services = HostsService | MachineLink | ModelService;
 export type SeatsClientRunner = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
 const asError = (cause: unknown): Error => cause instanceof Error ? cause : new Error(String(cause));
 
 /** Why a delete stop could not prove its receipt; the operator confirms each. */
-export type StopForDeleteReason = "refused" | "epoch-changed" | "unreachable" | "timeout";
+export type StopForDeleteReason = DeleteBindingUnprovenReason;
 export type StopForDeleteReceipt =
   | { readonly kind: "clean" }
   | { readonly kind: "unproven"; readonly reason: StopForDeleteReason };
@@ -49,7 +50,9 @@ export type SeatsClient = RemoteSeatProcessClient & {
    * marked for delete, so the seat's machine holds its create lock until the
    * next installed copy decides.
    */
-  readonly stopForDelete: (bindingId: string, operationId?: string) => Promise<StopForDeleteReceipt>;
+  readonly stopForDelete: (bindingId: string, operationId?: string, deleteSeq?: number) => Promise<StopForDeleteReceipt>;
+  /** Release a delete hold after an abort. False means no exact hold matched or the machine could not answer. */
+  readonly releaseDelete: (bindingId: string, deleteSeq: number, operationId?: string) => Promise<boolean>;
   /**
    * The operator viewed the seat's occupant of that generation. True when it
    * cleared a finished turn there, false when nothing changed or no occupant.
@@ -142,16 +145,18 @@ export const makeSeatsProcessClient = (
         return yield* Effect.fail(new Error("The machine answered for another seat."));
       return response._tag === "Stopping";
     }).pipe(Effect.annotateLogs({ area: "seats", seat: bindingId }))),
-    stopForDelete: (bindingId, operationId) => run(Effect.gen(function* () {
+    stopForDelete: (bindingId, operationId, deleteSeq) => run(Effect.gen(function* () {
       const held = yield* locate(bindingId);
       if (held === undefined) return { kind: "unproven", reason: "unreachable" } as const;
+      if (deleteSeq === undefined || !Number.isSafeInteger(deleteSeq) || deleteSeq < 0)
+        return yield* Effect.fail(new Error("A delete stop requires the editor's canvas seq."));
       // The epoch this machine last saw of the seat; none sends without, so
       // the seat's machine stops whoever occupies it now.
       const state = Context.getOrUndefined(yield* Effect.context<never>(), RemoteSeatState);
       const epoch = state?.events().find((event) => event.bindingId === bindingId)?.epoch;
       const seats = yield* connect;
       const response = yield* seats.Stop(machine, {
-        canvas: held.canvas, seatId: held.seat.id, forDelete: true,
+        canvas: held.canvas, seatId: held.seat.id, forDelete: true, deleteSeq,
         ...(epoch === undefined ? {} : { generation: epoch }),
       }, options(operationId));
       if (response.canvas !== held.canvas || response.seatId !== held.seat.id || response.machine !== machine)
@@ -161,6 +166,17 @@ export const makeSeatsProcessClient = (
       Effect.catch((cause: unknown) => Effect.succeed(classifyStopForDelete(cause))),
       Effect.annotateLogs({ area: "seats", seat: bindingId }),
     )),
+    releaseDelete: (bindingId, deleteSeq, operationId) => run(Effect.gen(function* () {
+      const held = yield* locate(bindingId);
+      if (held === undefined) return false;
+      const seats = yield* connect;
+      const response = yield* seats.ReleaseDelete(machine, {
+        canvas: held.canvas, seatId: held.seat.id, deleteSeq,
+      }, options(operationId));
+      if (response.canvas !== held.canvas || response.seatId !== held.seat.id || response.machine !== machine)
+        return yield* Effect.fail(new Error("The machine answered for another seat."));
+      return response.released;
+    }).pipe(Effect.annotateLogs({ area: "seats", seat: bindingId }))),
     viewed: (bindingId, generation, operationId = randomUUID()) => run(Effect.gen(function* () {
       const held = yield* locate(bindingId);
       if (held === undefined) return false;

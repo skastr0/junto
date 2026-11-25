@@ -320,6 +320,9 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
           yield* rows.delete(name);
           // The owed finishes it was named in go with it: a machine that is
           // removed is never "next seen", so the debt is no longer owed to it.
+          yield* sql`DELETE FROM terminal_delete_owed WHERE machine_name = ${name}`;
+          // The owed finishes it was named in go with it: a machine that is
+          // removed is never "next seen", so the debt is no longer owed to it.
         })).pipe(Effect.provideService(StateTransactionOperation, "machine.remove"),
           Effect.tap(() => options.disconnect(name))));
         // Its key comes off here and off every machine this one reaches; one it cannot reach stays listed.

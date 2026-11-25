@@ -86,12 +86,12 @@ export type RowExchangeDeps = {
    * This machine's canvas, cut for that machine. Absent when this machine does
    * not edit the canvas or that machine has no seat on it.
    */
-  readonly cutCopy: (canvasName: string, peer: InstallationId) => Effect.Effect<CanvasCopy | undefined, unknown>;
+  readonly cutCopy: (canvasName: string, peer: InstallationId) => Effect.Effect<{ readonly copy: CanvasCopy; readonly departing: boolean } | undefined, unknown>;
   /**
    * A copy is about to leave for the machine it was cut for. Kept before it is
    * sent: a row may state only a canvas count its writer was sent.
    */
-  readonly copySent: (copy: CanvasCopy) => Effect.Effect<void, unknown>;
+  readonly copySent: (copy: CanvasCopy, departing: boolean) => Effect.Effect<void, unknown>;
   /**
    * A departing machine has taken every row of this machine's it is entitled
    * to: record that it was told where everything stands, so it holds the
@@ -227,14 +227,15 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
    */
   const sendCopy = (state: LinkState, canvasName: string): Effect.Effect<boolean, ExchangeClosed> =>
     Effect.gen(function* () {
-      const copy = yield* deps.cutCopy(canvasName, state.link.peer).pipe(Effect.mapError(closed));
-      if (copy === undefined) return false;
+      const cut = yield* deps.cutCopy(canvasName, state.link.peer).pipe(Effect.mapError(closed));
+      if (cut === undefined) return false;
+      const copy = cut.copy;
       const sent = state.copies.get(canvasName);
       const carried = carriedBy(copy);
       if (sent !== undefined && sent.canvasId === copy.canvasId) {
         if (sent.seq > copy.seq || (sent.seq === copy.seq && sent.carried === carried)) return false;
       }
-      yield* deps.copySent(copy).pipe(Effect.mapError(closed));
+      yield* deps.copySent(copy, cut.departing).pipe(Effect.mapError(closed));
       yield* send(state, { kind: "copy", copy });
       state.copies.set(canvasName, { canvasId: copy.canvasId, seq: copy.seq, carried });
       state.refused.delete(canvasName);

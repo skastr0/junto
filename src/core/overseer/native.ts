@@ -1291,6 +1291,9 @@ const makeDeleteHooks = (
             terminals.map((resource) => ({
               bindingId: resource.bindingId,
               ...(resource.hostId !== undefined ? { hostId: resource.hostId } : {}),
+              ...(resource.canvasName !== undefined ? { canvas: resource.canvasName } : {}),
+              ...(resource.nodeId !== undefined ? { seatId: resource.nodeId } : {}),
+              ...(resource.canvasSeq !== undefined ? { canvasSeq: resource.canvasSeq } : {}),
             })),
           );
           if (!began.ok) {
@@ -1301,7 +1304,9 @@ const makeDeleteHooks = (
         }
       } catch (error) {
         if (termLeaseId !== undefined) {
-          ctx.termPlane.nodeDelete.finishNodeDelete(termLeaseId, "aborted");
+          // The fence opens synchronously inside the finish; the seats-channel
+          // abort releases trail it and are not awaited here.
+          void ctx.termPlane.nodeDelete.finishNodeDelete(termLeaseId, "aborted");
         }
         const runtime = ctx.pages();
         if (runtime !== undefined) {
@@ -1335,8 +1340,9 @@ const makeDeleteHooks = (
         for (const ref of lease.pageRefs) runtime.finishDelete(ref, id);
       }
       if (lease.termLeaseId !== undefined) {
-        const finished = ctx.termPlane.nodeDelete.finishNodeDelete(lease.termLeaseId, outcome);
-        if (!finished.ok) return finished;
+        // Same ordering as the window's finish: the fence opens synchronously,
+        // the abort releases and owed-row cleanup settle after it.
+        void ctx.termPlane.nodeDelete.finishNodeDelete(lease.termLeaseId, outcome);
       }
       leases.delete(id);
       return { ok: true };

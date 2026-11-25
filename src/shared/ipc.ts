@@ -1,3 +1,4 @@
+import type { DeleteBindingUnprovenReason } from "./terminal-delete";
 import type { MentionIpcApi } from "./mention-ipc";
 import type { ArtifactLinksApi } from "./artifact-links-ipc";
 import type { ResourceIpcApi } from "./resource-ipc";
@@ -999,6 +1000,10 @@ export interface ManagedTerminalHarnessesResult {
 export type TerminalNodeDeleteResource = {
   readonly bindingId: string;
   readonly hostId?: string;
+  /** The seat or terminal node's canvas position and the editor's seq when deletion began. */
+  readonly canvas?: string;
+  readonly seatId?: string;
+  readonly canvasSeq?: number;
   /**
    * The operator confirmed this remote binding's delete while its machine
    * could not prove the stop. Settable only from the operator's window IPC;
@@ -1009,11 +1014,7 @@ export type TerminalNodeDeleteResource = {
 };
 
 /** Why a remote seat's delete stop could not prove its receipt. */
-export type TerminalUnstoppedRemoteReason =
-  | "refused"
-  | "epoch-changed"
-  | "unreachable"
-  | "timeout";
+export type TerminalUnstoppedRemoteReason = DeleteBindingUnprovenReason;
 
 export type TerminalBeginNodeDeleteResult =
   | {

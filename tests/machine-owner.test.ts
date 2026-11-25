@@ -18,6 +18,7 @@ import type { MachineUpdateLatch } from "../src/core/install-ops/service";
 import { MachineOwnStatus, type MachinePeerStatus } from "../src/shared/machine-control";
 import { OPERATOR_PROTOCOL_VERSION, decodeOperatorRequest, decodeOperatorResponse } from "../src/shared/operator-control";
 import { hostsSnapshot, setHostsSnapshot } from "../src/core/hosts/snapshot";
+import { TERMINAL_DELETE_STATE_SCHEMA_SQL } from "../src/core/term/node-delete-state-schema";
 import { makeTestLog } from "./support/test-log";
 
 const testLog = makeTestLog();
@@ -30,7 +31,7 @@ const readyInstall = () => Schema.decodeUnknownSync(MachineInstallResult)({
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); resetDefaultHostsRegistryForTests(); setHostsSnapshot([]); });
 const fixture = async (overrides: Partial<MachineOwnerOptions> = {}, sshRun?: (program: unknown) => Effect.Effect<{ readonly stdout: string; readonly stderr: string; readonly exitCode: number }>) => {
   const database = new DatabaseSync(":memory:");
-  database.exec(MACHINE_STATE_SCHEMA_SQL + MACHINE_REGISTRY_STATE_SCHEMA_SQL + MODEL_STATE_SCHEMA_SQL);
+  database.exec(MACHINE_STATE_SCHEMA_SQL + MACHINE_REGISTRY_STATE_SCHEMA_SQL + MODEL_STATE_SCHEMA_SQL + TERMINAL_DELETE_STATE_SCHEMA_SQL);
   database.exec("CREATE TABLE host_registry_state(singleton INTEGER PRIMARY KEY, version INTEGER, initialized_at TEXT) STRICT");
   const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
   const machines = makeMachineRepositoryLive({ defaultName: () => "macbook" }).pipe(Layer.provideMerge(sql));

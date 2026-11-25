@@ -4,6 +4,7 @@ import { seatAwarenessPlane } from "./seat-awareness";
 import { LocalSessionHost } from "./local-host";
 import { linuxReleaseFenceActive } from "./release-fence";
 import { TerminalNodeDeleteService } from "./node-delete";
+import { makeSqlTerminalNodeDeleteStore } from "./node-delete-store";
 import { linkSeatViewTransport, makeSeatViews, type SeatViews } from "./seat-views";
 import { TerminalRouter } from "./router";
 import {
@@ -143,7 +144,10 @@ export class TermPlane {
     // host has no linked seats, so it holds no views.
     this.seatViews = production ? makeSeatViews(linkSeatViewTransport()) : undefined;
     if (this.seatViews !== undefined) this.router.setSeatViews(this.seatViews);
-    this.nodeDelete = new TerminalNodeDeleteService(this.router);
+    // The durable store behind the fence: rows enter the running core's one
+    // SQL service at call time, so construction order does not matter, but
+    // loadHeldDeletes must finish before any create path opens (core boot).
+    this.nodeDelete = new TerminalNodeDeleteService(this.router, makeSqlTerminalNodeDeleteStore());
   }
 
   /**

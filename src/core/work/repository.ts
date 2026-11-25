@@ -3690,6 +3690,14 @@ export interface WorkRepositoryShape {
    * editing machine; every other machine keeps no placement history.
    */
   readonly departingFrom: (canvasName: string) => Effect.Effect<ReadonlySet<InstallationId>, WorkRepositoryError>;
+  /**
+   * The departing machines of a canvas whose departure involves a seat:
+   * placement history has a seat row of theirs open, or closed after the
+   * last count recorded for them. A seat's removal crosses only in a copy,
+   * so these machines are owed the departure copy; an automation-only
+   * departure takes its move through rows and is not.
+   */
+  readonly seatDepartingFrom: (canvasName: string) => Effect.Effect<ReadonlySet<InstallationId>, WorkRepositoryError>;
   /** Every writer with rows for a canvas that this machine holds. */
   readonly exchangeWriters: (
     canvasName: string,
@@ -4619,6 +4627,29 @@ export const WorkRepositoryLive = Layer.effect(
       ).pipe(
         Effect.map((rows) => new Set(rows.map((row) => Schema.decodeUnknownSync(InstallationId)(row.machine)))),
         Effect.mapError((error) => toRepositoryError("work.exchange.departing", error)),
+      );
+
+    const seatDepartingFrom = (canvasName: string): Effect.Effect<ReadonlySet<InstallationId>, WorkRepositoryError> =>
+      withSqlRead(
+        sql,
+        sql.unsafe<{ machine: string }>(
+          `
+            SELECT DISTINCT placed.machine
+            FROM canvas_placements AS placed
+            WHERE placed.canvas_name = ?
+              AND (
+                placed.until_seq IS NULL
+                OR placed.until_seq > COALESCE(
+                  (SELECT MAX(sent.seq) FROM canvas_copies_sent AS sent WHERE sent.canvas_name = ? AND sent.target = placed.machine),
+                  0
+                )
+              )
+          `,
+          [canvasName, canvasName],
+        ),
+      ).pipe(
+        Effect.map((rows) => new Set(rows.map((row) => Schema.decodeUnknownSync(InstallationId)(row.machine)))),
+        Effect.mapError((error) => toRepositoryError("work.exchange.seat-departing", error)),
       );
 
     const exchangeWriters = (
@@ -5589,6 +5620,7 @@ export const WorkRepositoryLive = Layer.effect(
       deleteArtifact,
       recordCanvasCopySent,
       departingFrom,
+      seatDepartingFrom,
       exchangeHave,
       exchangeForget,
       exchangeForgetMail,

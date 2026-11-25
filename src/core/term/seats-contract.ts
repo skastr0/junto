@@ -40,6 +40,14 @@ export const SeatsStop = Schema.Struct({
    * decides, so nothing starts in between. An ordinary stop never sets it.
    */
   forDelete: Schema.optionalKey(Schema.Literal(true)),
+  /** The editor's canvas seq when the delete Stop began; required with forDelete. */
+  deleteSeq: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
+});
+/** Release a delete hold after the editor's delete aborted. Exact seq match only. */
+export const SeatsReleaseDelete = Schema.Struct({
+  canvas: CanvasName,
+  seatId: NodeId,
+  deleteSeq: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 /** The operator viewed the seat's occupant: its finished turn is no longer unseen. */
 export const SeatsViewed = Schema.Struct({
@@ -74,6 +82,10 @@ export const SeatsGetAnswer = Schema.Union([SeatsStarted, SeatsVacant]);
 export const SeatsStopAnswer = Schema.Union([SeatsVacant, SeatsStopping]);
 /** Viewed's answer: already vacant, or the view landed on that generation. */
 export const SeatsViewedAnswer = Schema.Union([SeatsVacant, SeatsSeen]);
+/** ReleaseDelete's answer: whether a held row matched exactly. Idempotent either way. */
+export const SeatsDeleteReleased = Schema.Struct({
+  canvas: CanvasName, seatId: NodeId, machine: MachineName, released: Schema.Boolean,
+});
 /** Read's answer: the window, or vacant. */
 export const SeatsReadAnswer = Schema.Union([SeatsVacant, SeatsReadWindow]);
 
@@ -105,6 +117,7 @@ export const SeatsLink = linkContract("seats", RpcGroup.make(
   Rpc.make("Get", { payload: SeatsGet, success: SeatsGetAnswer, error: SeatsFailure }),
   Rpc.make("Activate", { payload: SeatsActivate, success: SeatsStarted, error: SeatsFailure }),
   Rpc.make("Stop", { payload: SeatsStop, success: SeatsStopAnswer, error: SeatsFailure }),
+  Rpc.make("ReleaseDelete", { payload: SeatsReleaseDelete, success: SeatsDeleteReleased, error: SeatsFailure }),
   Rpc.make("Viewed", { payload: SeatsViewed, success: SeatsViewedAnswer, error: SeatsFailure }),
   Rpc.make("Read", { payload: SeatsRead, success: SeatsReadAnswer, error: SeatsFailure }),
   Rpc.make("Attach", { payload: SeatsAttach, success: SeatsAttached, error: SeatsFailure }),

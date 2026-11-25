@@ -32,7 +32,6 @@ import {
 } from "../src/core/state/migrations";
 import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
 import { STATE_SCHEMA_V76_SQL, STATE_SCHEMA_V77_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
@@ -144,7 +143,7 @@ const proveStep = (database: DatabaseSync): void => {
   const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
   const objectsBefore = objects(database);
 
-  expect(migrateStateSchema(database, upTo(77, STATE_SCHEMA_SQL))).toMatchObject({
+  expect(migrateStateSchema(database, upTo(77, STATE_SCHEMA_V77_SQL))).toMatchObject({
     previousVersion: 76,
     schemaVersion: 77,
     ...STATE_SCHEMA_V77_IDENTITY,
@@ -167,7 +166,6 @@ describe("state migration 76 -> 77 (both closings of a signal that cross)", () =
   it("starts from the version-76 witness and ends at the version-77 one, as a fresh install has it", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V76_SQL)).toEqual(STATE_SCHEMA_V76_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V77_SQL)).toEqual(STATE_SCHEMA_V77_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V77_IDENTITY);
   });
 
   it("names agent_signals as the one table it rebuilds, and drops none", () => {
@@ -210,7 +208,7 @@ describe("state migration 76 -> 77 (both closings of a signal that cross)", () =
   it("admits both closings as the terms write them, and refuses the rest", async () => {
     const database = await openCopy(fixture("command-center-v13.db"));
     try {
-      migrateStateSchema(database, upTo(77, STATE_SCHEMA_SQL));
+      migrateStateSchema(database, upTo(77, STATE_SCHEMA_V77_SQL));
       const insert = (signalId: string, state: string, closedAt: number | null, response: string | null, withdrawnAt: number | null | string) =>
         database.exec(`INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, created_at, state,
             response_text, response_at, closed_at, withdrawn_at)
@@ -257,7 +255,7 @@ describe("state migration 76 -> 77 (both closings of a signal that cross)", () =
         expect(version).toBeLessThanOrEqual(76);
         if (version < 76) migrateStateSchema(database, upTo(76, STATE_SCHEMA_V76_SQL));
         const before = census(database);
-        expect(migrateStateSchema(database, upTo(77, STATE_SCHEMA_SQL))).toMatchObject({
+        expect(migrateStateSchema(database, upTo(77, STATE_SCHEMA_V77_SQL))).toMatchObject({
           previousVersion: 76,
           schemaVersion: 77,
           ...STATE_SCHEMA_V77_IDENTITY,

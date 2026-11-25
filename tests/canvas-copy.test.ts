@@ -201,6 +201,32 @@ describe("a canvas cut for one machine", () => {
       ok: false,
       refusal: { reason: "no-seat-or-automation-on-that-machine" },
     });
+    // A never-placed seatless machine keeps that refusal in every ordinary
+    // mode. Only an explicit "departing" cut — which the editing machine
+    // issues solely for a machine in its departing window — opens, and it is
+    // the header alone: no seats, peers, terminals, regions, resources,
+    // wires, guidance or references cross to a machine that has left.
+    const departure = exportCanvasCopy(source, { installationId: id("stranger"), machineName: "stranger" }, "departing");
+    expect(departure).toMatchObject({ ok: true });
+    if (departure.ok) {
+      expect(departure.copy).toMatchObject({
+        canvasName: source.canvasName,
+        canvasId: source.canvasId,
+        seq: source.seq,
+        editor: source.editor,
+        target: id("stranger"),
+        seats: [],
+        peers: [],
+        terminals: [],
+        regions: [],
+        resources: [],
+        wires: [],
+        guidance: [],
+        references: [],
+      });
+      expect(departure.copy.briefing).toBeUndefined();
+      expect(departure.copy.notes).toBeUndefined();
+    }
     const unnamed = { ...source, nodes: [...nodes, seat("stray", "local", { x: 50, y: 300 })] };
     expect(exportCanvasCopy(unnamed, { installationId: MINI, machineName: "mini" }, "cut")).toEqual({
       ok: false,

@@ -41,7 +41,7 @@ import { StateTransactionOperation } from "../../state/service";
 import { SeatGuidanceRepository } from "../../seat-guidance/repository";
 import { SeatSessionRepository } from "../../seat-sessions/repository";
 import { termPlane } from "../../term/plane";
-import type { HeldDelete } from "../../term/node-delete";
+import { DELETE_LEASE_TTL_MS, type HeldDelete } from "../../term/node-delete";
 import { onAgentSignalChanged } from "../../signals/changes";
 import { AgentSignalRepository } from "../../signals/repository";
 import { WorkRepository, type ArrivedAutomationFiring } from "../repository";
@@ -312,7 +312,7 @@ export const makeLiveRowExchange = (
      * machine are read as one state, so no move committed between the reads
      * is sent as standing at the count before it.
      */
-    const cutCopy = (canvasName: string, peer: InstallationId): Effect.Effect<CanvasCopy | undefined, unknown> =>
+    const cutCopy = (canvasName: string, peer: InstallationId): Effect.Effect<{ readonly copy: CanvasCopy; readonly departing: boolean } | undefined, unknown> =>
       Effect.gen(function* () {
         const header = yield* records.getCanvas(canvasName);
         if (header === undefined || !(yield* records.editsCanvas(canvasName))) return undefined;
@@ -356,6 +356,35 @@ export const makeLiveRowExchange = (
           { installationId: peer, machineName: target.machineName },
           keeper ? "keeper" : "cut",
         );
+        if (!cut.ok && cut.refusal.reason === "no-seat-or-automation-on-that-machine") {
+          // A machine in its departing window is still owed one copy — the
+          // header-only departure copy — so the delete that cost it its last
+          // seat reaches it and the window can close. Only the editing
+          // machine ever cuts one: this path already returned for non-editors.
+          const departing = yield* repository.seatDepartingFrom(canvasName);
+          if (departing.has(peer)) {
+            const departure = exportCanvasCopy(
+              {
+                canvasName: asCanvasName(canvasName),
+                canvasId: header.canvas_id,
+                seq: header.seq,
+                editor: self,
+                editorMachineName: yield* machines.machineName,
+                nodes: [],
+                wires: [],
+                guidance: {},
+                briefing: undefined,
+                references: [],
+                playing: pause.stateFor(canvasName).playing,
+                seatIdOf: (seat: Seat) => deriveActorSeatId(byName.get(seat.host)!, seat.bindingId),
+                automations: [],
+              },
+              { installationId: peer, machineName: target.machineName },
+              "departing",
+            );
+            return departure.ok ? { copy: departure.copy, departing: true } : undefined;
+          }
+        }
         if (!cut.ok) {
           // A copy over the frame bound must not silently never go: the link
           // is told why it failed, bytes and all.
@@ -372,30 +401,49 @@ export const makeLiveRowExchange = (
         // keeps the newer position, and never unions an older one back.
         const listPosition = yield* records.canvasListPosition(canvasName);
         return {
-          ...cut.copy,
-          authorities: { members: authorities, term: listPosition?.term ?? 0, index: listPosition?.log_index ?? 0 },
+          copy: {
+            ...cut.copy,
+            authorities: { members: authorities, term: listPosition?.term ?? 0, index: listPosition?.log_index ?? 0 },
+          },
+          departing: false,
         };
       }).pipe(sql.withTransaction, Effect.provideService(StateTransactionOperation, "exchange.cut-copy"));
 
     /** Keep the count sent to that machine, and where every seat and automation was at it. */
-    const copySent = (copy: CanvasCopy): Effect.Effect<void, unknown> =>
+    const copySent = (copy: CanvasCopy, departing: boolean): Effect.Effect<void, unknown> =>
       Effect.gen(function* () {
         const byName = yield* installations;
-        const seats = [
-          ...copy.seats.flatMap((seat) => {
-            // A keeper's copy carries every seat whole: each lives where its host says.
-            const machine = byName.get(seat.host);
-            return machine === undefined ? [] : [{ nodeId: seat.id, seatId: deriveActorSeatId(machine, seat.bindingId), machine }];
-          }),
-          ...copy.peers.flatMap((peer) => {
-            const machine = byName.get(peer.host);
-            return machine === undefined ? [] : [{ nodeId: peer.id, seatId: peer.seatId, machine }];
-          }),
-        ];
-        const automations = copy.automations?.flatMap((automation) => {
-          const machine = byName.get(automation.machine);
-          return machine === undefined ? [] : [{ nodeId: automation.nodeId, automationId: automation.automationId, machine }];
-        });
+        // A departure copy is the header alone: what it asserts about where
+        // every seat and automation stands is read back from this machine's
+        // own rows, never from its empty content, so recording it closes the
+        // departing machine's window without closing one placement still open.
+        // The mode comes from the cutter, never inferred from the copy's shape.
+        const seats = departing
+          ? (yield* records.listNodes(copy.canvasName)).flatMap((node) => {
+              if (node.kind !== "agent") return [];
+              const machine = byName.get(node.host);
+              return machine === undefined ? [] : [{ nodeId: node.id as string, seatId: deriveActorSeatId(machine, node.bindingId), machine }];
+            })
+          : [
+              ...copy.seats.flatMap((seat) => {
+                // A keeper's copy carries every seat whole: each lives where its host says.
+                const machine = byName.get(seat.host);
+                return machine === undefined ? [] : [{ nodeId: seat.id, seatId: deriveActorSeatId(machine, seat.bindingId), machine }];
+              }),
+              ...copy.peers.flatMap((peer) => {
+                const machine = byName.get(peer.host);
+                return machine === undefined ? [] : [{ nodeId: peer.id, seatId: peer.seatId, machine }];
+              }),
+            ];
+        const automations = departing
+          ? (yield* copiedAutomations(copy.canvasName)).flatMap((automation) => {
+              const machine = byName.get(automation.machine);
+              return machine === undefined ? [] : [{ nodeId: automation.nodeId, automationId: automation.automationId, machine }];
+            })
+          : copy.automations?.flatMap((automation) => {
+              const machine = byName.get(automation.machine);
+              return machine === undefined ? [] : [{ nodeId: automation.nodeId, automationId: automation.automationId, machine }];
+            });
         yield* repository.recordCanvasCopySent({
           canvasName: copy.canvasName,
           target: copy.target,
@@ -463,50 +511,130 @@ export const makeLiveRowExchange = (
 
     /**
      * The janitor for the delete stops this machine holds: an installed copy
-     * decides each one. A seat still here means the delete aborted and the
-     * lock releases; gone or moved, the finish runs the same teardown a
-     * local node delete does — the binding's process and credential, its
-     * session pin, its open signals — and only then releases the lock. A
-     * finish that cannot prove its teardown keeps the hold for the next
-     * copy, and a failure here never refuses the copy itself.
+     * decides each one. A copy at or below the seq the delete began at
+     * decides nothing — it may have been sent before the Stop crossed, or be
+     * a resend of what this machine already held. Past that seq: a seat gone
+     * or moved away runs the same finish a local node delete does — the
+     * binding's process and credential, its session pin, its open signals —
+     * and only then releases the hold. Still here never releases alone: the
+     * editor states its abort with a seats-channel release, and the age rule
+     * below is only for an editor that died before stating it. That rule is a
+     * timing rule, because finishNodeDelete does not check the lease: past
+     * the 60s delete lease the editor is treated as dead, and when it was
+     * merely slow — its commit landing behind a later copy that still has
+     * the seat — the drop-side finish below (hold or no hold) is what tears
+     * the seat down, which is what makes the age rule safe. A finish that
+     * cannot prove its teardown keeps the hold for the next copy, and a
+     * failure here never refuses the copy itself.
      */
     const finishHeldSeatDeletes = (
       canvasName: string,
       installed: ReadonlyArray<{ readonly kind: string; readonly id: string; readonly host?: string }>,
       here: string,
+      copySeq: number,
     ): Effect.Effect<void, never, never> =>
       Effect.forEach(
         termPlane.nodeDelete.heldDeletesFor(canvasName),
-        (held) => finishHeldSeatDelete(held, canvasName, installed, here).pipe(Effect.ignore),
+        (held) => finishHeldSeatDelete(held, canvasName, installed, here, copySeq).pipe(Effect.ignore),
         { discard: true },
       );
+
+    /** The finish a dropped or moved seat gets, hold or no hold: teardown, pin, signals, then the release when held. */
+    const finishDroppedSeat = (
+      canvasName: string,
+      seat: { readonly seatId: string; readonly bindingId: string },
+      held: HeldDelete | undefined,
+      here: string,
+    ): Effect.Effect<void, unknown> =>
+      Effect.gen(function* () {
+        const receipt = yield* Effect.tryPromise({
+          try: () => termPlane.router.deleteBinding(seat.bindingId),
+          catch: () => new Error("binding teardown failed"),
+        });
+        // Not proven torn down: keep the hold, the next copy decides again.
+        if (receipt.kind !== "clean") {
+          yield* Effect.logInfo("terminal delete finish kept").pipe(Effect.annotateLogs({
+            seat: seat.seatId, canvas: canvasName, machine: here, reason: "teardown-not-clean",
+            ...(held === undefined ? {} : { seq: held.editorCanvasSeq }),
+          }));
+          return;
+        }
+        if (Option.isSome(seatSessions)) {
+          yield* seatSessions.value.end(seat.seatId, "removed", undefined, seat.bindingId);
+        }
+        yield* signals.withdraw({ canvasName, nodeId: seat.seatId });
+        if (held !== undefined) {
+          const released = yield* Effect.tryPromise({
+            try: () => termPlane.nodeDelete.releaseHeldDelete(held.key),
+            catch: () => new Error("hold release failed"),
+          });
+          yield* Effect.logInfo("terminal delete release").pipe(Effect.annotateLogs({
+            seat: held.seatId, canvas: canvasName, machine: here, seq: held.editorCanvasSeq,
+            released, reason: "copy-dropped",
+          }));
+        }
+      });
 
     const finishHeldSeatDelete = (
       held: HeldDelete,
       canvasName: string,
       installed: ReadonlyArray<{ readonly kind: string; readonly id: string; readonly host?: string }>,
       here: string,
+      copySeq: number,
     ): Effect.Effect<void, unknown> =>
       Effect.gen(function* () {
+        // A copy at or below the held seq decides nothing: it may predate the Stop.
+        if (copySeq <= held.editorCanvasSeq) return;
         const stillHere = installed.some((node) =>
           node.kind === "agent" && node.id === held.seatId && node.host === here);
         if (stillHere) {
-          termPlane.nodeDelete.releaseHeldDelete(held.key);
+          // Still here past the seq. Only the dead-editor timing rule releases,
+          // and only once no in-flight delete lease can still commit behind this copy.
+          if (Date.now() - held.createdAt < DELETE_LEASE_TTL_MS) return;
+          const released = yield* Effect.tryPromise({
+            try: () => termPlane.nodeDelete.releaseHeldDelete(held.key),
+            catch: () => new Error("hold release failed"),
+          });
+          yield* Effect.logInfo("terminal delete release").pipe(Effect.annotateLogs({
+            seat: held.seatId, canvas: canvasName, machine: here, seq: held.editorCanvasSeq,
+            released, reason: "editor-lease-aged",
+          }));
           return;
         }
-        const receipt = yield* Effect.tryPromise({
-          try: () => termPlane.router.deleteBinding(held.bindingId),
-          catch: () => new Error("binding teardown failed"),
-        });
-        // Not proven torn down: keep the hold, the next copy decides again.
-        if (receipt.kind !== "clean") return;
-        if (Option.isSome(seatSessions)) {
-          yield* seatSessions.value.end(held.seatId, "removed", undefined, held.bindingId);
-        }
-        yield* signals.withdraw({ canvasName, nodeId: held.seatId });
-        termPlane.nodeDelete.releaseHeldDelete(held.key);
+        yield* finishDroppedSeat(canvasName, { seatId: held.seatId, bindingId: held.bindingId }, held, here);
       }).pipe(
         Effect.tapError((cause) => Effect.logWarning("held seat delete finish failed", cause)),
+      );
+
+    /**
+     * Design term 3: a copy that drops a seat this machine runs — or moves it
+     * away — finishes it here, hold or no hold. This is what closes the gap a
+     * live editor leaves when its commit lands after the age-rule release,
+     * and what a machine that was asleep or unreachable gets when it wakes
+     * and installs the delete copy: the seat does not keep running there.
+     * Teardown, pin end and signal withdrawal are each idempotent, so the
+     * finish is safe beside the lease path's own.
+     */
+    const finishDroppedSeats = (
+      canvasName: string,
+      copy: CanvasCopy,
+      seatsBefore: ReadonlyMap<string, string>,
+      here: string,
+    ): Effect.Effect<void, never, never> =>
+      Effect.forEach(
+        [...seatsBefore].flatMap(([seatId, bindingId]) => {
+          const stays =
+            copy.seats.some((seat) => seat.id === seatId && seat.host === here) ||
+            copy.terminals.some((terminal) => terminal.id === seatId && terminal.host === here);
+          return stays ? [] : [{ seatId, bindingId }];
+        }),
+        (seat) => Effect.gen(function* () {
+          const held = termPlane.nodeDelete.heldDeletesFor(canvasName).find((candidate) => candidate.seatId === seat.seatId);
+          // A held seat's own finish decides it — with its seq gate — not this sweep.
+          if (held !== undefined) return;
+          yield* finishDroppedSeat(canvasName, seat, undefined, here);
+        }).pipe(Effect.ignore),
+        { discard: true },
       );
 
     const installCopy = (copy: CanvasCopy): Effect.Effect<CopyInstalled, unknown> =>
@@ -560,6 +688,15 @@ export const makeLiveRowExchange = (
             node.kind === "agent" && node.host === here ? [node.id as string] : [],
           ),
         );
+        // Node id to binding id for every seat and terminal here before this
+        // copy: the drop-side finish names its binding exactly.
+        const seatsBefore: ReadonlyMap<string, string> = new Map(
+          heldNodes.flatMap((node) =>
+            (node.kind === "agent" || node.kind === "terminal") && node.host === here
+              ? [[node.id as string, node.bindingId as string] as const]
+              : [],
+          ),
+        );
         // Only seats that live here count: a keeper copy carries every seat
         // whole, and foreign rows must not forget this canvas's cursors.
         if (copy.seats.some((seat) => seat.host === here && !seated.has(seat.id))) yield* repository.exchangeForget(copy.canvasName);
@@ -588,7 +725,8 @@ export const makeLiveRowExchange = (
         // The copy this machine holds, new or sent again: what it carries may have changed.
         if (outcome.seq === copy.seq) {
           yield* keepCarried(copy);
-          yield* finishHeldSeatDeletes(copy.canvasName, installedNodes, here);
+          yield* finishHeldSeatDeletes(copy.canvasName, installedNodes, here, copy.seq);
+          yield* finishDroppedSeats(copy.canvasName, copy, seatsBefore, here);
         }
         // The list an admitted copy carried replaces the held one only when
         // strictly newer (G3): remote-core reads it back with its sender.

@@ -9,6 +9,7 @@ import {
 } from "../src/core/term/actor-seat-occupy";
 import * as seatSessionBeforeStart from "../src/core/term/seat-session-before-start";
 import { termPlane } from "../src/core/term/plane";
+import { makeMemoryTerminalNodeDeleteStore } from "../src/core/term/node-delete-store";
 import {
   AUTO_RESTART_BACKOFF_MS,
   AUTO_RESTART_MAX,
@@ -196,7 +197,9 @@ describe("managed-seat occupation", () => {
     const bindingId = "binding-alpha-delete-held";
     const fixture = managedFixture(bindingId);
     const get = vi.spyOn(termPlane.host, "get").mockReturnValue(undefined);
-    const held = termPlane.nodeDelete.holdDelete(bindingId, "box-a", { canvas: "factory", seatId: fixture.node.id });
+    termPlane.nodeDelete.useStoreForTest(makeMemoryTerminalNodeDeleteStore());
+    const held = await termPlane.nodeDelete.holdDelete(bindingId, "box-a",
+      { canvas: "factory", seatId: fixture.node.id, editorInstallationId: "editor-test", editorCanvasSeq: 0 });
     const occupy = vi.fn((_spec: ActorOccupySpec) => Effect.succeed({ ...runningSummary, bindingId }));
     const actorSeatOccupy = ActorSeatOccupy.of({
       occupy,
@@ -211,7 +214,7 @@ describe("managed-seat occupation", () => {
       ).toBe(false);
       expect(occupy).not.toHaveBeenCalled();
     } finally {
-      termPlane.nodeDelete.releaseHeldDelete(held.key);
+      await termPlane.nodeDelete.releaseHeldDelete(held.key);
       get.mockRestore();
     }
   });
@@ -221,11 +224,13 @@ describe("managed-seat occupation", () => {
     const bindingId = "binding-alpha-delete-during-wake";
     const fixture = managedFixture(bindingId);
     const get = vi.spyOn(termPlane.host, "get").mockReturnValue(undefined);
+    termPlane.nodeDelete.useStoreForTest(makeMemoryTerminalNodeDeleteStore());
     let heldKey: string | undefined;
     let spawnPrepared = false;
     const occupy = vi.fn((spec: ActorOccupySpec) =>
       Effect.gen(function* () {
-        heldKey = termPlane.nodeDelete.holdDelete(bindingId, "box-a", { canvas: "factory", seatId: fixture.node.id }).key;
+        heldKey = (yield* Effect.promise(() => termPlane.nodeDelete.holdDelete(bindingId, "box-a",
+          { canvas: "factory", seatId: fixture.node.id, editorInstallationId: "editor-test", editorCanvasSeq: 0 }))).key;
         if (spec.beforeSpawn !== undefined) yield* spec.beforeSpawn;
         spawnPrepared = true;
         return { ...runningSummary, bindingId };

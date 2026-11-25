@@ -106,7 +106,13 @@ describe.sequential("managed agent node terminal teardown", () => {
 
     await vi.waitFor(() => {
       expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
-        { bindingId: "binding-a", hostId: "studio" },
+        {
+          bindingId: "binding-a",
+          hostId: "studio",
+          canvas: "managed-agent-delete",
+          seatId: "seat-a",
+          canvasSeq: 0,
+        },
       ]);
     });
     expect(nodesHeld()).toEqual([node]);
@@ -159,7 +165,13 @@ describe.sequential("managed agent node terminal teardown", () => {
     });
     expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1);
     expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
-      { bindingId: "binding-a", hostId: "station-a" },
+      {
+        bindingId: "binding-a",
+        hostId: "station-a",
+        canvas: "managed-agent-delete",
+        seatId: "seat-a",
+        canvasSeq: 0,
+      },
     ]);
   });
 
@@ -183,7 +195,13 @@ describe.sequential("managed agent node terminal teardown", () => {
     await vi.waitFor(() => expect(nodesHeld()).toEqual([]));
     expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1);
     expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
-      { bindingId: "binding-shared", hostId: "studio" },
+      {
+        bindingId: "binding-shared",
+        hostId: "studio",
+        canvas: "managed-agent-delete",
+        seatId: "seat-alias",
+        canvasSeq: 0,
+      },
     ]);
   });
 
@@ -195,7 +213,13 @@ describe.sequential("managed agent node terminal teardown", () => {
 
     await vi.waitFor(() => expect(nodesHeld()).toEqual([]));
     expect(terminalBeginNodeDelete).toHaveBeenCalledWith([
-      { bindingId: "binding-cold", hostId: THIS_MACHINE },
+      {
+        bindingId: "binding-cold",
+        hostId: THIS_MACHINE,
+        canvas: "managed-agent-delete",
+        seatId: "never-opened",
+        canvasSeq: 0,
+      },
     ]);
     expect(state$.error.peek()).toBe("");
   });

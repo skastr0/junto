@@ -30,7 +30,7 @@ export type OverseerCallerRef = {
 };
 
 /** Every canvas as the model holds it, by name. */
-export type OverseerCanvases = ReadonlyMap<string, Pick<Canvas, "nodes" | "wires">>;
+export type OverseerCanvases = ReadonlyMap<string, Pick<Canvas, "nodes" | "wires" | "seq">>;
 
 export type OverseerSeatBinding = {
   readonly hostId: string;
@@ -42,6 +42,9 @@ export type OverseerDeleteResource =
       readonly kind: "terminal";
       readonly bindingId: string;
       readonly hostId?: string;
+      readonly canvasName?: string;
+      readonly nodeId?: string;
+      readonly canvasSeq?: number;
     }
   | {
       readonly kind: "page";
@@ -158,7 +161,7 @@ export const nativeDeleteResourcesOf = (
       if (!target.nodeIds.has(node.id)) continue;
       if (node.kind === "agent" || node.kind === "terminal") {
         push(
-          { kind: "terminal", bindingId: node.bindingId, hostId: node.host },
+          { kind: "terminal", bindingId: node.bindingId, hostId: node.host, canvasName: target.canvasName, nodeId: node.id, canvasSeq: canvas.seq },
           `terminal:${node.host}\0${node.bindingId}`,
         );
       } else if (node.kind === "page") {

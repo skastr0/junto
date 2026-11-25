@@ -18,6 +18,7 @@ import { MACHINE_PEER_BINDING_COLUMN_SQL } from "../machines/state-schema";
 import { SEAT_CONTROLS_STATE_SCHEMA_SQL } from "../work/seat-controls-state-schema";
 import { FLEET_CONSENSUS_SEED_SQL, FLEET_CONSENSUS_STATE_SCHEMA_SQL, FLEET_COPY_LIST_STATE_SCHEMA_SQL, FLEET_STRUCTURE_LOG_STATE_SCHEMA_SQL } from "../fleet/state-schema";
 import { MACHINE_VAULT_TOKENS_SQL } from "../vault/state-schema";
+import { TERMINAL_DELETE_STATE_SCHEMA_SQL } from "../term/node-delete-state-schema";
 import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import {
   AUTOMATION_PLACEMENTS_STATE_SCHEMA_SQL,
@@ -964,6 +965,16 @@ export const STATE_SCHEMA_V77_IDENTITY = {
     "41023c64ce463292c9d4d9b7477f82d2f4014c6966fcc2e7ae333a7808b78db6",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+/**
+ * Version 78 keeps a remote seat delete durable on both sides (0.12, remote
+ * delete holds): the seat machine's held fence and the editor's owed finish.
+ * Both tables are new; no row or shape already held changes. Expand only.
+ */
+export const STATE_SCHEMA_V78_IDENTITY = {
+  actualSchemaSha256:
+    "818f0f6815823669baad117934a17abb2e2addfcc21ff6002772bbf3e7e26df2",
+} as const satisfies VerifiedStateSchemaIdentity;
+
 import { CURRENT_STATE_SCHEMA_VERSION } from "../../node/state/schema-version";
 
 export { CURRENT_STATE_SCHEMA_VERSION };
@@ -1593,6 +1604,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V76_IDENTITY,
     replacesTables: [...SIGNAL_WITHDRAWN_REPLACED_TABLES],
     migrate: migrateSignalWithdrawn,
+  },
+  {
+    fromVersion: 77,
+    toVersion: 78,
+    name: "keep remote seat deletes durable on both machines",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V77_IDENTITY,
+    migrate: (database) => database.exec(TERMINAL_DELETE_STATE_SCHEMA_SQL),
   },
 ];
 
