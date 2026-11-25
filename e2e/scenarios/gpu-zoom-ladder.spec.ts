@@ -1160,7 +1160,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           const standsIn = await page.evaluate((cells) => {
             const hook = (window as unknown as { __juntoCanvas?: { cellRecord?: (cell: number) => Record<string, unknown> | null } }).__juntoCanvas;
             return cells.map((cell) => ({ cell, record: hook?.cellRecord?.(cell) ?? null }));
-          }, pops.samples.slice(0, 8).map((s) => s.cell));
+          }, pops.samples.slice(0, 8).map((s) => s.cell).filter((cell): cell is number => typeof cell === "number"));
           fail(`${popName}: ${String(pops.pops)} quad(s) lost their own pixels at an unchanged raster scale and ${String(pops.blankQuads)} in-view quad(s) drew nothing, over ${String(pops.frames)} frames of the gesture`, { first: pops.samples.slice(0, 8), standsIn });
           contact.push({ name: popName, strip: "", verdict: "fail", detail: failures[failures.length - 1]! });
         }
