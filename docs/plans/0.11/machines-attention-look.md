@@ -67,7 +67,8 @@ ready.` and the footer.
      `--color-ink`, one line with an ellipsis, that opens the Machines
      window on that machine; under it the status sentence in `--text-body`
      `--color-dim`, at most two lines, then an ellipsis, with the whole
-     sentence in `title`.
+     sentence in `title`. On a failed command's row, a third line may
+     follow: core's reason, see rule 3.
   3. One action, `Button size="sm"`:
      - `variant="chrome"` for a fix (`Send Junto`, `Reconnect`, `Update
        Junto`, `Update now`, `Check for updates`, `Try update again`,
@@ -107,11 +108,31 @@ Four rules, then the table:
    machine.** It says `there` or `it`, as the recovery card does.
 2. **The sentence says what is wrong; the button says the fix.** No
    sentence ends in "Press Update" or "Send Junto to set it up".
-3. **No words from the machine or the harness in a row.** A failed send's
-   `copy.message`, a check's `read.message`, a peer's `status.detail` are
-   mechanics ("Command failed: tar"). They stay on the Machines window card
-   (its `reason(...)` advice), which the label opens. The row always shows
-   the fixed sentence below.
+3. **No words from the machine or the harness in a row.** A check's
+   `read.message`, a peer's `status.detail`, a peer's scrubbed refusal and
+   any raw error text are mechanics ("Command failed: tar"). They stay on
+   the Machines window card (its `reason(...)` advice), which the label
+   opens. The row always shows the fixed sentence below.
+
+   **The one exception: core's own reason, on its own line.** A failed
+   command's row (`send-failed`, `update-failed`, `update-stopped`,
+   `send-unconfirmed`, `update-unconfirmed`, `sent-not-ready`,
+   `updated-not-ready`, `add-failed`) shows a third line under the status
+   sentence when, and only when, core marked the refusal's message as its
+   own fixed words. Core sets that mark only where the message is a literal
+   it wrote: a typed refusal's constant (`bundle must be a directory, not
+   a link`), never a `cause.message`, never a `remote-refused` message
+   (scrubbed or not), never a string built with a path or a peer's text.
+   Without the mark the line is absent; the window never guesses from the
+   text's shape, since `Command failed: tar` is one line with no path.
+   - It stands alone: no `Why:` or other label. Under a sentence that says
+     what failed, the next line reads as the reason.
+   - `--text-body`, `--color-dim`, one line with an ellipsis, the whole
+     line in its `title`. It does not count against rule 4's two lines.
+   - Core's words as they are, first letter raised and a period added when
+     missing: `Bundle must be a directory, not a link.`
+   - The Machines window card keeps its advice line as it is, so the card
+     shows the same words and more.
 4. **It fits two lines.** The text column is about 210px at
    `--text-body` 11px, near 36 characters a line, so a sentence with its
    seats clause stays under 64 characters. The whole sentence is the row's
