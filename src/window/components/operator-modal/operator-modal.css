@@ -13,14 +13,17 @@
   padding: 3vh 16px;
 }
 
-/* A big panel opens under the top bar, on every width: the bar's buttons stay
-   pressable (the dim covers the bar, and a press on it closes the panel), and the
-   panel's header never lies over them. It is every wide panel (Threads, Needs
-   you, Quick capture, Commit review); the command bar and Quick thread are small
-   frames that keep sitting in the bar's band. */
+/* A wide panel (Threads, Needs you, Quick capture, Commit review) lives under the
+   top bar, on every width: the whole shell, its dim and the dim's close-on-press
+   included, starts below the bar, so the bar stays live and a bar button acts in
+   one press (Threads while Needs you is open switches to Threads; the open
+   panel's own button closes it). Escape and a press on the dim still close. The
+   command bar and Quick thread are small frames that keep sitting in the bar's
+   band. The token is on :root (styles.css), so the shell, portalled to the
+   body, reads the bar's own height. */
 .operator-modal[data-below-bar="true"] {
-  /* The shell is portalled to the body, outside .junto-app where --bar-height is set: the fallback is that token's value. */
-  padding-top: calc(var(--bar-height, 64px) + 12px);
+  top: var(--bar-height);
+  padding-top: 12px;
 }
 
 .operator-modal__frame {

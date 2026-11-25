@@ -25,6 +25,8 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* The top bar's height: on the root, not on .junto-app, so what is portalled to the body (an operator panel that opens under the bar) reads the same token. */
+  --bar-height: 64px;
 }
 
 * {
@@ -46,7 +48,6 @@ body {
 }
 
 .junto-app {
-  --bar-height: 64px;
   background:
     radial-gradient(circle at 84% -20%, color-mix(in oklab, var(--color-main) 8%, transparent), transparent 38%),
     var(--color-ground);

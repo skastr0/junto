@@ -115,13 +115,15 @@ afterEach(() => {
 
 const rows = [row("t1", "a", PRODUCT, 300, 2), row("t2", "b", OPEN, 200, 0, true)];
 
-it("opens under the top bar on every width, so the whole bar stays pressable", () => {
+it("opens under the top bar on every width: the shell and its dim start below the bar, so the bar stays live", () => {
   draw(state(rows));
   expect(q('[data-operator-modal="threads"]')?.getAttribute("data-below-bar")).toBe("true");
-  // The rule that places it: under the bar's own height (the shell is portalled outside the app, so the token has its value as a fallback).
-  const css = readFileSync(join(__dirname, "..", "src/window/components/operator-modal/operator-modal.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-  const rule = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((match) => match[1]!.trim() === '.operator-modal[data-below-bar="true"]');
-  expect(rule?.[2]).toMatch(/padding-top:\s*calc\(var\(--bar-height,\s*64px\)\s*\+\s*\d+px\)/);
+  // The rule that places it: the shell starts at the bar's own height, one token that the root declares (the shell is portalled outside .junto-app).
+  const sheet = (file: string): string => readFileSync(join(__dirname, "..", file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rule = [...sheet("src/window/components/operator-modal/operator-modal.css").matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((match) => match[1]!.trim() === '.operator-modal[data-below-bar="true"]');
+  expect(rule?.[2]).toMatch(/top:\s*var\(--bar-height\)/);
+  const declared = [...sheet("src/window/styles.css").matchAll(/([^{}]+)\{([^{}]*--bar-height\s*:[^{}]*)\}/g)].map((match) => match[1]!.trim().split("\n").pop());
+  expect(declared).toEqual([":root"]);
 });
 
 it("gives every wide operator panel the under-the-bar place, and the small frames none", () => {
