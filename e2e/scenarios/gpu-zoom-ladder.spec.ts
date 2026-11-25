@@ -320,6 +320,36 @@ const auditTexels = (page: Page): Promise<TexelAudit | null> =>
     return ((await hook?.atlasAuditTexels?.(limit)) ?? null) as TexelAudit | null;
   }, TEXEL_LIMIT);
 
+/**
+ * What each drawing's atlas cell holds, for a raster investigation: the part's
+ * key, its cell, the cell's own raster scale, the scale it was asked for, and
+ * what it shows when it stands in. Logged only when JUNTO_ZOOM_LADDER_RASTERS=1
+ * (the gate itself never needs it; a seam does).
+ */
+const RASTERS = process.env["JUNTO_ZOOM_LADDER_RASTERS"] === "1";
+const logRasters = async (page: Page, where: string): Promise<void> => {
+  if (!RASTERS) return;
+  const rows = await page.evaluate(() => {
+    const hook = (window as unknown as {
+      __juntoCanvas?: {
+        ids?: () => ReadonlyArray<string>;
+        partsOf?: (id: string) => ReadonlyArray<{ key: string; kind: string; drawn: boolean; cell?: number }>;
+        cellRecord?: (cell: number) => Record<string, unknown> | null;
+      };
+    }).__juntoCanvas;
+    const out: unknown[] = [];
+    for (const id of hook?.ids?.() ?? []) {
+      for (const part of hook?.partsOf?.(id) ?? []) {
+        if (part.drawn !== true || part.cell === undefined) continue;
+        if (part.kind !== "sprite" && part.kind !== "text") continue;
+        out.push({ id, part: part.key, cell: part.cell, record: hook?.cellRecord?.(part.cell) ?? null });
+      }
+    }
+    return out;
+  });
+  for (const row of rows) log(`rasters ${where}`, row as Record<string, unknown>);
+};
+
 /** Checks (b) and (c) at one stop. `seen` carries the GPU error count across stops. */
 const checkStop = async (page: Page, where: string, seen: { errors: number; since: number; evictions: number }): Promise<Record<string, unknown>> => {
   const state = await readProofState(page);
@@ -1053,6 +1083,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           fail(`${name}: ${String(blocks)} 16px block(s) differ from the fresh-launch reference (${String(changed)} px)`, { after: path, diff: diffPath, reference: ref.path });
         }
         const facts = await checkStop(page, name, seen);
+        await logRasters(page, name);
         const stripPath = `contact/${String(stopIndex).padStart(3, "0")}-${name}.png`;
         await writeFile(join(OUT, stripPath), PNG.sync.write(strip([ref.image, after, diff])));
         const own = failures.slice(before);
