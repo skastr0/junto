@@ -361,11 +361,15 @@ amendment); this replaces the earlier `junto machine link` refusal, and
 shows only when that clearing fails.
 
 - Core's words, `ownWords: true`, for the CLI and the row's third line:
-  `An old link from this machine still works there, and Junto could not
-  clear it. Check it again.`
-- No machine name: the row already shows the label (rule 1), and the
-  sentence is the same in the CLI, where the answer names the machine. The
-  far machine is `there`; `this machine` is the near one.
+  `That machine still accepts an old link from this one, and Junto could
+  not clear it. Send Junto again.`
+- `still accepts`, not `still works`: this machine holds no key for that
+  link; what it knows is setup's `keyBound` answer (remote-security).
+- `Send Junto again` is the step: the send is what clears a stale link, so
+  sending again tries the clear again. `Check it again` named no step.
+- No machine name: the row already shows the label (rule 1), and the CLI
+  answer names the machine. `That machine` is the one sent to; `this one`
+  is the near machine.
 
 **Remove, when the list of removed machines that still accept the key
 cannot be read.** Junto sets the file aside and does not overwrite it.
