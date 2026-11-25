@@ -633,6 +633,20 @@ after the old key went), the near uses the stage-not-known sentence for
 every far failure. That sentence is true at both stages, and the step is
 the same.
 
+(c) is only for a far that answered with a typed error (the `Success`
+branch of `said` in `takeoverRemote`). When the confirm itself fails in
+transit (SSH drops, or the 30 s transfer times out), the far may already
+have committed. Then `does not trust this one yet` is false, and the
+preview refuses with `The new installation is the one already pinned`. That
+branch claims no outcome (remote-security on b0a88064f):
+
+- `Junto could not tell whether the take-over finished on that machine.
+  Send Junto to it again to see where it stands.`
+
+A send shows the truth either way. If the take-over finished, it shows as
+pinned. If not, it shows pinned-elsewhere with its take-over-remote line.
+The step matches R2's.
+
 `<name>` is the name the operator typed, printed in the command as R3 does.
 `this one` matches the confirmed `That machine now trusts this one`.
 
