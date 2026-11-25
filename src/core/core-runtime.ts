@@ -7,6 +7,8 @@ import {
 } from "@shared/machine-control";
 import { MachineRepository } from "./machines/repository";
 import { InstallOpsService } from "./install-ops/service";
+import { AutomationRepository } from "./automation/repository";
+import { countTakeoverPlacement } from "@shared/machine-takeover";
 import { HostsService } from "./hosts/service";
 import { detectMachineForm } from "./hosts/machine-form";
 import { detectMachineKeychain } from "./hosts/machine-keychain";
@@ -492,6 +494,8 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
       connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect,
       settleRemovedLink: (name, route, installationId) => linkSetup.settleRemoved({ machineName: name, route, installationId }), linkKeyState: linkSetup.linkKeyState, clearStaleLink: linkSetup.clearEvery });
     const installOps = yield* Effect.serviceOption(InstallOpsService);
+    const automations = yield* Effect.serviceOption(AutomationRepository);
+    const model = yield* ModelService;
     // Off in the ship build: no vault token is placed, recorded or listed.
     const vaultSetup = VAULT_ENABLED ? yield* makeVaultSetup({
       home: options.home, userHome: homedir(), run: runTool, toolEnv: resolvedSpawnEnv,
@@ -499,6 +503,17 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const actions = yield* makeMachineOwnerActions({
       autoUpdate: { downloadsBundles: options.acquireBundle !== undefined, signedRelease: false },
       ...(Option.isSome(installOps) ? { installOps: installOps.value } : {}),
+      takeoverCounts: (name) => Effect.gen(function* () {
+        const sources = [];
+        for (const canvasName of yield* model.listCanvases()) {
+          sources.push({
+            canvas: yield* model.canvas(canvasName),
+            automations: Option.isSome(automations) ? yield* automations.value.loadState(canvasName) : new Map(),
+          });
+        }
+        return countTakeoverPlacement(name, sources);
+      }),
+      takeoverForget: (name, installationId) => linkSetup.forget(name, installationId),
       linkSetup,
       ...(options.release === undefined ? {} : { release: options.release }),
       ...(vaultSetup === undefined ? {} : { vaultSetup }),

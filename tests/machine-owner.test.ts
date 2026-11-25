@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { makeSqliteClient } from "../src/core/state/sqlite-client";
 import { MODEL_STATE_SCHEMA_SQL } from "../src/core/model/state-schema";
 import { MACHINE_STATE_SCHEMA_SQL } from "../src/core/machines/state-schema";
+import { MACHINE_VAULT_TOKENS_SQL } from "../src/core/vault/state-schema";
 import { makeMachineRepositoryLive } from "../src/core/machines/repository";
 import { MACHINE_REGISTRY_STATE_SCHEMA_SQL } from "../src/core/hosts/state-schema";
 import { HostRegistryRows, resetDefaultHostsRegistryForTests } from "../src/core/hosts/registry";
@@ -29,13 +30,13 @@ const readyInstall = () => Schema.decodeUnknownSync(MachineInstallResult)({
   serviceLabel: "test-service", provider: "launchd", updated: false, disposition: "ready", installationId: "mini-install", machineName: "mini", pid: 71, transitions: [{ step: "ready", pid: 71 }],
 });
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); resetDefaultHostsRegistryForTests(); setHostsSnapshot([]); });
-const fixture = async (overrides: Partial<MachineOwnerOptions> = {}, sshRun?: (program: unknown) => Effect.Effect<{ readonly stdout: string; readonly stderr: string; readonly exitCode: number }>) => {
+const fixture = async (overrides: Partial<MachineOwnerOptions> = {}, sshRun?: (program: unknown) => Effect.Effect<{ readonly stdout: string; readonly stderr: string; readonly exitCode: number }>, sshTransfer?: (program: unknown) => Effect.Effect<{ readonly stdout: string; readonly stderr: string }>) => {
   const database = new DatabaseSync(":memory:");
-  database.exec(MACHINE_STATE_SCHEMA_SQL + MACHINE_REGISTRY_STATE_SCHEMA_SQL + MODEL_STATE_SCHEMA_SQL + TERMINAL_DELETE_STATE_SCHEMA_SQL);
+  database.exec(MACHINE_STATE_SCHEMA_SQL + MACHINE_REGISTRY_STATE_SCHEMA_SQL + MODEL_STATE_SCHEMA_SQL + TERMINAL_DELETE_STATE_SCHEMA_SQL + MACHINE_VAULT_TOKENS_SQL);
   database.exec("CREATE TABLE host_registry_state(singleton INTEGER PRIMARY KEY, version INTEGER, initialized_at TEXT) STRICT");
   const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
   const machines = makeMachineRepositoryLive({ defaultName: () => "macbook" }).pipe(Layer.provideMerge(sql));
-  const ssh = Layer.succeed(SshTransport, SshTransport.of({ run: sshRun ?? (() => Effect.die("no dial")), transfer: () => Effect.die("no transfer"), connect: () => Effect.die("no link"), forward: () => Effect.die("no forward"), warm: () => Effect.void, teardown: () => Effect.void }));
+  const ssh = Layer.succeed(SshTransport, SshTransport.of({ run: sshRun ?? (() => Effect.die("no dial")), transfer: sshTransfer ?? (() => Effect.die("no transfer")), connect: () => Effect.die("no link"), forward: () => Effect.die("no forward"), warm: () => Effect.void, teardown: () => Effect.void }));
   const runtime = ManagedRuntime.make(Layer.mergeAll(HostsServiceLive, HostRegistryRows.layer).pipe(Layer.provideMerge(testLog.log.loggerLayer), Layer.provideMerge(machines), Layer.provideMerge(ssh)));
   cleanup.push(async () => { await runtime.dispose(); database.close(); });
   const disconnected: string[] = [];
@@ -472,4 +473,103 @@ it.each([[true, undefined], [false, "mini is removed, but Junto could not delete
   expect(calls).toEqual(["drop mini"]);
   expect(removed.data.linkKeyKept).toEqual(words === undefined ? undefined : { ownWords: true, message: words });
   expect(removed.data.linkKept).toBeUndefined();
+});
+
+it("takes over a pin by installation id, sweeps its old debt, and closes its link", async () => {
+  const forgotten: Array<{ readonly name: string; readonly installationId: string }> = [];
+  const f = await fixture({
+    takeoverCounts: () => Effect.succeed({ seats: 2, automations: 3 }),
+    takeoverForget: (name, installationId) => Effect.sync(() => { forgotten.push({ name, installationId }); }),
+  });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  f.database.exec("INSERT INTO terminal_delete_owed(lease_id, binding_id, machine_name, canvas_name, seat_id, reason, created_at) VALUES ('lease', 'binding', 'mini', 'canvas', 'seat', 'unreachable', 1)");
+  f.database.exec("INSERT INTO machine_vault_tokens(machine_name, vault, permissions, origin, account_name, set_at_epoch_ms) VALUES ('mini', 'vault', 'read_items', 'pasted', NULL, 1)");
+  f.database.exec("INSERT INTO machine_peer_seen(installation_id, build, version, built_at, seen_at) VALUES ('mini-install', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', NULL, NULL, 'now')");
+
+  const preview = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install" });
+  expect(preview).toMatchObject({ ok: true, op: "machine.takeover", data: { seats: 2, automations: 3, takenOver: false } });
+  expect(f.database.prepare("SELECT installation_id FROM machine_peers WHERE machine_name = 'mini'").get()).toEqual({ installation_id: "mini-install" });
+
+  const noExpected = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", confirm: { seats: 2, automations: 3 } });
+  expect(noExpected).toMatchObject({ ok: false, error: { type: "validation" } });
+  const mismatch = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install", confirm: { seats: 1, automations: 3 } });
+  expect(mismatch).toMatchObject({ ok: false, error: { type: "conflict" } });
+  expect(forgotten).toEqual([]);
+  expect(f.database.prepare("SELECT count(*) AS count FROM terminal_delete_owed").get()).toEqual({ count: 1 });
+  expect(f.database.prepare("SELECT installation_id FROM machine_peers WHERE machine_name = 'mini'").get()).toEqual({ installation_id: "mini-install" });
+
+  const taken = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install", confirm: { seats: 2, automations: 3 } });
+  expect(taken).toMatchObject({ ok: true, op: "machine.takeover", data: { takenOver: true, previousInstallationId: "mini-install", installationId: "new-install" } });
+  expect(f.database.prepare("SELECT installation_id FROM machine_peers WHERE machine_name = 'mini'").get()).toEqual({ installation_id: "new-install" });
+  expect(f.database.prepare("SELECT count(*) AS count FROM terminal_delete_owed WHERE machine_name = 'mini'").get()).toEqual({ count: 0 });
+  expect(f.database.prepare("SELECT count(*) AS count FROM machine_vault_tokens WHERE machine_name = 'mini'").get()).toEqual({ count: 0 });
+  expect(f.database.prepare("SELECT count(*) AS count FROM machine_peer_seen WHERE installation_id = 'mini-install'").get()).toEqual({ count: 0 });
+  expect(forgotten).toEqual([{ name: "mini", installationId: "mini-install" }]);
+  expect(f.disconnected).toEqual(["mini"]);
+  expect(await f.call("machine.setup", { machineName: "mini", installationId: "new-install" })).toMatchObject({ ok: true, op: "machine.setup" });
+});
+
+it("refuses a take-over before the commit when the old key cannot be removed", async () => {
+  const f = await fixture({
+    takeoverCounts: () => Effect.succeed({ seats: 0, automations: 0 }),
+    takeoverForget: () => Effect.fail(new Error("could not rewrite authorized_keys")),
+  });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  f.database.exec("INSERT INTO terminal_delete_owed(lease_id, binding_id, machine_name, canvas_name, seat_id, reason, created_at) VALUES ('lease', 'binding', 'mini', 'canvas', 'seat', 'unreachable', 1)");
+  const response = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install", confirm: { seats: 0, automations: 0 } });
+  expect(response).toMatchObject({ ok: false, error: { type: "io" } });
+  expect(f.database.prepare("SELECT installation_id FROM machine_peers WHERE machine_name = 'mini'").get()).toEqual({ installation_id: "mini-install" });
+  expect(f.database.prepare("SELECT count(*) AS count FROM terminal_delete_owed").get()).toEqual({ count: 1 });
+});
+
+it("previews and confirms a remote take-over through the far owner command", async () => {
+  let dials = 0;
+  const far = {
+    machineName: "mini", installationId: "old-mini", previousInstallationId: "mini-install",
+    seats: 4, automations: 5, takenOver: false,
+  };
+  const f = await fixture({}, undefined, () => {
+    dials += 1;
+    return Effect.succeed({ stdout: JSON.stringify({ ok: true, command: "machine takeover", data: far }), stderr: "" });
+  });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini", juntoHome: "/home/probe", installRoot: "/home/probe/install" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+
+  const noExpected = await f.call("machine.takeover-remote", { name: "mini", confirm: { seats: 4, automations: 5 } });
+  expect(noExpected).toMatchObject({ ok: false, error: { type: "validation" } });
+  const noPreview = await f.call("machine.takeover-remote", { name: "mini", expectedInstallationId: "mini-install", confirm: { seats: 4, automations: 5 } });
+  expect(noPreview).toMatchObject({ ok: false, error: { type: "conflict" } });
+  expect(dials).toBe(0);
+
+  const preview = await f.call("machine.takeover-remote", { name: "mini" });
+  expect(preview).toMatchObject({ ok: true, op: "machine.takeover-remote", data: { seats: 4, automations: 5, takenOver: false } });
+  const refused = await f.call("machine.takeover-remote", { name: "mini", expectedInstallationId: "mini-install", confirm: { seats: 0, automations: 0 } });
+  expect(refused).toMatchObject({ ok: false, error: { type: "conflict" } });
+  expect(dials).toBe(1);
+  const confirmed = await f.call("machine.takeover-remote", { name: "mini", expectedInstallationId: "mini-install", confirm: { seats: 4, automations: 5 } });
+  expect(confirmed).toMatchObject({ ok: true, op: "machine.takeover-remote" });
+  expect(dials).toBe(2);
+});
+
+it("refuses a take-over at the commit when the far count changes after the confirm check", async () => {
+  let counts = 0;
+  const forgotten: string[] = [];
+  const f = await fixture({
+    takeoverCounts: () => Effect.sync(() => {
+      counts += 1;
+      return counts >= 3 ? { seats: 1, automations: 0 } : { seats: 2, automations: 0 };
+    }),
+    takeoverForget: (_name, installationId) => Effect.sync(() => { forgotten.push(installationId); }),
+  });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  f.database.exec("INSERT INTO terminal_delete_owed(lease_id, binding_id, machine_name, canvas_name, seat_id, reason, created_at) VALUES ('lease', 'binding', 'mini', 'canvas', 'seat', 'unreachable', 1)");
+  expect(await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install" })).toMatchObject({ ok: true, data: { seats: 2, automations: 0 } });
+  const response = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install", confirm: { seats: 2, automations: 0 } });
+  expect(response).toMatchObject({ ok: false, error: { type: "conflict", message: "The old link key is removed; the pin was not replaced. Run the take-over again" } });
+  expect(forgotten).toEqual(["mini-install"]);
+  expect(f.database.prepare("SELECT installation_id FROM machine_peers WHERE machine_name = 'mini'").get()).toEqual({ installation_id: "mini-install" });
+  expect(f.database.prepare("SELECT count(*) AS count FROM terminal_delete_owed").get()).toEqual({ count: 1 });
 });
