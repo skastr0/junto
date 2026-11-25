@@ -1,0 +1,1325 @@
+//! The built binary against a stand-in work socket: what an agent's terminal
+//! types, the frame that reaches the runtime, and the envelope either side
+//! prints. These are the behaviours the TypeScript CLI's own tests held before
+//! `src/cli` is deleted; each one a user acts on.
+//!
+//! A fake `control.sock` answers by script, and every frame is kept, so a test
+//! asserts the request as well as the reply. Nothing here needs the app.
+
+use std::collections::VecDeque;
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::PathBuf;
+use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+
+use serde_json::Value;
+
+const TOKEN: &str = "seat-token";
+/// A well-formed opId for a write to resend under.
+const OP_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+
+/// What one connection is answered with.
+enum Answer {
+    /// A success envelope carrying `data`.
+    Ok(Value),
+    /// An error envelope, as the runtime names it.
+    Error(&'static str, &'static str),
+    /// Anything else, written as it is (a non-JSON body, or a malformed one).
+    Raw(&'static str),
+    /// The socket closes with no answer.
+    Close,
+    /// The request is read and held past the client's bound, then dropped.
+    Silent,
+}
+
+impl Answer {
+    fn ok() -> Answer {
+        Answer::Ok(Value::Object(serde_json::Map::new()))
+    }
+}
+
+struct Work {
+    home: PathBuf,
+    frames: Arc<Mutex<Vec<Value>>>,
+    stop: Arc<AtomicBool>,
+    accept: Option<thread::JoinHandle<()>>,
+}
+
+impl Work {
+    fn start(answers: Vec<Answer>) -> Work {
+        let home = std::env::temp_dir().join(format!(
+            "junto-cli-test-{}-{}",
+            std::process::id(),
+            ulid::Ulid::new()
+        ));
+        std::fs::create_dir_all(&home).unwrap();
+        let socket = home.join("control.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let frames = Arc::new(Mutex::new(Vec::new()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let answers = Arc::new(Mutex::new(VecDeque::from(answers)));
+
+        let accept = {
+            let (frames, stop, answers) = (frames.clone(), stop.clone(), answers.clone());
+            thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((stream, _)) => {
+                            let (frames, answers) = (frames.clone(), answers.clone());
+                            thread::spawn(move || serve(stream, frames, answers));
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(2));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            })
+        };
+
+        Work {
+            home,
+            frames,
+            stop,
+            accept: Some(accept),
+        }
+    }
+
+    /// A command with no socket at all: refused before it can connect.
+    fn offline() -> Work {
+        let home = temp_dir();
+        Work {
+            home,
+            frames: Arc::new(Mutex::new(Vec::new())),
+            stop: Arc::new(AtomicBool::new(false)),
+            accept: None,
+        }
+    }
+
+    fn command(&self, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_junto"));
+        command
+            .args(args)
+            .env("HOME", &self.home)
+            .env("JUNTO_WORK_HOME", &self.home)
+            .env("JUNTO_WORK_TOKEN", TOKEN)
+            .env_remove("JUNTO_HOME")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        command
+    }
+
+    fn run(&self, args: &[&str]) -> Output {
+        self.command(args).output().unwrap()
+    }
+
+    /// The frames the binary sent, in arrival order.
+    fn frames(&self) -> Vec<Value> {
+        self.frames.lock().unwrap().clone()
+    }
+
+    fn only_frame(&self) -> Value {
+        let frames = self.frames();
+        assert_eq!(frames.len(), 1, "one call: {frames:?}");
+        frames[0].clone()
+    }
+}
+
+impl Drop for Work {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(accept) = self.accept.take() {
+            accept.join().ok();
+        }
+        std::fs::remove_dir_all(&self.home).ok();
+    }
+}
+
+fn serve(
+    stream: UnixStream,
+    frames: Arc<Mutex<Vec<Value>>>,
+    answers: Arc<Mutex<VecDeque<Answer>>>,
+) {
+    stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut line = String::new();
+    if reader.read_line(&mut line).unwrap_or(0) == 0 {
+        return;
+    }
+    let frame: Value = serde_json::from_str(line.trim()).expect("the CLI sends JSON");
+    let op = frame["op"].as_str().unwrap_or("").to_string();
+    frames.lock().unwrap().push(frame);
+    let answer = answers
+        .lock()
+        .unwrap()
+        .pop_front()
+        .unwrap_or(Answer::Ok(Value::Object(serde_json::Map::new())));
+    let mut stream = stream;
+    match answer {
+        Answer::Ok(data) => {
+            let envelope = serde_json::json!({ "ok": true, "op": op, "data": data });
+            writeln!(stream, "{envelope}").ok();
+        }
+        Answer::Error(kind, message) => {
+            let envelope = serde_json::json!({
+                "ok": false,
+                "op": op,
+                "error": { "type": kind, "message": message },
+            });
+            writeln!(stream, "{envelope}").ok();
+        }
+        Answer::Raw(text) => {
+            writeln!(stream, "{text}").ok();
+        }
+        Answer::Close => {}
+        Answer::Silent => {
+            thread::sleep(Duration::from_secs(2));
+        }
+    }
+}
+
+fn stderr_json(output: &Output) -> Value {
+    let text = String::from_utf8_lossy(&output.stderr);
+    let line = text
+        .lines()
+        .find(|line| line.starts_with('{'))
+        .unwrap_or_else(|| panic!("no envelope in {text:?}"));
+    serde_json::from_str(line)
+        .unwrap_or_else(|error| panic!("stderr is not JSON ({error}): {text:?}"))
+}
+
+fn stdout_json(output: &Output) -> Value {
+    let text = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(text.trim())
+        .unwrap_or_else(|error| panic!("stdout is not JSON ({error}): {text:?}"))
+}
+
+fn code(output: &Output) -> i32 {
+    output.status.code().unwrap_or(-1)
+}
+
+// --- the command line, with no socket ----------------------------------------
+
+#[test]
+fn version_answers_with_no_socket_and_no_credential() {
+    let work = Work::offline();
+    let mut command = work.command(&["--version"]);
+    command.env("JUNTO_WORK_TOKEN", "");
+    let output = command.output().unwrap();
+    assert_eq!(code(&output), 0);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("junto v"), "{stdout:?}");
+    assert!(stdout.trim_end().len() > "junto v".len());
+    assert!(output.stderr.is_empty());
+    assert!(work.frames().is_empty());
+}
+
+#[test]
+fn owner_and_machine_commands_are_refused_when_a_seat_variable_is_present() {
+    let work = Work::start(vec![]);
+    for token in ["", "malformed", TOKEN] {
+        for args in [
+            vec!["machine", "status"],
+            vec!["machine", "install-local", "{}"],
+            vec!["machine", "uninstall-local", "{}"],
+            vec!["link"],
+            vec!["companion-stdio"],
+        ] {
+            let output = work
+                .command(&args)
+                .env("JUNTO_WORK_TOKEN", token)
+                .output()
+                .unwrap();
+            assert_eq!(code(&output), 1, "{args:?} with {token:?}");
+            assert!(
+                String::from_utf8_lossy(&output.stderr)
+                    .contains("Owner and machine commands are unavailable from a Junto seat."),
+                "{args:?}: {:?}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+    assert!(work.frames().is_empty(), "no owner refusal opened a socket");
+    // A seat's ordinary mail is not owner work.
+    let pass = work.run(&["msg", "list"]);
+    assert_eq!(
+        code(&pass),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&pass.stderr)
+    );
+    assert_eq!(work.only_frame()["op"], "msg.list");
+}
+
+// --- bare commands reach the socket ------------------------------------------
+
+#[test]
+fn bare_reads_reach_the_socket_with_nothing_but_their_defaults() {
+    let work = Work::start(vec![]);
+    for args in [
+        vec!["since"],
+        vec!["artifact", "list"],
+        vec!["msg", "list"],
+        vec!["seat", "read", "peer"],
+        vec!["task", "list"],
+        vec!["automation", "list"],
+    ] {
+        let output = work.run(&args);
+        assert_eq!(
+            code(&output),
+            0,
+            "{args:?}: {:?}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let frames = work.frames();
+    assert_eq!(frames.len(), 6);
+    for ((args, op), frame) in [
+        (vec!["since"], "since"),
+        (vec!["artifact", "list"], "artifact.list"),
+        (vec!["msg", "list"], "msg.list"),
+        (vec!["seat", "read", "peer"], "seat.read"),
+        (vec!["task", "list"], "task.list"),
+        (vec!["automation", "list"], "automation.list"),
+    ]
+    .into_iter()
+    .zip(&frames)
+    {
+        assert_eq!(frame["op"], op, "{args:?}");
+        assert_eq!(frame["token"], TOKEN, "{args:?}");
+    }
+    assert_eq!(frames[0]["args"], serde_json::json!({}));
+    assert_eq!(frames[1]["args"], serde_json::json!({}));
+}
+
+// --- logs --------------------------------------------------------------------
+
+#[test]
+fn logs_lower_the_filters_as_one_query() {
+    let work = Work::start(vec![Answer::Ok(serde_json::json!({
+        "rows": [{
+            "at": 1,
+            "level": "warn",
+            "area": "seats",
+            "message": "one row",
+        }],
+    }))]);
+    let before = now_ms();
+    let output = work.run(&[
+        "logs", "--since", "15m", "--level", "warn", "--last", "5", "--area", "seats",
+    ]);
+    let after = now_ms();
+    assert_eq!(
+        code(&output),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let frame = work.only_frame();
+    assert_eq!(frame["op"], "logs.read");
+    let since = frame["args"]["since"].as_i64().unwrap();
+    assert!(
+        since >= before - 15 * 60_000 && since <= after - 15 * 60_000,
+        "since {since} in [{before},{after}]"
+    );
+    assert_eq!(frame["args"]["level"], "warn");
+    assert_eq!(frame["args"]["area"], "seats");
+    assert_eq!(frame["args"]["limit"], 5);
+    assert_eq!(
+        stdout_json(&output)["data"]["rows"][0]["message"],
+        "one row"
+    );
+}
+
+#[test]
+fn logs_refuse_a_filter_they_cannot_read_before_the_socket() {
+    let work = Work::start(vec![]);
+    for since in ["soon", "1d12h", "7 days"] {
+        let output = work.run(&["logs", "--since", since]);
+        assert_eq!(code(&output), 1, "{since}");
+        let printed = stderr_json(&output);
+        assert_eq!(printed["error"]["type"], "InputError", "{since}: {printed}");
+        assert_eq!(
+            printed["error"]["details"]["path"], "since",
+            "{since}: {printed}"
+        );
+    }
+    assert!(work.frames().is_empty());
+}
+
+// --- opId: minted, trimmed, refused -------------------------------------------
+
+#[test]
+fn a_write_mints_an_op_id_and_takes_the_one_it_is_given() {
+    let work = Work::start(vec![Answer::ok(), Answer::ok()]);
+    let created = work.run(&[
+        "artifact",
+        "create",
+        "Plan",
+        "--type",
+        "document",
+        "--markdown",
+        "# Plan",
+    ]);
+    assert_eq!(
+        code(&created),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    let minted = work.frames()[0]["args"]["opId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(minted.len(), 26, "{minted}");
+
+    let given = format!(" {OP_ID} ");
+    let edited = work.run(&[
+        "artifact",
+        "edit",
+        "art-1",
+        "--base",
+        "2",
+        "--markdown",
+        "# Next",
+        "--op-id",
+        &given,
+    ]);
+    assert_eq!(
+        code(&edited),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&edited.stderr)
+    );
+    assert_eq!(
+        work.frames()[1]["args"]["opId"],
+        OP_ID,
+        "trimmed, then taken"
+    );
+}
+
+#[test]
+fn a_bad_op_id_is_refused_before_the_socket() {
+    let work = Work::start(vec![]);
+    for bad in [
+        "",
+        "op-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "01ARZ3NDEKTSV4RRFFQ69G5FA",
+        "not-a-ulid",
+    ] {
+        let output = work.run(&["artifact", "archive", "art-1", "--op-id", bad]);
+        assert_eq!(code(&output), 1, "{bad:?}");
+        let printed = stderr_json(&output);
+        assert_eq!(printed["error"]["type"], "InputError", "{bad:?}: {printed}");
+        assert_eq!(
+            printed["error"]["details"]["path"], "--op-id",
+            "{bad:?}: {printed}"
+        );
+    }
+    assert!(work.frames().is_empty());
+}
+
+// --- artifact flags -----------------------------------------------------------
+
+#[test]
+fn artifact_create_lowers_its_body_tasks_and_labels() {
+    let work = Work::start(vec![Answer::ok()]);
+    let output = work.run(&[
+        "artifact",
+        "create",
+        "The plan",
+        "--type",
+        "document",
+        "--node",
+        "agent-1",
+        "--task",
+        "#4",
+        "--task",
+        "#5",
+        "--label",
+        "design",
+        "--label",
+        "ops, review",
+        "--markdown",
+        "# The plan\n\nbody",
+        "--op-id",
+        OP_ID,
+    ]);
+    assert_eq!(
+        code(&output),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let args = &work.only_frame()["args"];
+    assert_eq!(args["opId"], OP_ID);
+    assert_eq!(args["type"], "document");
+    assert_eq!(args["title"], "The plan");
+    assert_eq!(args["node"], "agent-1");
+    assert_eq!(
+        args["body"],
+        serde_json::json!({ "markdown": "# The plan\n\nbody" })
+    );
+    assert_eq!(args["taskIds"], serde_json::json!(["#4", "#5"]));
+    assert_eq!(
+        args["labels"],
+        serde_json::json!(["design", "ops", "review"])
+    );
+}
+
+#[test]
+fn artifact_comment_and_label_lower_their_flags() {
+    let work = Work::start(vec![Answer::ok(), Answer::ok()]);
+    let comment = work.run(&[
+        "artifact",
+        "comment",
+        "art-1",
+        "Looks good",
+        "--anchor",
+        r#"{"line":3,"path":"a.md"}"#,
+    ]);
+    assert_eq!(
+        code(&comment),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&comment.stderr)
+    );
+    let label = work.run(&[
+        "artifact",
+        "label",
+        "art-1",
+        "--add",
+        "design,ops",
+        "--remove",
+        "old",
+    ]);
+    assert_eq!(
+        code(&label),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&label.stderr)
+    );
+    let frames = work.frames();
+    assert_eq!(frames[0]["op"], "artifact.comment");
+    assert_eq!(frames[0]["args"]["text"], "Looks good");
+    assert_eq!(frames[0]["args"]["anchor"]["line"], 3);
+    assert!(
+        frames[0]["args"].get("opId").is_some(),
+        "a comment names its opId"
+    );
+    assert_eq!(frames[1]["op"], "artifact.label");
+    assert_eq!(
+        frames[1]["args"]["add"],
+        serde_json::json!(["design", "ops"])
+    );
+    assert_eq!(frames[1]["args"]["remove"], serde_json::json!(["old"]));
+}
+
+#[test]
+fn artifact_takes_one_body_and_colours_only_its_eight_names() {
+    let work = Work::start(vec![Answer::ok(), Answer::ok()]);
+    for args in [
+        vec![
+            "artifact",
+            "create",
+            "T",
+            "--type",
+            "document",
+            "--markdown",
+            "m",
+            "--url",
+            "https://example.com",
+        ],
+        vec![
+            "artifact",
+            "create",
+            "T",
+            "--type",
+            "document",
+            "--markdown",
+            "m",
+            "--body",
+            "{}",
+        ],
+        vec![
+            "artifact",
+            "create",
+            "T",
+            "--type",
+            "document",
+            "--url",
+            "https://example.com",
+            "--body",
+            "{}",
+        ],
+    ] {
+        let output = work.run(&args);
+        assert_eq!(code(&output), 1, "{args:?}");
+        assert_eq!(
+            stderr_json(&output)["error"]["type"],
+            "InputError",
+            "{args:?}"
+        );
+    }
+    assert!(work.frames().is_empty(), "nothing is sent for two bodies");
+
+    let bad = work.run(&["artifact", "colour", "design", "charcoal"]);
+    assert_ne!(code(&bad), 0, "an outside choice is usage");
+    let printed = stderr_json(&bad);
+    assert!(
+        matches!(
+            printed["error"]["type"].as_str(),
+            Some("ShowHelp" | "InvalidValue")
+        ),
+        "an outside choice is usage, not a call: {printed}"
+    );
+    assert!(work.frames().is_empty());
+
+    let cleared = work.run(&["artifact", "colour", "design", "none"]);
+    assert_eq!(
+        code(&cleared),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&cleared.stderr)
+    );
+    let frame = work.only_frame();
+    assert_eq!(frame["op"], "artifact.colour");
+    assert!(
+        frame["args"].get("colour").is_some_and(Value::is_null),
+        "none unsets it as null: {frame}"
+    );
+}
+
+// --- task check ---------------------------------------------------------------
+
+#[test]
+fn task_check_reads_each_flag_as_one_result_and_names_what_it_cannot() {
+    let work = Work::start(vec![Answer::ok()]);
+    let output = work.run(&[
+        "task",
+        "check",
+        "#4",
+        "--outgoing",
+        "tests=0",
+        "--outgoing",
+        "a=b=1",
+        "--incoming",
+        "e2e=-1",
+        "--next",
+        "Review the diff",
+    ]);
+    assert_eq!(
+        code(&output),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let args = &work.only_frame()["args"];
+    assert_eq!(
+        args["results"],
+        serde_json::json!([
+            { "checkId": "tests", "side": "outgoing", "exitCode": 0, "outputTail": "" },
+            { "checkId": "a=b", "side": "outgoing", "exitCode": 1, "outputTail": "" },
+            { "checkId": "e2e", "side": "incoming", "exitCode": -1, "outputTail": "" },
+        ])
+    );
+    assert_eq!(args["next"], "Review the diff");
+
+    for (args, path) in [
+        (
+            vec!["task", "check", "#4", "--outgoing", "tests=green"],
+            "outgoing",
+        ),
+        (
+            vec!["task", "check", "#4", "--incoming", "tests"],
+            "incoming",
+        ),
+        (vec!["task", "check", "#4"], "results"),
+        (
+            vec![
+                "task",
+                "check",
+                "#4",
+                "--outgoing",
+                "tests=0",
+                "--results",
+                "[]",
+            ],
+            "results",
+        ),
+    ] {
+        let refused = work.run(&args);
+        assert_eq!(code(&refused), 1, "{args:?}");
+        let printed = stderr_json(&refused);
+        assert_eq!(
+            printed["error"]["type"], "InputError",
+            "{args:?}: {printed}"
+        );
+        assert_eq!(
+            printed["error"]["details"]["path"], path,
+            "{args:?}: {printed}"
+        );
+    }
+    assert_eq!(
+        work.frames().len(),
+        1,
+        "none of the refusals reached the socket"
+    );
+}
+
+#[test]
+fn task_check_reads_results_from_a_file_and_keeps_the_tail_in_characters() {
+    let work = Work::start(vec![Answer::ok()]);
+    let dir = temp_dir();
+    let file = dir.join("checks.json");
+    let output_tail = format!("{}end", "é".repeat(8192));
+    std::fs::write(
+        &file,
+        serde_json::json!([{
+            "checkId": "e2e",
+            "side": "incoming",
+            "exitCode": 1,
+            "outputTail": output_tail,
+        }])
+        .to_string(),
+    )
+    .unwrap();
+    let output = work.run(&[
+        "task",
+        "check",
+        "#4",
+        "--results",
+        &format!("@{}", file.display()),
+    ]);
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(
+        code(&output),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let tail = work.only_frame()["args"]["results"][0]["outputTail"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(tail.chars().count(), 8192, "a tail, not the whole output");
+    assert!(
+        tail.ends_with("éend"),
+        "cut at a character boundary: {tail:?}"
+    );
+}
+
+// --- seat wait / read ---------------------------------------------------------
+
+#[test]
+fn seat_wait_lowers_its_state_and_a_bounded_timeout() {
+    let work = Work::start(vec![Answer::ok(), Answer::ok(), Answer::ok()]);
+    let named = work.run(&["seat", "wait", "peer", "--until", "idle"]);
+    assert_eq!(
+        code(&named),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&named.stderr)
+    );
+    let any = work.run(&[
+        "seat",
+        "wait",
+        "--any",
+        "--until",
+        "blocked",
+        "--timeout",
+        "600s",
+    ]);
+    assert_eq!(code(&any), 0, "{:?}", String::from_utf8_lossy(&any.stderr));
+    let read = work.run(&["seat", "read", "peer", "--follow", "--max-seconds", "45"]);
+    assert_eq!(
+        code(&read),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&read.stderr)
+    );
+    let frames = work.frames();
+    assert_eq!(frames[0]["op"], "seat.wait");
+    assert_eq!(frames[0]["args"]["target"], "peer");
+    assert_eq!(frames[0]["args"]["until"], "idle");
+    assert_eq!(frames[0]["args"]["timeoutMs"], 60_000);
+    assert_eq!(frames[1]["args"]["any"], true);
+    assert_eq!(frames[1]["args"]["timeoutMs"], 600_000);
+    assert_eq!(frames[2]["op"], "seat.read");
+    assert_eq!(frames[2]["args"]["follow"], true);
+    assert_eq!(frames[2]["args"]["maxSeconds"], 45);
+}
+
+#[test]
+fn seat_wait_refuses_both_neither_an_internal_state_and_an_overlong_bound() {
+    let work = Work::start(vec![]);
+    for args in [
+        vec!["seat", "wait", "peer", "--any", "--until", "idle"],
+        vec!["seat", "wait", "--until", "idle"],
+        vec!["seat", "wait", "peer", "--until", "gone"],
+        vec![
+            "seat",
+            "wait",
+            "peer",
+            "--until",
+            "idle",
+            "--timeout",
+            "601s",
+        ],
+    ] {
+        let output = work.run(&args);
+        assert_eq!(code(&output), 1, "{args:?}");
+        assert_eq!(
+            stderr_json(&output)["error"]["type"],
+            "InputError",
+            "{args:?}"
+        );
+    }
+    assert!(work.frames().is_empty());
+}
+
+// --- offboard input -----------------------------------------------------------
+
+#[test]
+fn offboard_takes_notes_inline_as_json_or_from_a_file_and_the_continuation_three_ways() {
+    let work = Work::start(vec![
+        Answer::ok(),
+        Answer::ok(),
+        Answer::ok(),
+        Answer::ok(),
+        Answer::ok(),
+    ]);
+    let dir = temp_dir();
+    let notes = dir.join("notes.md");
+    std::fs::write(&notes, "From a file\n").unwrap();
+    let next = dir.join("next.md");
+    std::fs::write(&next, "Pick up the retry\n").unwrap();
+
+    for args in [
+        vec!["offboard", "Shipped the parser"],
+        vec!["offboard", r#"{"notes":"From JSON"}"#],
+        vec!["offboard", &format!("@{}", notes.display())],
+        vec!["offboard", "Notes", "--continue", "Pick up the retry"],
+        vec![
+            "offboard",
+            "Notes",
+            "--continue",
+            &format!("@{}", next.display()),
+        ],
+    ] {
+        let output = work.run(&args);
+        assert_eq!(
+            code(&output),
+            0,
+            "{args:?}: {:?}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    std::fs::remove_dir_all(&dir).ok();
+    let frames = work.frames();
+    assert_eq!(
+        frames[0]["args"],
+        serde_json::json!({ "notes": "Shipped the parser" })
+    );
+    assert_eq!(
+        frames[1]["args"],
+        serde_json::json!({ "notes": "From JSON" })
+    );
+    assert_eq!(
+        frames[2]["args"],
+        serde_json::json!({ "notes": "From a file\n" })
+    );
+    assert_eq!(
+        frames[3]["args"],
+        serde_json::json!({ "notes": "Notes", "continuation": "Pick up the retry" })
+    );
+    assert_eq!(
+        frames[4]["args"],
+        serde_json::json!({ "notes": "Notes", "continuation": "Pick up the retry\n" })
+    );
+}
+
+#[test]
+fn offboard_refuses_empty_notes_and_a_continuation_given_twice() {
+    let work = Work::start(vec![]);
+    for (args, path) in [
+        (vec!["offboard", "  "], "input"),
+        (vec!["offboard", "Notes", "--continue", "  "], "continue"),
+        (
+            vec![
+                "offboard",
+                r#"{"notes":"n","continuation":"a"}"#,
+                "--continue",
+                "b",
+            ],
+            "continue",
+        ),
+    ] {
+        let output = work.run(&args);
+        assert_eq!(code(&output), 1, "{args:?}");
+        let printed = stderr_json(&output);
+        assert_eq!(
+            printed["error"]["type"], "InputError",
+            "{args:?}: {printed}"
+        );
+        assert_eq!(
+            printed["error"]["details"]["path"], path,
+            "{args:?}: {printed}"
+        );
+    }
+    assert!(work.frames().is_empty());
+}
+
+// --- the transport ------------------------------------------------------------
+
+#[test]
+fn a_down_runtime_names_what_to_do() {
+    let work = Work::offline();
+    let output = work.run(&["msg", "list"]);
+    assert_eq!(code(&output), 1);
+    let printed = stderr_json(&output);
+    assert_eq!(printed["error"]["type"], "RuntimeDown");
+    assert!(
+        printed["error"]["details"]["next_step"]
+            .as_str()
+            .unwrap()
+            .contains("launch Junto"),
+        "{printed}"
+    );
+}
+
+#[test]
+fn a_socket_that_closes_or_answers_junk_is_a_protocol_error() {
+    let closing = Work::start(vec![Answer::Close]);
+    let closed = closing.run(&["msg", "list"]);
+    assert_eq!(code(&closed), 1);
+    assert_eq!(stderr_json(&closed)["error"]["type"], "ProtocolError");
+    assert!(
+        stderr_json(&closed)["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("closed")
+    );
+
+    let junk = Work::start(vec![Answer::Raw("garbage")]);
+    let refused = junk.run(&["msg", "list"]);
+    assert_eq!(code(&refused), 1);
+    assert_eq!(stderr_json(&refused)["error"]["type"], "ProtocolError");
+    assert!(
+        stderr_json(&refused)["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("non-JSON")
+    );
+}
+
+#[test]
+fn a_silent_socket_times_out_and_a_write_says_what_may_have_happened() {
+    let read = Work::start(vec![Answer::Silent]);
+    let output = read.run(&["msg", "list", "--timeout", "200"]);
+    assert_eq!(code(&output), 1);
+    let printed = stderr_json(&output);
+    assert_eq!(printed["error"]["type"], "ProtocolError");
+    assert_eq!(printed["error"]["details"]["retryable"], true);
+    assert!(
+        printed["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("timed out after 200ms")
+    );
+
+    let write = Work::start(vec![Answer::Silent]);
+    let output = write.run(&[
+        "artifact",
+        "archive",
+        "art-1",
+        "--op-id",
+        OP_ID,
+        "--timeout",
+        "200",
+    ]);
+    assert_eq!(code(&output), 1);
+    let printed = stderr_json(&output);
+    assert_eq!(printed["error"]["type"], "Timeout");
+    assert_eq!(printed["error"]["details"]["opId"], OP_ID);
+    assert_eq!(printed["error"]["details"]["retryable"], true);
+    assert!(
+        printed["error"]["details"]["next_step"]
+            .as_str()
+            .unwrap()
+            .contains("--op-id")
+    );
+
+    let mail = Work::start(vec![Answer::Silent]);
+    let output = mail.run(&["msg", "send", "peer", "hi", "--timeout", "200"]);
+    assert_eq!(code(&output), 1);
+    let printed = stderr_json(&output);
+    assert_eq!(printed["error"]["type"], "UncertainCompletion");
+    assert_eq!(printed["error"]["details"]["operation"], "msg.send");
+    assert!(
+        printed["error"]["details"]["next_step"]
+            .as_str()
+            .unwrap()
+            .contains("mail may already be")
+    );
+}
+
+#[test]
+fn a_runtime_refusal_passes_through_as_the_runtime_words_it() {
+    let work = Work::start(vec![Answer::Error("AuthError", "seat gone")]);
+    let output = work.run(&["msg", "list"]);
+    assert_eq!(code(&output), 1);
+    let printed = stderr_json(&output);
+    assert_eq!(printed["error"]["type"], "AuthError");
+    assert_eq!(printed["error"]["message"], "seat gone");
+}
+
+// --- batches ------------------------------------------------------------------
+
+#[test]
+fn a_batch_sends_each_item_and_reports_a_partial_failure() {
+    let work = Work::start(vec![Answer::ok(), Answer::ok()]);
+    let output = work.run(&[
+        "msg",
+        "send",
+        r#"[{"target":"a","text":"1"},{"target":"b"}]"#,
+    ]);
+    assert_eq!(
+        code(&output),
+        1,
+        "a partial failure exits 1 while printing the whole answer"
+    );
+    let printed = stdout_json(&output);
+    assert_eq!(printed["ok"], true);
+    assert_eq!(printed["data"]["outcome"], "partial_failure");
+    assert_eq!(printed["data"]["total"], 2);
+    assert_eq!(printed["data"]["success_count"], 1);
+    assert_eq!(printed["data"]["error_count"], 1);
+    assert_eq!(printed["data"]["results"][0]["index"], 0);
+    assert_eq!(printed["data"]["results"][1]["index"], 1);
+    assert_eq!(
+        work.frames().len(),
+        1,
+        "only the item that decoded was sent"
+    );
+}
+
+#[test]
+fn a_batch_that_all_failed_is_one_batch_failure_and_keeps_the_item_order() {
+    let work = Work::start(vec![]);
+    let output = work.run(&["msg", "send", r#"[{"text":"1"},{"target":"b","text":2}]"#]);
+    assert_eq!(code(&output), 1);
+    let printed = stderr_json(&output);
+    assert_eq!(printed["error"]["type"], "BatchFailed");
+    assert_eq!(printed["error"]["details"]["total"], 2);
+    assert_eq!(printed["error"]["details"]["outcome"], "failed");
+    assert_eq!(printed["error"]["details"]["retryable"], false);
+    assert!(work.frames().is_empty());
+}
+
+#[test]
+fn a_batch_width_must_be_positive() {
+    let work = Work::start(vec![]);
+    let output = work.run(&[
+        "msg",
+        "send",
+        r#"[{"target":"a","text":"1"}]"#,
+        "--concurrency",
+        "0",
+    ]);
+    assert_eq!(code(&output), 1);
+    let printed = stderr_json(&output);
+    assert_eq!(printed["error"]["type"], "InputError", "{printed}");
+    assert_eq!(
+        printed["error"]["details"]["path"], "concurrency",
+        "{printed}"
+    );
+    assert!(work.frames().is_empty());
+}
+
+// --- browser ------------------------------------------------------------------
+
+#[test]
+fn browser_refuses_a_box_that_is_not_four_numbers_and_a_bad_session() {
+    let work = Work::start(vec![]);
+    for args in [
+        vec![
+            "browser", "comment", "sess-1", "--box", "1,2,3", "--text", "x",
+        ],
+        vec![
+            "browser",
+            "comment",
+            "sess-1",
+            "--box",
+            "1,2,3,4,5",
+            "--text",
+            "x",
+        ],
+        vec![
+            "browser", "comment", "sess-1", "--box", "a,b,c,d", "--text", "x",
+        ],
+        vec![
+            "browser", "comment", "sess-1", "--box", "1,,3,4", "--text", "x",
+        ],
+        vec![
+            "browser",
+            "comment",
+            "sess-1",
+            "--box",
+            "1,2,3,Infinity",
+            "--text",
+            "x",
+        ],
+    ] {
+        let output = work.run(&args);
+        assert_eq!(code(&output), 1, "{args:?}");
+        assert_eq!(
+            stderr_json(&output)["error"]["type"],
+            "InputError",
+            "{args:?}"
+        );
+    }
+    assert!(work.frames().is_empty());
+}
+
+// --- authority (only in a build that carries it) ------------------------------
+
+#[test]
+fn authority_reads_lower_their_canvas_and_order() {
+    if !authority_on() {
+        return;
+    }
+    let operator = Operator::start(|frame| {
+        let data = if frame["op"] == "authority.list" {
+            serde_json::json!({ "canvas": "factory", "named": [], "committed": [] })
+        } else {
+            serde_json::json!({ "self": null, "machines": [], "canvases": [] })
+        };
+        serde_json::json!({
+            "protocol": "junto-operator/v1",
+            "id": frame["id"],
+            "op": frame["op"],
+            "ok": true,
+            "data": data,
+        })
+    });
+    for args in [
+        vec!["authority", "status"],
+        vec!["authority", "status", "factory"],
+        vec!["authority", "list", "factory", "--order", "mini,book"],
+    ] {
+        let output = operator.run(&args);
+        assert_eq!(
+            code(&output),
+            0,
+            "{args:?}: {:?}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let frames = operator.frames();
+    assert_eq!(frames.len(), 3);
+    assert_eq!(frames[0]["op"], "authority.status");
+    assert_eq!(frames[0]["args"], serde_json::json!({}));
+    assert_eq!(
+        frames[1]["args"],
+        serde_json::json!({ "canvas": "factory" })
+    );
+    assert_eq!(frames[2]["op"], "authority.list");
+    assert_eq!(
+        frames[2]["args"]["order"],
+        serde_json::json!(["mini", "book"])
+    );
+
+    for order in ["", " , ", "mini,mini"] {
+        let output = operator.run(&["authority", "list", "factory", "--order", order]);
+        assert_eq!(code(&output), 1, "{order:?}");
+        assert_eq!(
+            stderr_json(&output)["error"]["type"],
+            "InputError",
+            "{order:?}"
+        );
+    }
+    assert_eq!(operator.frames().len(), 3, "a refused order sends nothing");
+}
+
+#[test]
+fn a_family_a_build_does_not_carry_is_disabled_before_any_socket() {
+    if authority_on() {
+        return;
+    }
+    let work = Work::start(vec![]);
+    let output = work.run(&["authority", "status"]);
+    assert_eq!(code(&output), 2);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        "junto authority: disabled in this Junto build"
+    );
+    assert!(work.frames().is_empty());
+}
+
+// --- the operator socket ------------------------------------------------------
+
+#[test]
+fn an_owner_command_speaks_the_operator_protocol_without_a_credential() {
+    let operator = Operator::start(|frame| {
+        serde_json::json!({
+            "protocol": "junto-operator/v1",
+            "id": frame["id"],
+            "op": frame["op"],
+            "ok": true,
+            "data": { "machines": [] },
+        })
+    });
+    let output = operator.run(&["machine", "status", "{}"]);
+    let frames = operator.frames();
+    assert_eq!(
+        code(&output),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        stdout_json(&output)["data"],
+        serde_json::json!({ "machines": [] })
+    );
+    assert_eq!(frames.len(), 1);
+    let frame = &frames[0];
+    assert_eq!(frame["protocol"], "junto-operator/v1");
+    assert_eq!(frame["op"], "machine.status");
+    assert!(
+        frame.get("token").is_none(),
+        "no seat credential leaves an owner call: {frame}"
+    );
+    assert_eq!(frame["id"].as_str().map(str::len), Some(26));
+}
+
+#[test]
+fn an_owner_command_refuses_an_answer_for_another_request() {
+    let operator = Operator::start(|_| {
+        serde_json::json!({
+            "protocol": "junto-operator/v1",
+            "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "op": "machine.status",
+            "ok": true,
+            "data": {},
+        })
+    });
+    let output = operator.run(&["machine", "status", "{}"]);
+    assert_eq!(code(&output), 1);
+    let printed = stderr_json(&output);
+    assert_eq!(printed["error"]["type"], "ProtocolError");
+    assert!(
+        printed["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("does not match")
+    );
+}
+
+/// A stand-in operator socket at `$HOME/.junto/operator/control.sock`.
+struct Operator {
+    home: PathBuf,
+    frames: Arc<Mutex<Vec<Value>>>,
+    stop: Arc<AtomicBool>,
+    accept: Option<thread::JoinHandle<()>>,
+}
+
+impl Operator {
+    fn start(answer: fn(&Value) -> Value) -> Operator {
+        let home = temp_dir();
+        let socket = home.join(".junto/operator/control.sock");
+        std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
+        let listener = UnixListener::bind(&socket).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let frames = Arc::new(Mutex::new(Vec::new()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let accept = {
+            let (frames, stop) = (frames.clone(), stop.clone());
+            thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((stream, _)) => {
+                            let frames = frames.clone();
+                            thread::spawn(move || {
+                                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                                let mut line = String::new();
+                                reader.read_line(&mut line).ok();
+                                let frame: Value = serde_json::from_str(line.trim()).unwrap();
+                                let response = answer(&frame);
+                                frames.lock().unwrap().push(frame);
+                                let mut stream = stream;
+                                writeln!(stream, "{response}").ok();
+                            });
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(2));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            })
+        };
+        Operator {
+            home,
+            frames,
+            stop,
+            accept: Some(accept),
+        }
+    }
+
+    fn run(&self, args: &[&str]) -> Output {
+        Command::new(env!("CARGO_BIN_EXE_junto"))
+            .args(args)
+            .env("HOME", &self.home)
+            .env_remove("JUNTO_WORK_TOKEN")
+            .env_remove("JUNTO_HOME")
+            .env_remove("JUNTO_WORK_HOME")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    }
+
+    fn frames(&self) -> Vec<Value> {
+        self.frames.lock().unwrap().clone()
+    }
+}
+
+impl Drop for Operator {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(accept) = self.accept.take() {
+            accept.join().ok();
+        }
+        std::fs::remove_dir_all(&self.home).ok();
+    }
+}
+
+// --- helpers ------------------------------------------------------------------
+
+fn temp_dir() -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "junto-cli-test-{}-{}",
+        std::process::id(),
+        ulid::Ulid::new()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+}
+
+/// Whether this build carries fleet authority (off in ship, on in all-on).
+fn authority_on() -> bool {
+    matches!(std::option_env!("JUNTO_AUTHORITY_ENABLED"), Some(value) if matches!(value.as_bytes(), b"1" | b"true"))
+}
