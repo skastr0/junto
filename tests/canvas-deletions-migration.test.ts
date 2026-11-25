@@ -61,7 +61,10 @@ const prepareBases = async (): Promise<void> => {
     bases.set(fixture, path);
   }
 };
-beforeAll(prepareBases);
+// The lane's own limit, not vitest's 10 s hook default: this hook replays the
+// chain once per fixture, and a VM that runs a case 8.5x slower than this one
+// would sit at the default with nothing to spare.
+beforeAll(prepareBases, 30_000);
 afterAll(async () => {
   if (baseDir) await rm(baseDir, { recursive: true, force: true });
   baseDir = undefined;
