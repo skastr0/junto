@@ -101,7 +101,8 @@ export const MachineInstallResult = Schema.Struct({
   installationId: InstallationId,
   machineName: Schema.String,
   pid: Schema.Number,
-  transitions: Schema.Array(MachineInstallTransition).pipe(Schema.check(Schema.isMaxLength(5))),
+  /** The install's five at most, then the sender's own `pinned` on a send that ended ready. */
+  transitions: Schema.Array(MachineInstallTransition).pipe(Schema.check(Schema.isMaxLength(6))),
   notices: Schema.optionalKey(Schema.Array(MachineInstallNotice).pipe(Schema.check(Schema.isMaxLength(8)))),
 });
 export type MachineInstallResult = typeof MachineInstallResult.Type;

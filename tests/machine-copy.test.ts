@@ -118,7 +118,10 @@ const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<bo
 
 it("installs and configures before binding through the checked first hello", async () => {
   const f = await fixture();
-  expect((await f.copy("send")).installationId).toBe(f.receipt.installationId);
+  const sent = await f.copy("send");
+  expect(sent.installationId).toBe(f.receipt.installationId);
+  // The result lists the send's own step after the install's (receipt 24).
+  expect(sent.transitions.map((transition) => transition.step)).toEqual(["ready", "pinned"]);
   expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup", "location", "hello", "answered"]);
   expect((await f.runtime.runPromise(f.repository.peer("mini")))?.installationId).toBe(f.receipt.installationId);
 });
@@ -162,7 +165,7 @@ it("sends as before for a machine that still holds its link key, or a plain pin,
 it("updates an active pin without configuring or reviving a binding", async () => {
   const f = await fixture();
   await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
-  await f.copy("update");
+  expect((await f.copy("update")).transitions.map((transition) => transition.step)).toEqual(["ready"]);
   expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "location", "connect", "answered"]);
 });
 
@@ -356,4 +359,19 @@ it("ends a first send not ready when the link it set up does not open in time", 
   expect(error).toBeInstanceOf(MachineSetupError);
   expect(error.message).toBe(LINK_NOT_OPENED_WORDS);
   expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup", "location", "hello", "answered"]);
+});
+
+it.each(["name-pinned-elsewhere", "installation-pinned-elsewhere"] as const)("ends a first send not ready when the machine still trusts this machine's earlier install (%s), with the take-over-remote name and no pin here (receipt 24)", async (check) => {
+  const f = await fixture({ setupRefused: check });
+  const error = await f.error("send");
+  expect(error).toBeInstanceOf(MachineSetupError);
+  if (error instanceof MachineSetupError) {
+    expect(error.message).toBe(PINNED_ELSEWHERE_WORDS);
+    expect(error.message).not.toContain("choose another name");
+    expect(error.ownWords).toBe(true);
+    expect(error.retryable).toBe(false);
+    expect(error.takeoverRemote).toEqual({ machineName: "mini" });
+  }
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup", "location"]);
+  expect(await f.runtime.runPromise(f.repository.peer("mini"))).toBeUndefined();
 });

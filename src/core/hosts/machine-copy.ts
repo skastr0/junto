@@ -73,7 +73,7 @@ export const PINNED_ELSEWHERE_WORDS = "Junto is installed there, but it already 
 
 /** The far's setup refused to pin this machine, by which rule, read closed from its answer. */
 class PinRefused extends Schema.TaggedError<PinRefused>()("PinRefused", { check: MachinePinRefused, message: Schema.String }) {}
-/** That refusal on a pin already here: the route is kept, and the send ends in PINNED_ELSEWHERE_WORDS. */
+/** That refusal, on a first send or a pin already here: the route is kept, and the send ends in PINNED_ELSEWHERE_WORDS. */
 class PinnedElsewhere extends Schema.TaggedError<PinnedElsewhere>()("PinnedElsewhere", { message: Schema.String }) {}
 /** The machine did not answer over the link in time once set up. */
 class LinkNotOpened extends Schema.TaggedError<LinkNotOpened>()("LinkNotOpened", { message: Schema.String }) {}
@@ -187,6 +187,7 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
        * refuse every link from here while this side read ready. Pinning again is
        * idempotent there.
        */
+      let pinned = false;
       const bindHere = Effect.gen(function* () {
         const own = { machineName: yield* machines.machineName, installationId: yield* machines.installationId };
         const setUp = Effect.gen(function* () {
@@ -213,7 +214,13 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
         // The send's own step: the machine now pins this one, first or again (S5).
         yield* Effect.logInfo("machine pinned this machine").pipe(Effect.annotateLogs({ area: "machines", peer: host.id, again: pin !== undefined }));
         onTransition?.({ event: "machine-install", juntoHome: receipt.juntoHome, installRoot: receipt.installRoot, step: "pinned" });
+        pinned = true;
       });
+      // A machine that trusts another install under this name refuses, on a first send (this machine was
+      // reinstalled) as on a send to a pin here: the route stays, and the pin if there is one; nothing is
+      // taken over and nothing retried, and the operator previews a take-over there (S4, receipt 24).
+      const bindOrRefuse = bindHere.pipe(Effect.catchTag("PinRefused", (cause) =>
+        hosts.upsert({ ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot }).pipe(Effect.andThen(Effect.fail(new PinnedElsewhere({ message: cause.message }))))));
       if (pin === undefined) {
         const configuredProgram = yield* configureMachine(target, receipt, host.id);
         const configuredOutput = yield* ownerTransfer(configuredProgram, "machine configure");
@@ -222,7 +229,7 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
         // A remove that could not reach this machine left its line and pin of this one pending: they go first, so setup pins plainly.
         // It settles only against the installation this send reached, the one that held the line.
         if (options.settleRemovedLink !== undefined) yield* options.settleRemovedLink(host.id, { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot }, receipt.installationId).pipe(Effect.ignore);
-        yield* bindHere;
+        yield* bindOrRefuse;
       } else {
         const linked = (yield* machines.peersSeen).some(row => row.installationId === pin.installationId);
         if (receipt.machineName !== host.id) {
@@ -236,10 +243,7 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
         }
         // A send binds again whatever was seen: a hello seen from that install is no proof it pinned this one.
         // An update never binds, so it never revives a binding that was taken away there.
-        // A machine that trusts another install under this name refuses: the route and the pin stay, nothing is
-        // taken over and nothing retried, and the operator previews a take-over there (S4).
-        if (mode === "send") yield* bindHere.pipe(Effect.catchTag("PinRefused", (cause) =>
-          hosts.upsert({ ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot }).pipe(Effect.andThen(Effect.fail(new PinnedElsewhere({ message: cause.message }))))));
+        if (mode === "send") yield* bindOrRefuse;
       }
       const configuredHost = { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot };
       yield* hosts.upsert(configuredHost);
@@ -253,7 +257,8 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
       }), Effect.catch((cause) => cause instanceof LinkNotOpened ? Effect.fail(cause)
         : Effect.logWarning("machine did not answer over the link").pipe(Effect.annotateLogs({ area: "machines", peer: host.id }),
           Effect.andThen(Effect.fail(new LinkNotOpened({ message: "refused" }))))));
-      return { ...receipt, machineName: host.id };
+      // The result lists the send's own step after the install's, as the CLI and the window read it (receipt 24).
+      return { ...receipt, machineName: host.id, ...(pinned ? { transitions: [...receipt.transitions, { step: "pinned" as const }] } : {}) };
     }).pipe(Effect.mapError(cause => cause instanceof LinkOutlivedRemove
       ? new MachineSetupError({ message: cause.message, retryable: false, installed: receipt, ownWords: true })
       : cause instanceof LinkNotOpened
