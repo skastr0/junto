@@ -172,7 +172,7 @@ struct InstallInput {
     stop_running_seats: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct LocalPaths {
     #[serde(default)]
@@ -1846,7 +1846,21 @@ mod tests {
                 "test",
             )
             .expect("the input");
-            uninstall_flow_with(input, &machinery(self.fixture.clone()))
+            // A child forked by another test can inherit this install's lock
+            // descriptor for the instant between fork and exec; the lock is
+            // released, the kernel has not closed the child's copy yet.
+            let deadline = Instant::now() + Duration::from_millis(500);
+            loop {
+                match uninstall_flow_with(input.clone(), &machinery(self.fixture.clone())) {
+                    Err((refused, _, _))
+                        if refused.check == Some(Check::SendInProgress)
+                            && Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    result => return result,
+                }
+            }
         }
 
         fn current(&self) -> String {

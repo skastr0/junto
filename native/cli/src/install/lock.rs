@@ -163,6 +163,22 @@ mod tests {
         directory
     }
 
+    /// A child forked by another test can inherit a lock descriptor for the
+    /// instant between fork and exec; the lock is released, the kernel has not
+    /// closed the child's copy yet. The test waits that instant out.
+    fn acquire_within(root: &Path) -> Option<InstallLock> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+        loop {
+            match acquire_install_lock(root) {
+                Ok(lock) => return Some(lock),
+                Err(_) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                Err(_) => return None,
+            }
+        }
+    }
+
     #[test]
     fn a_foreign_marker_refuses_and_the_own_one_admits() {
         let root = scratch("marker");
@@ -191,7 +207,7 @@ mod tests {
         let held = acquire_install_lock(&root).expect("the first holder");
         assert!(acquire_install_lock(&root).is_err());
         drop(held);
-        acquire_install_lock(&root).expect("released with its holder");
+        acquire_within(&root).expect("released with its holder");
         let _ = fs::remove_dir_all(&root);
     }
 

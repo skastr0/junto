@@ -316,6 +316,22 @@ mod tests {
         directory
     }
 
+    /// A child forked by another test can inherit the abstract socket for the
+    /// instant between fork and exec; the holder is gone, the kernel has not
+    /// closed the child's copy yet. The test waits that instant out.
+    fn lock_within(state: &Path) -> Option<HomeDatabaseLock> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+        loop {
+            match try_lock_home_database(state).expect("readable") {
+                Some(lock) => return Some(lock),
+                None if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                None => return None,
+            }
+        }
+    }
+
     #[test]
     fn one_core_at_a_time_and_the_file_survives_the_holder() {
         let root = scratch("one");
@@ -336,7 +352,7 @@ mod tests {
         );
         drop(first);
         assert!(
-            try_lock_home_database(&state).expect("readable").is_some(),
+            lock_within(&state).is_some(),
             "the lock lives with its holder"
         );
         let _ = fs::remove_dir_all(&root);
@@ -355,9 +371,7 @@ mod tests {
         drop(held);
         // The file keeps its id: a lock recreated with a new name would split
         // the lock in two, so the id is written once and read after.
-        let again = try_lock_home_database(&state)
-            .expect("readable")
-            .expect("hold");
+        let again = lock_within(&state).expect("hold");
         assert_eq!(fs::read(state.join("home.lock")).expect("the id"), id);
         drop(again);
         let _ = fs::remove_dir_all(&root);
@@ -440,16 +454,12 @@ mod tests {
         let temp = state.join(format!("home.lock.{}", hex(&id)));
         fs::hard_link(&lock, &temp).expect("a maker temp");
         assert_eq!(fs::metadata(&lock).expect("the lock").nlink(), 2);
-        let taken = try_lock_home_database(&state)
-            .expect("a maker temp is not a refusal")
-            .expect("the lock");
+        let taken = lock_within(&state).expect("a maker temp is not a refusal");
         assert!(!temp.exists(), "the temp is cleared");
         assert_eq!(fs::metadata(&lock).expect("the lock").nlink(), 1);
         drop(taken);
         // And the whole thing still behaves as one lock.
-        let again = try_lock_home_database(&state)
-            .expect("readable")
-            .expect("hold");
+        let again = lock_within(&state).expect("hold");
         assert!(
             try_lock_home_database(&state).expect("readable").is_none(),
             "one holder"
@@ -483,9 +493,7 @@ mod tests {
             .filter(|name| name != "home.lock")
             .collect();
         assert!(strays.is_empty(), "the temporary file is gone: {strays:?}");
-        let again = try_lock_home_database(&state)
-            .expect("readable")
-            .expect("hold");
+        let again = lock_within(&state).expect("hold");
         assert_eq!(fs::read(state.join("home.lock")).expect("the id"), first);
         drop(again);
         let _ = fs::remove_dir_all(&root);
