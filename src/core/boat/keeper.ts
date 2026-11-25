@@ -8,11 +8,15 @@
  *   holds), and after 12 days asleep (to keep its disk);
  * - a deadline missing, or more than one lease away, is set back and logged.
  */
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { BOAT_KEEP_DISK_AFTER_MS, BOAT_LEASE_SECONDS, boatPower } from "@shared/boat";
 import { isPendingDelivery } from "@shared/message-delivery";
+import { answerHeld, answeredSignalIdOf } from "@shared/signal-answer-held";
+import type { AgentSignal } from "@shared/wire/agent-signals";
+import type { Message } from "@shared/work-model";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { ModelService } from "../model/service";
+import { AgentSignalRepository } from "../signals/repository";
 import { WorkRepository } from "../work/repository";
 import { boatFailureMessage, type BoatClient, type BoatRun } from "./client";
 import { readBoatRecords, updateBoatRecords } from "../../node/boat/files";
@@ -22,18 +26,50 @@ const KEEPER_EVERY_MS = 60_000;
 /** Slack past one lease before a deadline counts as moved by someone else. */
 const DEADLINE_SLACK_MS = 2 * 60_000;
 
+/**
+ * The newest of one mailbox's mail that waits for its seat and is worth a
+ * wake, by id. An answer the seat's machine will hold (`answerHeld`: the seat
+ * withdrew the signal before the answer reached it) waits for nothing there,
+ * so it never wakes the machine.
+ */
+export const newestWakingMail = (
+  mailbox: { readonly canvasName: string; readonly nodeId: string },
+  messages: Iterable<Message>,
+  signalOf: (signalId: string) => AgentSignal | undefined,
+): string | undefined => {
+  let newest: string | undefined;
+  for (const message of messages) {
+    if (!isPendingDelivery(message) || (newest !== undefined && message.messageId <= newest)) continue;
+    const answers = answeredSignalIdOf(message);
+    if (answers !== undefined && answerHeld(mailbox, message, signalOf(answers))) continue;
+    newest = message.messageId;
+  }
+  return newest;
+};
+
 /** The newest mail held for a seat on `machine`, by id, across this machine's canvases. */
 export const pendingMailFor = (machine: string) => Effect.gen(function* () {
   const model = yield* ModelService;
   const work = yield* WorkRepository;
+  // Optional, so no requirement ripples to a caller that holds no signal store.
+  const signals = yield* Effect.serviceOption(AgentSignalRepository);
   let newest: string | undefined;
   for (const name of yield* model.listCanvases()) {
     const canvas = yield* model.canvas(name);
     for (const node of canvas.nodes.values()) {
       if (node.kind !== "agent" || node.host !== machine) continue;
-      for (const message of yield* work.mailbox(name, node.id)) {
-        if (isPendingDelivery(message) && (newest === undefined || message.messageId > newest)) newest = message.messageId;
+      const messages = yield* work.mailbox(name, node.id);
+      // The signals the mailbox's answers name, read once each.
+      const held = new Map<string, AgentSignal | undefined>();
+      for (const message of messages) {
+        const answers = answeredSignalIdOf(message);
+        if (answers === undefined || held.has(answers) || !isPendingDelivery(message)) continue;
+        held.set(answers, Option.isNone(signals)
+          ? undefined
+          : yield* signals.value.get(answers).pipe(Effect.orElseSucceed(() => undefined)));
       }
+      const found = newestWakingMail({ canvasName: name, nodeId: node.id }, messages, (id) => held.get(id));
+      if (found !== undefined && (newest === undefined || found > newest)) newest = found;
     }
   }
   return newest;

@@ -13,6 +13,7 @@ import { makeStateEngineLive } from "../src/core/state/engine";
 import { AgentSignalRepository, AgentSignalRepositoryLive, type TakenAgentSignal } from "../src/core/signals/repository";
 import { onAgentSignalChanged } from "../src/core/signals/changes";
 import { MessageDeliveryService, type MessageDeliveryStore } from "../src/core/work/message-delivery";
+import { newestWakingMail } from "../src/core/boat/keeper";
 import { ANSWER_HELD_WORDS, answerHeld } from "../src/shared/signal-answer-held";
 import type { AgentSignal } from "../src/shared/wire/agent-signals";
 import type { Message } from "../src/shared/work-model";
@@ -245,6 +246,12 @@ describe("answerHeld, the one rule", () => {
     expect(answerHeld(mailbox, answerMail("01A", SIGNAL), signalOf("withdrawn"))).toBe(true);
   });
 
+  it("reads the editing machine's face the same: answered, with the seat's withdrawal beside it", () => {
+    expect(answerHeld(mailbox, answerMail("01A", SIGNAL), signalOf("answered", { withdrawnAt: 5_000 }))).toBe(true);
+    expect(answerHeld(mailbox, answerMail("01A", SIGNAL), signalOf("answered"))).toBe(false);
+    expect(answerHeld(mailbox, answerMail("01A", SIGNAL), signalOf("dismissed"))).toBe(false);
+  });
+
   it("holds nothing else", () => {
     const mail = answerMail("01A", SIGNAL);
     expect(answerHeld(mailbox, mail, undefined), "an id this machine does not hold").toBe(false);
@@ -374,5 +381,43 @@ describe("delivery holds a late answer", () => {
     seatRig.messages.push(answerMail("01A", SIGNAL));
     expect(await seatRig.service.deliver(canvasName, nodeId, "01A")).toBe("delivered");
     expect(seatRig.writes).toHaveLength(1);
+  });
+});
+
+describe("the Boat keeper never wakes a machine for a held answer", () => {
+  const mailbox = { canvasName, nodeId };
+  const notice = (messageId: string): Message => ({
+    messageId,
+    role: "user",
+    parts: [{ kind: "text", text: "hello" }],
+    metadata: {
+      factoryMail: true,
+      ...mailExtensionMetadata({
+        mailKind: "notice",
+        fromSeat: OTHER_SENDER,
+        senderNodeId: otherNodeId,
+        senderName: "Claude Code",
+        senderGeneration: "ep_c",
+        senderHarness: "claude",
+      }),
+    },
+  });
+
+  it("skips an answer the seat withdrew first, on the editing machine's face", () => {
+    const crossed = new Map([[SIGNAL, signalOf("answered", { withdrawnAt: 5_000 })]]);
+    expect(newestWakingMail(mailbox, [answerMail("01B", SIGNAL)], (id) => crossed.get(id))).toBeUndefined();
+    // Older ordinary mail still wakes it.
+    expect(newestWakingMail(mailbox, [notice("01A"), answerMail("01B", SIGNAL)], (id) => crossed.get(id))).toBe("01A");
+  });
+
+  it("wakes for an answer whose signal no withdrawal crossed, and for one it does not hold", () => {
+    const answered = new Map([[SIGNAL, signalOf("answered")]]);
+    expect(newestWakingMail(mailbox, [notice("01A"), answerMail("01B", SIGNAL)], (id) => answered.get(id))).toBe("01B");
+    expect(newestWakingMail(mailbox, [answerMail("01B", SIGNAL)], () => undefined)).toBe("01B");
+  });
+
+  it("never counts mail its seat already has", () => {
+    const delivered = { ...notice("01C"), metadata: { ...notice("01C").metadata, deliveredAt: 9 } };
+    expect(newestWakingMail(mailbox, [notice("01A"), delivered], () => undefined)).toBe("01A");
   });
 });

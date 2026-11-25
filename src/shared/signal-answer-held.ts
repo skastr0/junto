@@ -5,7 +5,12 @@
  * cannot drift (remote-security's terms for Race C, step 77).
  *
  * The answer mail and the withdrawal cross on different channels, so either
- * may land first; delivery decides on what this machine holds then. An answer
+ * may land first; delivery decides on what this machine holds then. The rule
+ * reads both faces of the crossing, so a read on either machine agrees: the
+ * seat's machine holds the signal withdrawn, the editing machine holds it
+ * answered with the seat's `withdrawnAt` beside it, and on both the answer
+ * goes unreceipted. The editing machine's Boat keeper reads it too, and never
+ * wakes a machine for an answer that machine will hold. An answer
  * typed while the signal was still open is correct, and the withdrawal came
  * after it. A held mail stays readable in its thread, marked in fixed words,
  * and is never stamped delivered: the operator learns of the crossing from
@@ -32,14 +37,17 @@ export type AnswerHeldMailbox = {
  * author, `metadata.fromSeat`, so no seat can silence another seat's mail);
  * it names a signal (`metadata.agentSignalId`) that this machine holds as
  * `signal`; that signal is the mailbox seat's own, raised by no automation;
- * it is withdrawn; and the mail has no delivery or read receipt. Anything
+ * it is withdrawn (the seat's machine), or answered with `withdrawnAt` (the
+ * editing machine); and the mail has no delivery or read receipt. On the
+ * editing machine an answer typed before the withdrawal whose receipt has not
+ * crossed yet also reads held until the receipt lands; it needs no wake. Anything
  * else is ordinary mail and is delivered as it is today: an id this machine
  * does not hold, another seat's signal, or one still open.
  */
 export const answerHeld = (
   mailbox: AnswerHeldMailbox,
   message: Message,
-  signal: Pick<AgentSignal, "signalId" | "canvasName" | "nodeId" | "state" | "source"> | undefined,
+  signal: Pick<AgentSignal, "signalId" | "canvasName" | "nodeId" | "state" | "source" | "withdrawnAt"> | undefined,
 ): boolean => {
   const metadata = message.metadata;
   if (signal === undefined || metadata === undefined) return false;
@@ -49,7 +57,7 @@ export const answerHeld = (
     signal.canvasName === mailbox.canvasName &&
     signal.nodeId === mailbox.nodeId &&
     signal.source === undefined &&
-    signal.state === "withdrawn" &&
+    (signal.state === "withdrawn" || (signal.state === "answered" && signal.withdrawnAt !== undefined)) &&
     !isMessageDelivered(message) &&
     !isMessageRead(message)
   );
