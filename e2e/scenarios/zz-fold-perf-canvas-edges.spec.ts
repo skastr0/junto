@@ -73,6 +73,14 @@ test("folded wires: zoom crossings on the factory board", async () => {
     const { page } = junto;
     await expect.poll(() => regionCount(page), { timeout: 180_000 }).toBe(board.stats.regions);
     await canvasReady(page);
+    // No route may land inside a measured crossing: wait until every wire has
+    // its fact before the warm pass.
+    await expect
+      .poll(async () => {
+        const wire = (await read(page)).wire;
+        return wire !== null && wire.wires > 0 && wire.posed === wire.wires;
+      }, { timeout: 120_000 })
+      .toBe(true);
     const box = (await pane(page).box())!;
     const at = (zoom: number) => ({
       x: Math.round(box.width / 2 - focus.x * zoom),
@@ -113,6 +121,10 @@ test("folded wires: zoom crossings on the factory board", async () => {
       const raf = await page.evaluate(() => ((window as any).__foldRaf ?? []) as number[]);
       let maxRaf = 0;
       for (let index = 1; index < raf.length; index += 1) maxRaf = Math.max(maxRaf, raf[index]! - raf[index - 1]!);
+      const rebuilds = (after.wire?.rebuilds ?? 0) - (before.wire?.rebuilds ?? 0);
+      if (to === 0.3 || to === 0.15) expect(after.wire?.folds ?? 0).toBeGreaterThan(0);
+      if (to === 0.52 || to === 1.0) expect(after.wire?.folds ?? -1).toBe(0);
+      if (from === 0.3 && to === 0.52) expect(rebuilds).toBe(0);
       console.log(
         "FOLD_CROSS",
         JSON.stringify({
@@ -121,7 +133,7 @@ test("folded wires: zoom crossings on the factory board", async () => {
           to,
           maxRafMs: +maxRaf.toFixed(2),
           maxEngineFrameMs: +Math.max(...engineFrames, 0).toFixed(3),
-          rebuilds: (after.wire?.rebuilds ?? 0) - (before.wire?.rebuilds ?? 0),
+          rebuilds,
           folds: after.wire?.folds ?? null,
           wires: after.wire?.wires ?? null,
           frames: (after.wire?.frames ?? 0) - (before.wire?.frames ?? 0),

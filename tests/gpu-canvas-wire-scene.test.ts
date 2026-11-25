@@ -741,6 +741,41 @@ describe("the wire scene", () => {
     expect(folds.find((fold) => fold.members.includes("kept"))!.members).toEqual(["kept"]);
   });
 
+  it("folds wires between one badge and one non-seat card, either way round", () => {
+    const cards = board();
+    const gatherings = new Map<string, TestGathering>([
+      ["a", badge("k1", 100, 0)],
+      ["b", badge("k1", 100, 0)],
+    ]);
+    const { scene, frame } = makeScene(cards, false, undefined, gatherings);
+    scene.apply(load([wire("out", "a", "c"), wire("second", "b", "c"), wire("back", "c", "a")]));
+    frame(T0, "far");
+    const folds = scene.folds();
+    expect(folds).toHaveLength(1);
+    expect(folds[0]!.members).toEqual(["back", "out", "second"]);
+    expect(maxStripAcross(scene)).toBeCloseTo(WIRE_HALF_WIDTH * (1 + Math.log2(3)), 4);
+  });
+
+  it("lights a fold when any member is hovered or selected", () => {
+    const cards = board();
+    const gatherings = new Map<string, TestGathering>([
+      ["a", badge("k1", 100, 0)],
+      ["c", badge("k2", 600, 400)],
+    ]);
+    const { scene, frame } = makeScene(cards, false, undefined, gatherings);
+    scene.apply(load([wire("lead", "a", "c"), wire("member", "a", "c")]));
+    frame(T0, "far");
+    scene.apply({ kind: "wireMode", mode: "loupe" });
+    frame(T0 + 16, "far");
+    scene.setHover("member");
+    frame(T0 + 1000, "far");
+    expect(record(scene, 3)[17]).toBeGreaterThan(0);
+    scene.setHover(undefined);
+    scene.apply({ kind: "selection", fact: { nodeIds: [], wireId: "member" } } as unknown as SceneOp);
+    frame(T0 + 2000, "far");
+    expect(record(scene, 3)[4]).toBeCloseTo(1, 5);
+  });
+
   it("moves a fold when its badge centre moves without changing its key", () => {
     const cards = board();
     const gatherings = new Map<string, TestGathering>([
