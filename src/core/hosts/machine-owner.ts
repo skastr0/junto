@@ -343,7 +343,11 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         && (Number.isNaN(heardAt) || (options.now ?? (() => new Date()))().getTime() - heardAt < LIVE_WINDOW_MS);
       if (live === previous || recent) return yield* Effect.fail(new RemoteHostsError("conflict", liveWords(name)));
     }
-    if (retired !== undefined) yield* checkRetiredFar(name, input.installationId);
+    // T2 on a local take-over: the retired row has no receipt behind it, so
+    // both steps read the far over this machine's route. A remote take-over
+    // already proved the far from the near; the far has no route back to the
+    // caller to prove, and a one-way setup must still succeed.
+    if (retired !== undefined && input.checkLive !== true) yield* checkRetiredFar(name, input.installationId);
     const counts = yield* countTakeover(name);
     const answer = {
       machineName: name,

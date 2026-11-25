@@ -620,6 +620,20 @@ it("refuses a retired take-over with no route", async () => {
   expect(noRoute).toMatchObject({ ok: false, error: { type: "conflict", message: "Send Junto to it first." } });
 });
 
+it("takes over a retired pin remotely with no route from the far back to this machine", async () => {
+  const f = await fixture();
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  expect((await f.call("machine.remove", { name: "mini" })).ok).toBe(true);
+  const preview = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", checkLive: true });
+  expect(preview).toMatchObject({ ok: true, op: "machine.takeover", data: {
+    previousInstallationId: "mini-install", previousRetiredAt: expect.any(String), takenOver: false } });
+  const confirmed = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install",
+    expectedInstallationId: "mini-install", checkLive: true, confirm: { seats: 0, automations: 0, files: 0 } });
+  expect(confirmed).toMatchObject({ ok: true, op: "machine.takeover", data: { takenOver: true } });
+  expect(f.database.prepare("SELECT installation_id, retired_at, binding FROM machine_peers WHERE machine_name='mini'").get())
+    .toEqual({ installation_id: "new-install", retired_at: null, binding: null });
+});
+
 it("refuses a retired take-over when the far answers as another installation", async () => {
   const wrong = await fixture({}, () => Effect.succeed({ stdout: JSON.stringify({ ok: true, command: "machine status", data: {
     build: "a".repeat(64), installationId: "other-install", machineName: "mini", juntoHome: "/home/probe", pid: 71, ready: true, form: "mac-mini" } }), stderr: "", exitCode: 0 }));

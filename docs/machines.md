@@ -269,10 +269,11 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
     path.
     A name this machine removed still has its retired row, and a take-over can
     name that retired installation as the one it replaces. The preview carries
-    when it was removed (`previousRetiredAt`); the preview and confirm each read
-    the far's status over the route first, and require the installation and
-    machine name the take-over gives. A pin-only peer, with no route, refuses
-    with `Send Junto to it first.` The same confirmed counts apply. The old link
+    when it was removed (`previousRetiredAt`). A local take-over reads the far's
+    status over the route at preview and confirm, and requires the installation
+    and machine name it gives; a pin-only peer, with no route, refuses with
+    `Send Junto to it first.` A remote take-over already read the far from the
+    near and does not need a route back. The same confirmed counts apply. The old link
     key goes first, and the far replaces the retired row with a plain new pin in
     one transaction that sweeps the old vault tokens, owed deletes and last-seen
     row. This machine pins nothing until the operator sends again.
