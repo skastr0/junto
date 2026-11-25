@@ -114,6 +114,15 @@ export interface GpuAtlasOptions {
   readonly preferAsyncRaster?: boolean;
 }
 
+const CELL_INDEX_BASE = 2 ** 32;
+
+/** Encode the generation of one recycled table index into the cell token a caller holds. */
+const tokenFor = (generations: ReadonlyArray<number>, index: number): number => (generations[index] ?? 1) * CELL_INDEX_BASE + index;
+/** The table index a cell token names. */
+const cellIndex = (cell: number): number => cell % CELL_INDEX_BASE;
+/** The generation a cell token carries. */
+const cellGeneration = (cell: number): number => Math.floor(cell / CELL_INDEX_BASE);
+
 export interface GpuAtlas {
   /** The live binding: `texture`, `sampler`, `cells`, `cellCount`, `textureGeneration`. */
   readonly binding: AtlasBinding;
@@ -122,10 +131,10 @@ export interface GpuAtlas {
   /** Theme switch: sprite and text keys carry the mode, so new asks rasterize anew. */
   setMode(mode: ThemeMode): void;
   /**
-   * Acquire a stable cell index for `quad` at `scale`, taking one reference.
-   * `previous` is the index this record held, and its reference is given up:
+   * Acquire an opaque generation-checked cell token for `quad` at `scale`, taking one reference.
+   * `previous` is the token this record held, and its reference is given up:
    * - Same key: returns `previous` (net 0 ref change).
-   * - New key: returns another index. Until that cell's own pixels land it
+   * - New key: returns another token. Until that cell's own pixels land it
    *   shows the same content at the nearest landed size, or else what
    *   `previous` showed, so nothing flashes blank. A cell's pixels never
    *   change under the quads that hold it.
@@ -140,6 +149,8 @@ export interface GpuAtlas {
   release(cell: number): void;
   /** True when `cell` currently points at pixels: its own, or those of the cell it shows until its own land. */
   hasImage(cell: number): boolean;
+  /** The cell-table index a token names, for the draw record only; callers otherwise keep the token opaque. */
+  cellIndex(cell: number): number;
   /** True when `cell` shows its own landed pixels, not a stand-in's (read-only, for the pop check). */
   ownImage(cell: number): boolean;
   /**
@@ -402,6 +413,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   let highWaterCells = 0;
 
   const slots: Array<SlotRecord | undefined> = [];
+  /** Generation per table index, bumped when the index is freed; a token names both. */
+  const generations: number[] = [];
   const freeIndices: number[] = [];
   /** key -> the slot every quad that asks the key shares. */
   const byKey = new Map<string, SlotRecord>();
@@ -737,14 +750,18 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   };
 
   const hasImage = (cell: number): boolean => {
-    if (cell === NO_ATLAS_CELL || cell < 0 || cell >= highWaterCells) return false;
-    const base = cell * ATLAS_CELL_FLOATS;
+    if (cell === NO_ATLAS_CELL) return false;
+    const index = cellIndex(cell);
+    if (index < 0 || index >= highWaterCells || cellGeneration(cell) !== (generations[index] ?? 0)) return false;
+    const base = index * ATLAS_CELL_FLOATS;
     return cells[base + 2]! > cells[base]! || cells[base + 3]! > cells[base + 1]!;
   };
 
   const ownImage = (cell: number): boolean => {
-    if (cell === NO_ATLAS_CELL || cell < 0 || cell >= highWaterCells) return false;
-    return slots[cell]?.state === "landed" && hasImage(cell);
+    if (cell === NO_ATLAS_CELL) return false;
+    const index = cellIndex(cell);
+    if (index < 0 || index >= highWaterCells || cellGeneration(cell) !== (generations[index] ?? 0)) return false;
+    return slots[index]?.state === "landed" && hasImage(cell);
   };
 
   const addContentLanded = (rec: SlotRecord): void => {
@@ -1191,8 +1208,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     rec.desc = undefined;
     rowScratch.fill(0);
     storeRow(index, undefined);
+    generations[index] = (generations[index] ?? 1) + 1;
     freeIndices.push(index);
-    if (shown !== undefined) release(shown.index);
+    if (shown !== undefined) releaseIndex(shown.index);
   };
 
   const alloc = (pool: PagePool, w: number, h: number): Placed | undefined => {
@@ -1635,7 +1653,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       const old = rec.standIn;
       if (old !== winner) {
         rec.standIn = undefined;
-        if (old !== undefined) release(old.index);
+        if (old !== undefined) releaseIndex(old.index);
       }
       rec.state = "waiting";
       if (old === winner) {
@@ -1706,7 +1724,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     dedupeWaiting(rec);
     // The cell it showed: gone with its rect when that was written over, else let go.
     if (written !== undefined) freeSlot(written);
-    else if (shown !== undefined) release(shown.index);
+    else if (shown !== undefined) releaseIndex(shown.index);
     markDirty();
     return true;
   };
@@ -1930,7 +1948,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
 
   // --- Public acquire / release / ensureNow -----------------------------------
 
-  const release = (cell: number): void => {
+  const releaseIndex = (cell: number): void => {
     if (cell === NO_ATLAS_CELL || cell < 0 || cell >= slots.length) return;
     const rec = slots[cell];
     if (rec === undefined || rec.refCount <= 0) return;
@@ -1955,30 +1973,44 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (hadOwnTexture) markDirty();
   };
 
+  /** Release one caller reference, only when the token still names the record at that index. */
+  const release = (cell: number): void => {
+    if (cell === NO_ATLAS_CELL) return;
+    const index = cellIndex(cell);
+    const rec = slots[index];
+    if (rec === undefined || cellGeneration(cell) !== (generations[index] ?? 0)) return;
+    releaseIndex(index);
+  };
+
   /** A free row index: a recycled one, or the next of the table. */
   const takeIndex = (): number | undefined => {
     const recycled = freeIndices.pop();
     if (recycled !== undefined) return recycled;
     const index = highWaterCells;
     if (!ensureCellCapacity(index + 1)) return undefined;
+    generations[index] ??= 1;
     highWaterCells = index + 1;
     mutable.cellCount = highWaterCells;
     return index;
   };
 
   const acquire = (quad: Quad, scale: number, previous?: number): number => {
-    const held = previous !== undefined && previous !== NO_ATLAS_CELL ? slots[previous] : undefined;
+    const previousIndex = previous === undefined || previous === NO_ATLAS_CELL ? undefined : cellIndex(previous);
+    const held =
+      previousIndex !== undefined && previousIndex < slots.length && cellGeneration(previous!) === (generations[previousIndex] ?? 0)
+        ? slots[previousIndex]
+        : undefined;
     const prev = held !== undefined && held.refCount > 0 ? held : undefined;
     const keys = keysFor(quad, scale);
     if (keys === undefined) {
-      if (prev !== undefined) release(prev.index);
+      if (prev !== undefined) releaseIndex(prev.index);
       return NO_ATLAS_CELL;
     }
     const desc: CellDesc = { quad, scale, mode, kind: keys.kind };
 
     // Same key: the caller keeps its slot, with net zero ref change. A failed
     // slot is not queued for being asked again: the retry timer does that.
-    if (prev !== undefined && prev.key === keys.key) return prev.index;
+    if (prev !== undefined && prev.key === keys.key) return tokenFor(generations, prev.index);
 
     // The pixels the caller's quad shows now, if a quad of this kind can go
     // on showing them. A cell of the other pool cannot: the quad reads its
@@ -2002,13 +2034,13 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (shared !== undefined) {
       hold(shared);
       shared.desc = desc;
-      if (prev !== undefined) release(prev.index);
-      return shared.index;
+      if (prev !== undefined) releaseIndex(prev.index);
+      return tokenFor(generations, shared.index);
     }
 
     const index = takeIndex();
     if (index === undefined) {
-      if (prev !== undefined) release(prev.index);
+      if (prev !== undefined) releaseIndex(prev.index);
       return NO_ATLAS_CELL;
     }
     const rec: SlotRecord = {
@@ -2051,17 +2083,19 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       showThrough(rec, keep);
     }
     // After the new slot took its own reference on what `previous` showed.
-    if (prev !== undefined) release(prev.index);
+    if (prev !== undefined) releaseIndex(prev.index);
 
     enqueue(index);
-    return index;
+    return tokenFor(generations, index);
   };
 
   const ensureNow = (cell: number): boolean => {
-    if (disposed || cell === NO_ATLAS_CELL || cell < 0 || cell >= slots.length) return false;
+    if (disposed || cell === NO_ATLAS_CELL) return false;
+    const index = cellIndex(cell);
+    if (index < 0 || index >= slots.length || cellGeneration(cell) !== (generations[index] ?? 0)) return false;
     if (hasImage(cell)) return true;
     if (device === undefined) return false;
-    const rec = slots[cell];
+    const rec = slots[index];
     if (rec === undefined || rec.desc === undefined) return false;
     // Respect failure backoff so a broken media URL does not throw on every frame.
     if (rec.state === "failed" && nowMs() < rec.retryAfter) return false;
@@ -2071,7 +2105,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     try {
       const px = rasterizeSync(rec.desc);
       if (px !== undefined) {
-        queuedSet.delete(cell);
+        queuedSet.delete(index);
         rec.jobToken = ++nextJobToken;
         landPixels(rec, px);
       }
@@ -2096,7 +2130,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
     const idx = acquire(quad, scale);
     if (idx !== NO_ATLAS_CELL) compatHeld.add(keys.key);
-    return idx;
+    return idx === NO_ATLAS_CELL ? NO_ATLAS_CELL : cellIndex(idx);
   };
 
   const stats = (): AtlasStats => {
@@ -2258,9 +2292,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (held !== undefined) {
       for (const [cell, n] of held) {
         heldCells += 1;
-        const rec = slots[cell];
-        if (rec === undefined) {
-          flag("held-cell-freed", cell, `${n} quad(s) hold a free slot; row ${fmt(cell < highWaterCells ? rowOf(cell) : undefined)}`);
+        const index = cellIndex(cell);
+        const rec = slots[index];
+        if (rec === undefined || cellGeneration(cell) !== (generations[index] ?? 0)) {
+          flag("held-cell-freed", cell, `${n} quad(s) hold a free slot; row ${fmt(index < highWaterCells ? rowOf(index) : undefined)}`);
           continue;
         }
         const fromSlots = showers.get(rec) ?? 0;
@@ -2766,7 +2801,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       }
       for (const rec of kept) {
         // Sync raster at once, so held text, mark and glyph cells are ready before frame 1.
-        if (rec.desc !== undefined && !ensureNow(rec.index)) enqueue(rec.index);
+        if (rec.desc !== undefined && !ensureNow(tokenFor(generations, rec.index))) enqueue(rec.index);
       }
       markDirty();
       scheduleDrain();
@@ -2776,6 +2811,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     },
     acquire,
     release,
+    cellIndex,
     hasImage,
     ownImage,
     ensureNow,
@@ -2807,8 +2843,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
      * read back is the one the quad drew, so this says what the screen shows.
      */
     recordOf: (cell: number) => {
-      const rec = slots[cell];
-      if (rec === undefined) return null;
+      const index = cellIndex(cell);
+      const rec = slots[index];
+      if (rec === undefined || cellGeneration(cell) !== (generations[index] ?? 0)) return null;
       return {
         key: rec.key,
         contentKey: rec.contentKey,

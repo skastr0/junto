@@ -354,7 +354,7 @@ const run = async (config: Config, collect = false): Promise<Outcome> => {
     readonly h: number;
   };
   const rowKey = (cell: number): string => {
-    const base = cell * ATLAS_CELL_FLOATS;
+    const base = atlas.cellIndex(cell) * ATLAS_CELL_FLOATS;
     return Array.from(gpu.subarray(base, base + ATLAS_CELL_FLOATS)).join(",");
   };
   /**
@@ -364,14 +364,14 @@ const run = async (config: Config, collect = false): Promise<Outcome> => {
    * atlas cannot know.
    */
   const displayOf = (cell: number, kind: Kind, who: string): Display | "lost" | undefined => {
-    const base = cell * ATLAS_CELL_FLOATS;
+    const base = atlas.cellIndex(cell) * ATLAS_CELL_FLOATS;
     const u0 = gpu[base]!;
     const v0 = gpu[base + 1]!;
     const u1 = gpu[base + 2]!;
     const v1 = gpu[base + 3]!;
     const pages = kind === "text" ? bound.coverage : bound.rgba;
     const slots = kind === "text" ? budget.coverage : budget.rgba;
-    const own = atlas.binding.standalone?.get(cell) as unknown as StrictTexture | undefined;
+    const own = atlas.binding.standalone?.get(atlas.cellIndex(cell)) as unknown as StrictTexture | undefined;
     // A dedicated texture takes page 0 of the pool its format names.
     const applies = own !== undefined && (own.format === "r8unorm") === (kind === "text");
     if (own !== undefined && !applies) {
@@ -543,7 +543,7 @@ const run = async (config: Config, collect = false): Promise<Outcome> => {
       if (q.cell !== NO_ATLAS_CELL) held.set(q.cell, (held.get(q.cell) ?? 0) + 1);
     }
     for (const cell of held.keys()) {
-      const base = cell * ATLAS_CELL_FLOATS;
+      const base = atlas.cellIndex(cell) * ATLAS_CELL_FLOATS;
       for (let i = 0; i < ATLAS_CELL_FLOATS; i += 1) {
         if (gpu[base + i] !== cells[base + i]) {
           fail("row-not-uploaded", `cell ${cell} is ${Array.from(cells.subarray(base, base + ATLAS_CELL_FLOATS)).join(",")} and the GPU has ${rowKey(cell)}: the revision or the dirty list missed a change`);

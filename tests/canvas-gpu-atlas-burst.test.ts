@@ -48,7 +48,7 @@ describe("a burst of asks for one key", () => {
     });
     atlas.attach(strict.device);
     const row = (cell: number): number[] =>
-      Array.from(atlas.binding.cells.subarray(cell * ATLAS_CELL_FLOATS, cell * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
+      Array.from(atlas.binding.cells.subarray(atlas.cellIndex(cell) * ATLAS_CELL_FLOATS, atlas.cellIndex(cell) * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
 
     const firstLast = atlas.acquire(mark(1), 1);
     const secondLast = atlas.acquire(mark(2), 1);

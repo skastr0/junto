@@ -149,6 +149,8 @@ export interface EngineHost {
     acquire(quad: Quad, scale: number, previous?: number): number;
     release(cell: number): void;
     hasImage(cell: number): boolean;
+    /** The cell-table index a token names, for the draw record only. */
+    cellIndex?(cell: number): number;
     /** The cell shows its own landed pixels, not a stand-in's (read-only, the pop check). */
     ownImage?(cell: number): boolean;
     ensureNow(cell: number): unknown;
@@ -296,6 +298,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
           acquire: (quad: Quad, scale: number, previous?: number) => host.cells!.acquire(quad, scale, previous),
           release: (cell: number) => host.cells!.release(cell),
           hasImage: (cell: number) => host.cells!.hasImage(cell),
+          ...(host.cells.cellIndex === undefined ? {} : { cellIndex: (cell: number) => host.cells!.cellIndex!(cell) }),
           ...(host.cells.ownImage === undefined ? {} : { ownImage: (cell: number) => host.cells!.ownImage!(cell) }),
           ensureNow: (cell: number) => {
             host.cells!.ensureNow(cell);

@@ -179,12 +179,12 @@ const setup = (over: Partial<GpuAtlasOptions> = {}, mips = false) => {
   });
   atlas.attach(gpu.device);
   const row = (cell: number): number[] =>
-    Array.from(atlas.binding.cells.subarray(cell * ATLAS_CELL_FLOATS, cell * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
+    Array.from(atlas.binding.cells.subarray(atlas.cellIndex(cell) * ATLAS_CELL_FLOATS, atlas.cellIndex(cell) * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
   /** The picture the renderer draws for this cell: what its row names, in the texture it is drawn from. */
   const shown = (cell: number): string => {
     const r = row(cell);
     if (!(r[2]! > r[0]! || r[3]! > r[1]!)) return "nothing";
-    const tex = (atlas.binding.standalone?.get(cell) ?? atlas.binding.rgbaPages?.[r[4]!]) as unknown as Tex | undefined;
+    const tex = (atlas.binding.standalone?.get(atlas.cellIndex(cell)) ?? atlas.binding.rgbaPages?.[r[4]!]) as unknown as Tex | undefined;
     if (tex === undefined) return "a page that is not bound";
     if (tex.destroyed) return "a destroyed texture";
     const x = Math.round(r[0]! * tex.width);
@@ -301,17 +301,17 @@ describe("R2: a page lost to out-of-memory takes nothing live with it", () => {
     atlas.acquire(mark(9, 40), 1);
     await drain();
     const ninth = cells[8]!;
-    const page = atlas.binding.standalone?.get(ninth) as unknown as Tex;
+    const page = atlas.binding.standalone?.get(atlas.cellIndex(ninth)) as unknown as Tex;
     expect(page).toBeDefined();
 
     // A stand-in on the ninth is drawn from the same texture.
     const next = atlas.acquire(portrait("p", 40), 1, ninth);
-    expect(atlas.binding.standalone?.get(next)).toBe(page);
+    expect(atlas.binding.standalone?.get(atlas.cellIndex(next))).toBe(page);
 
     await gpu.lose(page);
     expect(page.destroyed).toBe(true);
     // A destroyed texture in a frame's bind group fails the frame's submit.
-    expect(atlas.binding.standalone?.get(next)).toBeUndefined();
+    expect(atlas.binding.standalone?.get(atlas.cellIndex(next))).toBeUndefined();
   });
 });
 

@@ -160,7 +160,7 @@ const board = (pageSize?: number) => {
   };
   /** How wide the rect the quad draws is, as a share of its page. */
   const drawnWidth = (): number => {
-    const base = held() * ATLAS_CELL_FLOATS;
+    const base = atlas.cellIndex(held()) * ATLAS_CELL_FLOATS;
     return atlas.binding.cells[base + 2]! - atlas.binding.cells[base]!;
   };
   /** Frames go on for well over the back-off, and the raster queue turns between them. */
@@ -223,7 +223,7 @@ describe("P1: a failed slot a quad still holds is tried again", () => {
     // 64 px pages: the line is larger than a page and takes a texture of its own.
     const { atlas, gpu, frame, held, frames } = board(64);
     frame();
-    const own = atlas.binding.standalone?.get(held());
+    const own = atlas.binding.standalone?.get(atlas.cellIndex(held()));
     expect(own).toBeDefined();
     expect(atlas.hasImage(held())).toBe(true);
 
@@ -283,7 +283,7 @@ describe("P2: a texture the device keeps refusing late is tried later each time,
     const { atlas, gpu, frame, held, run, rasters } = board(64);
     await gpu.answer(true);
     frame();
-    expect(atlas.binding.standalone?.get(held())).toBeDefined();
+    expect(atlas.binding.standalone?.get(atlas.cellIndex(held()))).toBeDefined();
     const first = rasters.length;
 
     await run(10_000, false);

@@ -86,8 +86,8 @@ describe("a page the device refuses late", () => {
     await drain();
     expect(atlas.hasImage(second)).toBe(true);
     expect(atlas.binding.rgbaPages).toHaveLength(1);
-    expect(atlas.binding.standalone?.has(second)).toBe(false);
-    const row = atlas.binding.cells.subarray(second * ATLAS_CELL_FLOATS, second * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS);
+    expect(atlas.binding.standalone?.has(atlas.cellIndex(second))).toBe(false);
+    const row = atlas.binding.cells.subarray(atlas.cellIndex(second) * ATLAS_CELL_FLOATS, atlas.cellIndex(second) * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS);
     expect(row[4]).toBe(0);
     expect(strict.errors).toEqual([]);
   });

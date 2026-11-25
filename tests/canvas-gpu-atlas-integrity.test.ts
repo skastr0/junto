@@ -103,7 +103,7 @@ const drain = async (): Promise<void> => {
 };
 
 const row = (atlas: ReturnType<typeof atlasWith>, cell: number): number[] =>
-  Array.from(atlas.binding.cells.subarray(cell * ATLAS_CELL_FLOATS, cell * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
+  Array.from(atlas.binding.cells.subarray(atlas.cellIndex(cell) * ATLAS_CELL_FLOATS, atlas.cellIndex(cell) * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
 
 describe("a held cell index is never handed to another key", () => {
   it("a slot let go while it waits behind its quad's last cell leaves nothing behind", async () => {
@@ -136,7 +136,7 @@ describe("a held cell index is never handed to another key", () => {
 
     // A new quad takes a cell: the freed index is recycled (LIFO).
     const y = atlas.acquire(mark(30), 1);
-    expect(y).toBe(a2);
+    expect(atlas.cellIndex(y)).toBe(atlas.cellIndex(a2));
     await drain();
 
     // 0.11.14: the cell took its new key at the request and kept its rect, so the
@@ -198,7 +198,7 @@ describe("a held cell index is never handed to another key", () => {
 
     // A new quad recycles the index and is held from here on.
     const y = atlas.acquire(at(20, 2), 2);
-    expect(y).toBe(v);
+    expect(atlas.cellIndex(y)).toBe(atlas.cellIndex(v));
     await drain();
     // 0.11.14: the held index was freed with the plot of sharper cells and handed out again.
     expect.soft(atlas.acquire(at(20, 2), 2, y)).toBe(y);
@@ -380,7 +380,7 @@ describe("the renderer uploads the cell table only when revision() moves", () =>
     // x is let go before it rasterizes; a new, unrelated key recycles the index.
     atlas.release(x);
     const c = atlas.acquire(mark(9), 1);
-    expect(c).toBe(x);
+    expect(atlas.cellIndex(c)).toBe(atlas.cellIndex(x));
     expect(atlas.hasImage(c)).toBe(false);
 
     // 0.11.14: the row was cleared and the revision stayed, so the GPU kept the last key's rect.
@@ -403,7 +403,7 @@ describe("a stand-in carries the texture its row points into", () => {
     const far = atlas.acquire(mark(50), 1);
     await drain();
     expect(atlas.hasImage(far)).toBe(true);
-    const farTexture = atlas.binding.standalone!.get(far);
+    const farTexture = atlas.binding.standalone!.get(atlas.cellIndex(far));
     expect(farTexture).toBeDefined();
 
     // The same content at another scale stands in on it: same rect, page word 0.
@@ -412,7 +412,7 @@ describe("a stand-in carries the texture its row points into", () => {
     expect(row(atlas, standIn)).toEqual(row(atlas, far));
     // 0.11.14: the stand-in had the row and not the texture, so it drew page 0 with page 1's rect.
     // drawRuns picks the texture by the quad's own cell index.
-    expect(atlas.binding.standalone!.get(standIn)).toBe(farTexture);
+    expect(atlas.binding.standalone!.get(atlas.cellIndex(standIn))).toBe(farTexture);
   });
 });
 
@@ -825,3 +825,39 @@ describe("an async sprite raster answers with pixels of its own", () => {
     }
   });
 });
+describe("a recycled cell index", () => {
+  it("does not trust or release a stale token for the new content at that index", async () => {
+    const atlas = atlasWith({ size: 64 });
+    atlas.attach(fakeDevice().device);
+
+    const stale = atlas.acquire(mark(0), 1);
+    // The first cell takes table index 0. Let go before the landing: an unlanded
+    // slot is freed at once, so that index is the next one recycled.
+    atlas.release(stale);
+
+    // The index is recycled for other content. The old token must not be a reference to it.
+    const replacement = atlas.acquire(mark(1), 1);
+    expect(replacement).not.toBe(stale);
+    await drain();
+    expect(atlas.hasImage(replacement)).toBe(true);
+    const replacementRow = Array.from(atlas.binding.cells.subarray(0, ATLAS_CELL_FLOATS));
+
+    // Asked with the stale token, the atlas treats it as no previous at all: it neither
+    // shows the replacement through the new ask nor lets the replacement's reference go.
+    const next = atlas.acquire(mark(2), 1, stale);
+    expect(next).not.toBe(replacement);
+    expect(row(atlas, next)).not.toEqual(replacementRow);
+    expect(atlas.stats().pinnedCells).toBe(2);
+
+    // Releasing the stale token is a no-op; the replacement is still held and drawn.
+    atlas.release(stale);
+    expect(atlas.stats().pinnedCells).toBe(2);
+    expect(atlas.hasImage(replacement)).toBe(true);
+    expect(atlas.recordOf(replacement)?.state).toBe("landed");
+    expect(atlas.audit(new Map([[replacement, 1], [next, 1]])).counts).toEqual({});
+
+    atlas.release(replacement);
+    atlas.release(next);
+  });
+});
+

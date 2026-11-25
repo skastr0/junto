@@ -78,7 +78,7 @@ describe("an idle atlas page", () => {
     expect(atlas.hasImage(replacement)).toBe(true);
     expect(atlas.stats().pages).toBe(1);
     expect(atlas.binding.rgbaPages).toHaveLength(2);
-    const row = atlas.binding.cells.subarray(replacement * ATLAS_CELL_FLOATS, replacement * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS);
+    const row = atlas.binding.cells.subarray(atlas.cellIndex(replacement) * ATLAS_CELL_FLOATS, atlas.cellIndex(replacement) * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS);
     expect(row[4]).toBe(0);
   });
 

@@ -405,6 +405,8 @@ export const createScene = (options: {
   readonly release?: (cell: number) => void;
   /** The cell's entry points at pixels: its own, a stand-in or a kept previous. */
   readonly hasImage?: (cell: number) => boolean;
+  /** The cell-table index a token names, written into the draw record; the token itself stays CPU-side. */
+  readonly cellIndex?: (cell: number) => number;
   /** The cell shows its own landed pixels, not a stand-in's (the pop check reads it). */
   readonly ownImage?: (cell: number) => boolean;
   /** Rasterize the cell now, before the frame is submitted: the last resort for an in-view quad with no image. */
@@ -466,6 +468,7 @@ export const createScene = (options: {
   const releaseCell = (cell: number): void => {
     if (cell !== NO_ATLAS_CELL) options.release?.(cell);
   };
+  const indexOfCell = (cell: number): number => (cell === NO_ATLAS_CELL ? NO_ATLAS_CELL : (options.cellIndex?.(cell) ?? cell));
   /** Without the newer interface a held cell is taken to have its image. */
   const hasImage = (cell: number): boolean =>
     cell !== NO_ATLAS_CELL && (options.hasImage === undefined || options.hasImage(cell));
@@ -507,6 +510,7 @@ export const createScene = (options: {
   // Initial capacities only: every buffer below doubles on demand.
   let quads: QuadBuffer = createQuadBuffer(1024);
   let heldScale = new Float64Array(1024);
+  let heldToken = new Float64Array(1024).fill(NO_ATLAS_CELL);
   let quadCapacity = 1024;
   /** Records holding a cell that had no image when last looked at: the per-frame blank check reads only these. */
   const blankCandidates = new Map<number, QuadRef>();
@@ -631,6 +635,9 @@ export const createScene = (options: {
     const scales = new Float64Array(capacity);
     scales.set(heldScale);
     heldScale = scales;
+    const tokens = new Float64Array(capacity).fill(NO_ATLAS_CELL);
+    tokens.set(heldToken);
+    heldToken = tokens;
     quadCapacity = capacity;
     allQuadsDirty = true;
   };
@@ -642,7 +649,8 @@ export const createScene = (options: {
   // live or its slot is freed. `heldScale` is the raster scale it was taken at.
 
   const SOURCE_WORD = 23;
-  const cellOf = (slot: number): number => quads.u32[slot * QUAD_FLOATS + SOURCE_WORD]!;
+  /** The generation-checked token the record holds, CPU-side; the draw record carries only its table index. */
+  const cellOf = (slot: number): number => heldToken[slot]!;
 
   /** Take (or keep) the cell for `ref` at `scale`, handing the atlas the one held. */
   const holdCell = (ref: QuadRef, scale: number): void => {
@@ -650,11 +658,13 @@ export const createScene = (options: {
     // A repaint hands a new ref: a placeholder restores from the current one.
     if (placeholding.has(slot)) placeholding.set(slot, ref);
     const at = slot * QUAD_FLOATS + SOURCE_WORD;
-    const previous = quads.u32[at]!;
+    const previous = heldToken[slot]!;
     const next = acquireCell(ref.painted, scale, previous);
     heldScale[slot] = scale;
-    if (next !== previous) {
-      quads.u32[at] = next;
+    heldToken[slot] = next;
+    const nextIndex = indexOfCell(next);
+    if (quads.u32[at] !== nextIndex) {
+      quads.u32[at] = nextIndex;
       dirtyQuads.add(slot);
     }
     // Under the older lookup no cell means pending; under references it means
@@ -737,9 +747,10 @@ export const createScene = (options: {
   /** Let go of whatever the record holds. */
   const dropCell = (slot: number): void => {
     const at = slot * QUAD_FLOATS + SOURCE_WORD;
-    const held = quads.u32[at]!;
+    const held = heldToken[slot]!;
     if (held === NO_ATLAS_CELL) return;
     releaseCell(held);
+    heldToken[slot] = NO_ATLAS_CELL;
     quads.u32[at] = NO_ATLAS_CELL;
     dirtyQuads.add(slot);
     blankCandidates.delete(slot);

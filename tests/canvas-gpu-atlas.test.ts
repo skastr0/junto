@@ -176,7 +176,7 @@ describe("gpu atlas (#911)", () => {
     expect(other).not.toBe(index);
     await settle();
     await settle();
-    const base = index * ATLAS_CELL_FLOATS;
+    const base = atlas.cellIndex(index) * ATLAS_CELL_FLOATS;
     expect(atlas.binding.cells[base]).toBeGreaterThan(0);
     expect(atlas.binding.cells[base]).toBeLessThan(atlas.binding.cells[base + 2]!);
     expect(atlas.binding.cells[base + 1]).toBe(0);
@@ -210,8 +210,8 @@ describe("gpu atlas (#911)", () => {
     expect(second).not.toBe(first);
     await settle();
     await settle();
-    const right = atlas.binding.cells[first * ATLAS_CELL_FLOATS + 2]! * 64;
-    const left = atlas.binding.cells[second * ATLAS_CELL_FLOATS]! * 64;
+    const right = atlas.binding.cells[atlas.cellIndex(first) * ATLAS_CELL_FLOATS + 2]! * 64;
+    const left = atlas.binding.cells[atlas.cellIndex(second) * ATLAS_CELL_FLOATS]! * 64;
     expect(Math.round(left - right)).toBeGreaterThanOrEqual(1);
   });
 
@@ -286,11 +286,11 @@ describe("gpu atlas (#911)", () => {
     expect(atlas.stats().pages).toBe(2); // 2 independent coverage pages
     expect(atlas.stats().evictions).toBe(0);
     expect(fake.textureCopies.length).toBe(0); // zero copies on page growth!
-    expect(atlas.binding.standalone?.has(a)).toBe(false); // page 0 uses bind group
-    expect(atlas.binding.standalone?.has(b)).toBe(false); // page 1 uses bind group (no standalone split!)
+    expect(atlas.binding.standalone?.has(atlas.cellIndex(a))).toBe(false); // page 0 uses bind group
+    expect(atlas.binding.standalone?.has(atlas.cellIndex(b))).toBe(false); // page 1 uses bind group (no standalone split!)
     expect(atlas.binding.coveragePages?.length).toBe(2);
-    expect(atlas.binding.cells[a * ATLAS_CELL_FLOATS + 4]).toBe(0);
-    expect(atlas.binding.cells[b * ATLAS_CELL_FLOATS + 4]).toBe(1);
+    expect(atlas.binding.cells[atlas.cellIndex(a) * ATLAS_CELL_FLOATS + 4]).toBe(0);
+    expect(atlas.binding.cells[atlas.cellIndex(b) * ATLAS_CELL_FLOATS + 4]).toBe(1);
   });
 
   it("overwrites a fixed-box status line in place when only its own quad showed the old one", async () => {
@@ -302,7 +302,7 @@ describe("gpu atlas (#911)", () => {
     });
     atlas.attach(fake.device);
     const rowOf = (cell: number): number[] =>
-      Array.from(atlas.binding.cells.subarray(cell * ATLAS_CELL_FLOATS, cell * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
+      Array.from(atlas.binding.cells.subarray(atlas.cellIndex(cell) * ATLAS_CELL_FLOATS, atlas.cellIndex(cell) * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
 
     const first = atlas.acquire(textQuad(run1), 2);
     await settle();
@@ -353,8 +353,8 @@ describe("gpu atlas (#911)", () => {
     expect(next).not.toBe(prev);
     // Immediately hasImage via aliased previous while raster is pending!
     expect(atlas.hasImage(next)).toBe(true);
-    expect(atlas.binding.cells[next * ATLAS_CELL_FLOATS + 2]).toBe(
-      atlas.binding.cells[prev * ATLAS_CELL_FLOATS + 2],
+    expect(atlas.binding.cells[atlas.cellIndex(next) * ATLAS_CELL_FLOATS + 2]).toBe(
+      atlas.binding.cells[atlas.cellIndex(prev) * ATLAS_CELL_FLOATS + 2],
     );
 
     await settle(); // let drainQueue start the second raster
@@ -363,8 +363,8 @@ describe("gpu atlas (#911)", () => {
     await settle();
     // Once landed, UV updates to next's own wider rect and prev is released (unpinned).
     expect(atlas.stats().pinnedCells).toBe(1);
-    expect(atlas.binding.cells[next * ATLAS_CELL_FLOATS + 2]).not.toBe(
-      atlas.binding.cells[prev * ATLAS_CELL_FLOATS + 2],
+    expect(atlas.binding.cells[atlas.cellIndex(next) * ATLAS_CELL_FLOATS + 2]).not.toBe(
+      atlas.binding.cells[atlas.cellIndex(prev) * ATLAS_CELL_FLOATS + 2],
     );
   });
 
@@ -416,7 +416,7 @@ describe("gpu atlas (#911)", () => {
     await settle();
     expect(atlas.hasImage(idx)).toBe(true);
     expect(scales[0]).toBe(2); // never downscaled!
-    expect(atlas.binding.standalone?.has(idx)).toBe(true);
+    expect(atlas.binding.standalone?.has(atlas.cellIndex(idx))).toBe(true);
     expect(atlas.stats().failures).toBe(0);
     expect(atlas.stats().bytesInUse).toBeGreaterThan(128 * 128 * 4);
   });
@@ -434,8 +434,8 @@ describe("gpu atlas (#911)", () => {
     await settle();
     await settle();
     expect(atlas.hasImage(idx)).toBe(true);
-    expect(atlas.binding.standalone?.has(idx)).toBe(true);
-    const base = idx * ATLAS_CELL_FLOATS;
+    expect(atlas.binding.standalone?.has(atlas.cellIndex(idx))).toBe(true);
+    const base = atlas.cellIndex(idx) * ATLAS_CELL_FLOATS;
     expect(atlas.binding.cells[base + 5]).toBe(2); // tilesX = 2
     expect(atlas.binding.cells[base + 6]).toBe(1); // tilesY = 1
     expect(fake.copies.length).toBe(2); // 2 tile copies
@@ -534,7 +534,7 @@ describe("gpu atlas (#911)", () => {
     await settle();
     const dirty = atlas.binding.takeDirtyCells!();
     expect(dirty.all).toBe(false);
-    expect(dirty.slots).toEqual([a, b].sort((x, y) => x - y));
+    expect(dirty.slots).toEqual([atlas.cellIndex(a), atlas.cellIndex(b)].sort((x, y) => x - y));
     // Cleared after take
     expect(atlas.binding.takeDirtyCells!()).toEqual({ all: false, slots: [] });
   });
@@ -632,8 +632,8 @@ describe("gpu atlas (#911)", () => {
     expect(atlas.stats().standaloneCount).toBe(0);
     expect(atlas.binding.standalone?.size).toBe(0);
     // Page index lives in cell.page.x (offset + 4)
-    expect(atlas.binding.cells[c1 * ATLAS_CELL_FLOATS + 4]).toBe(0);
-    expect(atlas.binding.cells[c2 * ATLAS_CELL_FLOATS + 4]).toBe(1);
+    expect(atlas.binding.cells[atlas.cellIndex(c1) * ATLAS_CELL_FLOATS + 4]).toBe(0);
+    expect(atlas.binding.cells[atlas.cellIndex(c2) * ATLAS_CELL_FLOATS + 4]).toBe(1);
   });
 
   it("immediately destroys standalone textures when released off-screen", async () => {
@@ -648,7 +648,7 @@ describe("gpu atlas (#911)", () => {
     await settle();
     expect(atlas.hasImage(cell)).toBe(true);
     expect(atlas.stats().standaloneCount).toBe(1);
-    const standaloneTex = atlas.binding.standalone?.get(cell);
+    const standaloneTex = atlas.binding.standalone?.get(atlas.cellIndex(cell));
     expect(standaloneTex).toBeDefined();
     const destroyedBefore = fake.destroyedTextures();
 
@@ -742,7 +742,7 @@ describe("gpu atlas (#911)", () => {
     });
     atlas.attach(fake.device);
     const rowOf = (cell: number): number[] =>
-      Array.from(atlas.binding.cells.subarray(cell * ATLAS_CELL_FLOATS, cell * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
+      Array.from(atlas.binding.cells.subarray(atlas.cellIndex(cell) * ATLAS_CELL_FLOATS, atlas.cellIndex(cell) * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS));
 
     // Land a cell at overview scale (0.5).
     const small = atlas.acquire(textQuad({ ...textRun, text: "item" }), 0.5);
@@ -884,7 +884,7 @@ describe("texel (0,0) of page 0, which every empty row reads, is no cell's", () 
   const line = (text: string, width: number, height: number): Quad => textQuad({ ...textRun, text, width, size: height });
   /** Where a cell's rect starts, in texels of its page, and the page. */
   const placeOf = (atlas: ReturnType<typeof boxed>["atlas"], cell: number, size: number) => {
-    const row = atlas.binding.cells.subarray(cell * ATLAS_CELL_FLOATS, cell * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS);
+    const row = atlas.binding.cells.subarray(atlas.cellIndex(cell) * ATLAS_CELL_FLOATS, atlas.cellIndex(cell) * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS);
     return { x: Math.round(row[0]! * size), y: Math.round(row[1]! * size), page: row[4]! };
   };
   const landed = async (): Promise<void> => {
