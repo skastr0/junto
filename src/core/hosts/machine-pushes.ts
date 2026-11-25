@@ -1,7 +1,9 @@
 /**
  * The window hears `machinesChanged` whenever anything `machine.list` answers
  * may have changed (machine-changes.ts): a machine added, sent, updated or
- * removed, or a link learning a peer's build as it opens. Notes in one turn
+ * removed, a hello carrying a peer build this machine had not heard, or a
+ * link that had opened closing (never a dial that fails before it opens, and
+ * never a refused hello that repeats a build already heard). Notes in one turn
  * collapse to one push, so a burst of changes reads the list once. The push
  * carries nothing: the window reads the list again.
  */

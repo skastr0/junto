@@ -1,7 +1,9 @@
 /**
  * Anything that may change what `machine.list` answers says so here: a
- * machine added, set up, renamed, sent, updated or removed, and a link
- * learning a peer's build. The companion follows it to push `machines.changed`.
+ * machine added, set up, renamed, sent, updated or removed, a hello carrying
+ * a peer build not heard before, and a link that had opened closing. The companion follows
+ * it to push `machines.changed`, and the window's `machinesChanged`
+ * (machine-pushes.ts).
  * In process only; nothing is stored.
  */
 

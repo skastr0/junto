@@ -1141,8 +1141,9 @@ needed, so it costs nothing while idle. The trust rules are in
   `machinesChanged` on its push bus, one push for every turn of changes
   (`src/core/hosts/machine-pushes.ts`, locked by
   `tests/machine-changes-window.test.ts`), and main relays it to the window.
-  A link closing is not one of those changes, because the window's read asks
-  every machine again and a failing dial would ask forever.
+  A link that had opened and then closes is one change, so a machine that
+  went away shows at once; a dial that fails before it opens is none, so the
+  read that follows, which dials again, is silent when that dial fails.
 - **Not in v1.** Ports opened on a sandbox, joining the tailnet, and a key
   given on stdin instead of the CLI.
 

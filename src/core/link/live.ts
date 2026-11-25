@@ -53,6 +53,13 @@ export const makeMachineLink = (options: { readonly build: string; readonly home
   const sessions = new Map<string, LinkSession>();
   const allSessions = new Set<LinkSession>();
   const builds = new Map<string, string>();
+  // Only a build this machine had not heard is a change: a refused hello that
+  // repeats one, as every redial of a mismatched peer does, notes nothing.
+  const learnBuild = (machineName: string, heard: string): void => {
+    if (builds.get(machineName) === heard) return;
+    builds.set(machineName, heard);
+    noteMachinesChanged();
+  };
   const dials = new Map<string, Promise<MachinePeer>>();
   let channels: LinkChannels = {};
   let configured = false;
@@ -86,16 +93,12 @@ export const makeMachineLink = (options: { readonly build: string; readonly home
         }
       }
       // Only a checked existing binding can contribute a build warning.
-      if (setupId === undefined || setupCommitted) {
-        builds.set(hello.machineName, hello.build);
-        noteMachinesChanged();
-      }
+      if (setupId === undefined || setupCommitted) learnBuild(hello.machineName, hello.build);
       if (hello.build !== own.build) throw LinkBuildMismatch.of(hello, own.build);
       if (setupId !== undefined && !setupCommitted) {
         await run(machines.pinPeer({ machineName: hello.machineName, installationId: hello.installationId }));
         setupCommitted = true;
-        builds.set(hello.machineName, hello.build);
-        noteMachinesChanged();
+        learnBuild(hello.machineName, hello.build);
       }
     };
   };
@@ -127,7 +130,11 @@ export const makeMachineLink = (options: { readonly build: string; readonly home
     allSessions.add(session);
     void session.closed.then(() => {
       allSessions.delete(session);
-      for (const [name, held] of sessions) if (held === session) sessions.delete(name);
+      let opened = false;
+      for (const [name, held] of sessions) if (held === session) { sessions.delete(name); opened = true; }
+      // A link that had opened and closes is a change the window shows; a dial
+      // that never opened is not, so the read that follows, which dials, is silent when it fails.
+      if (opened) noteMachinesChanged();
     });
     return session;
   };
