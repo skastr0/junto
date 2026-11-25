@@ -272,6 +272,19 @@ either way: the window's router reads the node's host on every call
 `filesRemote` on by default. The table is empty at the step, since the mark it
 replaces was in memory and the upgrade's restart lost it.
 
+Removing the canvas takes its marks in the same transaction, so a canvas made
+later under the name owes no machine a departure copy.
+
+**Open before `filesRemote` is on by default: a removed canvas stays on the
+other machines.** Removing a canvas on the editor sends no machine anything:
+a machine that held a copy keeps it whole, seat or Files node, and a Files
+node keeps its root there (seen in `tests/files-remote-departure.test.ts`'s
+harness, for a seated machine and for one with only a Files-only copy). The
+node is never served from there, since the editor's router reads the node's
+host on every call, but the root stays written on that machine until the
+canvas is removed there too. Closing this needs a canvas removal that crosses
+machines, which is not a Files change.
+
 **For remote-window.**
 - The add and edit choice shows only with `filesRemote` on, on the operator
   source. It lists this machine first, then each active, non-Boat pin.
