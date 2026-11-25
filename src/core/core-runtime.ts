@@ -442,6 +442,22 @@ const machineBoatKeeperLayer = (ready: () => boolean) => Layer.effect(MachineBoa
 }));
 
 /** Both entries add these services to their one owning runtime. */
+/** What this machine's canvases still place on `name`: the counts a take-over confirms. */
+const countPlacedOn = (
+  model: ModelService["Service"],
+  automations: Option.Option<AutomationRepository["Service"]>,
+  name: string,
+) => Effect.gen(function* () {
+  const sources = [];
+  for (const canvasName of yield* model.listCanvases()) {
+    sources.push({
+      canvas: yield* model.canvas(canvasName),
+      automations: Option.isSome(automations) ? yield* automations.value.loadState(canvasName) : new Map(),
+    });
+  }
+  return countTakeoverPlacement(name, sources);
+});
+
 export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   // The routes a dial and a file push ask are found before any link exists:
   // Boat's account and its machine records, and nothing that needs the link.
@@ -500,7 +516,13 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
       clear: (name: string) => installOps.value.clearSetupRefusal(name),
     } : undefined;
     const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
-      connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect,
+      connect: link.connect, disconnect: link.disconnect,
+      // A first send may replace this machine's retired pin of that name (remote-security P1 to P6):
+      // the old link key goes first, and work still placed on the name refuses.
+      connectSetup: (host, installationId) => link.connectSetup(host, installationId, {
+        forget: (name, previous) => linkSetup.forget(name, previous),
+        placements: (name) => countPlacedOn(model, automations, name),
+      }),
       // The far's own status, asked over the link: it answers only once it has let this machine in.
       linkAnswers: (host) => status.Machine(host.id),
       settleRemovedLink: (name, route, installationId) => linkSetup.settleRemoved({ machineName: name, route, installationId }), linkKeyState: linkSetup.linkKeyState, clearStaleLink: linkSetup.clearEvery,

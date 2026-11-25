@@ -10,8 +10,10 @@ import { ChildProcess as Command } from "effect/process";
 import { afterEach, expect, it } from "vitest";
 import { makeSqliteClient } from "../src/core/state/sqlite-client";
 import { MACHINE_STATE_SCHEMA_SQL } from "../src/core/machines/state-schema";
-import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
-import { LINK_NOT_OPENED_WORDS, makeMachineCopy, PINNED_ELSEWHERE_WORDS } from "../src/core/hosts/machine-copy";
+import { MachinePersistenceError, MachineRepository, makeMachineRepositoryLive, RETIRED_PLACED_MESSAGE } from "../src/core/machines/repository";
+import { MachineRefused } from "../src/core/machines/configuration";
+import { linkClosed } from "../src/core/link/types";
+import { LINK_NOT_OPENED_WORDS, makeMachineCopy, PINNED_ELSEWHERE_WORDS, RETIRED_PLACED_WORDS } from "../src/core/hosts/machine-copy";
 import { HostsService } from "../src/core/hosts/service";
 import { machineBundleFiles } from "../src/node/hosts/bundle";
 import { SshTransport } from "../src/core/ssh";
@@ -27,7 +29,7 @@ const testLog = makeTestLog();
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
-const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<boolean>; readonly keyState?: "held" | "none" | "unreadable"; readonly cleared?: boolean; platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer; status?: { readonly runningSeats?: number; readonly installationId?: string }; receiptName?: string; setupRefused?: "name-pinned-elsewhere" | "installation-pinned-elsewhere"; linkAnswer?: "never" | "refused"; farClaimsPinned?: boolean; recordFails?: boolean } = {}) => {
+const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<boolean>; readonly keyState?: "held" | "none" | "unreadable"; readonly cleared?: boolean; platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer; status?: { readonly runningSeats?: number; readonly installationId?: string }; receiptName?: string; setupRefused?: "name-pinned-elsewhere" | "installation-pinned-elsewhere"; linkAnswer?: "never" | "refused"; farClaimsPinned?: boolean; recordFails?: boolean; helloClose?: "retired-placed-here" | "retired-placed-far" } = {}) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "junto-copy-")));
   await mkdir(join(root, "bin")); await mkdir(join(root, "core"));
   for (const name of ["bin/node", "bin/junto", "core/junto.cjs"]) await writeFile(join(root, name), "fixture\n");
@@ -110,6 +112,12 @@ const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<bo
       calls.push("hello");
       expect(host.id).toBe("mini"); expect(installationId).toBe(receipt.installationId);
       if (options.helloFailure) return yield* Effect.fail(new Error("name is pinned to another installation; choose another name"));
+      // This machine's own pin refused at the hello, as the link closes it (P2); or the far said the same words.
+      if (options.helloClose !== undefined) return yield* Effect.fail(linkClosed({ machine: "mini", reason: "failed",
+        ...(options.helloClose === "retired-placed-here"
+          ? { by: "this-end" as const, cause: MachinePersistenceError.make({ operation: "pin-peer", message: RETIRED_PLACED_MESSAGE("mini"),
+            cause: new MachineRefused({ check: "name-retired-placed", machine: "mini", message: RETIRED_PLACED_MESSAGE("mini") }) }) }
+          : { by: "peer" as const, causes: [{ tag: "MachineRefused", message: RETIRED_PLACED_MESSAGE("mini") }] }) }));
       return yield* repository.pinPeer({ machineName: host.id, installationId });
     }),
   }));
@@ -222,6 +230,25 @@ it("keeps the installed receipt when first hello refuses setup and never resends
   if (error instanceof MachineSetupError) { expect(error.installed).toEqual(f.receipt); expect(error.message).toContain("choose another name"); expect(error.retryable).toBe(false); }
   expect(f.calls.filter(call => call === "install")).toHaveLength(1);
   expect(await f.runtime.runPromise(f.repository.peer("mini"))).toBeUndefined();
+});
+
+it("says work here is still placed on a removed name when this machine's own pin refused it at the hello (P2)", async () => {
+  const f = await fixture({ helloClose: "retired-placed-here" });
+  const error = await f.error("send");
+  expect(error).toBeInstanceOf(MachineSetupError);
+  if (error instanceof MachineSetupError) {
+    expect(error.message).toBe(RETIRED_PLACED_WORDS);
+    expect(error).toMatchObject({ ownWords: true, retryable: false, installed: f.receipt });
+    expect(error.takeoverRemote).toBeUndefined();
+  }
+  expect(await f.runtime.runPromise(f.repository.peer("mini"))).toBeUndefined();
+});
+
+it("never takes the placed-work words from a close the far sent", async () => {
+  const f = await fixture({ helloClose: "retired-placed-far" });
+  const error = await f.error("send");
+  expect(error).toBeInstanceOf(MachineSetupError);
+  if (error instanceof MachineSetupError) { expect(error.message).not.toBe(RETIRED_PLACED_WORDS); expect(error.ownWords).toBeUndefined(); }
 });
 
 it("refuses an unavailable target bundle or different fingerprint before disconnecting", async () => {

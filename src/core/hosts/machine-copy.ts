@@ -8,7 +8,8 @@ import { OperatorErrorBody } from "@shared/operator-control";
 import { scrubMessage } from "../../node/credentials/scrub";
 import { failureHere } from "./failure-here";
 import { LogService } from "../../node/observability/logger";
-import { MachineRepository } from "../machines/repository";
+import { MachineRepository, RETIRED_PLACED_MESSAGE } from "../machines/repository";
+import { LinkClosed } from "../link/types";
 import { parseHostSshRoute, SshTransport, type ScopedStreamProgram, type SshError } from "../ssh";
 import { SshTransferExitError } from "../ssh/service";
 import { configureMachine, setupMachine, machineStatusProgram, machinePlatform } from "../ssh/machine-owner-commands";
@@ -82,6 +83,18 @@ export const PINNED_ELSEWHERE_WORDS = "Junto is installed there, but it already 
 class PinRefused extends Schema.TaggedError<PinRefused>()("PinRefused", { check: MachinePinRefused, message: Schema.String }) {}
 /** That refusal, on a first send or a pin already here: the route is kept, and the send ends in PINNED_ELSEWHERE_WORDS. */
 class PinnedElsewhere extends Schema.TaggedError<PinnedElsewhere>()("PinnedElsewhere", { message: Schema.String }) {}
+
+/** remote-design ecdca250e, P2: this machine removed the name, and work here is still placed on it. */
+export const RETIRED_PLACED_WORDS = "Seats, automations or Files nodes here are still placed on it from before it was removed, so nothing changed. Preview a take-over with junto machine takeover to see which seats, automations and Files nodes move.";
+
+/**
+ * This machine's own pin refused a retired name with work still placed on it
+ * (P2), read from the close this end made: never from a close the far sent.
+ */
+const retiredPlaced = (cause: unknown, name: string): boolean => {
+  if (!(cause instanceof LinkClosed) || cause.by !== "this-end") return false;
+  return cause.causes.some((said) => said.tag === "MachineRefused" && said.message === RETIRED_PLACED_MESSAGE(name));
+};
 /** The machine did not answer over the link in time once set up. */
 class LinkNotOpened extends Schema.TaggedError<LinkNotOpened>()("LinkNotOpened", { message: Schema.String }) {}
 
@@ -276,6 +289,8 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
       ? new MachineSetupError({ message: cause.message, retryable: false, installed: receipt, ownWords: true })
       : cause instanceof LinkNotOpened
       ? new MachineSetupError({ message: LINK_NOT_OPENED_WORDS, retryable: true, installed: receipt, ownWords: true })
+      : retiredPlaced(cause, host.id)
+      ? new MachineSetupError({ message: RETIRED_PLACED_WORDS, retryable: false, installed: receipt, ownWords: true })
       : cause instanceof PinnedElsewhere
       ? new MachineSetupError({ message: PINNED_ELSEWHERE_WORDS, retryable: false, installed: receipt, ownWords: true,
         // The name is the selected host's id, checked closed; never a far string.

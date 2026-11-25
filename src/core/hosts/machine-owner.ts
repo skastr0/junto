@@ -493,7 +493,10 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         // The answer is the pin's public projection (MachinePeerPin): a pin a
         // link bound to its key keeps that binding in the store, and only the
         // closed fact that it is key-bound leaves in this answer.
-        const pin = yield* machines.pinPeer(request.args);
+        // The far's setup replaces a retired pin of that name by the same rule as a first send (P1 to P6).
+        const retired = options.takeoverForget === undefined || options.takeoverCounts === undefined ? undefined
+          : { forget: options.takeoverForget, placements: options.takeoverCounts };
+        const pin = yield* machines.pinPeer(request.args, retired === undefined ? undefined : { retired });
         return { machineName: pin.machineName, installationId: pin.installationId, boundAt: pin.boundAt, keyBound: pin.binding === "key" };
       }
       case "machine.takeover": return yield* takeover(request.args);

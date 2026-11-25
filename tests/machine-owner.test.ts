@@ -721,3 +721,30 @@ it("refuses a take-over at the commit when the far count changes after the confi
   expect(f.database.prepare("SELECT installation_id FROM machine_peers WHERE machine_name = 'mini'").get()).toEqual({ installation_id: "mini-install" });
   expect(f.database.prepare("SELECT count(*) AS count FROM terminal_delete_owed").get()).toEqual({ count: 1 });
 });
+
+it("replaces a retired pin at the far's setup by the same rule as a first send, and refuses while work is placed on it", async () => {
+  const forgotten: string[] = [];
+  let placed = { seats: 1, automations: 0, files: 0 };
+  const f = await fixture({
+    takeoverForget: (name, installationId) => Effect.sync(() => { forgotten.push(`${name}:${installationId}`); }),
+    takeoverCounts: () => Effect.sync(() => placed),
+  });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  expect((await f.call("machine.remove", { name: "mini" })).ok).toBe(true);
+  const refused = await f.call("machine.setup", { machineName: "mini", installationId: "another-install" });
+  expect(refused.ok).toBe(false);
+  if (!refused.ok) { expect(refused.error.message).toContain("still placed on it"); expect(refused.error.details?.pinRefused).toBeUndefined(); }
+  expect(forgotten).toEqual([]);
+  expect(f.database.prepare("SELECT installation_id, retired_at IS NOT NULL AS retired FROM machine_peers WHERE machine_name='mini'").get()).toEqual({ installation_id: "mini-install", retired: 1 });
+  placed = { seats: 0, automations: 0, files: 0 };
+  const pinned = await f.call("machine.setup", { machineName: "mini", installationId: "another-install" });
+  expect(pinned.ok && pinned.op === "machine.setup" && pinned.data.installationId).toBe("another-install");
+  expect(forgotten).toEqual(["mini:mini-install"]);
+  expect(f.database.prepare("SELECT installation_id, retired_at FROM machine_peers WHERE machine_name='mini'").get()).toEqual({ installation_id: "another-install", retired_at: null });
+  // A live pin under another installation still refuses, and its line is never touched.
+  const live = await f.call("machine.setup", { machineName: "mini", installationId: "third-install" });
+  expect(live.ok).toBe(false);
+  if (!live.ok) expect(live.error.details?.pinRefused).toBe("name-pinned-elsewhere");
+  expect(forgotten).toEqual(["mini:mini-install"]);
+});

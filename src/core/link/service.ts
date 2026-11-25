@@ -1,7 +1,7 @@
 import { Context, type Effect } from "effect";
 import type { InstallationId } from "@shared/installation-id";
 import type { RemoteHost } from "@shared/remote-hosts";
-import type { MachinePeer } from "../machines/repository";
+import type { MachinePeer, RetiredPinRule } from "../machines/repository";
 import type { LinkChannel, LinkChannels, MachineLinkError } from "./types";
 
 export {
@@ -31,7 +31,7 @@ export class MachineLink extends Context.Service<MachineLink, {
   readonly listen: (home: string) => Effect.Effect<MachineLinkListener, MachineLinkError>;
   readonly connect: (host: RemoteHost) => Effect.Effect<MachinePeer, MachineLinkError>;
   /** Owner send/setup only; the installation id is a strictly decoded installer receipt. */
-  readonly connectSetup: (host: RemoteHost, expectedInstallationId: InstallationId) => Effect.Effect<MachinePeer, MachineLinkError>;
+  readonly connectSetup: (host: RemoteHost, expectedInstallationId: InstallationId, retired?: RetiredPinRule) => Effect.Effect<MachinePeer, MachineLinkError>;
   /** Closes the link to a machine; a cause is logged at both ends and sent to the peer. */
   readonly disconnect: (name: string, cause?: unknown) => Effect.Effect<void, MachineLinkError>;
   readonly peerBuild: (name: string) => Effect.Effect<string | undefined>;

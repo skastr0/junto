@@ -17,6 +17,7 @@ export class MachineRefused extends Schema.TaggedError<MachineRefused>()("Machin
   check: Schema.Literals([
     "configuration-missing", "name-invalid", "peer-is-self", "name-pinned-elsewhere",
     "installation-pinned-elsewhere", "name-fixed-by-peer", "name-fixed-by-canvas",
+    "name-retired-placed", "retired-line-kept", "retired-pin-changed",
   ]),
   machine: Schema.optionalKey(Schema.String),
   message: Schema.String,

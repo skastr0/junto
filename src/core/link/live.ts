@@ -4,7 +4,7 @@ import { InstallationId } from "@shared/installation-id";
 import { MachineBuild, MachineBuiltAt, MachineVersion, type MachineRelease } from "@shared/machine-control";
 import { RemoteHost } from "@shared/remote-hosts";
 import { encodeError } from "../../node/failure-encode";
-import { MachineRepository, type MachinePeer } from "../machines/repository";
+import { MachineRepository, type MachinePeer, type RetiredPinRule } from "../machines/repository";
 import { parseHostSshRoute, parseSshRoute, SshExitError, SshProcessError, SshTransport } from "../ssh";
 import { openMachineLink } from "../ssh/machine-commands";
 import { noteMachinesChanged } from "../hosts/machine-changes";
@@ -85,7 +85,7 @@ export const makeMachineLink = (options: { readonly build: string; readonly rele
     }
     return peer;
   };
-  const admission = (host?: RemoteHost, setupId?: InstallationId) => {
+  const admission = (host?: RemoteHost, setupId?: InstallationId, retired?: RetiredPinRule) => {
     let setupCommitted = false;
     return async (raw: LinkHello, opener?: InstallationId): Promise<void> => {
       if (stopping) throw shuttingDown();
@@ -107,7 +107,7 @@ export const makeMachineLink = (options: { readonly build: string; readonly rele
       if (setupId === undefined || setupCommitted) noteHello(hello);
       if (hello.build !== own.build) throw LinkBuildMismatch.of(hello, own);
       if (setupId !== undefined && !setupCommitted) {
-        await run(machines.pinPeer({ machineName: hello.machineName, installationId: hello.installationId }));
+        await run(machines.pinPeer({ machineName: hello.machineName, installationId: hello.installationId }, retired === undefined ? undefined : { retired }));
         setupCommitted = true;
         noteHello(hello);
       }
@@ -155,14 +155,14 @@ export const makeMachineLink = (options: { readonly build: string; readonly rele
     });
     return session;
   };
-  const dial = async (host: RemoteHost, setupId?: InstallationId): Promise<MachinePeer> => {
+  const dial = async (host: RemoteHost, setupId?: InstallationId, retired?: RetiredPinRule): Promise<MachinePeer> => {
     if (!configured) throw new LinkUnavailable({ machine: host.id, reason: "not-configured", message: "Machine links are not accepting connections yet" });
     if (stopping) throw shuttingDown();
     const pin = await run(machines.peer(host.id));
     if (setupId === undefined && pin === undefined) throw new LinkPeerNotPinned({ machine: host.id, message: `Set up ${host.id} before opening a link` });
     if (sessions.has(host.id)) {
       const hello = await sessions.get(host.id)!.ready;
-      await admission(host, setupId)(hello);
+      await admission(host, setupId, retired)(hello);
       return await activePeer(hello);
     }
     if (host.isThisMachine || host.juntoHome === undefined || host.installRoot === undefined) {
@@ -183,7 +183,7 @@ export const makeMachineLink = (options: { readonly build: string; readonly rele
         const output = new Writable({ highWaterMark: 64 * 1024, write: (chunk: Buffer, _encoding, callback) => {
           void run(lease.write(chunk)).then(() => callback(), (cause) => callback(toLinkError(cause, host.id) as Error));
         } });
-        session = open({ readable: input, writable: output, self: own, admit: admission(host, setupId), channels, run, expected: host.id, ...(bound === undefined ? {} : { keyBound: true as const }) }, true);
+        session = open({ readable: input, writable: output, self: own, admit: admission(host, setupId, retired), channels, run, expected: host.id, ...(bound === undefined ? {} : { keyBound: true as const }) }, true);
         const held = session;
         // The first cause wins: when the process ends, the link closes with its exit and stderr tail.
         const processEnded = Effect.gen(function* () {
@@ -214,14 +214,14 @@ export const makeMachineLink = (options: { readonly build: string; readonly rele
       const kept = sessions.get(host.id);
       if (failure._tag === "LinkClosed" && failure.reason === "superseded" && kept !== undefined && kept !== session) {
         const hello = await kept.ready;
-        if (setupId !== undefined) await admission(host, setupId)(hello);
+        if (setupId !== undefined) await admission(host, setupId, retired)(hello);
         return await activePeer(hello);
       }
       await run(linkLog("Warning", "link dial failed", { machine: host.id, failure: encodeError(failure, { machine: host.id }) }));
       throw failure;
     }
   };
-  const connect = Effect.fn("MachineLink.connect")(function* (host: RemoteHost, setupId?: InstallationId) {
+  const connect = Effect.fn("MachineLink.connect")(function* (host: RemoteHost, setupId?: InstallationId, retired?: RetiredPinRule) {
     const selected = yield* Schema.decodeUnknownEffect(RemoteHost, { onExcessProperty: "error" })(host).pipe(
       Effect.mapError(() => new LinkUnavailable({ reason: "route-incomplete", message: "The machine route does not match its schema" })));
     if (setupId !== undefined) yield* Schema.decodeUnknownEffect(InstallationId)(setupId).pipe(
@@ -233,7 +233,7 @@ export const makeMachineLink = (options: { readonly build: string; readonly rele
         if (setupId !== undefined && peer.installationId !== setupId) throw new LinkUnavailable({ machine: selected.id, reason: "other-installation", message: "The pending link reaches another installation" });
         return peer;
       }
-      const flight = dial(selected, setupId);
+      const flight = dial(selected, setupId, retired);
       dials.set(selected.id, flight);
       try { return await flight; } finally { if (dials.get(selected.id) === flight) dials.delete(selected.id); }
     }, catch: (cause) => toLinkError(cause, selected.id) });
@@ -278,7 +278,7 @@ export const makeMachineLink = (options: { readonly build: string; readonly rele
       }, catch: (cause) => toLinkError(cause) });
     }),
     connect: (host) => connect(host),
-    connectSetup: (host, expectedInstallationId) => connect(host, expectedInstallationId),
+    connectSetup: (host, expectedInstallationId, retired) => connect(host, expectedInstallationId, retired),
     disconnect,
     peerBuild: (name) => Effect.sync(() => builds.get(name)),
     peerInstallation: (name) => Effect.tryPromise({

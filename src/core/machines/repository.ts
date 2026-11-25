@@ -30,6 +30,21 @@ export type MachinePeerSeen = MachinePeerIdentity & {
   readonly build: string; readonly version?: string; readonly builtAt?: string; readonly seenAt: string;
 };
 
+/**
+ * What a pin needs to replace a retired one under another installation
+ * (remote-security P1 to P6): the old link-key line removed, outside the SQL,
+ * and the work this machine still places on the name, counted inside the
+ * transaction that replaces the row. A pin without it refuses as before.
+ */
+export type RetiredPinRule = {
+  readonly forget: (machineName: string, installationId: InstallationId) => Effect.Effect<unknown, unknown>;
+  readonly placements: (machineName: string) => Effect.Effect<{ readonly seats: number; readonly automations: number; readonly files: number }, unknown>;
+};
+
+/** The name was retired, and work here is still placed on it: a take-over moves it, so nothing changed. */
+export const RETIRED_PLACED_MESSAGE = (name: string) =>
+  `machine ${JSON.stringify(name)} was removed, but seats, automations or Files nodes here are still placed on it; take it over to move them`;
+
 export class MachinePersistenceError extends Schema.TaggedError<MachinePersistenceError>()(
   "MachinePersistenceError", { operation: Schema.String, message: Schema.String, cause: Schema.Unknown },
 ) {}
@@ -40,7 +55,16 @@ export class MachineRepository extends Context.Service<MachineRepository, {
   readonly configuration: Effect.Effect<StoredMachineConfiguration, MachinePersistenceError>;
   readonly configureName: (name: string) => Effect.Effect<StoredMachineConfiguration, MachinePersistenceError>;
   /** `binding: "key"` marks the peer as linking only through its link key (MachinePeer). */
-  readonly pinPeer: (identity: MachinePeerIdentity, options?: { readonly binding?: "key" }) => Effect.Effect<MachinePeer, MachinePersistenceError>;
+  readonly pinPeer: (identity: MachinePeerIdentity, options?: { readonly binding?: "key"; readonly retired?: RetiredPinRule }) => Effect.Effect<MachinePeer, MachinePersistenceError>;
+  /**
+   * In the caller's transaction: the retired row of `machineName`, still
+   * retired under `previous`, becomes a plain pin of `installationId`, and
+   * the old installation's vault tokens, owed deletes and seen row go. The
+   * new pin is plain: no key binding, by construction. The
+   * old link-key line must already be gone. False, changing nothing, when the
+   * row is no longer retired under `previous`.
+   */
+  readonly replaceRetiredPin: (input: { readonly machineName: string; readonly previous: InstallationId; readonly installationId: InstallationId }) => Effect.Effect<MachinePeer | undefined, MachinePersistenceError>;
   readonly peer: (machineName: string) => Effect.Effect<MachinePeer | undefined, MachinePersistenceError>;
   readonly peers: Effect.Effect<ReadonlyArray<MachinePeer>, MachinePersistenceError>;
   readonly retirePeer: (machineName: string) => Effect.Effect<void, MachinePersistenceError>;
@@ -120,18 +144,73 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
   const peers = withSqlRead(sql, SqlSchema.findAll({ Request: Schema.Void, Result: PeerRow,
     execute: () => sql`SELECT machine_name, installation_id, bound_at, retired_at, binding FROM machine_peers WHERE retired_at IS NULL ORDER BY machine_name`,
   })(undefined)).pipe(Effect.map((rows) => rows.map(peerFromRow)), Effect.mapError(failure("peers")));
-  const pinPeer = Effect.fn("MachineRepository.pinPeer")(function* (input: MachinePeerIdentity, pinOptions?: { readonly binding?: "key" }) {
+  const replaceRetiredRow = (input: { readonly machineName: string; readonly previous: InstallationId; readonly installationId: InstallationId }) =>
+    Effect.gen(function* () {
+      const row = yield* findPeer(input.machineName);
+      if (Option.isNone(row) || row.value.retired_at === null || row.value.installation_id !== input.previous) return undefined;
+      const at = yield* Schema.decodeUnknownEffect(Timestamp)(now());
+      // What the old installation held here goes with it; known_installations keeps it.
+      yield* sql`DELETE FROM machine_vault_tokens WHERE machine_name = ${input.machineName}`;
+      yield* sql`DELETE FROM terminal_delete_owed WHERE machine_name = ${input.machineName}`;
+      yield* sql`DELETE FROM machine_peer_seen WHERE installation_id = ${input.previous}`;
+      yield* installations.register(input.installationId, at);
+      // Replaced in this one transaction, never left without a row (P4): a
+      // peer's identity never changes in place (machine_peer_identity_immutable),
+      // so the retired row goes and the new pin goes in plain.
+      yield* sql`DELETE FROM machine_peers WHERE machine_name = ${input.machineName} AND installation_id = ${input.previous} AND retired_at IS NOT NULL`;
+      yield* sql`INSERT INTO machine_peers(machine_name, installation_id, bound_at, retired_at, binding) VALUES (${input.machineName}, ${input.installationId}, ${at}, NULL, NULL)`;
+      yield* Effect.logInfo("machine retired pin replaced").pipe(Effect.annotateLogs({
+        area: "machines", machine: input.machineName, previousInstallationId: input.previous, installationId: input.installationId }));
+      return { machineName: input.machineName, installationId: input.installationId, boundAt: at } satisfies MachinePeer;
+    });
+  const replaceRetiredPin = Effect.fn("MachineRepository.replaceRetiredPin")((input: { readonly machineName: string; readonly previous: InstallationId; readonly installationId: InstallationId }) =>
+    sql.withTransaction(replaceRetiredRow(input)).pipe(Effect.provideService(StateTransactionOperation, "machine.replace-retired-pin")),
+  Effect.mapError(failure("replace-retired-pin")));
+  const pinPeer = Effect.fn("MachineRepository.pinPeer")(function* (input: MachinePeerIdentity, pinOptions?: { readonly binding?: "key"; readonly retired?: RetiredPinRule }) {
     const identity = yield* Schema.decodeUnknownEffect(PeerIdentity)(input, { onExcessProperty: "error" });
     const binding = pinOptions?.binding === "key" ? "key" as const : undefined;
+    const rule = pinOptions?.retired;
+    // A retired row under another installation is replaced only with the rule,
+    // and its old link-key line goes first, outside the SQL (P3).
+    const before = rule === undefined ? Option.none() : yield* withSqlRead(sql, findPeer(identity.machineName));
+    const retired = Option.isSome(before) && before.value.retired_at !== null && before.value.installation_id !== identity.installationId
+      ? before.value.installation_id : undefined;
+    if (rule !== undefined && retired !== undefined) {
+      // Work still placed on the name refuses before anything changes, the line included (P2);
+      // the transaction counts again, so a placement made meanwhile still refuses.
+      const placed = yield* rule.placements(identity.machineName);
+      if (placed.seats + placed.automations + placed.files > 0)
+        return yield* new MachineRefused({ check: "name-retired-placed", machine: identity.machineName, message: RETIRED_PLACED_MESSAGE(identity.machineName) });
+      yield* rule.forget(identity.machineName, retired).pipe(Effect.mapError(() => new MachineRefused({ check: "retired-line-kept", machine: identity.machineName,
+        message: `the old link key of machine ${JSON.stringify(identity.machineName)} could not be removed; nothing was changed` })));
+    }
     return yield* sql.withTransaction(Effect.gen(function* () {
       const own = yield* configurations.read;
       if (identity.installationId === installationId || identity.machineName === own?.configuration.name)
         return yield* new MachineRefused({ check: "peer-is-self", machine: identity.machineName, message: "a peer must be another installation with another machine name" });
       const existing = yield* findPeer(identity.machineName);
       if (Option.isSome(existing)) {
-        if (existing.value.installation_id !== identity.installationId)
-          return yield* new MachineRefused({ check: "name-pinned-elsewhere", machine: identity.machineName,
-            message: `machine ${JSON.stringify(identity.machineName)} is pinned to another installation; choose another name` });
+        if (existing.value.installation_id !== identity.installationId) {
+          // A live pin under another installation always refuses (P1).
+          if (rule === undefined || retired === undefined || existing.value.retired_at === null)
+            return yield* new MachineRefused({ check: "name-pinned-elsewhere", machine: identity.machineName,
+              message: `machine ${JSON.stringify(identity.machineName)} is pinned to another installation; choose another name` });
+          // CAS on the row read before the line was removed (P1).
+          if (existing.value.installation_id !== retired)
+            return yield* new MachineRefused({ check: "retired-pin-changed", machine: identity.machineName,
+              message: `the pin of machine ${JSON.stringify(identity.machineName)} changed during setup; nothing was changed` });
+          const sameInstallation = yield* sql`SELECT machine_name FROM machine_peers WHERE installation_id = ${identity.installationId}`;
+          if (sameInstallation.length) return yield* new MachineRefused({ check: "installation-pinned-elsewhere", machine: identity.machineName, message: "the peer installation is pinned to another machine name" });
+          // Work still placed on the name is the operator's to move with a take-over (P2).
+          const placed = yield* rule.placements(identity.machineName);
+          if (placed.seats + placed.automations + placed.files > 0)
+            return yield* new MachineRefused({ check: "name-retired-placed", machine: identity.machineName, message: RETIRED_PLACED_MESSAGE(identity.machineName) });
+          const replaced = yield* replaceRetiredRow({ machineName: identity.machineName, previous: retired, installationId: identity.installationId });
+          if (replaced === undefined)
+            return yield* new MachineRefused({ check: "retired-pin-changed", machine: identity.machineName,
+              message: `the pin of machine ${JSON.stringify(identity.machineName)} changed during setup; nothing was changed` });
+          return replaced;
+        }
         // A retired peer came back with no binding; a key binding, once set, is never dropped by a pin.
         const kept = existing.value.retired_at === null ? existing.value.binding : null;
         const next = binding ?? kept;
@@ -216,7 +295,7 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
   }, Effect.mapError(failure("configure-name")));
   return MachineRepository.of({ installationId: Effect.succeed(installationId), configuration,
     machineName: configuration.pipe(Effect.map((stored) => stored.configuration.name)), configureName, pinPeer, peer, peers, retirePeer,
-    retiredPeers, notePeerHello, peersSeen, retirePeerInstallation });
+    retiredPeers, notePeerHello, peersSeen, retirePeerInstallation, replaceRetiredPin });
 });
 
 export const makeMachineRepositoryLive = (options: MachineRepositoryOptions = {}) =>
