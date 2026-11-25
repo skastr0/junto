@@ -267,7 +267,7 @@ mod tests {
         );
         // A bundle that is exactly its manifest but holds no junto entry.
         fs::remove_file(root.join("bin/junto")).expect("the entry goes");
-        let mut manifest = manifest_of(&root);
+        let manifest = manifest_of(&root);
         write_manifest(&root, &manifest);
         let refused = inspect_bundle(&root).expect_err("refused");
         assert!(

@@ -619,7 +619,15 @@ fn install_flow(
                 if let Some(point) = point.as_ref() {
                     let _ = restore::discard_restore_point(point);
                 }
-                let keep = vec![generation.clone(), previous.clone().unwrap_or_default()];
+                // The generation names, not their selection paths: prune compares
+                // the directory names it reads.
+                let keep = vec![
+                    format!("{}-{}", manifest.build, manifest.target),
+                    previous
+                        .as_deref()
+                        .map(|previous| previous.trim_start_matches("builds/").to_string())
+                        .unwrap_or_default(),
+                ];
                 let _ = prune::prune_machine_builds(&install_root, &keep);
                 flow.record(Transition {
                     pid: Some(observed.pid),
