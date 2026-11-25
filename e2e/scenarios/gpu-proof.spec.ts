@@ -84,6 +84,7 @@ import {
   type ProofBoard,
   type ProofScale,
 } from "../harness/gpu-proof";
+import { cameraDrifted } from "../harness/camera-drift";
 
 interface PngImage {
   readonly width: number;
@@ -1034,6 +1035,7 @@ test.describe("#913 GPU canvas proof", () => {
           const anchor = index % 2 === 0 ? centre : focus;
           await placeCamera(page, await cameraOn(page, anchor, tier.zoom));
           const at = await settleAtlas(page);
+          const shotCamera = (await readProofState(page)).camera;
           const screens = await seatScreens(page, board);
           const image = PNG.sync.read(await page.screenshot({ path: join(dir, `${tier.name}-${String(tier.zoom)}.png`) }));
           const viewport = await page.evaluate(() => ({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }));
@@ -1285,6 +1287,11 @@ test.describe("#913 GPU canvas proof", () => {
             chromeClicks.push({ ...sample, selected: after, changed: JSON.stringify(before) !== JSON.stringify(after) });
             if (after.length > 0) await resetOperator(page);
           }
+          // A real click on a badge under the minimap flies the camera: put it back where the shot was taken before anything is measured against that shot.
+          if (chromeClicks.length > 0) {
+            await placeCamera(page, shotCamera);
+            await settleAtlas(page);
+          }
           const chromeCovered = chromeClicks.filter((click) => click["changed"] !== true && click["known"] === true).length;
           if (chromeClicks.some((click) => click["changed"] !== true && click["known"] !== true)) {
             fail(`${String(scale)}x ${tier.name}: a real click on a covered badge selects nothing: ${JSON.stringify(chromeClicks)}`);
@@ -1294,6 +1301,10 @@ test.describe("#913 GPU canvas proof", () => {
           }
           // A canvas that draws nothing must fail loudly: ink in the pane and
           // in every visible card's rect, plus a reference image per tier.
+          const cameraAtMeasure = (await readProofState(page)).camera;
+          if (cameraDrifted(shotCamera, cameraAtMeasure)) {
+            fail(`${String(scale)}x ${tier.name}: the camera moved between the shot and its measurements: ${JSON.stringify(shotCamera)} then ${JSON.stringify(cameraAtMeasure)}`);
+          }
           const paneInk = partInk(image, viewport, pane);
           const chrome = await page.evaluate(() => {
             const boxes: ScreenRect[] = [];
