@@ -9,6 +9,7 @@ import { observable } from "@legendapp/state";
 import type { SeatOpenView } from "@shared/settings";
 import { terminalBindingOf } from "@shared/terminal";
 import { openTerminal } from "./terminal-actions";
+import { closeTerminalGrid, terminalGrid$ } from "./terminal-grid-state";
 import { terminal$ } from "./terminal-state";
 import { nodeAt } from "./use-model";
 
@@ -39,11 +40,18 @@ export const answerSeatViewAsk = (seatId: string): void => {
  * already open comes to the front and changes to it. Opening is the same
  * open as any other (a cold seat starts, the visit is recorded); only the
  * view differs. Anything that is not an agent seat with a terminal of its own
- * is left alone.
+ * is left alone. A seat the grid shows is opened out of it: the grid is a
+ * look at many, it sits over any seat modal, and it would stay on top of the
+ * one the operator asked for.
  */
 export const openSeatOn = (canvas: string, seatId: string, view: SeatOpenView): Promise<void> => {
   const seat = nodeAt(canvas, seatId);
   if (seat?.kind !== "agent" || terminalBindingOf(seat)?.kind !== "native") return Promise.resolve();
   seatViewAsked$[seatId].set(view);
-  return openTerminal(canvas, seatId);
+  const inGrid = terminalGrid$.nodeIds.peek().includes(seatId);
+  // The open takes the seat out of the grid's hands (it joins the workbench)
+  // before the grid closes, so closing releases only the other cells.
+  const opening = openTerminal(canvas, seatId);
+  if (inGrid) closeTerminalGrid();
+  return opening;
 };
