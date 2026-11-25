@@ -604,7 +604,20 @@ describe("Broadcast: a region as a recipient", () => {
     await key(seatField(), "Enter");
     await typeIn(messageField(), "status?");
     await key(messageField(), "Enter");
-    await press(q("quick-thread-confirm-cancel"));
+    // A focus on the message while the input is still hidden is ignored by a real browser: record the state at each claim.
+    const claimedWhileHidden: boolean[] = [];
+    const focus = HTMLTextAreaElement.prototype.focus;
+    HTMLTextAreaElement.prototype.focus = function (this: HTMLTextAreaElement, ...args: Parameters<typeof focus>) {
+      if (this === messageField()) claimedWhileHidden.push(this.closest<HTMLElement>(".quick-thread__composer")?.hidden === true);
+      return focus.apply(this, args);
+    };
+    try {
+      await press(q("quick-thread-confirm-cancel"));
+    } finally {
+      HTMLTextAreaElement.prototype.focus = focus;
+    }
+    expect(claimedWhileHidden.length).toBeGreaterThan(0);
+    expect(claimedWhileHidden.every((hidden) => !hidden)).toBe(true);
     expect(q("quick-thread-confirm")).toBeNull();
     expect(tokens()).toEqual(["Design System2"]);
     expect(messageField()?.value).toBe("status?");
