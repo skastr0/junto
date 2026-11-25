@@ -371,6 +371,23 @@ shows only when that clearing fails.
   answer names the machine. `That machine` is the one sent to; `this one`
   is the near machine.
 
+**A send when this machine's link key for that machine exists but
+cannot be read.** A resend fails the same way, so the step is not `Send
+Junto again`.
+
+- Core's words, `ownWords: true`: `This machine's link key for that
+  machine cannot be read. Make a new one: junto machine link <this>
+  <that>`
+- The step: `junto machine link` makes this machine's key for `<that>`
+  with `replace: true` (`src/core/hosts/machine-link.ts:172`), so it
+  replaces the unreadable key without anyone touching a file by hand. The
+  window has no link button, so the command is the fix, as section 5's
+  relink line did; it ends the line with no period so it copies clean.
+- The two names are the near side's own machine names from its list, the
+  names the operator chose, never far text. If a name in the command is
+  not allowed under term 5, the step is `Remove it, then add it again.`
+  (remove deletes the key directory without reading it, `removeLinkKey`).
+
 **Remove, when the list of removed machines that still accept the key
 cannot be read.** Junto sets the file aside and does not overwrite it.
 
