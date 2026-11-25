@@ -26,12 +26,12 @@ import {
 import { use$ } from "@legendapp/state/react";
 import { Check, Clock, Plus } from "lucide-react";
 import { titleOf, type Node } from "@shared/model";
-import { FEED_KIND_LABEL, type FeedItemKind, type FeedRegion } from "@shared/operator-feed";
+import { FEED_KIND_LABEL, OPEN_FIELD, type FeedItemKind, type FeedRegion } from "@shared/operator-feed";
 import { regionChipStyle } from "../../lib/region-chip-style";
 import { claimFocus, focusPrimaryControl } from "../../lib/focus-ownership";
 import { useListNav } from "../../lib/list-nav";
 import { regionPickKey, regionPickName } from "../../lib/operator-feed";
-import { previewText, useWaitingMarkHeld, waitingForSeats } from "../../lib/seat-threads";
+import { previewText, useWaitingMarkHeld, waitingForSeats, type NewThread } from "../../lib/seat-threads";
 import { ThreadTime } from "../threads/ThreadTime";
 import { provideThreadKey } from "../../lib/thread-keys";
 import { threadHeadline } from "../../lib/thread-text";
@@ -66,6 +66,38 @@ import "./threads-modal.css";
 /** How far from the list's end, in pixels, the next page is asked for. */
 const LIST_NEAR_END = 400;
 const SEATS_ROW_ID = "operator-threads-seats";
+
+/** The first quick-thread send, with the seat facts a synthetic first row needs. */
+export type ThreadsQuickLanding = NewThread & {
+  readonly seat?: ThreadRow["seat"];
+  readonly region?: ThreadRow["region"];
+};
+
+/**
+ * The row a just-sent thread can show before the canvas-wide watch pushes it:
+ * the write is already committed, and the pushed row replaces this one.
+ */
+const quickLandingRow = (first: ThreadsQuickLanding): ThreadRow => {
+  const at = first.at;
+  const title = first.text.split(/\r?\n/, 1)[0]?.trim() ?? "";
+  return {
+    threadId: first.threadId,
+    seat: first.seat ?? { nodeId: first.seatId, name: first.seatId, portraitIdentity: first.seatId },
+    region: first.region ?? OPEN_FIELD,
+    title: title || "Files",
+    startedAt: at,
+    lastAt: at,
+    last: {
+      messageId: first.messageId,
+      from: { kind: "operator" },
+      text: first.text,
+      at,
+      ...(first.arrival === "waiting" ? { waiting: true as const } : {}),
+    },
+    messageCount: 1,
+    unread: 0,
+  };
+};
 
 /** A seat's live ring: its own component so only its row follows the seat. */
 function LiveRing({ seat }: { readonly seat: Node & { readonly kind: "agent" } }) {
@@ -231,7 +263,7 @@ export function ThreadsBody({
    * is asked first on Escape.
    */
   readonly quickThread?: (
-    done: (first?: { readonly seatId: string; readonly threadId: string }) => void,
+    done: (first?: ThreadsQuickLanding) => void,
     backOut: RefObject<(() => boolean) | null>,
   ) => ReactNode;
   /** Opens the seat on its Threads view. */
@@ -476,15 +508,24 @@ export function ThreadsBody({
     setLanding(null);
     setComposing(true);
   };
-  const quickDone = (first?: { readonly seatId: string; readonly threadId: string }): void => {
+  const quickDone = (first?: ThreadsQuickLanding): void => {
     setComposing(false);
     if (!first) {
       focusAfter.current = { want: "new", claimed: false };
       return;
     }
     // A narrowing that would hide the new thread is cleared, so it lands.
-    if (filtering || activeRegion !== undefined) clearThreadsFilters();
+    const narrowed = filtering || activeRegion !== undefined;
+    if (narrowed) clearThreadsFilters();
     focusAfter.current = { want: "landing", claimed: false };
+    // With the list already unnarrowed, the committed row can open at once;
+    // the store's pushed row takes its place when the watch catches up.
+    if (!narrowed) {
+      held.current = { key: viewKey, row: quickLandingRow(first), index: 0 };
+      setLanding(null);
+      setPick({ id: first.threadId, mine: true });
+      return;
+    }
     setLanding(first.threadId);
   };
   // Cmd+Shift+U while Threads is open starts the thread here, with the

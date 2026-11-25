@@ -6,7 +6,8 @@
  */
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
-import { nodesOf } from "@shared/model";
+import { nodesOf, titleOf } from "@shared/model";
+import { feedRegionForCanvas } from "@shared/operator-feed";
 import { closeOperatorModal } from "../../lib/operator-modal";
 import { loadMoreOperatorThreads, useOperatorThreads } from "../../lib/operator-threads";
 import { openSeatOn } from "../../lib/seat-view";
@@ -59,7 +60,24 @@ export function OperatorThreads() {
         />
       )}
       quickThread={(done, backOut) => (
-        <QuickThread canvasName={canvasName} onSent={(sent) => done(sent[0])} backOut={backOut} />
+        <QuickThread
+          canvasName={canvasName}
+          onSent={(sent) => {
+            const first = sent[0];
+            if (first === undefined) return done(undefined);
+            const node = canvas.nodes.get(first.seatId);
+            done({
+              ...first,
+              ...(node === undefined
+                ? {}
+                : {
+                    seat: { nodeId: node.id, name: titleOf(node), portraitIdentity: node.id },
+                    region: feedRegionForCanvas(canvas, node.id),
+                  }),
+            });
+          }}
+          backOut={backOut}
+        />
       )}
       // The seat modal on its Threads view, whatever Seat opens on says.
       onOpenSeat={(seatId) => {

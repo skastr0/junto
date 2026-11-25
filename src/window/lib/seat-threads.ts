@@ -800,18 +800,32 @@ export const retainSeatUnread = (seat: SeatAddress): (() => void) => {
   };
 };
 
+const releaseSeatThread = (key: string): void => {
+  const users = (openThreads.get(key) ?? 1) - 1;
+  if (users > 0) openThreads.set(key, users);
+  else openThreads.delete(key);
+  stopListeningIfIdle();
+};
+
 /** Keep one thread's messages read and current; the returned function lets go. */
 export const openSeatThread = (seat: SeatAddress, threadId: string): (() => void) => {
   const key = threadKey(seat, threadId);
   openThreads.set(key, (openThreads.get(key) ?? 0) + 1);
   listenForChanges();
   void refreshThread(key);
-  return () => {
-    const users = (openThreads.get(key) ?? 1) - 1;
-    if (users > 0) openThreads.set(key, users);
-    else openThreads.delete(key);
-    stopListeningIfIdle();
-  };
+  return () => releaseSeatThread(key);
+};
+
+/**
+ * Read a thread a send has just written before its chat can mount. The first
+ * read holds the thread open only until it returns; a chat mounted meanwhile
+ * holds its own count.
+ */
+const preloadSeatThread = (seat: SeatAddress, threadId: string): void => {
+  const key = threadKey(seat, threadId);
+  openThreads.set(key, (openThreads.get(key) ?? 0) + 1);
+  listenForChanges();
+  void refreshThread(key).finally(() => releaseSeatThread(key));
 };
 
 /** The seat's threads, retained while mounted. */
@@ -1005,6 +1019,10 @@ export type NewThread = {
   readonly seatId: string;
   readonly threadId: string;
   readonly arrival: "arrived" | "waiting";
+  /** The root mail the send wrote, for the thread's first optimistic row. */
+  readonly messageId: string;
+  readonly text: string;
+  readonly at: number;
 };
 
 /**
@@ -1126,15 +1144,25 @@ export const sendNewThreads = async (
   canvasName: string,
   seatIds: ReadonlyArray<string>,
   mail: Pick<OperatorThreadSend, "text" | "attachments">,
+  displayText = mail.text,
 ): Promise<NewThreadsOutcome> => {
   const results = await Promise.all(seatIds.map((seatId) => sendSeatThread({ canvasName, seatId, ...mail })));
+  const at = Date.now();
   const sent: NewThread[] = [];
   const failed: Array<{ seatId: string; message: string }> = [];
   results.forEach((result, index) => {
     const seatId = seatIds[index]!;
     // Written is sent, and is never sent again. Anything short of delivered reads as waiting for the seat.
-    if (result.ok) sent.push({ seatId, threadId: result.threadId, arrival: result.delivery === "delivered" ? "arrived" : "waiting" });
-    else failed.push({ seatId, message: result.message });
+    if (result.ok) {
+      sent.push({
+        seatId,
+        threadId: result.threadId,
+        arrival: result.delivery === "delivered" ? "arrived" : "waiting",
+        messageId: result.messageId,
+        text: displayText,
+        at,
+      });
+    } else failed.push({ seatId, message: result.message });
   });
   return { sent, failed };
 };
@@ -1158,6 +1186,7 @@ export const sendSeatThread = async (
     if (result.ok) {
       // Before the read the send asks for, so no read can draw the mark inside its second.
       holdWaitingMark(result.messageId);
+      preloadSeatThread({ canvasName, seatId }, result.threadId);
       refreshSeatThreads({ canvasName, seatId });
     }
     return result;

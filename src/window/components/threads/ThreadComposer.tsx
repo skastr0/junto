@@ -184,7 +184,7 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
     }
     const mail = { text: carried.text, ...(carried.files.length > 0 ? { attachments: carried.files } : {}) };
     if (several) {
-      const outcome = await sendNewThreads(canvasName, fixed?.map((recipient) => recipient.seatId) ?? seatIds, mail);
+      const outcome = await sendNewThreads(canvasName, fixed?.map((recipient) => recipient.seatId) ?? seatIds, mail, text);
       setSending(false);
       // Any seat left unsent keeps the draft: the host says which, and Send goes to those.
       if (outcome.failed.length === 0) {
