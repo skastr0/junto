@@ -153,6 +153,7 @@ export interface EngineHost {
     cellIndex?(cell: number): number;
     /** The cell shows its own landed pixels, not a stand-in's (read-only, the pop check). */
     ownImage?(cell: number): boolean;
+    contentKey?(cell: number): string;
     ensureNow(cell: number): unknown;
     recordVisibleBlank?(count: number): void;
     /** Decode a sprite's source ahead, held while any built quad uses it. */
@@ -300,6 +301,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
           hasImage: (cell: number) => host.cells!.hasImage(cell),
           ...(host.cells.cellIndex === undefined ? {} : { cellIndex: (cell: number) => host.cells!.cellIndex!(cell) }),
           ...(host.cells.ownImage === undefined ? {} : { ownImage: (cell: number) => host.cells!.ownImage!(cell) }),
+          ...(host.cells.contentKey === undefined ? {} : { contentKeyOf: (cell: number) => host.cells!.contentKey!(cell) }),
           ensureNow: (cell: number) => {
             host.cells!.ensureNow(cell);
           },
@@ -346,8 +348,8 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     peakQuads: number;
     scaleChanges: number;
     seeded: number;
-    samples: Array<{ frame: number; fault: "nothing" | "pop"; key: string; scale: number; was?: string; shows: string; cell: number }>;
-    last: Map<string, { scale: number; shows: string }>;
+    samples: Array<{ frame: number; fault: "nothing" | "pop"; key: string; scale: number; was?: string; shows: string; cell: number; contentBefore?: string; contentAfter?: string; changedContent?: boolean }>;
+    last: Map<string, { scale: number; shows: string; contentKey: string }>;
   };
   let pop: PopWatch | undefined;
   const watchPops = (w: PopWatch): void => {
@@ -356,12 +358,12 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     w.scanned += quads.length;
     w.peakQuads = Math.max(w.peakQuads, quads.length);
     let blank = 0;
-    const next = new Map<string, { scale: number; shows: string }>();
+    const next = new Map<string, { scale: number; shows: string; contentKey: string }>();
     for (const q of quads) {
-      next.set(q.key, { scale: q.scale, shows: q.shows });
+      next.set(q.key, { scale: q.scale, shows: q.shows, contentKey: q.contentKey });
       if (q.shows === "nothing") {
         blank += 1;
-        if (w.samples.length < 64) w.samples.push({ frame: w.frames, fault: "nothing", key: q.key, scale: q.scale, shows: q.shows, cell: q.cell });
+        if (w.samples.length < 64) w.samples.push({ frame: w.frames, fault: "nothing", key: q.key, scale: q.scale, shows: q.shows, cell: q.cell, contentBefore: w.last.get(q.key)?.contentKey, contentAfter: q.contentKey });
       }
       const was = w.last.get(q.key);
       if (was === undefined) continue;
@@ -370,8 +372,12 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         continue;
       }
       if (was.shows === "own" && q.shows !== "own") {
-        w.pops += 1;
-        if (w.samples.length < 64) w.samples.push({ frame: w.frames, fault: "pop", key: q.key, scale: q.scale, was: was.shows, shows: q.shows, cell: q.cell });
+        // A quad whose content changed is not a quad whose picture was lost:
+        // a rename, a count, or a tint the picture does not draw re-keys the
+        // cell, and the new pixels land a frame later. Report it, do not fail.
+        const changedContent = was.contentKey !== q.contentKey;
+        if (!changedContent) w.pops += 1;
+        if (w.samples.length < 64) w.samples.push({ frame: w.frames, fault: "pop", key: q.key, scale: q.scale, was: was.shows, shows: q.shows, cell: q.cell, contentBefore: was.contentKey, contentAfter: q.contentKey, changedContent });
       }
     }
     w.last = next;

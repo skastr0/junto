@@ -154,6 +154,11 @@ export interface GpuAtlas {
   /** True when `cell` shows its own landed pixels, not a stand-in's (read-only, for the pop check). */
   ownImage(cell: number): boolean;
   /**
+   * The content key the cell holds, empty when it holds nothing: a quad whose
+   * content changed is not a quad whose picture was lost (the pop check reads it).
+   */
+  contentKey(cell: number): string;
+  /**
    * Last-resort synchronous raster + copy before frame submit for an in-view cell
    * that still has no image. Draws a tone placeholder in place if a cold image/media
    * source is still decoding so nothing on screen is ever blank. Returns `hasImage(cell)`.
@@ -2849,6 +2854,12 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         standalone: rec.standalone !== undefined,
         hasImage: hasImage(cell),
       };
+    },
+    contentKey: (cell: number) => {
+      const index = cellIndex(cell);
+      const rec = slots[index];
+      if (rec === undefined || cellGeneration(cell) !== (generations[index] ?? 0)) return "";
+      return rec.contentKey;
     },
     audit,
     auditTexels,

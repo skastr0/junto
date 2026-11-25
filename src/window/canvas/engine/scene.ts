@@ -409,6 +409,8 @@ export const createScene = (options: {
   readonly cellIndex?: (cell: number) => number;
   /** The cell shows its own landed pixels, not a stand-in's (the pop check reads it). */
   readonly ownImage?: (cell: number) => boolean;
+  /** The content key a cell holds (the pop check reads it: a changed picture is not a lost one). */
+  readonly contentKeyOf?: (cell: number) => string;
   /** Rasterize the cell now, before the frame is submitted: the last resort for an in-view quad with no image. */
   readonly ensureNow?: (cell: number) => void;
   /**
@@ -687,8 +689,8 @@ export const createScene = (options: {
    * its placeholder shape, or nothing. Read-only; the pop check reads it
    * every frame of a gesture (operator ruling 6).
    */
-  const drawnAtlasQuads = (): Array<{ readonly key: string; readonly scale: number; readonly cell: number; readonly shows: "own" | "stand-in" | "placeholder" | "nothing" }> => {
-    const out: Array<{ key: string; scale: number; cell: number; shows: "own" | "stand-in" | "placeholder" | "nothing" }> = [];
+  const drawnAtlasQuads = (): Array<{ readonly key: string; readonly contentKey: string; readonly scale: number; readonly cell: number; readonly shows: "own" | "stand-in" | "placeholder" | "nothing" }> => {
+    const out: Array<{ key: string; contentKey: string; scale: number; cell: number; shows: "own" | "stand-in" | "placeholder" | "nothing" }> = [];
     const view = seatCheckView;
     if (view === undefined) return out;
     for (const card of byId.values()) {
@@ -703,7 +705,9 @@ export const createScene = (options: {
             : options.ownImage === undefined || options.ownImage(cell)
               ? "own"
               : "stand-in";
-        out.push({ key: `${card.id}\u0000${ref.key}`, scale: heldScale[ref.slot]!, cell, shows });
+        // The content key travels with the read: a quad whose content changed
+        // (a rename, a count, a tint out of the picture) is not a lost picture.
+        out.push({ key: `${card.id}\u0000${ref.key}`, contentKey: options.contentKeyOf?.(cell) ?? "", scale: heldScale[ref.slot]!, cell, shows });
       }
     }
     return out;

@@ -931,7 +931,7 @@ export type PopReport = {
   readonly scaleChanges: number;
   /** Quads the control let go of ("seed"). */
   readonly seeded: number;
-  readonly samples: ReadonlyArray<{ readonly frame: number; readonly fault: "nothing" | "pop"; readonly key: string; readonly scale: number; readonly was?: string; readonly shows: string; readonly cell: number }>;
+  readonly samples: ReadonlyArray<{ readonly frame: number; readonly fault: "nothing" | "pop"; readonly key: string; readonly scale: number; readonly was?: string; readonly shows: string; readonly cell: number; readonly contentBefore?: string; readonly contentAfter?: string; readonly changedContent?: boolean }>;
 };
 
 /** A cluster badge the last frame planned (test hook only). */
