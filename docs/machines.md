@@ -757,12 +757,23 @@ Run it as one shell command, so the index never outlives it:
 
 ```text
 PATHS=(path/to/one.ts path/to/two.ts)
+REVERTS=()    # a path you mean to put back to an older copy, named here and nowhere else
 MSG='type(scope): subject'
 
 BRANCH=$(git symbolic-ref HEAD)
 PARENT=$(git rev-parse HEAD)
 IDX=$(mktemp -u "${TMPDIR:-/tmp}/<your-seat>-idx.XXXXXX")
 trap 'rm -f "$IDX"' EXIT
+
+# Stale-path check: stops on a working file that is an older copy of main's.
+for p in "${PATHS[@]}"; do
+  [ -e "$p" ] || continue                                  # a deletion is named, never hashed
+  case " ${REVERTS[*]} " in *" $p "*) continue ;; esac
+  w=$(git hash-object -- "$p")
+  [ "$w" = "$(git rev-parse -q --verify "$PARENT:$p")" ] && continue   # main's own copy
+  old=$(git log --format=%h -n1 --find-object="$w" "$PARENT" -- "$p")
+  [ -z "$old" ] || { echo "stale: $p is a copy main once held ($old), not main's. Restore it from $PARENT, then edit." >&2; exit 1; }
+done
 
 GIT_INDEX_FILE=$IDX git read-tree "$PARENT"
 GIT_INDEX_FILE=$IDX git add -- "${PATHS[@]}"
@@ -794,6 +805,17 @@ git show --stat --oneline HEAD
   (101f36c40 carried an uncommitted removal of three node kinds that way).
 - Before `git add` of a path, run `git diff HEAD -- <path>`. If any hunk is
   not yours, do not add that path: apply only your hunks, as below.
+- The stale-path check catches a file that is, byte for byte, a copy main
+  held earlier. Main moves under this checkout: a commit made in a linked
+  worktree, on a VM or by `update-ref` from another seat changes main and
+  leaves the working files as they were, so they fall behind and read as
+  uncommitted reverts. Adding such a file writes the old copy into main
+  (ffd678248 reverted 283619e6b in five files, and 1cde9ee96 restored them). The check cannot see
+  an old copy with your hunks on top of it: for that, the `git diff HEAD`
+  above shows lines you did not remove. When a check stops you, restore the
+  path from `$PARENT` (`git restore --source="$PARENT" -- <path>`), redo your
+  edit on it, and run the block again. A deliberate return to an older copy
+  goes in `REVERTS`.
 - For a deletion, name the deleted paths or their directory.
 - For only your lines of a shared file: write a patch with just your hunks
   and use `git apply --cached` on the private index in place of `git add`.
