@@ -469,7 +469,11 @@ phase, and attention/occupancy are separate planes.
     `id=$(scripts/vm.sh pool <region>)`, then, with `VM_SEAT=<your seat>`
     set, `scripts/vm.sh sync $id <commit> [your uncommitted paths]` and
     `scripts/vm.sh run $id <command>`.
-  - GPU tests go to the Mac mini: every real-app, Electron and e2e run.
+  - GPU tests go to the Mac mini, their builds and their runs both
+    (operator, 2026-11-25: "For GPU tests please run builds and tests in the
+    mac mini"): every real-app, Electron, e2e and GPU proof run is built and
+    run there, never built on a VM or here and copied over. Unit tests on the
+    fake GPU device are not GPU tests and stay on the VM.
     `dir=$(scripts/mini.sh at <seat> <commit>)` makes a checkout of that one
     commit there with its bundles built, `scripts/mini.sh run $dir
     scripts/run-e2e.sh <spec>` runs it under the mini's own app-run lock, and
