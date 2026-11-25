@@ -29,6 +29,8 @@ import { HostsServiceLive } from "../src/core/hosts/service";
 import { HostRegistryRows, resetDefaultHostsRegistryForTests } from "../src/core/hosts/registry";
 import { makeMachineOwnerActions } from "../src/core/hosts/machine-owner";
 import { MachineOwnStatus, type MachinePeerStatus } from "../src/shared/machine-control";
+import { MachineInstallResult, MachineSetupError } from "../src/shared/machine-install";
+import { RETIRED_PLACED_WORDS } from "../src/core/hosts/machine-copy";
 import { OPERATOR_PROTOCOL_VERSION, decodeOperatorRequest } from "../src/shared/operator-control";
 import { InstallationId } from "../src/shared/installation-id";
 import { RemoteHost } from "../src/shared/remote-hosts";
@@ -235,6 +237,12 @@ describe("a first send to a reinstalled machine", () => {
     const host = Schema.decodeUnknownSync(RemoteHost)({ id: "mini", label: "mini", isThisMachine: false, sshEndpoint: "mac-mini", capabilities: ["terminal"],
       juntoHome: "/home/mini/junto", installRoot: "/home/mini/.local/junto" });
     const forgotten: Array<readonly [string, string]> = [];
+    const receipt = Schema.decodeUnknownSync(MachineInstallResult)({
+      build: "c".repeat(64), juntoHome: "/home/mini/junto", installRoot: "/home/mini/.local/junto",
+      directory: "/home/mini/.local/junto/builds/current", serviceLabel: "test", provider: "launchd",
+      updated: false, disposition: "ready", installationId: NEW, machineName: "mini", pid: 72,
+      transitions: [{ step: "ready", pid: 72 }],
+    });
     const owner = await macbook.runtime.runPromise(makeMachineOwnerActions({
       ownStatus: Effect.succeed(Schema.decodeUnknownSync(MachineOwnStatus)({ build: "c".repeat(64), installationId: macbook.self, machineName: "macbook", juntoHome: macbook.home, pid: 71, ready: true, form: "mac-mini" })),
       ownHarnesses: Effect.succeed({ machineName: "macbook", reachable: true, keychain: "available", harnesses: [] }),
@@ -242,7 +250,19 @@ describe("a first send to a reinstalled machine", () => {
       peerBuild: () => Effect.succeed(undefined),
       ownLogs: () => Effect.die("own logs not part of this test"),
       peerLogs: () => Effect.die("peer logs not part of this test"),
-      copy: () => Effect.die("copy not part of this test"),
+      copy: (host) => Effect.gen(function* () {
+        const link = yield* MachineLink;
+        const retired = yield* Effect.flatMap(MachineRepository, (repository) => repository.retiredPin(host.id)).pipe(Effect.orElseSucceed(() => undefined));
+        const peer = yield* link.connectSetup(host, NEW, {
+          forget: (name, previous) => Effect.sync(() => { forgotten.push([name, previous]); }),
+          placements: () => Effect.succeed(placed),
+        }).pipe(Effect.catch((cause) => cause instanceof LinkClosed && retired !== undefined
+          ? Effect.fail(new MachineSetupError({ message: RETIRED_PLACED_WORDS, retryable: false, installed: receipt, ownWords: true,
+            takeover: { machineName: "mini", installationId: NEW, previousInstallationId: retired } }))
+          : Effect.fail(cause)));
+        return { ...receipt, installationId: peer.installationId, machineName: host.id,
+          transitions: [...receipt.transitions, { step: "pinned" as const }] };
+      }),
       disconnect: () => Effect.void,
       takeoverCounts: () => Effect.succeed(placed),
       takeoverForget: (name, previous) => Effect.sync(() => { forgotten.push([name, previous]); }),
@@ -267,10 +287,10 @@ describe("a first send to a reinstalled machine", () => {
     expect(await call("machine.add", { name: "mini", sshTarget: "mac-mini",
       juntoHome: "/home/mini/junto", installRoot: "/home/mini/.local/junto" })).toMatchObject({ ok: true, op: "machine.add" });
 
-    const refused = await send(placed).then(() => undefined, (error: unknown) => error);
-    expect(refused).toBeInstanceOf(LinkClosed);
-    expect((refused as LinkClosed).causes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ tag: "MachineRefused", message: RETIRED_PLACED_MESSAGE("mini") })]));
+    const refused = await call("machine.send", { name: "mini" });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.details).toMatchObject({ takeover: {
+      machineName: "mini", installationId: NEW, previousInstallationId: OLD } });
     expect(await pinOfMini()).toBeUndefined();
 
     const preview = await call("machine.takeover", { machineName: "mini", installationId: NEW });
@@ -284,8 +304,8 @@ describe("a first send to a reinstalled machine", () => {
     expect(await pinOfMini()).toMatchObject({ machineName: "mini", installationId: NEW });
     expect(forgotten).toEqual([["mini", OLD]]);
 
-    const ready = await send(NONE);
-    expect(ready).toMatchObject({ machineName: "mini", installationId: NEW });
+    const ready = await call("machine.send", { name: "mini" });
+    expect(ready).toMatchObject({ ok: true, op: "machine.send", data: { machineName: "mini", installationId: NEW } });
     expect(await pinOfMini()).toMatchObject({ installationId: NEW });
   });
 
