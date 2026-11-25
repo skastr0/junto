@@ -19,6 +19,7 @@ import { MachineOwnerControl } from "./hosts/machine-owner";
 import { MachineLink, type MachineLinkListener } from "./link/service";
 import { startOperatorControlServer, type OperatorControlServer } from "../node/operator-control";
 import { evaluateSchemaCompatibility, probeInstalledStateSchema } from "../node/state/schema-version-probe";
+import { acquireHomeLock, HomeLockRefused } from "../node/home-lock";
 import { watchSocketPathOwned } from "../node/socket-path-watch";
 import { quiesceServiceChildrenOnQuit } from "./services/process";
 import { terminateAdapterChildrenOnQuit } from "./adapters/exec";
@@ -130,6 +131,12 @@ export class CoreSchemaTooNew extends Schema.TaggedError<CoreSchemaTooNew>()("Co
   message: Schema.String,
 }) {}
 
+/** The home lock was not taken: another core or an install has this home, or its state directory is not this user's alone. No database file was opened. */
+export class CoreHomeLocked extends Schema.TaggedError<CoreHomeLocked>()("CoreHomeLocked", {
+  reason: Schema.Literals(["held", "unsafe"]),
+  message: Schema.String,
+}) {}
+
 /** A stop that could not finish: the named part still held work, so core state was kept. */
 export class CoreDidNotDrain extends Schema.TaggedError<CoreDidNotDrain>()("CoreDidNotDrain", {
   part: Schema.Literals(["owner-commands", "seat-work", "canvas-edits", "writes", "adapters", "service-children"]),
@@ -146,8 +153,17 @@ export const startCore = async (options: CoreOptions) => {
     sink: (row) => observabilityRing.append(row),
     knownSecrets: registeredSecretValues,
   });
+  // One core per home's database, held for this core's life: taken before
+  // anything reads the database, and refused rather than waited on, so a core
+  // started during an install never opens a database the installer is
+  // copying or restoring (src/node/home-lock.ts).
+  const homeLock = await acquireHomeLock(options.home).catch((cause: unknown) => {
+    if (cause instanceof HomeLockRefused) throw new CoreHomeLocked({ reason: cause.reason, message: cause.message });
+    throw cause;
+  });
   const schema = evaluateSchemaCompatibility(probeInstalledStateSchema(join(options.home, ".junto", "state", "junto.db")));
   if (!schema.ok) {
+    await homeLock.release();
     throw new CoreSchemaTooNew({
       userVersion: schema.userVersion,
       supportedVersion: schema.supportedVersion,
@@ -280,6 +296,9 @@ export const startCore = async (options: CoreOptions) => {
         },
       ];
       await runStopSteps(steps);
+      // Only a stop that drained lets the home go: a core that kept state
+      // keeps the lock until its process ends.
+      await homeLock.release();
     })();
     return closeFlight;
   };

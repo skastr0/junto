@@ -77,7 +77,7 @@ export type ControlSocketPathIdentity = Readonly<{
   readonly uid: bigint;
 }>;
 
-interface KernelListenerLease {
+export interface KernelListenerLease {
   readonly held: () => boolean;
   readonly release: () => Promise<void>;
 }
@@ -121,12 +121,11 @@ const closeUnix = (server: Server): Promise<void> =>
     server.close(() => resolve());
   });
 
-const acquireLinuxAbstractLease = async (
-  leaseKey: string,
+/** Hold one Linux abstract Unix address for this process's life, or until released. */
+export const acquireLinuxAbstractAddress = async (
+  abstractPath: string,
 ): Promise<KernelListenerLease> => {
   const server = createServer((socket) => socket.destroy());
-  const abstractPath =
-    `\0junto-control-${createHash("sha256").update(leaseKey).digest("hex")}`;
   await listenUnix(server, abstractPath);
   // The product listener itself owns process lifetime. This server owns only
   // the collision-proof kernel address and must not create a second exit gate.
@@ -142,6 +141,9 @@ const acquireLinuxAbstractLease = async (
   };
 };
 
+const acquireLinuxAbstractLease = (leaseKey: string): Promise<KernelListenerLease> =>
+  acquireLinuxAbstractAddress(`\0junto-control-${createHash("sha256").update(leaseKey).digest("hex")}`);
+
 /**
  * Darwin `open(2)` flags that Node does not expose as constants: `O_EXLOCK`
  * takes an exclusive kernel flock on the opened description atomically, and
@@ -150,10 +152,10 @@ const acquireLinuxAbstractLease = async (
  */
 const DARWIN_O_EXLOCK = 0x0020;
 
-const acquireDarwinFileLease = async (
-  leaseKey: string,
+/** Hold an exclusive Darwin flock on one owner-private no-follow file, never waited on. */
+export const acquireDarwinFileLock = async (
+  lockPath: string,
 ): Promise<KernelListenerLease> => {
-  const lockPath = `${leaseKey}.lease`;
   let fd: number;
   try {
     fd = openSync(
@@ -266,7 +268,7 @@ export const acquireControlListenerLease = async (
       process.platform === "linux"
         ? await acquireLinuxAbstractLeases(leaseKeys)
         : process.platform === "darwin"
-          ? await acquireDarwinFileLease(leaseKeys[0]!)
+          ? await acquireDarwinFileLock(`${leaseKeys[0]!}.lease`)
           : (() => {
               throw new Error(`control listener leases unsupported on ${process.platform}`);
             })();
