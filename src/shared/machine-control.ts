@@ -231,6 +231,7 @@ export const MachineTakeoverData = Schema.Struct({
   previousInstallationId: InstallationId,
   seats: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   automations: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  files: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   takenOver: Schema.Boolean,
 });
 export type MachineTakeoverData = typeof MachineTakeoverData.Type;

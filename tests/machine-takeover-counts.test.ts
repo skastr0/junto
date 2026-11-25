@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { countTakeoverPlacement, type TakeoverSource } from "../src/shared/machine-takeover";
 import type { Canvas, Node } from "../src/shared/model";
 
-const node = (id: string, kind: "agent" | "peer" | "note", host: string): Node =>
+const node = (id: string, kind: "agent" | "peer" | "files" | "note", host: string): Node =>
   (kind === "note"
     ? { id, kind, x: 0, y: 0, z: 0, label: id, text: "" }
-    : { id, kind, x: 0, y: 0, z: 0, label: id, host, ...(kind === "agent" ? { agentKey: "local:claude", overseer: false, bindingId: id, harness: "claude", launch: null } : { seatId: id }) }) as Node;
+    : kind === "files"
+      ? { id, kind, x: 0, y: 0, z: 0, label: id, host, root: "/tmp" }
+      : { id, kind, x: 0, y: 0, z: 0, label: id, host, ...(kind === "agent" ? { agentKey: "local:claude", overseer: false, bindingId: id, harness: "claude", launch: null } : { seatId: id }) }) as Node;
 
 const source = (nodes: ReadonlyArray<Node>, automations: ReadonlyArray<TakeoverSource["automations"] extends ReadonlyMap<string, infer E> ? E : never>): TakeoverSource => ({
   canvas: { name: "factory", seq: 0, nodes: new Map(nodes.map((entry) => [entry.id, entry])), wires: new Map() } as unknown as Canvas,
@@ -16,7 +18,7 @@ describe("countTakeoverPlacement", () => {
   it("counts seats and unarchived automations the far canvases place on the name", () => {
     const sources = [
       source(
-        [node("a", "agent", "near"), node("b", "peer", "near"), node("c", "agent", "far"), node("n", "note", "near")],
+        [node("a", "agent", "near"), node("b", "peer", "near"), node("c", "agent", "far"), node("f", "files", "near"), node("n", "note", "near")],
         [
           { archived: false, automation: { machine: "near" } },
           { archived: true, automation: { machine: "near" } },
@@ -24,7 +26,7 @@ describe("countTakeoverPlacement", () => {
         ],
       ),
     ];
-    expect(countTakeoverPlacement("near", sources)).toEqual({ seats: 2, automations: 1 });
+    expect(countTakeoverPlacement("near", sources)).toEqual({ seats: 2, automations: 1, files: 1 });
   });
 });
 
@@ -59,6 +61,8 @@ describe("takeover counts on the real state engine", () => {
           _tag: "Add", canvas, wires: [], nodes: [{
             kind: "agent", id: "seat-1", x: 0, y: 0, width: 240, height: 120, z: 0, label: "Seat",
             agentKey: "command:claude", host: "command", overseer: false, bindingId: "seat-binding", harness: "claude", launch: { kind: "harness" },
+          }, {
+            kind: "files", id: "files-1", x: 0, y: 0, width: 240, height: 120, z: 0, label: "Files", host: "command", root: "/tmp",
           }],
         }), "operator");
         const automationId = Schema.decodeUnknownSync(AutomationId)("01M5ESKJFC1A88R1MH1NEZWJ2Q");
@@ -79,7 +83,7 @@ describe("takeover counts on the real state engine", () => {
           return countTakeoverPlacement("command", sources);
         }));
       }));
-      expect(result).toEqual({ seats: 1, automations: 1 });
+      expect(result).toEqual({ seats: 1, automations: 1, files: 1 });
     } finally {
       await runtime.dispose();
       await rm(root, { recursive: true, force: true });

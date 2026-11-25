@@ -59,7 +59,7 @@ export interface MachineOwnerOptions {
   /** The install-local attempt store; without it no automatic push starts. */
   readonly installOps?: Pick<InstallOpsServiceShape, "updateLatch" | "recordUpdateLatch">;
   /** The far machine's own count of seats and unarchived automations placed on a name. */
-  readonly takeoverCounts?: (machineName: string) => Effect.Effect<{ readonly seats: number; readonly automations: number }, unknown>;
+  readonly takeoverCounts?: (machineName: string) => Effect.Effect<{ readonly seats: number; readonly automations: number; readonly files: number }, unknown>;
   /** Remove this machine's key material for a peer and revoke its line. */
   readonly takeoverForget?: (machineName: string, installationId: InstallationId) => Effect.Effect<void, unknown>;
 }
@@ -210,7 +210,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
   });
   const takeoverPreview = new Map<string, { readonly expectedInstallationId: InstallationId; readonly seats: number; readonly automations: number }>();
   const countTakeover = (name: string) => options.takeoverCounts === undefined
-    ? Effect.succeed({ seats: 0, automations: 0 })
+    ? Effect.succeed({ seats: 0, automations: 0, files: 0 })
     : options.takeoverCounts(name).pipe(Effect.mapError(() => new RemoteHostsError("io", "This machine's take-over counts could not be read")));
   const takeover = (input: MachineTakeoverInput): Effect.Effect<MachineTakeoverData, RemoteHostsError> => Effect.gen(function* () {
     const name = input.machineName;
@@ -243,6 +243,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       previousInstallationId: previous,
       seats: counts.seats,
       automations: counts.automations,
+      files: counts.files,
       takenOver: input.confirm !== undefined,
     } satisfies MachineTakeoverData;
     if (input.confirm === undefined) return answer;

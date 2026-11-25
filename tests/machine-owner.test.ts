@@ -509,7 +509,7 @@ it.each([[true, undefined], [false, "mini is removed, but Junto could not delete
 it("takes over a pin by installation id, sweeps its old debt, and closes its link", async () => {
   const forgotten: Array<{ readonly name: string; readonly installationId: string }> = [];
   const f = await fixture({
-    takeoverCounts: () => Effect.succeed({ seats: 2, automations: 3 }),
+    takeoverCounts: () => Effect.succeed({ seats: 2, automations: 3, files: 1 }),
     takeoverForget: (name, installationId) => Effect.sync(() => { forgotten.push({ name, installationId }); }),
   });
   await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
@@ -519,7 +519,7 @@ it("takes over a pin by installation id, sweeps its old debt, and closes its lin
   f.database.exec("INSERT INTO machine_peer_seen(installation_id, build, version, built_at, seen_at) VALUES ('mini-install', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', NULL, NULL, 'now')");
 
   const preview = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install" });
-  expect(preview).toMatchObject({ ok: true, op: "machine.takeover", data: { seats: 2, automations: 3, takenOver: false } });
+  expect(preview).toMatchObject({ ok: true, op: "machine.takeover", data: { seats: 2, automations: 3, files: 1, takenOver: false } });
   expect(f.database.prepare("SELECT installation_id FROM machine_peers WHERE machine_name = 'mini'").get()).toEqual({ installation_id: "mini-install" });
 
   const noExpected = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", confirm: { seats: 2, automations: 3 } });
@@ -543,7 +543,7 @@ it("takes over a pin by installation id, sweeps its old debt, and closes its lin
 
 it("refuses a take-over before the commit when the old key cannot be removed", async () => {
   const f = await fixture({
-    takeoverCounts: () => Effect.succeed({ seats: 0, automations: 0 }),
+    takeoverCounts: () => Effect.succeed({ seats: 0, automations: 0, files: 0 }),
     takeoverForget: () => Effect.fail(new Error("could not rewrite authorized_keys")),
   });
   await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
@@ -559,7 +559,7 @@ it("previews and confirms a remote take-over through the far owner command", asy
   let dials = 0;
   const far = {
     machineName: "mini", installationId: "old-mini", previousInstallationId: "mini-install",
-    seats: 4, automations: 5, takenOver: false,
+    seats: 4, automations: 5, files: 2, takenOver: false,
   };
   const f = await fixture({}, undefined, () => {
     dials += 1;
@@ -575,7 +575,7 @@ it("previews and confirms a remote take-over through the far owner command", asy
   expect(dials).toBe(0);
 
   const preview = await f.call("machine.takeover-remote", { name: "mini" });
-  expect(preview).toMatchObject({ ok: true, op: "machine.takeover-remote", data: { seats: 4, automations: 5, takenOver: false } });
+  expect(preview).toMatchObject({ ok: true, op: "machine.takeover-remote", data: { seats: 4, automations: 5, files: 2, takenOver: false } });
   const refused = await f.call("machine.takeover-remote", { name: "mini", expectedInstallationId: "mini-install", confirm: { seats: 0, automations: 0 } });
   expect(refused).toMatchObject({ ok: false, error: { type: "conflict" } });
   expect(dials).toBe(1);
@@ -590,7 +590,7 @@ it("refuses a take-over at the commit when the far count changes after the confi
   const f = await fixture({
     takeoverCounts: () => Effect.sync(() => {
       counts += 1;
-      return counts >= 3 ? { seats: 1, automations: 0 } : { seats: 2, automations: 0 };
+      return counts >= 3 ? { seats: 1, automations: 0, files: 0 } : { seats: 2, automations: 0, files: 0 };
     }),
     takeoverForget: (_name, installationId) => Effect.sync(() => { forgotten.push(installationId); }),
   });
