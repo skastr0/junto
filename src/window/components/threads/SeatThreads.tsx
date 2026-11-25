@@ -22,6 +22,7 @@ import { openNeedsYouOn } from "../../lib/operator-feed";
 import { mentionChipOf, openMention, subjectChipOf, type MentionChip } from "../../lib/mention-open";
 import { stripAuthorPreamble } from "../../lib/thread-text";
 import { useCanvas } from "../../lib/use-model";
+import { answerHeldWords } from "../../lib/feed-exchange";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
 import { Eyebrow } from "../ui/Eyebrow";
@@ -46,7 +47,6 @@ import {
   WaitingMark,
   type Said,
 } from "./ThreadSignal";
-import { ANSWER_HELD_WORDS } from "@shared/signal-answer-held";
 import { ThreadTime } from "./ThreadTime";
 import { rehypeThreadCodeWells, rehypeThreadInlineIds } from "./thread-inline-ids";
 import "./seat-threads.css";
@@ -806,10 +806,10 @@ export function ThreadChat({
                     {words}
                     {files}
                     {/* The operator's own mail that its seat does not have yet. */}
-                    {message.mine && message.waiting && !heldBack.includes(message.messageId) ? <WaitingMark name={name} /> : null}
+                    {message.mine && message.waiting && !message.held && !heldBack.includes(message.messageId) ? <WaitingMark name={name} /> : null}
                     {/* An answer its seat withdrew the signal before it arrived: kept from the seat, said in the crossed note's own style. */}
                     {message.mine && message.held ? (
-                      <p className="seat-threads__signal-note" data-testid="seat-threads-answer-held">{ANSWER_HELD_WORDS}</p>
+                      <p className="seat-threads__signal-note seat-threads__signal-note--held" data-testid="seat-threads-answer-held">{answerHeldWords(name)}</p>
                     ) : null}
                   </>
                 )}

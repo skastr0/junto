@@ -164,7 +164,7 @@ it("tells the exchange in the pane, folded past four, ending at this signal", as
   expect(unfolded[0]!.dataset.signalId).toBe("s1");
   expect(unfolded[0]!.textContent).toContain("Answered");
   expect(unfolded[1]!.textContent).toBe("You: Yes, go ahead with 1");
-  expect(q('[data-testid="feed-exchange"]')!.textContent).toContain("atlas withdrew this before your answer reached it.");
+  expect(q('[data-testid="feed-exchange"]')!.textContent).toContain("atlas says it withdrew this before your answer reached it.");
   expect(q('[data-testid="feed-exchange-all"]')).toBeNull();
 });
 
@@ -208,9 +208,9 @@ it("keeps a card the seat withdrew before the answer reached it, in the pane, un
   });
   // The list handed on; the pane keeps s4 and says why, in the answer area.
   expect(selected()).toBe("signal:b1");
-  expect(q('[data-testid="feed-crossed"]')?.textContent).toBe("atlas withdrew this before your answer reached it.");
+  expect(q('[data-testid="feed-crossed"]')?.textContent).toBe("atlas says it withdrew this before your answer reached it.");
   expect(q('[data-testid="operator-feed-detail"]')?.dataset.itemId).toBe("signal:s4");
-  expect(q(".operator-feed__announce")?.textContent).toBe("atlas withdrew a signal before your answer reached it: Topic 4 needs your call");
+  expect(q(".operator-feed__announce")?.textContent).toBe("atlas says it withdrew a signal before your answer reached it: Topic 4 needs your call");
   // A key that would answer is only let go of: nothing is sent on the card the pane is not showing.
   const frame = q(".operator-modal__frame")!;
   await act(async () => {
@@ -260,9 +260,9 @@ it("keeps a half-typed reply, shown and locked, when its card closes crossed, an
   // The keyboard is not left on a locked field: it is on the note, which says what happened.
   expect(document.activeElement).toBe(q('[data-testid="feed-crossed"]'));
   expect(q(".operator-feed__announce")?.textContent).toBe(
-    "atlas withdrew a signal before your answer reached it: Topic 4 needs your call. Your draft was not sent.",
+    "atlas says it withdrew a signal before your answer reached it: Topic 4 needs your call. Your draft was not sent.",
   );
-  expect(q('[data-testid="feed-crossed"]')?.textContent).toBe("atlas withdrew this before your answer reached it. Your draft was not sent.");
+  expect(q('[data-testid="feed-crossed"]')?.textContent).toBe("atlas says it withdrew this before your answer reached it. Your draft was not sent.");
 });
 
 it("says nothing of a card that closed an ordinary way", async () => {

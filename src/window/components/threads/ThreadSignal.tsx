@@ -2,6 +2,7 @@ import { Check, Clock, CornerDownRight, Undo2, X, type LucideIcon } from "lucide
 import type { ReactNode } from "react";
 import { FEED_KIND_LABEL } from "@shared/operator-feed";
 import type { AgentSignalState, SeatRaiseKind } from "@shared/wire/agent-signals";
+import { crossedWords } from "../../lib/feed-exchange";
 import { waitingForSeats } from "../../lib/seat-threads";
 import { KIND_ICON } from "../feed/FeedCardView";
 import { Button } from "../ui/Button";
@@ -129,7 +130,7 @@ export function SignalFrame({
       {signal.state === "withdrawn" && signal.crossed ? (
         // The answer and the withdrawal crossed. Nothing failed, so it is said plainly, here on the signal, as the seat's own statement (it is not fact the operator's machine can check).
         <p className="seat-threads__signal-note" data-testid="seat-threads-signal-crossed">
-          {author} says it withdrew this before your answer reached it.
+          {crossedWords(author)}
         </p>
       ) : null}
       {signal.state === "open" && signal.asks !== undefined ? (

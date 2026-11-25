@@ -82,7 +82,7 @@ export const MailThreadMessage = Schema.Struct({
   /**
    * The operator's answer kept from its seat: the seat withdrew the signal
    * before the answer arrived, so it is never typed (`answerHeld`). The window
-   * says `ANSWER_HELD_WORDS` beside it. Present only with `answers`.
+   * says so beside it as the seat's own statement. Present only with `answers`.
    */
   held: Schema.optionalKey(Schema.Literal(true)),
 });

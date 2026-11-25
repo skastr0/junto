@@ -470,6 +470,11 @@ html[data-theme="bright"] .seat-threads__block {
   color: var(--color-dim);
 }
 
+/* Under the operator's own mail, the note sits where the waiting mark would. */
+.seat-threads__signal-note--held {
+  margin-top: 6px;
+}
+
 /* What the operator's message answered, above its block; and under it, that
    it has not reached its seat yet. Both sit on the block's side. */
 .seat-threads__answer-to,
