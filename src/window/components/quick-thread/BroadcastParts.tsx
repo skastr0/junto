@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronRight, Clock, X } from "lucide-react";
 import type { BroadcastSeat } from "@shared/broadcast";
-import { claimFocus, claimFocusOnMount } from "../../lib/focus-ownership";
+import { claimFocus, claimFocusOnMount, recentGestureKind } from "../../lib/focus-ownership";
 import { keyIs } from "../../lib/key-match";
 import {
   confirmDetail,
@@ -53,6 +53,32 @@ export function RegionToken({
 }) {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
+  const body = useRef<HTMLDivElement | null>(null);
+  // The limits are a dialog: it takes the keyboard on open, whatever opened it (the popover itself leaves a
+  // pointer's press where it was), and gives it back to the token when a key closed it.
+  useEffect(() => {
+    if (!open) return;
+    let frame = 0;
+    let tries = 0;
+    const take = (): void => {
+      const first = body.current?.querySelector<HTMLElement>("button");
+      if (first !== null && first !== undefined) claimFocus(first, "open", { preventScroll: true });
+      // The panel is drawn hidden until it is placed, and a hidden control takes no focus: try again next frame.
+      if ((first === null || first === undefined || document.activeElement !== first) && (tries += 1) < 12) frame = requestAnimationFrame(take);
+    };
+    frame = requestAnimationFrame(take);
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+  const giveBack = useRef(false);
+  const closeLimits = (): void => {
+    giveBack.current = recentGestureKind() === "key";
+    setOpen(false);
+  };
+  useEffect(() => {
+    if (open || !giveBack.current) return;
+    giveBack.current = false;
+    claimFocus(anchor, "gesture");
+  }, [open, anchor]);
   const limits = limitsOf(pick);
   const label = regionTokenText(region.name, pick);
   const heading = useId();
@@ -71,7 +97,7 @@ export function RegionToken({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`${label}, ${seatsWord(count)}. Change the limits`}
-        onClick={() => setOpen((was) => !was)}
+        onClick={() => (open ? closeLimits() : setOpen(true))}
       >
         <span className="feed-region-chip__swatch" aria-hidden />
         <span className="quick-thread__region-name">{region.name}</span>
@@ -84,8 +110,8 @@ export function RegionToken({
         <X size={10} strokeWidth={2} />
       </IconButton>
       {open && anchor !== null ? (
-        <Popover anchor={anchor} onClose={() => setOpen(false)} label={`Limits for ${region.name}`} width={300} testId="quick-thread-limits">
-          <div className="quick-thread__limits" data-testid="quick-thread-limits-body">
+        <Popover anchor={anchor} onClose={closeLimits} label={`Limits for ${region.name}`} width={300} testId="quick-thread-limits">
+          <div ref={body} className="quick-thread__limits" data-testid="quick-thread-limits-body">
             {LIMIT_GROUPS.map((group) => (
               <div key={group.group} role="group" aria-labelledby={`${heading}-${group.group}`} className="quick-thread__limit-group">
                 <span id={`${heading}-${group.group}`} className="quick-thread__limit-heading">
@@ -163,6 +189,7 @@ function Names({ seats, regionOf, label }: { readonly seats: ReadonlyArray<Broad
 /** A line with a toggle that shows the names behind its count. */
 function Disclosure({
   text,
+  lineId,
   label,
   names: namesLabel,
   seats,
@@ -173,6 +200,8 @@ function Disclosure({
   aside,
 }: {
   readonly text: string;
+  /** The toggle's id, for a control that is described by this line. */
+  readonly lineId?: string;
   /** What the toggle is called to a screen reader, when its words alone are not enough: "Show the 40 seats". */
   readonly label?: string;
   /** What the list of names is called: by what it holds, not by the command that shows it. */
@@ -190,7 +219,7 @@ function Disclosure({
   return (
     <div className="quick-thread__disclosure" data-testid={testId} data-open={open ? "true" : undefined} data-ink={ink ? "true" : undefined}>
       <div className="quick-thread__disclosure-line">
-        <button type="button" className="quick-thread__disclosure-toggle" aria-expanded={open} aria-controls={names} {...(label === undefined ? {} : { "aria-label": label })} onClick={() => setOpen((was) => !was)}>
+        <button id={lineId} type="button" className="quick-thread__disclosure-toggle" aria-expanded={open} aria-controls={names} {...(label === undefined ? {} : { "aria-label": label })} onClick={() => setOpen((was) => !was)}>
           {open ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
           {text}
         </button>
@@ -338,11 +367,19 @@ export function BroadcastReceiptView({
     if (active === null || active === document.body) claimFocus(done.current, "gesture");
   }, [receipt]);
   const inert = sending ? true : undefined;
+  // Done is described by the counted lines, as the single-seat receipt's Done is by its line.
+  const ids = useId();
+  const lines = [
+    receipt.notSent.length > 0 ? `${ids}-not` : undefined,
+    receipt.have.length > 0 ? `${ids}-have` : undefined,
+    receipt.later.length > 0 ? `${ids}-later` : undefined,
+  ].filter((id): id is string => id !== undefined);
   return (
     <div ref={root} className="quick-thread__confirm" data-testid="quick-thread-broadcast-receipt">
       {receipt.notSent.length > 0 ? (
         <Disclosure
           text={`${receipt.notSent.length} not sent`}
+          lineId={`${ids}-not`}
           names={`${receipt.notSent.length} not sent`}
           seats={receipt.notSent}
           regionOf={regionOf}
@@ -367,11 +404,12 @@ export function BroadcastReceiptView({
         </div>
       ) : null}
       {receipt.have.length > 0 ? (
-        <Disclosure text={`${receipt.have.length} have it`} names={`${receipt.have.length} have it`} seats={receipt.have} regionOf={regionOf} testId="quick-thread-have" />
+        <Disclosure text={`${receipt.have.length} have it`} lineId={`${ids}-have`} names={`${receipt.have.length} have it`} seats={receipt.have} regionOf={regionOf} testId="quick-thread-have" />
       ) : null}
       {receipt.later.length > 0 ? (
         <Disclosure
           text={`${receipt.later.length} get it when they are back`}
+          lineId={`${ids}-later`}
           names={`${receipt.later.length} get it when they are back`}
           seats={receipt.later}
           regionOf={regionOf}
@@ -379,7 +417,7 @@ export function BroadcastReceiptView({
         />
       ) : null}
       <div className="quick-thread__done">
-        <Button ref={setDone} size="sm" variant="chrome" data-testid="quick-thread-done" aria-disabled={inert} onClick={() => !sending && onDone()}>
+        <Button ref={setDone} size="sm" variant="chrome" data-testid="quick-thread-done" aria-describedby={lines.join(" ")} aria-disabled={inert} onClick={() => !sending && onDone()}>
           Done
         </Button>
       </div>

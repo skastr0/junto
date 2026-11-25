@@ -710,6 +710,11 @@ describe("Broadcast: a region as a recipient", () => {
     // Open for a few seats, with its names.
     expect(q("quick-thread-not-sent")?.textContent).toContain("product-typography");
     // Why, under the line, as the seat-by-seat flow says it.
+    // Done is described by the counted lines, as the single-seat receipt's Done is by its line.
+    const done = q("quick-thread-done") as HTMLElement;
+    const described = (done.getAttribute("aria-describedby") ?? "").split(" ").map((id) => document.getElementById(id)?.textContent ?? "");
+    expect(described.join(" | ")).toContain("1 not sent");
+    expect(described.join(" | ")).toContain("1 have it");
     expect(q("quick-thread-not-sent-reasons")?.textContent).toBe("Not sent to @product-typography. That seat is not reachable.");
 
     delete refused["s-type"];
