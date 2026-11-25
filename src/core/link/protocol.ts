@@ -1,10 +1,19 @@
 import { Schema } from "effect";
 import { EncodedFailure, OperationId } from "@shared/failure";
 import { InstallationId } from "@shared/installation-id";
-import { MachineBuild, MachineName } from "@shared/machine-control";
+import { MachineBuild, MachineBuiltAt, MachineName, MachineVersion } from "@shared/machine-control";
 import { LINK_CHANNELS } from "./types";
 
-export const LinkHelloSchema = Schema.Struct({ build: MachineBuild, installationId: InstallationId, machineName: MachineName });
+/**
+ * `version` and `builtAt` are the sender's own claim, for saying which end is
+ * behind; build equality alone admits a link. A build from before them sends
+ * neither, and one that has them is refused by such a build's strict decode,
+ * which closes the link it would have refused for its build anyway.
+ */
+export const LinkHelloSchema = Schema.Struct({
+  build: MachineBuild, installationId: InstallationId, machineName: MachineName,
+  version: Schema.optionalKey(MachineVersion), builtAt: Schema.optionalKey(MachineBuiltAt),
+});
 const Id = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64)), Schema.check(Schema.isPattern(/^[A-Za-z0-9._-]+$/)));
 const Channel = Schema.Literals(LINK_CHANNELS);
 /** A contract channel's request tag: its Rpc's own (`contract.ts`). */

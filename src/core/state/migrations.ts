@@ -14,7 +14,7 @@ import {
 import { AUTOMATION_FIRING_REV_COLUMN_SQL, AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_RULING_CURSORS_SQL, AUTOMATION_V28_STATE_SCHEMA_SQL } from "../automation/state-schema";
 import { TASK_SEAT_RELEASES_SQL } from "../work/task-state-schema";
 import { MACHINE_CODE_ALLOWANCES_SQL } from "../automation/code-allowance-schema";
-import { MACHINE_PEER_BINDING_COLUMN_SQL } from "../machines/state-schema";
+import { MACHINE_PEER_BINDING_COLUMN_SQL, MACHINE_PEER_SEEN_STATE_SCHEMA_SQL } from "../machines/state-schema";
 import { SEAT_CONTROLS_STATE_SCHEMA_SQL } from "../work/seat-controls-state-schema";
 import { FLEET_CONSENSUS_SEED_SQL, FLEET_CONSENSUS_STATE_SCHEMA_SQL, FLEET_COPY_LIST_STATE_SCHEMA_SQL, FLEET_STRUCTURE_LOG_STATE_SCHEMA_SQL } from "../fleet/state-schema";
 import { MACHINE_VAULT_TOKENS_SQL } from "../vault/state-schema";
@@ -986,6 +986,19 @@ export const STATE_SCHEMA_V79_IDENTITY = {
     "8cbf4724ec4704a957edc8e360580cb4194b32bf1b18a3a646d3467babe78b0a",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+/**
+ * Version 80 (0.12, Remote slice 1): `machine_peer_seen` keeps what each peer
+ * last said of itself in an admitted hello, its build, release and build
+ * time, so the machine list says which machine is behind after a restart.
+ * Keyed by installation id, never by name: a name taken over by another
+ * installation never reads the old one's words. Empty at the step: a peer
+ * reads as unseen until its next link. Expand only.
+ */
+export const STATE_SCHEMA_V80_IDENTITY = {
+  actualSchemaSha256:
+    "6f6a0023fe21687fee863ccbb3b4a33afa4ddc958c9b96c759b79a97ef0e27d1",
+} as const satisfies VerifiedStateSchemaIdentity;
+
 import { CURRENT_STATE_SCHEMA_VERSION } from "../../node/state/schema-version";
 
 export { CURRENT_STATE_SCHEMA_VERSION };
@@ -1632,6 +1645,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V78_IDENTITY,
     replacesTables: [...SEAT_SESSIONS_REMOVED_REPLACED_TABLES],
     migrate: migrateSeatSessionEndReasonRemoved,
+  },
+  {
+    fromVersion: 79,
+    toVersion: 80,
+    name: "keep what each peer last said it runs",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V79_IDENTITY,
+    migrate: (database) => database.exec(MACHINE_PEER_SEEN_STATE_SCHEMA_SQL),
   },
 ];
 

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
 import { InstallationId } from "@shared/installation-id";
-import { MachineName } from "@shared/machine-control";
+import { MachineBuild, MachineBuiltAt, MachineName, MachineVersion } from "@shared/machine-control";
 import { defaultMachineName } from "@shared/machine-name";
 import { StateTransactionOperation } from "../../node/state/transaction-operation";
 import { withSqlRead } from "../state/sql-read";
@@ -19,6 +19,13 @@ export type MachinePeerIdentity = typeof PeerIdentity.Type;
  * changed only by retirement. Absent: the account's own SSH access, as before.
  */
 export type MachinePeer = MachinePeerIdentity & { readonly boundAt: string; readonly binding?: "key" };
+/**
+ * What an active peer last said of itself in a hello this machine admitted:
+ * its build, and the release and build time it claims. Display only.
+ */
+export type MachinePeerSeen = MachinePeerIdentity & {
+  readonly build: string; readonly version?: string; readonly builtAt?: string; readonly seenAt: string;
+};
 
 export class MachinePersistenceError extends Schema.TaggedError<MachinePersistenceError>()(
   "MachinePersistenceError", { operation: Schema.String, message: Schema.String, cause: Schema.Unknown },
@@ -34,12 +41,26 @@ export class MachineRepository extends Context.Service<MachineRepository, {
   readonly peer: (machineName: string) => Effect.Effect<MachinePeer | undefined, MachinePersistenceError>;
   readonly peers: Effect.Effect<ReadonlyArray<MachinePeer>, MachinePersistenceError>;
   readonly retirePeer: (machineName: string) => Effect.Effect<void, MachinePersistenceError>;
+  /** Names a peer was pinned under and later retired, and not pinned again. */
+  readonly retiredPeers: Effect.Effect<ReadonlyArray<string>, MachinePersistenceError>;
+  /**
+   * Keeps what an admitted hello said, for an active peer under the
+   * installation it was pinned to; any other hello writes nothing. A release
+   * or build time its schema refuses is left out.
+   */
+  readonly notePeerHello: (hello: MachinePeerIdentity & { readonly build: string; readonly version?: string; readonly builtAt?: string }) => Effect.Effect<void, MachinePersistenceError>;
+  /** What each active peer last said, under the installation it is pinned to. */
+  readonly peersSeen: Effect.Effect<ReadonlyArray<MachinePeerSeen>, MachinePersistenceError>;
 }>()("@junto/MachineRepository") {}
 
 const InstallationRow = Schema.Struct({ installation_id: InstallationId, created_at: Timestamp });
 const PeerRow = Schema.Struct({
   machine_name: MachineName, installation_id: InstallationId,
   bound_at: Timestamp, retired_at: Schema.NullOr(Timestamp), binding: Schema.NullOr(Schema.Literal("key")),
+});
+const SeenRow = Schema.Struct({
+  machine_name: MachineName, installation_id: InstallationId, build: MachineBuild,
+  version: Schema.NullOr(Schema.String), built_at: Schema.NullOr(Schema.String), seen_at: Timestamp,
 });
 const peerFromRow = (row: typeof PeerRow.Type): MachinePeer => ({
   machineName: row.machine_name, installationId: row.installation_id, boundAt: row.bound_at,
@@ -120,9 +141,40 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
     })).pipe(Effect.provideService(StateTransactionOperation, "machine.pin-peer"));
   }, Effect.mapError(failure("pin-peer")));
   const retirePeer = Effect.fn("MachineRepository.retirePeer")((name: string) =>
-    sql.withTransaction(sql`UPDATE machine_peers SET retired_at = ${now()}, binding = NULL WHERE machine_name = ${name} AND retired_at IS NULL`).pipe(
+    sql.withTransaction(Effect.gen(function* () {
+      // What a retired peer said is no longer its word: it is heard again when it is pinned again and links.
+      yield* sql`DELETE FROM machine_peer_seen WHERE installation_id IN
+        (SELECT installation_id FROM machine_peers WHERE machine_name = ${name} AND retired_at IS NULL)`;
+      yield* sql`UPDATE machine_peers SET retired_at = ${now()}, binding = NULL WHERE machine_name = ${name} AND retired_at IS NULL`;
+    })).pipe(
       Effect.asVoid, Effect.provideService(StateTransactionOperation, "machine.retire-peer"), Effect.mapError(failure("retire-peer")),
     ));
+  const retiredPeers = withSqlRead(sql, SqlSchema.findAll({ Request: Schema.Void, Result: Schema.Struct({ machine_name: MachineName }),
+    execute: () => sql`SELECT machine_name FROM machine_peers WHERE retired_at IS NOT NULL ORDER BY machine_name`,
+  })(undefined)).pipe(Effect.map((rows) => rows.map((row) => row.machine_name)), Effect.mapError(failure("retired-peers")));
+  const notePeerHello = Effect.fn("MachineRepository.notePeerHello")(function* (hello: MachinePeerIdentity & { readonly build: string; readonly version?: string; readonly builtAt?: string }) {
+    const identity = yield* Schema.decodeUnknownEffect(PeerIdentity)({ machineName: hello.machineName, installationId: hello.installationId });
+    const build = yield* Schema.decodeUnknownEffect(MachineBuild)(hello.build);
+    const version = hello.version !== undefined && Schema.is(MachineVersion)(hello.version) ? hello.version : null;
+    const builtAt = hello.builtAt !== undefined && Schema.is(MachineBuiltAt)(hello.builtAt) ? hello.builtAt : null;
+    const at = yield* Schema.decodeUnknownEffect(Timestamp)(now());
+    yield* sql.withTransaction(sql`
+      INSERT INTO machine_peer_seen(installation_id, build, version, built_at, seen_at)
+      SELECT ${identity.installationId}, ${build}, ${version}, ${builtAt}, ${at}
+      WHERE EXISTS (SELECT 1 FROM machine_peers WHERE machine_name = ${identity.machineName}
+        AND installation_id = ${identity.installationId} AND retired_at IS NULL)
+      ON CONFLICT(installation_id) DO UPDATE SET build = excluded.build,
+        version = excluded.version, built_at = excluded.built_at, seen_at = excluded.seen_at`).pipe(
+      Effect.provideService(StateTransactionOperation, "machine.note-peer-hello"));
+  }, Effect.asVoid, Effect.mapError(failure("note-peer-hello")));
+  const peersSeen = withSqlRead(sql, SqlSchema.findAll({ Request: Schema.Void, Result: SeenRow,
+    execute: () => sql`SELECT p.machine_name, s.installation_id, s.build, s.version, s.built_at, s.seen_at
+      FROM machine_peer_seen s JOIN machine_peers p ON p.installation_id = s.installation_id
+      WHERE p.retired_at IS NULL ORDER BY p.machine_name`,
+  })(undefined)).pipe(Effect.map((rows) => rows.map((row): MachinePeerSeen => ({
+    machineName: row.machine_name, installationId: row.installation_id, build: row.build, seenAt: row.seen_at,
+    ...(row.version === null ? {} : { version: row.version }), ...(row.built_at === null ? {} : { builtAt: row.built_at }),
+  }))), Effect.mapError(failure("peers-seen")));
   const configureName = Effect.fn("MachineRepository.configureName")(function* (input: string) {
     const name = yield* Schema.decodeUnknownEffect(MachineName)(input);
     return yield* sql.withTransaction(Effect.gen(function* () {
@@ -144,7 +196,8 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
       Effect.tap((stored) => Effect.sync(() => options.log?.setMachine(stored.configuration.name))));
   }, Effect.mapError(failure("configure-name")));
   return MachineRepository.of({ installationId: Effect.succeed(installationId), configuration,
-    machineName: configuration.pipe(Effect.map((stored) => stored.configuration.name)), configureName, pinPeer, peer, peers, retirePeer });
+    machineName: configuration.pipe(Effect.map((stored) => stored.configuration.name)), configureName, pinPeer, peer, peers, retirePeer,
+    retiredPeers, notePeerHello, peersSeen });
 });
 
 export const makeMachineRepositoryLive = (options: MachineRepositoryOptions = {}) =>

@@ -1,6 +1,7 @@
 import { Schema, type Effect } from "effect";
 import { EncodedCauses, EncodedFailure, failureSentence, type EncodedCause } from "@shared/failure";
 import type { InstallationId } from "@shared/installation-id";
+import { MachineUpdateDirection, machineUpdateDirection } from "@shared/machine-control";
 import { describeCause, causeChain } from "../../node/failure-encode";
 import type { LinkContractChannel } from "./contract";
 
@@ -19,9 +20,15 @@ export interface LinkHello {
   readonly build: string;
   readonly installationId: InstallationId;
   readonly machineName: string;
+  /** The release the sender says it runs, and when it was built: display only. */
+  readonly version?: string;
+  readonly builtAt?: string;
 }
 
-const HelloFields = Schema.Struct({ build: Schema.String, installationId: Schema.String, machineName: Schema.String });
+const HelloFields = Schema.Struct({
+  build: Schema.String, installationId: Schema.String, machineName: Schema.String,
+  version: Schema.optionalKey(Schema.String), builtAt: Schema.optionalKey(Schema.String),
+});
 
 /** Which hello check refused the peer. */
 export const HelloCheck = Schema.Literals(["first-frame", "repeated", "decode", "self-link", "route-name", "setup-identity", "opener", "opener-key", "opener-key-required"]);
@@ -38,12 +45,38 @@ export class LinkBuildMismatch extends Schema.TaggedError<LinkBuildMismatch>()("
   machine: Schema.String,
   peer: HelloFields,
   localBuild: Schema.String,
+  /** Which end is behind, from what each says it runs. */
+  direction: Schema.optionalKey(MachineUpdateDirection),
   message: Schema.String,
 }) {
-  static of(peer: LinkHello, localBuild: string): LinkBuildMismatch {
-    return new LinkBuildMismatch({ machine: peer.machineName, peer: { ...peer }, localBuild, message: `Update ${peer.machineName} before connecting Junto` });
+  /** `local` is this end's own hello: the message names the machine to update, never "this machine". */
+  static of(peer: LinkHello, local: LinkHello): LinkBuildMismatch {
+    const direction = machineUpdateDirection(peer, local);
+    return new LinkBuildMismatch({ machine: peer.machineName, peer: { ...peer }, localBuild: local.build, direction,
+      message: mismatchSentence(peer, local, direction) });
   }
 }
+
+const day = (builtAt: string | undefined): string => {
+  if (builtAt === undefined) return "";
+  const at = new Date(builtAt);
+  return Number.isNaN(at.getTime()) ? "" : ` (${at.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })})`;
+};
+const release = (hello: LinkHello): string => `Junto ${hello.version}${day(hello.builtAt)}`;
+/** This end's own release, as a fact. */
+const runs = (hello: LinkHello): string => hello.version === undefined ? "runs an older build of Junto" : `runs ${release(hello)}`;
+/** The peer's release is its own statement, worded as one: a pinned peer can still claim what it likes. */
+const says = (hello: LinkHello): string => hello.version === undefined ? "runs an older build of Junto" : `says it runs ${release(hello)}`;
+
+/** One sentence: what the far machine says it runs, what this one runs, and which to update. */
+export const mismatchSentence = (peer: LinkHello, local: LinkHello, direction: MachineUpdateDirection): string => {
+  const p = peer.machineName; const l = local.machineName;
+  if (direction === "peer-older") return `${p} ${says(peer)}; ${l} ${runs(local)}. Update ${p}.`;
+  if (direction === "this-older") return `${p} ${says(peer)}; ${l} ${runs(local)}. Update ${l}.`;
+  // What each runs is said only when one of them named it: two unnamed builds say nothing more.
+  const which = peer.version === undefined && local.version === undefined ? "" : ` (${p} ${says(peer)}, ${l} ${runs(local)})`;
+  return `${p} and ${l} run different builds of Junto${which}. Send Junto from the newer one to the other.`;
+};
 
 export class LinkPeerNotPinned extends Schema.TaggedError<LinkPeerNotPinned>()("LinkPeerNotPinned", {
   machine: Schema.String,

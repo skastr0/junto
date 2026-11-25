@@ -214,7 +214,7 @@ describe("overseer native adapters", () => {
       termPlane: makeTermPlane({
         get: async (bindingId, hostId) => {
           if (hostId === OTHER_MACHINE) {
-            throw LinkBuildMismatch.of({ build: "old", installationId: "inst-other" as never, machineName: OTHER_MACHINE }, "new");
+            throw LinkBuildMismatch.of({ build: "old", installationId: "inst-other" as never, machineName: OTHER_MACHINE }, { build: "new", installationId: "inst-here" as never, machineName: "here" });
           }
           return { bindingId, hostId, status: "running", epoch: "e1", detached: false, createdAt: 1 };
         },
@@ -237,7 +237,7 @@ describe("overseer native adapters", () => {
     termPlane: makeTermPlane({
       get: async (bindingId, hostId) => {
         if (hostId === OTHER_MACHINE) {
-          throw LinkBuildMismatch.of({ build: "old", installationId: "inst-other" as never, machineName: OTHER_MACHINE }, "new");
+          throw LinkBuildMismatch.of({ build: "old", installationId: "inst-other" as never, machineName: OTHER_MACHINE }, { build: "new", installationId: "inst-here" as never, machineName: "here" });
         }
         return { bindingId, hostId, status: "running", epoch: "e1", detached: false, createdAt: 1 };
       },

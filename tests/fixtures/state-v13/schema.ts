@@ -462,3 +462,15 @@ export const STATE_SCHEMA_V78_SQL = stepped(
   STATE_SCHEMA_V77_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 78)!.migrate,
 );
+
+/** Step 79 admits the removed end reason a deleted seat session takes. */
+export const STATE_SCHEMA_V79_SQL = stepped(
+  STATE_SCHEMA_V78_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 79)!.migrate,
+);
+
+/** Step 80 adds `machine_peer_seen`, what each peer last said of itself in an admitted hello. */
+export const STATE_SCHEMA_V80_SQL = stepped(
+  STATE_SCHEMA_V79_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 80)!.migrate,
+);

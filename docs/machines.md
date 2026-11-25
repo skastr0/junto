@@ -395,8 +395,23 @@ The one interface three seats build against.
   That command only relays its input and output to the core's owner-only
   socket on that machine, the way the phone relay does. It never opens the
   database.
-- Hello first, both ways: build, installation id, machine name. A build
-  mismatch closes the link and names the machine to update.
+- Hello first, both ways: build, installation id, machine name, and the
+  release and build time the sender says it runs. A build mismatch closes the
+  link and names the machine to update at both ends, from those claims: the
+  older release, or the earlier build of one release, and a peer that names
+  none is a build from before they were sent (`LinkBuildMismatch`, locked by
+  `tests/link-hello-version.test.ts`). A build from before them refuses a
+  hello that carries them by its strict decode, which closes a link its build
+  check refuses anyway; its far end still names it from its own hello.
+  The claims never admit or order a link: build equality alone does.
+- What a peer last said in an admitted hello is kept (`machine_peer_seen`,
+  step 79 to 80), keyed by its installation id and never its name, so a name
+  taken over by another installation never reads the old one's words, and
+  `machine.list` still says a machine needs an update after a restart, with `updateDirection`, `peerVersion` and `peerBuiltAt`.
+  Its `setupState` says `set-up` with an active pin, `installed-not-linked`
+  for a machine removed and added again or one with an install root, and
+  `not-installed` otherwise; the status of a removed one names both machines
+  and says to set it up again (`tests/machine-list-peer-seen.test.ts`).
 - After hello, framed messages on named channels, each frame bounded. The
   first channels:
   - `rows`: the row exchange (rules 4 to 6).

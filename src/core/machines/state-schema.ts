@@ -83,7 +83,23 @@ export const MACHINE_PEERS_V21_STATE_SCHEMA_SQL = machinePeersTable("") + MACHIN
 
 export const MACHINE_PEERS_STATE_SCHEMA_SQL = machinePeersTable(`\n    ${MACHINE_PEER_BINDING_COLUMN_SQL},`) + MACHINE_PEER_IDENTITY_TRIGGER_SQL;
 
+/**
+ * What a peer last said of itself in a hello this machine admitted: its build,
+ * and the release and build time it claims. A claim, shown as text, never
+ * admission. One row per installation, never per name: it reads only under
+ * an active pin of that installation, and retiring the pin deletes it.
+ */
+export const MACHINE_PEER_SEEN_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS machine_peer_seen (
+    installation_id TEXT PRIMARY KEY CHECK (length(installation_id) BETWEEN 1 AND 128),
+    build TEXT NOT NULL CHECK (length(build) = 64 AND build NOT GLOB '*[^0-9a-f]*'),
+    version TEXT CHECK (version IS NULL OR length(version) BETWEEN 1 AND 32),
+    built_at TEXT CHECK (built_at IS NULL OR length(built_at) BETWEEN 1 AND 32),
+    seen_at TEXT NOT NULL CHECK (length(seen_at) BETWEEN 1 AND 64)
+  ) STRICT, WITHOUT ROWID;
+`;
 export const MACHINE_STATE_SCHEMA_SQL =
   MACHINE_IDENTITY_STATE_SCHEMA_SQL +
   MACHINE_CONFIGURATION_STATE_SCHEMA_SQL +
-  MACHINE_PEERS_STATE_SCHEMA_SQL;
+  MACHINE_PEERS_STATE_SCHEMA_SQL +
+  MACHINE_PEER_SEEN_STATE_SCHEMA_SQL;

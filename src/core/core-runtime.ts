@@ -85,10 +85,13 @@ import { termPlane } from "./term/plane";
 import { terminalObserverPlane } from "./term/observer";
 import { boatOwnerDispatch, makeBoatOwner } from "./boat/owner";
 import { CoreTracing } from "./core-tracing";
+import type { MachineRelease } from "@shared/machine-control";
 
 export interface MachineCoreOptions {
   readonly home: string;
   readonly build: string;
+  /** What this build says it is, carried in its link hello for the far end's words. */
+  readonly release?: MachineRelease;
   readonly bundles: MachineCopyOptions["bundles"];
   readonly acquireBundle?: MachineCopyOptions["acquireBundle"];
   readonly ready: () => boolean;
@@ -440,7 +443,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
   // The plane that wakes a Boat machine sits here too, so every service above
   // it (a seat's start, the file plane) holds BoatWake from its own context.
   const routes = boatRoutesLayer(options.home);
-  const links = Layer.provideMerge(machineLinkLayer(options.build, options.home), routes);
+  const links = Layer.provideMerge(machineLinkLayer(options.build, options.home, options.release), routes);
   const boat = Layer.provideMerge(Layer.provideMerge(boatWakeLayer, boatPlaneLayer(options.home)), links);
   const status = Layer.provideMerge(machineCoreStatusLayer(options), boat);
   const rows = Layer.provideMerge(machineCoreRowsLayer, status);
@@ -496,6 +499,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
       autoUpdate: { downloadsBundles: options.acquireBundle !== undefined, signedRelease: false },
       ...(Option.isSome(installOps) ? { installOps: installOps.value } : {}),
       linkSetup,
+      ...(options.release === undefined ? {} : { release: options.release }),
       ...(vaultSetup === undefined ? {} : { vaultSetup }),
       ownStatus: machineStatus.own,
       ownHarnesses: machineStatus.harnesses,
@@ -530,9 +534,11 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
           Effect.catch((cause: MachineLinkError) => Effect.gen(function* () {
             const failure = cause._tag === "LinkRequestFailed" ? cause.failure : encodeError(cause, { machine: own });
             yield* Effect.logWarning("machine status failed").pipe(Effect.annotateLogs({ area: "link", peer: name, failure }));
-            return { machineName: name, reachable: cause instanceof LinkBuildMismatch, installationId: pin.installationId,
+            // A machine on another build refused the link, so nothing was read from it: not reachable, and
+            // the mismatch's own sentence names the machine to update, never "this machine".
+            return { machineName: name, reachable: false, installationId: pin.installationId,
               harnesses: [], missingSecrets: [], failure,
-              detail: cause instanceof LinkBuildMismatch ? "Update Junto on this machine" : failureSentence(failure).slice(0, 1024) };
+              detail: (cause instanceof LinkBuildMismatch ? cause.message : failureSentence(failure)).slice(0, 1024) };
           })),
         );
       }),

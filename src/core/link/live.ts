@@ -1,7 +1,7 @@
 import { PassThrough, Writable } from "node:stream";
 import { Effect, Exit, Layer, Option, Scope, Schema, Stream } from "effect";
 import { InstallationId } from "@shared/installation-id";
-import { MachineBuild } from "@shared/machine-control";
+import { MachineBuild, MachineBuiltAt, MachineVersion, type MachineRelease } from "@shared/machine-control";
 import { RemoteHost } from "@shared/remote-hosts";
 import { encodeError } from "../../node/failure-encode";
 import { MachineRepository, type MachinePeer } from "../machines/repository";
@@ -43,7 +43,7 @@ const toLinkError = (cause: unknown, machine?: string): MachineLinkError => {
  * `home` holds this machine's link keys: a peer with a bound route recorded
  * there is dialed with that route and key only (link-keys.ts).
  */
-export const makeMachineLink = (options: { readonly build: string; readonly home?: string; readonly routes: BoatRoutes }) => Effect.gen(function* () {
+export const makeMachineLink = (options: { readonly build: string; readonly release?: MachineRelease; readonly home?: string; readonly routes: BoatRoutes }) => Effect.gen(function* () {
   const machines = yield* MachineRepository;
   const ssh = yield* SshTransport;
   const context = yield* Effect.context<never>();
@@ -55,17 +55,27 @@ export const makeMachineLink = (options: { readonly build: string; readonly home
   const builds = new Map<string, string>();
   // Only a build this machine had not heard is a change: a refused hello that
   // repeats one, as every redial of a mismatched peer does, notes nothing.
-  const learnBuild = (machineName: string, heard: string): void => {
-    if (builds.get(machineName) === heard) return;
-    builds.set(machineName, heard);
-    noteMachinesChanged();
+  // What it said is kept, so the list still says who is behind after a
+  // restart; a write that fails is logged and never refuses the link.
+  const learnBuild = (hello: LinkHello): void => {
+    if (builds.get(hello.machineName) === hello.build) return;
+    builds.set(hello.machineName, hello.build);
+    fork(machines.notePeerHello(hello).pipe(
+      Effect.catch((cause) => linkLog("Warning", "peer hello not kept", { machine: hello.machineName, failure: encodeError(cause, { machine: hello.machineName }) })),
+      Effect.ensuring(Effect.sync(noteMachinesChanged))));
   };
   const dials = new Map<string, Promise<MachinePeer>>();
   let channels: LinkChannels = {};
   let configured = false;
   let stopping = false;
   let listener: MachineLinkListener | undefined;
-  const self = () => run(Effect.all({ build: Effect.succeed(build), installationId: machines.installationId, machineName: machines.machineName }));
+  // What this build says it is rides its hello for the far end's words; one its schema refuses (a dev "dev") is left out.
+  const release = {
+    ...(options.release?.version !== undefined && Schema.is(MachineVersion)(options.release.version) ? { version: options.release.version } : {}),
+    ...(options.release?.builtAt !== undefined && Schema.is(MachineBuiltAt)(options.release.builtAt) ? { builtAt: options.release.builtAt } : {}),
+  };
+  const self = () => run(Effect.all({ build: Effect.succeed(build), installationId: machines.installationId, machineName: machines.machineName })
+    .pipe(Effect.map((own): LinkHello => ({ ...own, ...release }))));
   const shuttingDown = () => new LinkUnavailable({ reason: "shutting-down", message: "Machine links are shutting down" });
   const activePeer = async (hello: LinkHello): Promise<MachinePeer> => {
     const peer = await run(machines.peer(hello.machineName));
@@ -93,12 +103,12 @@ export const makeMachineLink = (options: { readonly build: string; readonly home
         }
       }
       // Only a checked existing binding can contribute a build warning.
-      if (setupId === undefined || setupCommitted) learnBuild(hello.machineName, hello.build);
-      if (hello.build !== own.build) throw LinkBuildMismatch.of(hello, own.build);
+      if (setupId === undefined || setupCommitted) learnBuild(hello);
+      if (hello.build !== own.build) throw LinkBuildMismatch.of(hello, own);
       if (setupId !== undefined && !setupCommitted) {
         await run(machines.pinPeer({ machineName: hello.machineName, installationId: hello.installationId }));
         setupCommitted = true;
-        learnBuild(hello.machineName, hello.build);
+        learnBuild(hello);
       }
     };
   };
@@ -274,7 +284,7 @@ export const makeMachineLink = (options: { readonly build: string; readonly home
   });
 });
 
-export const machineLinkLayer = (build: string, home?: string) => Layer.effect(MachineLink, Effect.gen(function* () {
+export const machineLinkLayer = (build: string, home?: string, release?: MachineRelease) => Layer.effect(MachineLink, Effect.gen(function* () {
   const boats = yield* BoatRoutesService;
-  return yield* makeMachineLink({ build, routes: boats.routes, ...(home === undefined ? {} : { home }) });
+  return yield* makeMachineLink({ build, routes: boats.routes, ...(home === undefined ? {} : { home }), ...(release === undefined ? {} : { release }) });
 }));

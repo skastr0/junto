@@ -40,7 +40,8 @@ it("admits symmetric hellos and routes strictly decoded requests in both directi
 it("refuses build mismatch and pin refusal without dispatching a channel", async () => {
   let called = false;
   const { left, right } = pair({}, { self: hello("mini", "b".repeat(64)), channels: { status: channel(() => Effect.sync(() => { called = true; return { value: "bad" }; })) } });
-  await expect(left.ready).rejects.toThrow("Update mini");
+  // Neither names its release, so neither is said to be older: both are named.
+  await expect(left.ready).rejects.toThrow("mini and macbook run different builds of Junto. Send Junto from the newer one to the other.");
   await right.closed;
   expect(called).toBe(false);
   const refused = pair({ admit: async () => { throw new LinkPeerNotPinned({ machine: "mini", message: "installation pin changed" }); } });

@@ -38,6 +38,7 @@ it("reports the same bounded facts to the owner and the linked machine, once per
     configuration: Effect.die("unused"), configureName: () => Effect.die("unused"),
     pinPeer: () => Effect.die("unused"), peer: () => Effect.die("unused"),
     peers: Effect.die("unused"), retirePeer: () => Effect.die("unused"),
+    retiredPeers: Effect.die("unused"), notePeerHello: () => Effect.die("unused"), peersSeen: Effect.die("unused"),
   }));
   const runtime = ManagedRuntime.make(machineCoreStatusLayer({
     home: "/tmp/status-home", build: "a".repeat(64), bundles: {}, ready: () => true, log: testLog.log,

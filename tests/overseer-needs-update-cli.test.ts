@@ -80,7 +80,7 @@ const termPlane = (remote: () => never): TermPlane => ({
 }) as unknown as TermPlane;
 
 const stale = (): never => {
-  throw LinkBuildMismatch.of({ build: "old", installationId: "inst-other" as never, machineName: OTHER_MACHINE }, "new");
+  throw LinkBuildMismatch.of({ build: "old", installationId: "inst-other" as never, machineName: OTHER_MACHINE }, { build: "new", installationId: "inst-here" as never, machineName: "here" });
 };
 
 /** What the CLI decodes for one overseer request: its data, or the WireError it fails with. */

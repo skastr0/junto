@@ -155,7 +155,7 @@ describe("a linked seat's view through the router", () => {
 
   it("a seat whose machine runs another build reads as the typed mismatch, never wrapped", async () => {
     const cores = await twoCores({ cleanups });
-    const mismatch = LinkBuildMismatch.of({ build: "old", installationId: "inst-mini" as never, machineName: "mini" }, "new");
+    const mismatch = LinkBuildMismatch.of({ build: "old", installationId: "inst-mini" as never, machineName: "mini" }, { build: "new", installationId: "inst-here" as never, machineName: "here" });
     // The production transport, over a link whose connect refuses the mini's hello.
     const run = ((effect: Effect.Effect<unknown, unknown, never>) => Effect.runPromise(effect.pipe(
       Effect.provideService(HostsService, { get: () => Effect.succeed({ id: "mini" }) } as never),

@@ -163,7 +163,7 @@ const proveStep = (database: DatabaseSync): void => {
 };
 
 describe("state migration 76 -> 77 (both closings of a signal that cross)", () => {
-  it("starts from the version-76 witness and ends at the version-77 one, as a fresh install has it", () => {
+  it("starts from the version-76 witness and ends at the version-77 one", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V76_SQL)).toEqual(STATE_SCHEMA_V76_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V77_SQL)).toEqual(STATE_SCHEMA_V77_IDENTITY);
   });

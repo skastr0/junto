@@ -20,8 +20,7 @@ import {
 } from "../src/core/state/migrations";
 import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
-import { STATE_SCHEMA_V78_SQL } from "./fixtures/state-v13/schema";
+import { STATE_SCHEMA_V78_SQL, STATE_SCHEMA_V79_SQL } from "./fixtures/state-v13/schema";
 import { Effect, Layer } from "effect";
 import { SqlClient } from "effect/sql";
 import { makeStateEngineLive } from "../src/core/state/engine";
@@ -57,7 +56,7 @@ const upTo = (version: number, currentSchemaSql: string): StateSchemaMigrationPl
 
 describe("state migration 78 -> 79 (the removed end reason)", () => {
   it("ends at the version-79 witness as a fresh install has it", () => {
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V79_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V79_SQL)).toEqual(STATE_SCHEMA_V79_IDENTITY);
   });
 
   it("keeps every session row byte-identical, and a close with removed passes the CHECK after it", async () => {
@@ -75,7 +74,7 @@ describe("state migration 78 -> 79 (the removed end reason)", () => {
         database.prepare("UPDATE seat_sessions SET ended_at = 2, end_reason = 'removed' WHERE seat_id = 'seat-a'").run(),
       ).toThrow(/CHECK/);
 
-      migrateStateSchema(database, upTo(79, STATE_SCHEMA_SQL));
+      migrateStateSchema(database, upTo(79, STATE_SCHEMA_V79_SQL));
       const rows = database.prepare("SELECT * FROM seat_sessions WHERE seat_id = 'seat-a'").all() as ReadonlyArray<Record<string, unknown>>;
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ seat_id: "seat-a", session_id: "session-a", harness: "claude", end_reason: null });
@@ -88,7 +87,7 @@ describe("state migration 78 -> 79 (the removed end reason)", () => {
       expect(
         database.prepare("SELECT name FROM sqlite_schema WHERE type = 'index' AND name = 'seat_sessions_one_open'").all(),
       ).toHaveLength(1);
-      expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V79_IDENTITY);
+      expect(expectedStateSchemaIdentity(STATE_SCHEMA_V79_SQL)).toEqual(STATE_SCHEMA_V79_IDENTITY);
     } finally {
       database.close();
     }
@@ -130,7 +129,7 @@ describe("state migration 78 -> 79 (the removed end reason)", () => {
         .prepare("INSERT INTO seat_session_drains(seat_id, session_id, detached_at) VALUES ('seat-a', 'session-a', 5)")
         .run();
 
-      migrateStateSchema(database, upTo(79, STATE_SCHEMA_SQL));
+      migrateStateSchema(database, upTo(79, STATE_SCHEMA_V79_SQL));
 
       const drains = database.prepare("SELECT * FROM seat_session_drains").all() as ReadonlyArray<Record<string, unknown>>;
       expect(drains).toEqual([{ seat_id: "seat-a", session_id: "session-a", detached_at: 5, ended_at: null, ended_how: null }]);

@@ -37,6 +37,7 @@ import { startSqlTimingLog } from "./observability/sql-timing-log";
 import { openCoreLog } from "./core-log";
 import { startHeapLog } from "../node/observability/heap-log";
 import type { TerminalPortMain } from "./terminals/over-ports";
+import { buildRelease } from "../node/build-release";
 
 export type CoreBoot = {
   readonly home: string;
@@ -108,6 +109,7 @@ const main = async (parent: ParentPort): Promise<void> => {
   const core = await startCore({
     home: boot.home,
     build: boot.build,
+    release: buildRelease(boot.app.version),
     log,
     onHomeMoved: () => stopForHomeMoved?.(),
     // What the core asks of Electron rides the same port, answered by main's host server.

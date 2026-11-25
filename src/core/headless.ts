@@ -14,6 +14,7 @@ import { openCoreLog } from "./core-log";
 import { machineLogDir } from "../node/observability/log-file";
 import { LinkUnavailable } from "./link/types";
 import { runRestoreFinish } from "../node/hosts/restore-finish";
+import { buildRelease } from "../node/build-release";
 
 const home = resolveJuntoHome();
 // A machine core's service always sets JUNTO_HOME, and every session pinned
@@ -59,6 +60,7 @@ const main = async (): Promise<void> => {
       finishRestore: () => runRestoreFinish({ junto: join(packageRoot, "bin", "junto"), home, installRoot }),
     }),
     build: runningBuildIdentity(),
+    release: buildRelease(typeof __JUNTO_APP_VERSION__ === "string" ? __JUNTO_APP_VERSION__ : undefined),
     bundles,
     log,
     host: HostClientsNoWindow,

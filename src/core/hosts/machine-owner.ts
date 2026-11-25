@@ -4,7 +4,7 @@ import {
   OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse,
   type OperatorRequestEnvelope, type OperatorResponseEnvelope,
 } from "@shared/operator-control";
-import { MachineBuild, MachinePeerStatus, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput, type MachineAutoUpdateView } from "@shared/machine-control";
+import { MachineBuild, MachinePeerStatus, machineUpdateDirection, type MachineRelease, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput, type MachineAutoUpdateView } from "@shared/machine-control";
 import { decideMachineUpdate } from "@shared/machine-updates";
 import type { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
 import type { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "@shared/machine-seat";
@@ -36,6 +36,8 @@ export interface MachineOwnerOptions {
   /** A linked machine's log, scoped by that machine to the canvases this one holds. */
   readonly peerLogs: (name: string, query: MachineLogQuery) => Effect.Effect<MachineLogRead, unknown>;
   readonly peerBuild: (name: string) => Effect.Effect<string | undefined, unknown>;
+  /** What this build says it is, to say which of two machines on different builds is behind. */
+  readonly release?: MachineRelease;
   readonly copy: (host: RemoteHost, input: MachineCopyInput, mode: "send" | "update", onTransition?: (event: MachineSendEvent) => void) => Effect.Effect<MachineInstallResult, unknown>;
   readonly disconnect: (name: string) => Effect.Effect<void, unknown>;
   /** Starts a seat by canvas and seat id through the code the window uses. */
@@ -185,7 +187,13 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
   const peerStatus = (name: string) => Effect.gen(function* () {
     yield* other(name);
     const pin = yield* machines.peer(name);
-    if (pin === undefined) return { machineName: name, reachable: false, harnesses: [], missingSecrets: [], detail: "Set up this machine first" } satisfies MachinePeerStatus;
+    if (pin === undefined) {
+      // A machine removed and added again names both machines: it was set up once, so "first" would be wrong.
+      const removed = (yield* machines.retiredPeers).includes(name);
+      const own = removed ? yield* machines.machineName : undefined;
+      return { machineName: name, reachable: false, harnesses: [], missingSecrets: [],
+        detail: own === undefined ? "Set up this machine first" : `${name} was removed from ${own}. Set ${name} up again from ${own} to link them.` } satisfies MachinePeerStatus;
+    }
     // Only the decode maps to the contract refusal; a link or registry failure arrives as itself.
     const status = yield* options.peerStatus(name).pipe(Effect.flatMap(value =>
       Schema.decodeUnknownEffect(MachinePeerStatus, { onExcessProperty: "error" })(value).pipe(
@@ -200,17 +208,30 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       case "machine.list": {
         const listed = yield* hosts.list;
         const pins = yield* machines.peers;
+        const retired = new Set(yield* machines.retiredPeers);
+        const seen = new Map((yield* machines.peersSeen).map((row) => [row.machineName, row]));
         const ownId = yield* machines.installationId;
         const ownBuild = yield* options.ownStatus.pipe(Effect.flatMap(status => Schema.decodeUnknownEffect(MachineBuild)(status.build)));
         const pending = options.linkSetup?.pending() ?? [];
         const vaults = options.vaultSetup === undefined ? new Map() : yield* options.vaultSetup.views;
         return { machines: yield* Effect.forEach(listed, machine => Effect.gen(function* () {
           const pin = pins.find(row => row.machineName === machine.id);
-          const reportedBuild = machine.isThisMachine || pin === undefined ? undefined : yield* options.peerBuild(machine.id);
+          // The live link's word first; what the peer said in its last admitted hello, kept, after a restart.
+          const said = pin === undefined ? undefined : seen.get(machine.id);
+          const reportedBuild = machine.isThisMachine || pin === undefined ? undefined : (yield* options.peerBuild(machine.id)) ?? said?.build;
           const peerBuild = reportedBuild === undefined ? undefined : yield* Schema.decodeUnknownEffect(MachineBuild)(reportedBuild);
+          const claim = said !== undefined && said.build === peerBuild ? said : undefined;
+          const needsUpdate = peerBuild !== undefined && peerBuild !== ownBuild;
+          const setUp = machine.isThisMachine || pin !== undefined;
+          const setupState = setUp ? "set-up" as const
+            : retired.has(machine.id) || machine.installRoot !== undefined ? "installed-not-linked" as const : "not-installed" as const;
           const held = pending.filter((row) => row.holder === machine.id).map((row) => row.machineName);
           const vault = vaults.get(machine.id);
-          return { machine, setUp: machine.isThisMachine || pin !== undefined, needsUpdate: peerBuild !== undefined && peerBuild !== ownBuild,
+          return { machine, setUp, needsUpdate, setupState,
+            // Only from a kept hello of this very build: a peer that named no release there is an older build.
+            ...(!needsUpdate || claim === undefined ? {} : { updateDirection: machineUpdateDirection(claim, options.release ?? {}) }),
+            ...(claim?.version === undefined ? {} : { peerVersion: claim.version }),
+            ...(claim?.builtAt === undefined ? {} : { peerBuiltAt: claim.builtAt }),
             ...(machine.isThisMachine ? { installationId: ownId } : pin === undefined ? {} : { installationId: pin.installationId }),
             ...(pin?.binding !== "key" || options.linkSetup === undefined ? {} : { linkKey: options.linkSetup.lineHeld(pin.installationId) ? "bound" as const : "line-missing" as const }),
             ...(held.length === 0 ? {} : { holdsRevokedKeys: held }),

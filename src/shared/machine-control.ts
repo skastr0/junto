@@ -148,6 +148,17 @@ export const MachineListData = Schema.Struct({
     vault: Schema.optionalKey(MachineVaultView),
     /** The automatic updater's last attempt, when it has one for this machine. */
     autoUpdate: Schema.optionalKey(MachineAutoUpdateView),
+    /**
+     * `set-up` with an active pin; `installed-not-linked` when Junto is there
+     * but this machine holds no active pin to it (removed, or never linked);
+     * `not-installed` when this machine knows of no Junto there.
+     */
+    setupState: Schema.optionalKey(Schema.Literals(["not-installed", "installed-not-linked", "set-up"])),
+    /** With needsUpdate: which of the two is behind, from what each last said it runs. */
+    updateDirection: Schema.optionalKey(MachineUpdateDirection),
+    /** What the peer last said it runs, in a hello this machine admitted: its own claim. */
+    peerVersion: Schema.optionalKey(MachineVersion),
+    peerBuiltAt: Schema.optionalKey(MachineBuiltAt),
   })).pipe(Schema.check(Schema.isMaxLength(32))),
 });
 export type MachineListData = typeof MachineListData.Type;

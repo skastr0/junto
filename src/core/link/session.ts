@@ -515,7 +515,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       if (hello.installationId === self.installationId) throw new LinkHelloRefused({ machine: hello.machineName, check: "self-link", message: "A Junto installation cannot link to itself" });
       if (opener !== undefined && hello.installationId !== opener) throw new LinkHelloRefused({ machine: hello.machineName, check: "opener-key", message: `${hello.machineName} dialed with a link key bound to another machine` });
       await options.admit(helloSeen, opener);
-      if (hello.build !== self.build) throw LinkBuildMismatch.of(hello, self.build);
+      if (hello.build !== self.build) throw LinkBuildMismatch.of(hello, self);
       if (stopped !== undefined) return;
       options.admitted?.(helloSeen);
       peer = helloSeen;

@@ -324,7 +324,16 @@ command. Existing account-level access
 remains the operator's responsibility.
 
 Hello must finish before data channels open. Both builds must match exactly;
-build equality is compatibility, not authenticity. Unknown channels, malformed
+build equality is compatibility, not authenticity. A hello may also carry the
+sender's release and build time (`version`, `builtAt`, each decoded by a
+closed pattern): a claim used only to word which machine is behind, never to
+admit, refuse or order a link. A machine keeps the claim from a hello whose
+identity it checked (an active pin under that installation, through its key
+when it has one), including one then refused for its build
+(`machine_peer_seen`, deleted on retirement), and shows it as text, worded as
+the peer's own statement ("mini says it runs 0.12.1"). A pinned peer can still
+claim a wrong release and point the operator at the wrong machine; the bundle
+check on install is what keeps a claim from becoming code. Unknown channels, malformed
 frames and unauthorized operations close the link. A valid announcement about
 a canvas the peer does not participate in is ignored before storage or status;
 it grants nothing and need not close the link. An unauthorized rows frame
@@ -362,8 +371,9 @@ establish that payload's shape. Closed means the decode call itself passes
 whether an annotation on a nested struct refuses an extra key changed
 between Effect releases, so an upgrade could open it without a failing
 build. The machine list derives update-needed state
-from the build observed in that peer's hello; a mismatch never admits its
-channels, and an unobserved build is not known compatible.
+from the build observed in that peer's hello, or after a restart from the
+last one it kept; a mismatch never admits its channels, and an unobserved
+build is not known compatible.
 
 Responses must match the requesting session. A peer cannot gain another
 channel's authority by wrapping a request in a response or naming its handle.
