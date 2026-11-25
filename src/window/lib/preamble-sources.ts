@@ -332,6 +332,8 @@ export const startPreambleSources = (api: Pick<JuntoApi, "onWireTraffic">): (() 
         }
         if (closing) raiseNotes.delete(id);
       }
+      // A signal that left the mirror without closing (a canvas switch replaces it) keeps no entry.
+      for (const id of raiseNotes.keys()) if (!next.has(id)) raiseNotes.delete(id);
       signals = next;
     }),
   );
