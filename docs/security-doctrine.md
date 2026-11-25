@@ -152,6 +152,11 @@ raised, so no loop can be made. A batch of signals is written whole and
 in its order, or not at all. None of this needs an edge. A signal from a seat
 on another machine is checked again by the machine that edits the canvas, its
 thread and what it comes after alike, before it is stored or shown.
+A withdrawal and an answer that cross are both kept, the second beside the
+first: the editing machine keeps the seat's `withdrawnAt` beside its answer,
+as the seat's machine's own statement, its time clamped between the raise and
+the withdrawal's arrival. A seat's machine can always keep mail from its own
+seat, so `withdrawnAt` never proves the answer went unseen.
 
 Only a human grants or revokes overseer authority. Copied aliases do not inherit
 the grant. An overseer cannot grant it to another seat, remove its own seat,

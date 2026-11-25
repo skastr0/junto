@@ -95,6 +95,27 @@ describe("both closings are kept, on the editing machine", () => {
     expect(held.withdrawnAt).toBe(5_000);
   });
 
+  it("withdrawnAt is the seat machine's claim, kept between the raise and its arrival here", async () => {
+    const late = await run(Effect.gen(function* () {
+      const store = yield* AgentSignalRepository;
+      yield* store.take(raised);
+      yield* store.answer(SIGNAL, "use sqlite");
+      return yield* store.take(withdrawal(Date.now() + 365 * 24 * 3_600_000));
+    }));
+    expect(late?.withdrawnAt).toBeLessThanOrEqual(Date.now());
+    expect(late?.withdrawnAt).toBeGreaterThan(raised.createdAt);
+  });
+
+  it("a withdrawal stated before the raise is kept at the raise", async () => {
+    const early = await run(Effect.gen(function* () {
+      const store = yield* AgentSignalRepository;
+      yield* store.take(raised);
+      yield* store.answer(SIGNAL, "use sqlite");
+      return yield* store.take(withdrawal(0));
+    }));
+    expect(early?.withdrawnAt).toBe(raised.createdAt);
+  });
+
   it("a withdrawal that lands first closes it withdrawn, and no answer is kept beside it", async () => {
     const held = await run(Effect.gen(function* () {
       const store = yield* AgentSignalRepository;
@@ -257,10 +278,14 @@ describe("delivery holds a late answer", () => {
     const messages: Message[] = [];
     const writes: string[] = [];
     const stamped: string[] = [];
+    const reads: string[] = [];
     const store: MessageDeliveryStore = {
       listCanvasNames: async () => [canvasName],
       readModel: async () => crew,
-      readMessage: async (_canvas, _node, messageId) => messages.find((message) => message.messageId === messageId),
+      readMessage: async (_canvas, _node, messageId) => {
+        reads.push(messageId);
+        return messages.find((message) => message.messageId === messageId);
+      },
       listMail: async () => messages,
       signalOf: async (signalId) => signals.get(signalId),
       acceptMessageDelivery: async (_canvas, _node, messageId, read) => {
@@ -285,7 +310,7 @@ describe("delivery holds a late answer", () => {
       },
     });
     services.push(service);
-    return { service, messages, writes, stamped };
+    return { service, messages, writes, stamped, reads };
   };
 
   const services: MessageDeliveryService[] = [];
@@ -299,9 +324,22 @@ describe("delivery holds a late answer", () => {
     expect(await seatRig.service.deliver(canvasName, nodeId, "01A")).toBe("waiting");
     expect(seatRig.writes).toEqual([]);
     expect(seatRig.stamped).toEqual([]);
-    // Tried again, as a boot scan or a seat coming live would: still held.
-    seatRig.service.onSeatLive(bindingId);
+    // Asked again, as a boot scan or a new event for it would: still held.
     expect(await seatRig.service.deliver(canvasName, nodeId, "01A")).toBe("waiting");
+    expect(seatRig.writes).toEqual([]);
+  });
+
+  it("a held answer is not tried again on each wake: a seat coming live or a resume reads it no more", async () => {
+    const seatRig = rig(new Map([[SIGNAL, signalOf("withdrawn")]]));
+    seatRig.messages.push(answerMail("01A", SIGNAL));
+    expect(await seatRig.service.deliver(canvasName, nodeId, "01A")).toBe("waiting");
+    const reads = seatRig.reads.length;
+    for (let i = 0; i < 5; i += 1) {
+      seatRig.service.onSeatLive(bindingId);
+      seatRig.service.onResumed(canvasName);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(seatRig.reads.length).toBe(reads);
     expect(seatRig.writes).toEqual([]);
   });
 

@@ -857,8 +857,10 @@ export const AgentSignalRepositoryLive: Layer.Layer<
         // seat's machine a withdrawn signal the answer reached after. Neither
         // is an answer here, so nothing that acts on one is woken by it.
         if (closing.state === "withdrawn" && input.raises) {
+          // The time is the seat's machine's own claim, on its own clock: kept
+          // within [raised, arrived here], never before the raise or in the future.
           const kept = yield* sql`
-            UPDATE agent_signals SET withdrawn_at = ${closing.closedAt}
+            UPDATE agent_signals SET withdrawn_at = MIN(MAX(${closing.closedAt}, created_at), ${Date.now()})
             WHERE signal_id = ${input.signalId} AND state = 'answered' AND withdrawn_at IS NULL
           `.raw.pipe(Effect.flatMap(changes));
           changed = changed || Number(kept.changes) > 0;
