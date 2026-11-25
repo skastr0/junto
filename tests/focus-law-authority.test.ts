@@ -27,6 +27,15 @@ const giveBox = (el: HTMLElement): void => {
   el.getClientRects = () => ({ length: 1 }) as DOMRectList;
 };
 
+// The other side of giveBox, said on the element rather than assumed from
+// jsdom. The shared lane reuses one environment, so a neighbour that patches
+// the prototype (an element with boxes) must not turn a parked surface into a
+// claimable one.
+const park = (el: HTMLElement): void => {
+  el.getClientRects = () => ({ length: 0 }) as DOMRectList;
+  el.checkVisibility = () => false;
+};
+
 describe("focus law authority", () => {
   let root: HTMLElement;
 
@@ -129,9 +138,9 @@ describe("focus law authority", () => {
   });
 
   it("refuses async claims on parked surfaces", () => {
-    // A parked surface has no boxes: said here, not left to whatever layout the page has.
     const term = q<HTMLTextAreaElement>(root, "#term-input");
-    term.getClientRects = () => ({ length: 0 }) as DOMRectList;
+    park(term);
+
     expect(claimFocus(term, "async")).toBe(false);
   });
 
