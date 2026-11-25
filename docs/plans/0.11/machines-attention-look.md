@@ -443,6 +443,13 @@ automations that move (`docs/machines.md`, take-over).
   (the name from this machine's list, the id decoded as `InstallationId`),
   as the set-aside path is. Neither is in core's words, and the window
   shows the sentence only.
+- remote-security's three conditions (on 209adfb83): print the line only
+  when the id decodes as `InstallationId`, else no command at all and
+  never a raw or escaped far string; join argv parts with single spaces,
+  never through a shell-quoting path; and the preview shows both the
+  pinned id and the answering id (`previousInstallationId` and
+  `installationId`), since the id is what that machine answers, not what
+  this one verified.
 
 ## 6. The far install's refusal codes
 
