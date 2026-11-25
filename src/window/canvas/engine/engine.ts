@@ -375,7 +375,9 @@ export const createEngine = (host: EngineHost): SeamEngine => {
         // A quad whose content changed is not a quad whose picture was lost:
         // a rename, a count, or a tint the picture does not draw re-keys the
         // cell, and the new pixels land a frame later. Report it, do not fail.
-        const changedContent = was.contentKey !== q.contentKey;
+        // A cell that lost everything is not a redraw: only two different
+        // non-empty contents mean the quad still shows a picture, a new one.
+        const changedContent = was.contentKey !== "" && q.contentKey !== "" && was.contentKey !== q.contentKey;
         if (!changedContent) w.pops += 1;
         if (w.samples.length < 64) w.samples.push({ frame: w.frames, fault: "pop", key: q.key, scale: q.scale, was: was.shows, shows: q.shows, cell: q.cell, contentBefore: was.contentKey, contentAfter: q.contentKey, changedContent });
       }
