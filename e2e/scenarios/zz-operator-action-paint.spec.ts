@@ -5,7 +5,7 @@
  * with renderer long tasks/frames and every ipcMain.handle call metered.
  *   scripts/run-e2e.sh e2e/scenarios/zz-operator-action-paint.spec.ts
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ElectronApplication, Page } from "@playwright/test";
@@ -18,6 +18,8 @@ const CANVAS = "factory";
 const TARGET = "seat-4";
 const TARGET_LABEL = "seat 4";
 const FRAMES = process.env.JUNTO_E2E_FRAMES_DIR ?? join("test-results", "operator-action-paint");
+const MAIN_LOGS = join(FRAMES, "main-logs");
+process.env.JUNTO_E2E_MAIN_LOG = MAIN_LOGS;
 
 const shaped = JSON.parse(readFileSync("e2e/scenarios/zz-proof-factory-shape.json", "utf8")) as {
   model: { nodes: Array<any>; wires: Array<any> };
@@ -79,6 +81,9 @@ const installPaintProbe = (page: Page) =>
     if (w.__paintProbe !== undefined) return;
     const probe: { frames: number[]; longtasks: Array<{ start: number; duration: number }>; raf?: number } = { frames: [], longtasks: [] };
     w.__paintProbe = probe;
+    document.addEventListener("click", () => {
+      (window as unknown as { __lastClickAt: number }).__lastClickAt = Date.now();
+    }, true);
     try {
       new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) probe.longtasks.push({ start: entry.startTime, duration: entry.duration });
@@ -126,7 +131,75 @@ const installEars = (page: Page) =>
   });
 
 const twoFramesAfterVisible = async (page: Page): Promise<number> =>
-  page.evaluate(() => new Promise<number>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now())))));
+  page.evaluate(() => new Promise<number>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(Date.now())))));
+
+type StageEvent = {
+  readonly t: number;
+  readonly process: "renderer" | "main" | "core";
+  readonly stage: string;
+  readonly op?: string;
+  readonly id?: string | number;
+  readonly label?: string;
+};
+
+const mainStageEvents = (): StageEvent[] => {
+  try {
+    return readdirSync(MAIN_LOGS)
+      .filter((name) => name.endsWith(".log"))
+      .sort()
+      .flatMap((name) => readFileSync(join(MAIN_LOGS, name), "utf8").split("\n"))
+      .flatMap((line) => {
+        const at = line.indexOf("PERF-STAGE ");
+        if (at === -1) return [];
+        try { return [JSON.parse(line.slice(at + "PERF-STAGE ".length)) as StageEvent]; } catch { return []; }
+      });
+  } catch {
+    return [];
+  }
+};
+
+const rendererStageEvents = (page: Page): Promise<StageEvent[]> =>
+  page.evaluate(() => ((window as unknown as { __juntoPerfStages?: unknown[] }).__juntoPerfStages ?? []) as never[]);
+
+const stageTable = (name: string, click: number, painted: number, events: ReadonlyArray<StageEvent>) => {
+  const wanted = (event: StageEvent): boolean => {
+    if (name === "signal-answer") {
+      return event.op === "SignalsAnswer" || event.op === "SignalsChanged" || event.label === "ipc.work.signal-answer";
+    }
+    if (name === "thread-create" || name === "thread-reply") {
+      return (
+        event.op === "seatThreadSend" ||
+        event.op === "ThreadsWrite" ||
+        event.op === "ThreadsDeliver" ||
+        event.op === "WorkMailChanged" ||
+        event.op === "ThreadsMessages" ||
+        event.label === "ipc.work.thread-send"
+      );
+    }
+    return false;
+  };
+  const filtered = events
+    .filter((event) => event.t >= click - 5 && event.t <= painted + 500 && wanted(event))
+    .sort((a, b) => a.t - b.t);
+  const rows = filtered.map((event) => ({
+    stage: `${event.process} ${event.stage}${event.op === undefined ? "" : ` ${event.op}`}`,
+    atMs: Math.round((event.t - click) * 100) / 100,
+  }));
+  const timeline = [
+    { stage: "click handler start", t: click },
+    ...filtered.map((event, index) => ({ stage: rows[index]!.stage, t: event.t })),
+    { stage: "first painted frame", t: painted },
+  ];
+  let largest = { from: "click handler start", to: "first painted frame", ms: painted - click };
+  for (let index = 1; index < timeline.length; index += 1) {
+    const gap = timeline[index]!.t - timeline[index - 1]!.t;
+    if (gap > largest.ms) largest = { from: timeline[index - 1]!.stage, to: timeline[index]!.stage, ms: gap };
+  }
+  return {
+    stages: rows,
+    largestGap: { ...largest, ms: Math.round(largest.ms * 100) / 100 },
+  };
+};
 
 const measureAction = async (
   app: ElectronApplication,
@@ -136,19 +209,31 @@ const measureAction = async (
   visible: () => Promise<void>,
 ) => {
   await resetMeter(app);
-  await page.evaluate(() => (window as unknown as { __paintReset: () => void }).__paintReset());
-  const started = await page.evaluate(() => performance.now());
+  await page.evaluate(() => {
+    (window as unknown as { __paintReset: () => void }).__paintReset();
+    (window as unknown as { __juntoPerfStages: unknown[] }).__juntoPerfStages = [];
+    (window as unknown as { __lastClickAt: number }).__lastClickAt = 0;
+  });
+  const fallbackClick = await page.evaluate(() => Date.now());
   await act();
+  const started = await page.evaluate(() => {
+    const stamped = (window as unknown as { __lastClickAt: number }).__lastClickAt;
+    return stamped === 0 ? Date.now() : stamped;
+  });
+  const click = started || fallbackClick;
   await visible();
   const painted = await twoFramesAfterVisible(page);
+  await page.waitForTimeout(150);
   const renderer = await page.evaluate(() => (window as unknown as { __paintRead: () => any }).__paintRead());
   const ipcRaw = await readMeter(app);
   const ipcRows = Object.entries(ipcRaw)
     .map(([channel, row]) => ({ channel, calls: row.calls, bytes: Math.round(row.bytes), ms: Math.round(row.ms * 100) / 100 }))
     .sort((a, b) => b.bytes - a.bytes);
+  const stages = [...await rendererStageEvents(page), ...mainStageEvents()];
   return {
     name,
-    clickToPaintMs: Math.round((painted - started) * 100) / 100,
+    clickToPaintMs: Math.round((painted - click) * 100) / 100,
+    ...stageTable(name, click, painted, stages),
     renderer: {
       worstFrameMs: Math.round((renderer.worstFrame ?? 0) * 100) / 100,
       frameMs: Math.round((renderer.frameMs ?? 0) * 100) / 100,
@@ -172,6 +257,7 @@ test("[fake-tui] operator signal and thread actions paint on the factory shape",
     seedAgentSignals: [...shaped.signalRows, perfSignal] as never,
     afterSeed: installCrewSeatHarness,
     windowContentSize: { width: 1500, height: 950 },
+    extraEnv: { JUNTO_PERF_STAGES: "1" },
   });
   const { app, page } = junto;
   const results: unknown[] = [];
@@ -191,7 +277,11 @@ test("[fake-tui] operator signal and thread actions paint on the factory shape",
     await page.getByRole("button", { name: /Needs you/ }).click();
     const card = page.getByTestId("operator-feed-card").filter({ hasText: "PERF signal answer target" }).first();
     await expect(card).toBeVisible({ timeout: 30_000 });
-    await card.click();
+    results.push(await measureAction(app, page, "control-select-card", async () => {
+      await card.click();
+    }, async () => {
+      await expect(card).toHaveAttribute("aria-current", "true", { timeout: 5_000 });
+    }));
     await page.getByRole("button", { name: `Write reply to ${TARGET_LABEL}` }).click();
     await page.getByLabel("Your reply").fill("PERF signal answer: go ahead");
     results.push(await measureAction(app, page, "signal-answer", async () => {
@@ -230,7 +320,7 @@ test("[fake-tui] operator signal and thread actions paint on the factory shape",
     // Waiting-mark lifecycle: hold delivery behind a real composer draft, let the
     // mark appear, then free the seat and prove the same mark leaves when delivery lands.
     await seat.control({ screen: { mode: "draft", text: "a draft already in the composer" } });
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(1800);
     const heldText = "PERF held reply body";
     await page.evaluate(() => {
       const ears = (window as unknown as { __waitingEars: { marks: unknown[]; gone: unknown[] } }).__waitingEars;
@@ -243,13 +333,16 @@ test("[fake-tui] operator signal and thread actions paint on the factory shape",
     const heldMessage = pane.getByTestId("seat-threads-message").filter({ hasText: heldText });
     await expect(heldMessage).toBeVisible({ timeout: 15_000 });
     const waiting = heldMessage.getByTestId("seat-threads-waiting");
-    await expect(waiting).toBeVisible({ timeout: 4_000 });
+    await expect(waiting).toBeVisible({ timeout: 5_000 });
     await seat.control({ screen: { mode: "idle" } });
     await expect(waiting).toHaveCount(0, { timeout: 10_000 });
     const ears = await page.evaluate(() => (window as unknown as { __waitingEars: { marks: Array<{ t: number }>; gone: Array<{ t: number }> } }).__waitingEars);
+    const firstMarkMs = ears.marks[0] === undefined ? null : Math.round((ears.marks[0].t - heldStart) * 100) / 100;
+    expect(firstMarkMs).not.toBeNull();
+    expect(firstMarkMs!).toBeGreaterThan(950);
     results.push({
       name: "waiting-mark-lifecycle",
-      markAppearedMs: ears.marks[0] === undefined ? null : Math.round((ears.marks[0].t - heldStart) * 100) / 100,
+      markAppearedMs: firstMarkMs,
       markClearedAfterIdleMs: ears.marks[0] === undefined || ears.gone[0] === undefined ? null : Math.round((ears.gone[0].t - ears.marks[0].t) * 100) / 100,
       marks: ears.marks.length,
       cleared: ears.gone.length,
