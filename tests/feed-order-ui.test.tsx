@@ -215,8 +215,8 @@ it("names a card with whether it waits and its place, a fold with its chain, and
       .map((id) => document.getElementById(id)?.textContent ?? "")
       .join(" ");
   expect(nameOf(first!)).toContain("1 of 10");
-  expect(nameOf(first!)).not.toContain("Waiting on another signal");
-  expect(nameOf(second!)).toContain("Waiting on another signal, 2 of 10");
+  expect(nameOf(first!)).not.toContain("Not ready, depends on another signal");
+  expect(nameOf(second!)).toContain("Not ready, depends on another signal, 2 of 10");
   expect(q('[data-testid="feed-chain-fold"]')?.getAttribute("aria-label")).toBe(
     "Show 8 more signals in this order, after: Topic 2 needs your call",
   );
@@ -230,7 +230,7 @@ it("says the card a key steps onto in the live line", async () => {
   await key("j");
   expect(selectedId()).toBe("s2");
   expect(q(".operator-feed__announce")?.textContent).toBe(
-    "atlas, waiting on you, waiting on another signal, 2 of 10: Topic 2 needs your call",
+    "atlas, waiting on you, not ready, depends on another signal, 2 of 10: Topic 2 needs your call",
   );
 });
 

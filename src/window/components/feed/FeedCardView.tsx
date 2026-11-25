@@ -104,7 +104,7 @@ export function FeedWords({
   const pieces = feedTextPieces(item.text, taskByNumber);
   // What colour and position say, said in words for a card's name: it waits, and where it stands in its chain.
   const stateWords = [
-    feedItemWaits(item) ? "Waiting on another signal" : "",
+    feedItemWaits(item) ? "Not ready, depends on another signal" : "",
     chain ? `${String(chain.index)} of ${String(chain.size)}` : "",
   ]
     .filter((part) => part !== "")

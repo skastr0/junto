@@ -118,7 +118,7 @@ test("[fake-tui] the feed with a chain of signals", async () => {
     await check("f3-depends-link-and-w-keep-the-keyboard-in-the-feed", async (frames) => {
       await feedOpen();
       // A card that waits on another: the second row of the chain.
-      const waiting = cards().filter({ hasText: "Waiting on another signal" });
+      const waiting = cards().filter({ hasText: "Not ready, depends on another signal" });
       const n = await waiting.count();
       if (n === 0) throw new Error(`no waiting card among ${JSON.stringify(await cardTexts())}`);
       await waiting.first().click();

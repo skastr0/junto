@@ -102,7 +102,7 @@ export type FeedRow =
 export const feedCardSpeech = (item: FeedItem, place: FeedChainPlace | undefined): string =>
   [
     `${item.seat.name}, ${FEED_KIND_LABEL[item.kind]}`,
-    feedItemWaits(item) ? "waiting on another signal" : "",
+    feedItemWaits(item) ? "not ready, depends on another signal" : "",
     place ? `${String(place.index)} of ${String(place.size)}` : "",
   ]
     .filter((part) => part !== "")
