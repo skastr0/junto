@@ -167,7 +167,7 @@ export function QuickThread({
   const [broadcastResult, setBroadcastResult] = useState<BroadcastReceipt>();
   // The set a send with a region fixed and what has reached it so far, across tries. A ref: the send reads it after it awaits.
   const fixed = useRef<{ seats: ReadonlyArray<BroadcastSeat>; sent: ReadonlyArray<NewThread> } | undefined>(undefined);
-  const sendTo = useRef<((to: ReadonlyArray<ThreadRecipient>) => void) | null>(null);
+  const sendTo = useRef<((to: ReadonlyArray<ThreadRecipient>) => Promise<boolean>) | null>(null);
   const awaiting = useRef(false);
 
   const narrowed = regionId === undefined ? undefined : catalog.regions.find((region) => region.id === regionId);
@@ -417,19 +417,37 @@ export function QuickThread({
     say(broadcastReceiptSpoken(receiptNow));
   };
 
-  /** Send goes to the seats the confirm fixed, whatever the choice reads by now. */
-  const confirmSend = (): void => {
-    if (confirming === undefined || sendTo.current === null) return;
-    fixed.current = { seats: confirming.seats, sent: [] };
+  /**
+   * Hand a fixed set to the input's send. One at a time: a second press before the
+   * first has rendered busy is ignored, so a double press cannot send twice or
+   * reset the tally. If the input says it did not start, nothing is awaited and
+   * the operator is told, instead of a button that looks pressable and does nothing.
+   */
+  const sendFixed = (to: ReadonlyArray<BroadcastSeat>): void => {
+    if (awaiting.current || sendTo.current === null) return;
     awaiting.current = true;
-    sendTo.current(confirming.seats.map((seat) => ({ seatId: seat.nodeId, name: seat.name })));
+    void sendTo.current(to.map((seat) => ({ seatId: seat.nodeId, name: seat.name }))).then((started) => {
+      if (started) return;
+      awaiting.current = false;
+      say("Nothing was sent. The message is not ready to send.");
+    });
+  };
+
+  /**
+   * Send goes to the seats the confirm fixed, whatever the choice reads by now.
+   * The seats are fixed, not the mail: the draft is read as it is sent, and it
+   * cannot change meanwhile, since the input is hidden under the confirm and
+   * the receipt and the draft belongs to this window alone.
+   */
+  const confirmSend = (): void => {
+    if (confirming === undefined || awaiting.current) return;
+    fixed.current = { seats: confirming.seats, sent: [] };
+    sendFixed(confirming.seats);
   };
 
   const sendAgain = (): void => {
-    const held = fixed.current;
-    if (held === undefined || broadcastResult === undefined || sendTo.current === null) return;
-    awaiting.current = true;
-    sendTo.current(broadcastResult.notSent.map((seat) => ({ seatId: seat.nodeId, name: seat.name })));
+    if (fixed.current === undefined || broadcastResult === undefined) return;
+    sendFixed(broadcastResult.notSent);
   };
 
   const cancelConfirm = (): void => {
@@ -454,11 +472,12 @@ export function QuickThread({
 
   // A send that ended with no word of its outcome (the draft could not be carried): the confirm gives the draft back, where the failure is said.
   useEffect(() => {
-    if (busy || !awaiting.current || confirming === undefined) return;
+    if (busy || !awaiting.current) return;
     awaiting.current = false;
+    if (confirming === undefined) return;
     fixed.current = undefined;
     setConfirming(undefined);
-  }, [busy, confirming]);
+  }, [busy, confirming, broadcastResult]);
 
   const onSentAll = (outcome: NewThreadsOutcome): void => {
     if (fixed.current !== undefined) return onBroadcastSent(outcome);

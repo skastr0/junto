@@ -106,7 +106,7 @@ const render = async (
     readonly onSentAll?: (outcome: NewThreadsOutcome) => void;
     readonly held?: HeldThreadDraft;
     readonly holds?: () => boolean;
-    readonly sender?: { current: ((to: ReadonlyArray<ThreadRecipient>) => void) | null };
+    readonly sender?: { current: ((to: ReadonlyArray<ThreadRecipient>) => Promise<boolean>) | null };
   } = {},
 ) => {
   act(() =>
@@ -231,7 +231,7 @@ describe("the thread input with a row of recipients", () => {
 describe("a send the host holds to ask first", () => {
   it("sends nothing on Send, then goes to exactly the seats the host fixed", async () => {
     const outcomes: NewThreadsOutcome[] = [];
-    const sender = createRef<(to: ReadonlyArray<ThreadRecipient>) => void>();
+    const sender = createRef<(to: ReadonlyArray<ThreadRecipient>) => Promise<boolean>>();
     let asked = 0;
     await render([A, B, C], { onSentAll: (outcome) => outcomes.push(outcome), holds: () => ((asked += 1), true), sender });
     await type("stop");
@@ -254,6 +254,23 @@ describe("a send the host holds to ask first", () => {
     expect(field().value).toBe("");
   });
 
+  it("goes to the seats the host fixed even when the live recipients have emptied", async () => {
+    const outcomes: NewThreadsOutcome[] = [];
+    const sender = createRef<(to: ReadonlyArray<ThreadRecipient>) => Promise<boolean>>();
+    await render([A, B], { onSentAll: (outcome) => outcomes.push(outcome), holds: () => true, sender });
+    await type("status?");
+    // The region emptied while the confirm was up: the fixed set is still the host's to send to.
+    await render([], { onSentAll: (outcome) => outcomes.push(outcome), holds: () => true, sender });
+    let started: boolean | undefined;
+    await act(async () => {
+      started = await sender.current?.([A, B]);
+    });
+    await flush();
+    expect(started).toBe(true);
+    expect(sends.map((send) => send.nodeId)).toEqual([A.seatId, B.seatId]);
+    expect(outcomes[0]?.sent.length).toBe(2);
+  });
+
   it("is not asked with nothing to send, and sends as ever when the host lets it go", async () => {
     let asked = 0;
     await render([A, B], { holds: () => ((asked += 1), false) });
@@ -266,11 +283,16 @@ describe("a send the host holds to ask first", () => {
   });
 
   it("sends to nobody when the host fixes nobody, and lets go of the host when it is gone", async () => {
-    const sender = createRef<(to: ReadonlyArray<ThreadRecipient>) => void>();
+    const sender = createRef<(to: ReadonlyArray<ThreadRecipient>) => Promise<boolean>>();
     await render([A], { holds: () => true, sender });
     await type("status?");
-    await act(async () => sender.current?.([]));
+    let started: boolean | undefined;
+    await act(async () => {
+      started = await sender.current?.([]);
+    });
     await flush();
+    // Nothing started, and it says so: the host is not left waiting for an outcome.
+    expect(started).toBe(false);
     expect(sends).toEqual([]);
     act(() => root.render(<div />));
     expect(sender.current).toBeNull();

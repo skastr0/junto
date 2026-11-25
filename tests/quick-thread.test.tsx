@@ -597,6 +597,23 @@ describe("Broadcast: a region as a recipient", () => {
     expect(quickThreadSeats(CANVAS)).toEqual([]);
   });
 
+  it("a double press on Send in the confirm sends once to each seat", async () => {
+    await mountHost();
+    await open();
+    await typeIn(seatField()!, "design sys");
+    await key(seatField(), "Enter");
+    await typeIn(messageField(), "status?");
+    await key(messageField(), "Enter");
+    const confirmSend = q("quick-thread-confirm-send") as HTMLElement;
+    // Two presses before the first has rendered the confirm busy.
+    act(() => {
+      confirmSend.click();
+      confirmSend.click();
+    });
+    await flush();
+    expect(sends.map((entry) => entry.nodeId).sort()).toEqual(["s-design", "s-type"]);
+  });
+
   it("Cancel and Escape on the confirm give the draft back as it was", async () => {
     await mountHost();
     await open();

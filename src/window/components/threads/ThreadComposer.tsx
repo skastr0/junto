@@ -83,8 +83,11 @@ type ToRecipients = Shared & {
    * Filled with the send itself, to exactly the seats it is given and no
    * others, whatever `recipients` reads by then: what a host confirmed is
    * what goes. `holds` is not asked again. Empty once the input is gone.
+   * It answers whether the send started: false when nothing was sent (no
+   * seats given, a send already on its way, files not in, nothing to say),
+   * so the host is not left waiting for an outcome that will not come.
    */
-  readonly sender?: RefObject<((to: ReadonlyArray<ThreadRecipient>) => void) | null>;
+  readonly sender?: RefObject<((to: ReadonlyArray<ThreadRecipient>) => Promise<boolean>) | null>;
   /** Keep the draft here, past this composer's own life. */
   readonly held?: HeldThreadDraft;
   /** The field, for a host that moves the keyboard to it once a seat is chosen. */
@@ -158,11 +161,13 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
   const unsendable =
     long.blocked || (draft.trim() === "" && !hasFiles) || attachments.ready === undefined || recipients.length === 0;
 
-  const send = async (fixed?: ReadonlyArray<ThreadRecipient>): Promise<void> => {
+  /** Whether the send started. Given seats are the ones that count, not the live recipients. */
+  const send = async (fixed?: ReadonlyArray<ThreadRecipient>): Promise<boolean> => {
     const text = draft.trim();
     const files = attachments.ready;
-    if (unsendable || files === undefined || sending) return;
-    if (fixed === undefined ? several && props.holds?.() === true : fixed.length === 0) return;
+    const nobody = fixed === undefined ? recipients.length === 0 : fixed.length === 0;
+    if (long.blocked || (draft.trim() === "" && !hasFiles) || files === undefined || nobody || sending) return false;
+    if (fixed === undefined && several && props.holds?.() === true) return false;
     setSending(true);
     setFailure(undefined);
     let carried: Awaited<ReturnType<typeof carryText>>;
@@ -171,7 +176,7 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
     } catch (error) {
       setSending(false);
       setFailure(error instanceof Error ? error.message : String(error));
-      return;
+      return true;
     }
     const mail = { text: carried.text, ...(carried.files.length > 0 ? { attachments: carried.files } : {}) };
     if (several) {
@@ -183,7 +188,7 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
         attachments.clear();
       }
       props.onSentAll?.(outcome);
-      return;
+      return true;
     }
     const { seat, threadId, inReplyTo } = props;
     const result = await sendSeatThread({
@@ -195,11 +200,12 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
     setSending(false);
     if (!result.ok) {
       setFailure(result.message);
-      return;
+      return true;
     }
     write("");
     attachments.clear();
     props.onSent?.(result.threadId, { messageId: result.messageId, waiting: result.delivery !== "delivered" });
+    return true;
   };
 
   // The host's way to send, as this render knows the draft and its files.
@@ -208,7 +214,7 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
   sendNow.current = send;
   useEffect(() => {
     if (sender === undefined) return;
-    sender.current = (to) => void sendNow.current(to);
+    sender.current = (to) => sendNow.current(to);
     return () => {
       sender.current = null;
     };
