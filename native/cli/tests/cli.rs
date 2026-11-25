@@ -7,7 +7,7 @@
 //! asserts the request as well as the reply. Nothing here needs the app.
 
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
@@ -28,6 +28,8 @@ enum Answer {
     Ok(Value),
     /// An error envelope, as the runtime names it.
     Error(&'static str, &'static str),
+    /// An error envelope with the details the runtime added.
+    ErrorWith(&'static str, &'static str, Value),
     /// Anything else, written as it is (a non-JSON body, or a malformed one).
     Raw(&'static str),
     /// The socket closes with no answer.
@@ -183,6 +185,14 @@ fn serve(
                 "ok": false,
                 "op": op,
                 "error": { "type": kind, "message": message },
+            });
+            writeln!(stream, "{envelope}").ok();
+        }
+        Answer::ErrorWith(kind, message, details) => {
+            let envelope = serde_json::json!({
+                "ok": false,
+                "op": op,
+                "error": { "type": kind, "message": message, "details": details },
             });
             writeln!(stream, "{envelope}").ok();
         }
@@ -1009,12 +1019,99 @@ fn a_write_that_times_out_is_offered_for_replay_under_its_op_id() {
 
 #[test]
 fn a_runtime_refusal_passes_through_as_the_runtime_words_it() {
-    let work = Work::start(vec![Answer::Error("AuthError", "seat gone")]);
-    let output = work.run(&["msg", "list"]);
+    for (kind, details) in [
+        ("RuntimeDown", None),
+        (
+            "RuntimeDown",
+            Some(serde_json::json!({ "next_step": "junto doctor" })),
+        ),
+        ("AuthError", None),
+        (
+            "AuthError",
+            Some(serde_json::json!({ "next_step": "junto doctor" })),
+        ),
+    ] {
+        let answer = match details.clone() {
+            Some(details) => Answer::ErrorWith(kind, "the core said no", details),
+            None => Answer::Error(kind, "the core said no"),
+        };
+        let work = Work::start(vec![answer]);
+        let output = work.run(&["msg", "list"]);
+        assert_eq!(code(&output), 1, "{kind} {details:?}");
+        let printed = stderr_json(&output);
+        assert_eq!(printed["error"]["type"], kind, "{printed}");
+        assert_eq!(printed["error"]["message"], "the core said no", "{printed}");
+        match details {
+            Some(details) => assert_eq!(printed["error"]["details"], details, "{printed}"),
+            None => assert!(
+                printed["error"].get("details").is_none(),
+                "no next_step is invented: {printed}"
+            ),
+        }
+    }
+}
+
+#[test]
+fn a_dispatched_mail_that_loses_its_answer_never_invites_replay() {
+    for answer in [Answer::Close, Answer::Raw("garbage"), Answer::Silent] {
+        let work = Work::start(vec![answer]);
+        let output = work.run(&["msg", "send", "peer", "hi", "--timeout", "200"]);
+        assert_eq!(code(&output), 1);
+        let printed = stderr_json(&output);
+        assert_eq!(printed["error"]["type"], "UncertainCompletion", "{printed}");
+        assert_eq!(printed["error"]["details"]["retryable"], false, "{printed}");
+        assert_eq!(
+            printed["error"]["details"]["operation"], "msg.send",
+            "{printed}"
+        );
+        assert!(
+            printed["error"]["details"]["next_step"]
+                .as_str()
+                .unwrap()
+                .contains("inspect msg sent"),
+            "{printed}"
+        );
+    }
+}
+
+#[test]
+fn an_overseer_mutation_that_loses_its_answer_says_it_may_have_applied() {
+    for answer in [Answer::Close, Answer::Raw("garbage"), Answer::Silent] {
+        let work = Work::start(vec![answer]);
+        let output = work.run(&[
+            "overseer",
+            "node",
+            "delete",
+            r#"{"canvas":"factory","nodeIds":["node-1"]}"#,
+            "--timeout",
+            "200",
+        ]);
+        assert_eq!(code(&output), 1);
+        let printed = stderr_json(&output);
+        assert_eq!(printed["error"]["type"], "UncertainCompletion", "{printed}");
+        assert_eq!(printed["error"]["details"]["retryable"], false, "{printed}");
+        assert_eq!(
+            printed["error"]["details"]["operation"], "node.delete",
+            "{printed}"
+        );
+    }
+}
+
+#[test]
+fn a_read_only_overseer_call_keeps_a_timeout_retryable() {
+    let work = Work::start(vec![Answer::Silent]);
+    let output = work.run(&[
+        "overseer",
+        "canvas",
+        "read",
+        r#"{"canvas":"factory"}"#,
+        "--timeout",
+        "200",
+    ]);
     assert_eq!(code(&output), 1);
     let printed = stderr_json(&output);
-    assert_eq!(printed["error"]["type"], "AuthError");
-    assert_eq!(printed["error"]["message"], "seat gone");
+    assert_eq!(printed["error"]["type"], "ProtocolError", "{printed}");
+    assert_eq!(printed["error"]["details"]["retryable"], true, "{printed}");
 }
 
 // --- batches ------------------------------------------------------------------
@@ -1189,6 +1286,23 @@ fn authority_reads_lower_their_canvas_and_order() {
 }
 
 #[test]
+fn a_build_without_the_browser_refuses_it_before_any_socket() {
+    if browser_on() {
+        return;
+    }
+    let work = Work::start(vec![]);
+    let output = work.run(&["browser", "doctor"]);
+    assert_eq!(code(&output), 2);
+    let expected = if machine_build() {
+        "junto browser: the browser runs in the desktop app, not on a Junto Remote machine"
+    } else {
+        "junto browser: disabled in this Junto build"
+    };
+    assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), expected);
+    assert!(work.frames().is_empty());
+}
+
+#[test]
 fn a_family_a_build_does_not_carry_is_disabled_before_any_socket() {
     if authority_on() {
         return;
@@ -1240,6 +1354,53 @@ fn an_owner_command_speaks_the_operator_protocol_without_a_credential() {
 }
 
 #[test]
+fn a_machine_seat_start_names_the_canvas_and_seat_and_takes_no_fresh_flag() {
+    let operator = Operator::start(|frame| {
+        serde_json::json!({
+            "protocol": "junto-operator/v1",
+            "id": frame["id"],
+            "op": frame["op"],
+            "ok": true,
+            "data": {
+                "canvas": frame["args"]["canvas"],
+                "seatId": frame["args"]["seatId"],
+                "hostId": "mini",
+                "bindingId": "b1",
+                "status": "running",
+            },
+        })
+    });
+    let output = operator.run(&["machine", "seat-start", "default", "seat-1"]);
+    assert_eq!(
+        code(&output),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        stdout_json(&output)["data"],
+        serde_json::json!({
+            "canvas": "default",
+            "seatId": "seat-1",
+            "hostId": "mini",
+            "bindingId": "b1",
+            "status": "running",
+        })
+    );
+    let frames = operator.frames();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0]["op"], "machine.seat-start");
+    assert_eq!(
+        frames[0]["args"],
+        serde_json::json!({ "canvas": "default", "seatId": "seat-1" })
+    );
+
+    let refused = operator.run(&["machine", "seat-start", "default", "seat-1", "--fresh"]);
+    assert_ne!(code(&refused), 0, "the seat decides what it starts on");
+    assert_eq!(operator.frames().len(), 1, "a refused flag sends nothing");
+}
+
+#[test]
 fn an_owner_command_refuses_an_answer_for_another_request() {
     let operator = Operator::start(|_| {
         serde_json::json!({
@@ -1272,6 +1433,13 @@ struct Operator {
 
 impl Operator {
     fn start(answer: fn(&Value) -> Value) -> Operator {
+        Operator::start_with(answer)
+    }
+
+    fn start_with<F>(answer: F) -> Operator
+    where
+        F: Fn(&Value) -> Value + Send + Sync + 'static,
+    {
         let home = temp_dir();
         let socket = home.join(".junto/operator/control.sock");
         std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
@@ -1281,11 +1449,13 @@ impl Operator {
         let stop = Arc::new(AtomicBool::new(false));
         let accept = {
             let (frames, stop) = (frames.clone(), stop.clone());
+            let answer = Arc::new(answer);
             thread::spawn(move || {
                 while !stop.load(Ordering::Relaxed) {
                     match listener.accept() {
                         Ok((stream, _)) => {
                             let frames = frames.clone();
+                            let answer = answer.clone();
                             thread::spawn(move || {
                                 let mut reader = BufReader::new(stream.try_clone().unwrap());
                                 let mut line = String::new();
@@ -1313,6 +1483,29 @@ impl Operator {
         }
     }
 
+    /// Stop accepting: a call now finds the stale socket path and no app.
+    fn stop_listening(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(accept) = self.accept.take() {
+            accept.join().ok();
+        }
+    }
+
+    /// One `companion-stdio --device` channel, as sshd would start it.
+    fn companion(&self, device: &str) -> std::process::Child {
+        Command::new(env!("CARGO_BIN_EXE_junto"))
+            .args(["companion-stdio", "--device", device])
+            .env("HOME", &self.home)
+            .env_remove("JUNTO_HOME")
+            .env_remove("JUNTO_WORK_HOME")
+            .env_remove("JUNTO_WORK_TOKEN")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    }
+
     fn run(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_junto"))
             .args(args)
@@ -1338,6 +1531,884 @@ impl Drop for Operator {
         }
         std::fs::remove_dir_all(&self.home).ok();
     }
+}
+
+// --- browser: a stand-in control socket ---------------------------------------
+
+#[derive(Clone)]
+struct BrowserSeen {
+    method: String,
+    path: String,
+    headers: Vec<(String, String)>,
+    body: Option<Value>,
+}
+
+impl BrowserSeen {
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.as_str())
+    }
+}
+
+enum BrowserReply {
+    Json(u16, Value),
+    Raw(Vec<u8>),
+    Silent,
+}
+
+struct BrowserControl {
+    home: PathBuf,
+    seen: Arc<Mutex<Vec<BrowserSeen>>>,
+    stop: Arc<AtomicBool>,
+    accept: Option<thread::JoinHandle<()>>,
+}
+
+impl BrowserControl {
+    fn start<F>(answer: F) -> BrowserControl
+    where
+        F: Fn(&BrowserSeen) -> BrowserReply + Send + Sync + 'static,
+    {
+        let home = temp_dir();
+        let dir = home.join(".junto/browser");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("control.token"), "transport-token\n").unwrap();
+        let listener = UnixListener::bind(dir.join("control.sock")).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let accept = {
+            let (seen, stop) = (seen.clone(), stop.clone());
+            let answer = Arc::new(answer);
+            thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((stream, _)) => {
+                            let seen = seen.clone();
+                            let answer = answer.clone();
+                            thread::spawn(move || {
+                                let Some(request) =
+                                    read_browser_request(stream.try_clone().unwrap())
+                                else {
+                                    return;
+                                };
+                                seen.lock().unwrap().push(request.clone());
+                                let mut stream = stream;
+                                match answer(&request) {
+                                    BrowserReply::Json(status, body) => {
+                                        let body = body.to_string();
+                                        let head = format!(
+                                            "HTTP/1.1 {status} OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
+                                            body.len()
+                                        );
+                                        stream.write_all(head.as_bytes()).ok();
+                                        stream.write_all(body.as_bytes()).ok();
+                                    }
+                                    BrowserReply::Raw(bytes) => {
+                                        stream.write_all(&bytes).ok();
+                                    }
+                                    BrowserReply::Silent => {
+                                        thread::sleep(Duration::from_secs(2));
+                                    }
+                                }
+                            });
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(2));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            })
+        };
+        BrowserControl {
+            home,
+            seen,
+            stop,
+            accept: Some(accept),
+        }
+    }
+
+    fn command(&self, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_junto"));
+        command
+            .args(args)
+            .env("HOME", &self.home)
+            .env_remove("JUNTO_BROWSER_HOME")
+            .env_remove("JUNTO_HOME")
+            .env_remove("JUNTO_WORK_HOME")
+            .env_remove("JUNTO_WORK_TOKEN")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        command
+    }
+
+    fn run(&self, args: &[&str]) -> Output {
+        self.command(args).output().unwrap()
+    }
+
+    fn run_with(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
+        let mut command = self.command(args);
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        command.output().unwrap()
+    }
+
+    fn seen(&self) -> Vec<BrowserSeen> {
+        self.seen.lock().unwrap().clone()
+    }
+
+    fn stop_listening(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(accept) = self.accept.take() {
+            accept.join().ok();
+        }
+    }
+}
+
+impl Drop for BrowserControl {
+    fn drop(&mut self) {
+        self.stop_listening();
+        std::fs::remove_dir_all(&self.home).ok();
+    }
+}
+
+fn read_browser_request(mut stream: UnixStream) -> Option<BrowserSeen> {
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 8192];
+    let head_end = loop {
+        let read = stream.read(&mut buffer).ok()?;
+        if read == 0 {
+            return None;
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+        if let Some(at) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+            break at + 4;
+        }
+    };
+    let head = String::from_utf8_lossy(&bytes[..head_end]).into_owned();
+    let mut lines = head.split("\r\n");
+    let mut start = lines.next()?.split_whitespace();
+    let method = start.next()?.to_string();
+    let path = start.next()?.to_string();
+    let headers: Vec<(String, String)> = lines
+        .filter_map(|line| {
+            let (key, value) = line.split_once(':')?;
+            Some((key.trim().to_ascii_lowercase(), value.trim().to_string()))
+        })
+        .collect();
+    let length = headers
+        .iter()
+        .find(|(key, _)| key == "content-length")
+        .and_then(|(_, value)| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    let mut body = bytes[head_end..].to_vec();
+    while body.len() < length {
+        let read = stream.read(&mut buffer).ok()?;
+        if read == 0 {
+            return None;
+        }
+        body.extend_from_slice(&buffer[..read]);
+    }
+    let body = (length > 0)
+        .then(|| serde_json::from_slice(&body[..length]).ok())
+        .flatten();
+    Some(BrowserSeen {
+        method,
+        path,
+        headers,
+        body,
+    })
+}
+
+// --- browser: the installed CLI -------------------------------------------------
+
+#[test]
+fn browser_doctor_answers_with_its_token_and_a_fresh_request_id() {
+    if !browser_on() {
+        return;
+    }
+    let control = BrowserControl::start(|_| {
+        BrowserReply::Json(
+            200,
+            serde_json::json!({ "ok": true, "data": { "status": "ok" } }),
+        )
+    });
+    for _ in 0..2 {
+        let output = control.run(&["browser", "doctor"]);
+        assert_eq!(
+            code(&output),
+            0,
+            "{:?}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            stdout_json(&output),
+            serde_json::json!({ "ok": true, "command": "browser doctor", "data": { "status": "ok" } })
+        );
+    }
+    let seen = control.seen();
+    assert_eq!(seen.len(), 2);
+    for request in &seen {
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/doctor");
+        assert_eq!(request.header("x-junto-token"), Some("transport-token"));
+        assert_eq!(request.header("x-junto-capability"), None);
+        let id = request.header("x-junto-request-id").unwrap();
+        assert_eq!(id.len(), 32);
+        assert!(id.bytes().all(|b| b.is_ascii_hexdigit()));
+    }
+    assert_ne!(
+        seen[0].header("x-junto-request-id"),
+        seen[1].header("x-junto-request-id")
+    );
+}
+
+#[test]
+fn browser_sends_a_tab_where_it_takes_one_and_refuses_it_where_it_does_not() {
+    if !browser_on() {
+        return;
+    }
+    let control = BrowserControl::start(|_| {
+        BrowserReply::Json(200, serde_json::json!({ "ok": true, "data": {} }))
+    });
+    for args in [
+        vec!["browser", "open", "page-1", "--tab", "t2"],
+        vec![
+            "browser",
+            "goto",
+            "session-1",
+            "https://example.com/",
+            "--tab",
+            "t2",
+        ],
+        vec!["browser", "eval", "session-1", "1", "--tab", "t2"],
+        vec!["browser", "shot", "session-1", "--tab", "t2"],
+    ] {
+        let output = control.run(&args);
+        assert_eq!(
+            code(&output),
+            0,
+            "{args:?}: {:?}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let seen = control.seen();
+    assert_eq!(seen.len(), 4);
+    assert_eq!(
+        seen.iter()
+            .map(|request| (request.path.as_str(), request.body.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "/open",
+                Some(serde_json::json!({ "ref": "page-1", "tab": "t2" }))
+            ),
+            (
+                "/goto",
+                Some(serde_json::json!({
+                    "sessionId": "session-1",
+                    "url": "https://example.com/",
+                    "tab": "t2",
+                }))
+            ),
+            (
+                "/eval",
+                Some(serde_json::json!({ "sessionId": "session-1", "code": "1", "tab": "t2" }))
+            ),
+            (
+                "/screenshot",
+                Some(serde_json::json!({ "sessionId": "session-1", "tab": "t2" }))
+            ),
+        ]
+    );
+    for verb in ["close", "stop"] {
+        let output = control.run(&["browser", verb, "session-1", "--tab", "t2"]);
+        assert_ne!(code(&output), 0, "{verb} takes no tab");
+    }
+    assert_eq!(control.seen().len(), 4, "a refused tab sends nothing");
+}
+
+#[test]
+fn browser_comment_sends_its_box_and_refuses_bad_input_before_transport() {
+    if !browser_on() {
+        return;
+    }
+    let control = BrowserControl::start(|_| {
+        BrowserReply::Json(
+            200,
+            serde_json::json!({ "ok": true, "data": { "messageId": "m1", "threadId": "th1" } }),
+        )
+    });
+    let named = control.run(&[
+        "browser",
+        "comment",
+        "session-1",
+        "--box",
+        "10,20,300,40",
+        "--text",
+        "too tight",
+        "--tab",
+        "t2",
+    ]);
+    let active = control.run(&[
+        "browser",
+        "comment",
+        "session-1",
+        "--box",
+        "0,0,1.5,2",
+        "--text",
+        "here",
+    ]);
+    for output in [&named, &active] {
+        assert_eq!(
+            code(output),
+            0,
+            "{:?}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            stdout_json(output),
+            serde_json::json!({
+                "ok": true,
+                "command": "browser comment",
+                "data": { "messageId": "m1", "threadId": "th1" },
+            })
+        );
+    }
+    let seen = control.seen();
+    assert_eq!(
+        seen.iter()
+            .map(|request| (
+                request.method.as_str(),
+                request.path.as_str(),
+                request.body.clone()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "POST",
+                "/comment",
+                Some(serde_json::json!({
+                    "sessionId": "session-1",
+                    "tab": "t2",
+                    "rect": { "x": 10, "y": 20, "w": 300, "h": 40 },
+                    "text": "too tight",
+                }))
+            ),
+            (
+                "POST",
+                "/comment",
+                Some(serde_json::json!({
+                    "sessionId": "session-1",
+                    "rect": { "x": 0, "y": 0, "w": 1.5, "h": 2 },
+                    "text": "here",
+                }))
+            ),
+        ]
+    );
+    let long = "é".repeat(32_769);
+    for args in [
+        vec!["browser", "comment", "session-1", "--text", "x"],
+        vec!["browser", "comment", "session-1", "--box", "1,2,3,4"],
+        vec![
+            "browser",
+            "comment",
+            "session-1",
+            "--box",
+            "1,2,3",
+            "--text",
+            "x",
+        ],
+        vec![
+            "browser",
+            "comment",
+            "session-1",
+            "--box",
+            "1,2,3,4",
+            "--text",
+            " ",
+        ],
+        vec![
+            "browser",
+            "comment",
+            "session-1",
+            "--box",
+            "1,2,3,4",
+            "--text",
+            &long,
+        ],
+        vec![
+            "browser", "comment", "bad id", "--box", "1,2,3,4", "--text", "x",
+        ],
+    ] {
+        let output = control.run(&args);
+        assert_eq!(code(&output), 1, "{args:?}");
+        assert!(
+            matches!(
+                stderr_json(&output)["error"]["type"].as_str(),
+                Some("InputError" | "ShowHelp")
+            ),
+            "{args:?}: {}",
+            stderr_json(&output)
+        );
+    }
+    assert_eq!(
+        control.seen().len(),
+        2,
+        "none of the refusals reached control"
+    );
+}
+
+#[test]
+fn browser_carries_the_seat_credential_only_when_the_seat_has_one() {
+    if !browser_on() {
+        return;
+    }
+    let control = BrowserControl::start(|_| {
+        BrowserReply::Json(200, serde_json::json!({ "ok": true, "data": [] }))
+    });
+    let credential = format!("junto-seat-{}", "b".repeat(43));
+    let with = control.run_with(&["browser", "pages"], &[("JUNTO_WORK_TOKEN", &credential)]);
+    assert_eq!(
+        code(&with),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&with.stderr)
+    );
+    let without = control.run(&["browser", "pages"]);
+    assert_eq!(
+        code(&without),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&without.stderr)
+    );
+    let seen = control.seen();
+    assert_eq!(
+        seen[0].header("x-junto-seat-credential"),
+        Some(credential.as_str())
+    );
+    assert_eq!(seen[1].header("x-junto-seat-credential"), None);
+}
+
+#[test]
+fn browser_takes_an_isolated_control_home_and_refuses_a_relative_one() {
+    if !browser_on() {
+        return;
+    }
+    let control = BrowserControl::start(|_| {
+        BrowserReply::Json(200, serde_json::json!({ "ok": true, "data": [] }))
+    });
+    let decoy = temp_dir();
+    let isolated = control.run_with(
+        &["browser", "profiles"],
+        &[
+            ("HOME", decoy.to_str().unwrap()),
+            ("JUNTO_BROWSER_HOME", control.home.to_str().unwrap()),
+        ],
+    );
+    assert_eq!(
+        code(&isolated),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&isolated.stderr)
+    );
+    assert_eq!(
+        control.seen()[0].header("x-junto-token"),
+        Some("transport-token")
+    );
+
+    let invalid = control.run_with(
+        &["browser", "doctor"],
+        &[("JUNTO_BROWSER_HOME", "relative/home")],
+    );
+    assert_eq!(code(&invalid), 1);
+    assert_eq!(
+        stderr_json(&invalid)["error"]["details"]["reason"],
+        "bad_request"
+    );
+    assert_eq!(control.seen().len(), 1, "a bad home sends nothing");
+    std::fs::remove_dir_all(decoy).ok();
+}
+
+#[test]
+fn browser_names_a_down_runtime_and_never_echoes_its_paths() {
+    if !browser_on() {
+        return;
+    }
+    let mut control = BrowserControl::start(|_| BrowserReply::Silent);
+    control.stop_listening();
+    let stale = control.run(&["browser", "doctor"]);
+    assert_eq!(code(&stale), 1);
+    assert_eq!(stderr_json(&stale)["error"]["type"], "RuntimeDown");
+    assert_eq!(
+        stderr_json(&stale)["error"]["details"]["reason"],
+        "runtime_down"
+    );
+    assert!(!String::from_utf8_lossy(&stale.stderr).contains("control.sock"));
+    assert!(!String::from_utf8_lossy(&stale.stderr).contains("control.token"));
+
+    let empty = temp_dir();
+    let missing = Command::new(env!("CARGO_BIN_EXE_junto"))
+        .args(["browser", "doctor"])
+        .env("HOME", &empty)
+        .env_remove("JUNTO_BROWSER_HOME")
+        .env_remove("JUNTO_HOME")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(code(&missing), 1);
+    assert_eq!(stderr_json(&missing)["error"]["type"], "RuntimeDown");
+    assert!(!String::from_utf8_lossy(&missing.stderr).contains("control.token"));
+    std::fs::remove_dir_all(empty).ok();
+}
+
+#[test]
+fn browser_takes_no_host_station_or_public_screenshot_path() {
+    if !browser_on() {
+        return;
+    }
+    let control = BrowserControl::start(|_| {
+        BrowserReply::Json(200, serde_json::json!({ "ok": true, "data": {} }))
+    });
+    for args in [
+        vec!["browser", "--host", "remote-a", "doctor"],
+        vec!["browser", "doctor", "--host", "remote-a"],
+        vec!["browser", "station"],
+        vec!["browser", "station-trust"],
+        vec!["browser", "shot", "session-1", "--path", "/tmp/x.png"],
+    ] {
+        let output = control.run(&args);
+        assert_ne!(code(&output), 0, "{args:?}");
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("\"ok\":true"));
+    }
+    assert!(control.seen().is_empty());
+}
+
+#[test]
+fn browser_maps_a_control_refusal_to_the_work_error_it_names() {
+    if !browser_on() {
+        return;
+    }
+    let control = BrowserControl::start(|request| match request.path.as_str() {
+        "/pages" => BrowserReply::Json(
+            403,
+            serde_json::json!({
+                "ok": false,
+                "error": { "_tag": "forbidden", "message": "this canvas is paused" },
+            }),
+        ),
+        _ => BrowserReply::Json(
+            404,
+            serde_json::json!({
+                "ok": false,
+                "error": { "_tag": "not_found", "message": "no session session-1 held by this seat" },
+            }),
+        ),
+    });
+    let forbidden = control.run(&["browser", "pages"]);
+    assert_eq!(code(&forbidden), 1);
+    let printed = stderr_json(&forbidden);
+    assert_eq!(printed["command"], "browser pages");
+    assert_eq!(printed["error"]["type"], "ScopeError");
+    assert_eq!(printed["error"]["message"], "this canvas is paused");
+    assert_eq!(printed["error"]["details"]["reason"], "forbidden");
+    assert_eq!(printed["error"]["details"]["retryable"], false);
+
+    let missing = control.run(&["browser", "sessions"]);
+    assert_eq!(code(&missing), 1);
+    let printed = stderr_json(&missing);
+    assert_eq!(printed["error"]["type"], "UnknownTarget");
+    assert_eq!(
+        printed["error"]["message"],
+        "no session session-1 held by this seat"
+    );
+    assert_eq!(printed["error"]["details"]["reason"], "not_found");
+    assert!(
+        printed["error"]["details"]["next_step"]
+            .as_str()
+            .is_some_and(|next| next.contains("browser pages")),
+        "{printed}"
+    );
+}
+
+#[test]
+fn browser_bounds_a_response_and_types_a_premature_close_and_a_timeout() {
+    if !browser_on() {
+        return;
+    }
+    const MAX: usize = 2 * 1024 * 1024;
+
+    let declared = BrowserControl::start(|_| {
+        BrowserReply::Raw(
+            format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{{}}",
+                MAX + 1
+            )
+            .into_bytes(),
+        )
+    });
+    let output = declared.run(&["browser", "doctor"]);
+    assert_eq!(code(&output), 1);
+    assert_eq!(stderr_json(&output)["error"]["type"], "InputError");
+    assert_eq!(
+        stderr_json(&output)["error"]["details"]["reason"],
+        "result_too_large"
+    );
+
+    let unframed = BrowserControl::start(|_| {
+        BrowserReply::Raw(
+            b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{\"ok\":true,\"data\":{\"status\":\"ok\"}}"
+                .to_vec(),
+        )
+    });
+    let output = unframed.run(&["browser", "doctor"]);
+    assert_eq!(
+        code(&output),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(stdout_json(&output)["data"]["status"], "ok");
+
+    let streamed = BrowserControl::start(|_| {
+        let mut bytes = b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n".to_vec();
+        bytes.extend(std::iter::repeat_n(b'a', MAX + 1));
+        BrowserReply::Raw(bytes)
+    });
+    let output = streamed.run(&["browser", "doctor"]);
+    assert_eq!(code(&output), 1);
+    assert_eq!(stderr_json(&output)["error"]["type"], "InputError");
+    assert_eq!(
+        stderr_json(&output)["error"]["details"]["reason"],
+        "result_too_large"
+    );
+
+    let hanging = BrowserControl::start(|_| BrowserReply::Silent);
+    let output = hanging.run_with(
+        &["browser", "doctor"],
+        &[("JUNTO_BROWSER_REQUEST_TIMEOUT_MS", "30")],
+    );
+    assert_eq!(code(&output), 1);
+    assert_eq!(stderr_json(&output)["error"]["type"], "Timeout");
+    assert_eq!(
+        stderr_json(&output)["error"]["details"]["reason"],
+        "timeout"
+    );
+    assert_eq!(stderr_json(&output)["error"]["details"]["retryable"], true);
+
+    let reset = BrowserControl::start(|_| {
+        BrowserReply::Raw(
+            b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 100\r\n\r\n{"
+                .to_vec(),
+        )
+    });
+    let output = reset.run(&["browser", "doctor"]);
+    assert_eq!(code(&output), 1);
+    assert_eq!(stderr_json(&output)["error"]["type"], "InternalError");
+    assert_eq!(
+        stderr_json(&output)["error"]["message"],
+        "server response closed before completion"
+    );
+}
+
+// --- companion-stdio ----------------------------------------------------------
+
+const DEVICE: &str = "dev_01J9Z3K4M5N6P7Q8R9S0T1V2W3";
+
+/// What the app answers a relay hello with.
+fn companion_hello(frame: &Value) -> Value {
+    serde_json::json!({
+        "protocol": "junto-operator/v1",
+        "id": frame["id"],
+        "op": frame["op"],
+        "ok": true,
+        "data": {
+            "ok": true,
+            "hello": {
+                "appVersion": "t",
+                "deviceId": DEVICE,
+                "deviceName": "Phone",
+                "station": "Mac",
+                "serverTime": 1,
+            },
+        },
+    })
+}
+
+/// What the app answers one relayed phone request with.
+fn companion_relayed(frame: &Value, inner: Value) -> Value {
+    serde_json::json!({
+        "protocol": "junto-operator/v1",
+        "id": frame["id"],
+        "op": frame["op"],
+        "ok": true,
+        "data": { "response": inner },
+    })
+}
+
+fn companion_request(id: &str, op: &str) -> String {
+    format!(r#"{{"v":"junto-companion/1","type":"request","id":"{id}","op":"{op}","args":{{}}}}"#)
+}
+
+fn companion_line(reader: &mut impl BufRead) -> Value {
+    let mut line = String::new();
+    assert!(
+        reader.read_line(&mut line).unwrap() > 0,
+        "the channel closed"
+    );
+    serde_json::from_str(line.trim()).unwrap()
+}
+
+#[test]
+fn the_phone_reader_takes_lines_in_pieces_and_stops_at_the_inbound_cap() {
+    let operator = Operator::start(|frame| match frame["op"].as_str() {
+        Some("companion.hello") => companion_hello(frame),
+        Some("companion.call") => {
+            let request = &frame["args"]["request"];
+            companion_relayed(
+                frame,
+                serde_json::json!({
+                    "v": "junto-companion/1",
+                    "type": "response",
+                    "id": request["id"],
+                    "ok": true,
+                    "result": {},
+                }),
+            )
+        }
+        _ => panic!("unexpected operator op: {frame}"),
+    });
+    let mut child = operator.companion(DEVICE);
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let wow = companion_line(&mut stdout);
+    assert_eq!(wow["event"], "hello");
+
+    // One request split over two writes is still one line.
+    let request = companion_request("s", "ping");
+    let (first, second) = request.split_at(10);
+    let stdin = child.stdin.as_mut().unwrap();
+    stdin.write_all(first.as_bytes()).unwrap();
+    stdin.flush().unwrap();
+    thread::sleep(Duration::from_millis(50));
+    stdin.write_all(format!("{second}\n").as_bytes()).unwrap();
+    stdin.flush().unwrap();
+    let answer = companion_line(&mut stdout);
+    assert_eq!(answer["id"], "s");
+    assert_eq!(answer["ok"], true);
+
+    // A line past the reader's cap ends the channel as a connection error.
+    let oversized = format!("{}\n", "x".repeat(300 * 1024));
+    let stdin = child.stdin.as_mut().unwrap();
+    stdin.write_all(oversized.as_bytes()).unwrap();
+    stdin.flush().unwrap();
+    let ended = companion_line(&mut stdout);
+    assert_eq!(ended["id"], "");
+    assert_eq!(ended["error"]["code"], "too-large");
+    drop(child.stdin.take());
+    let status = child.wait().unwrap();
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn one_phone_relays_at_most_its_share_and_reads_a_full_socket_as_rate_limited() {
+    let open = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let most = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (open_seen, most_seen) = (open.clone(), most.clone());
+    let operator = Operator::start_with(move |frame| match frame["op"].as_str() {
+        Some("companion.hello") => companion_hello(frame),
+        Some("companion.call") => {
+            let now = open_seen.fetch_add(1, Ordering::SeqCst) + 1;
+            most_seen.fetch_max(now, Ordering::SeqCst);
+            thread::sleep(Duration::from_millis(30));
+            open_seen.fetch_sub(1, Ordering::SeqCst);
+            let request = &frame["args"]["request"];
+            companion_relayed(
+                frame,
+                serde_json::json!({
+                    "v": "junto-companion/1",
+                    "type": "response",
+                    "id": request["id"],
+                    "ok": true,
+                    "result": {},
+                }),
+            )
+        }
+        _ => panic!("unexpected operator op: {frame}"),
+    });
+    let mut child = operator.companion(DEVICE);
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    assert_eq!(companion_line(&mut stdout)["event"], "hello");
+    let stdin = child.stdin.as_mut().unwrap();
+    for i in 0..20 {
+        stdin
+            .write_all(format!("{}\n", companion_request(&format!("p{i}"), "ping")).as_bytes())
+            .unwrap();
+    }
+    stdin.flush().unwrap();
+    let mut answers: Vec<Value> = (0..20).map(|_| companion_line(&mut stdout)).collect();
+    answers.sort_by_key(|answer| answer["id"].as_str().unwrap().to_string());
+    assert!(
+        answers
+            .iter()
+            .all(|answer| answer["ok"] == true && answer["result"].is_object())
+    );
+    assert_eq!(most.load(Ordering::SeqCst), 3);
+    drop(child.stdin.take());
+    child.wait().unwrap();
+}
+
+#[test]
+fn a_full_operator_socket_reads_as_rate_limited_and_a_gone_app_as_not_running() {
+    let busy = Operator::start(|frame| match frame["op"].as_str() {
+        Some("companion.hello") => companion_hello(frame),
+        Some("companion.call") => serde_json::json!({
+            "protocol": "junto-operator/v1",
+            "id": frame["id"],
+            "op": frame["op"],
+            "ok": false,
+            "error": { "type": "runtime_down", "message": "operator control peer limit reached" },
+        }),
+        _ => panic!("unexpected operator op: {frame}"),
+    });
+    let mut child = busy.companion(DEVICE);
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    assert_eq!(companion_line(&mut stdout)["event"], "hello");
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(format!("{}\n", companion_request("b", "ping")).as_bytes())
+        .unwrap();
+    let answer = companion_line(&mut stdout);
+    assert_eq!(answer["id"], "b");
+    assert_eq!(answer["error"]["code"], "rate-limited");
+    drop(child.stdin.take());
+    child.wait().unwrap();
+
+    let mut down = Operator::start(|frame| match frame["op"].as_str() {
+        Some("companion.hello") => companion_hello(frame),
+        _ => panic!("unexpected operator op: {frame}"),
+    });
+    let mut child = down.companion(DEVICE);
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    assert_eq!(companion_line(&mut stdout)["event"], "hello");
+    down.stop_listening();
+    std::fs::remove_file(down.home.join(".junto/operator/control.sock")).unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(format!("{}\n", companion_request("d", "ping")).as_bytes())
+        .unwrap();
+    let answer = companion_line(&mut stdout);
+    assert_eq!(answer["id"], "d");
+    assert_eq!(answer["error"]["code"], "app-not-running");
+    drop(child.stdin.take());
+    child.wait().unwrap();
 }
 
 // --- overseer, offline and live -----------------------------------------------
@@ -1844,5 +2915,10 @@ fn tasks_on() -> bool {
 
 /// Whether this build carries the browser: off in a machine build, and in all-off.
 fn browser_on() -> bool {
-    on(std::option_env!("JUNTO_BROWSER_ENABLED")) && !on(std::option_env!("JUNTO_MACHINE_BUILD"))
+    on(std::option_env!("JUNTO_BROWSER_ENABLED")) && !machine_build()
+}
+
+/// Whether this is a machine bundle's CLI, where the browser stays on the desktop.
+fn machine_build() -> bool {
+    on(std::option_env!("JUNTO_MACHINE_BUILD"))
 }

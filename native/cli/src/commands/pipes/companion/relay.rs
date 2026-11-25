@@ -4,7 +4,7 @@
 //! down at hello, the installed Junto is started and given a moment
 //! (src/cli/companion-launch.ts).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Condvar, Mutex};
 use std::thread;
@@ -50,27 +50,19 @@ impl Relay {
 
     /// The hello to send, or the connection error that ends the channel.
     pub fn hello(&self) -> Result<Value, (Code, String)> {
-        let ask = |timeout| {
-            operator::call(
-                "companion.hello",
-                json!({ "deviceId": self.device_id }),
-                timeout,
-            )
-        };
-        let mut result = ask(DEFAULT_TIMEOUT_MS);
-        // Not running: start the installed app once, then ask again until its
-        // socket answers or the wait runs out.
-        if result == Err(Refused::Down) && launch_installed() {
-            let deadline = Instant::now() + LAUNCH_WAIT;
-            while result == Err(Refused::Down) {
-                thread::sleep(LAUNCH_POLL.min(deadline.saturating_duration_since(Instant::now())));
-                let left = deadline.saturating_duration_since(Instant::now());
-                if left.is_zero() {
-                    break;
-                }
-                result = ask(left.as_millis() as u64);
-            }
-        }
+        let started = Instant::now();
+        let result = wait_for_app(
+            |timeout| {
+                operator::call(
+                    "companion.hello",
+                    json!({ "deviceId": self.device_id }),
+                    timeout,
+                )
+            },
+            launch_installed,
+            thread::sleep,
+            || started.elapsed(),
+        );
         let data = result.map_err(|refused| {
             let code = if refused == Refused::Down {
                 Code::AppNotRunning
@@ -175,6 +167,40 @@ fn in_schema_order(hello: &Value) -> Value {
     Value::Object(known.chain(rest).collect())
 }
 
+/// The hello when the app is down: start the installed app once, then ask
+/// again until its socket answers or the wait runs out. The clock and the
+/// launch are arguments so the bound is a test, not a sleep.
+fn wait_for_app<A, L, S, T>(
+    mut ask: A,
+    launch: L,
+    mut sleep: S,
+    mut elapsed: T,
+) -> Result<Value, Refused>
+where
+    A: FnMut(u64) -> Result<Value, Refused>,
+    L: FnOnce() -> bool,
+    S: FnMut(Duration),
+    T: FnMut() -> Duration,
+{
+    let mut result = ask(DEFAULT_TIMEOUT_MS);
+    if result == Err(Refused::Down) && launch() {
+        let deadline = elapsed() + LAUNCH_WAIT;
+        while result == Err(Refused::Down) {
+            let left = deadline.checked_sub(elapsed()).unwrap_or(Duration::ZERO);
+            if left.is_zero() {
+                break;
+            }
+            sleep(LAUNCH_POLL.min(left));
+            let left = deadline.checked_sub(elapsed()).unwrap_or(Duration::ZERO);
+            if left.is_zero() {
+                break;
+            }
+            result = ask(left.as_millis() as u64);
+        }
+    }
+    result
+}
+
 /// At most `max` at once, first come first served.
 struct Turns {
     max: usize,
@@ -226,23 +252,24 @@ fn launch_installed() -> bool {
         .is_some()
 }
 
+/// What the launch decision sees, with every system read already made.
+#[derive(Debug)]
+struct AppFacts {
+    macos: bool,
+    junto_home: Option<String>,
+    home: Option<PathBuf>,
+    account_home: Option<String>,
+    bundle_is_directory: bool,
+    executable_is_file: bool,
+    bundle_identifier: Option<String>,
+}
+
 fn installed_app_startable() -> bool {
-    if !cfg!(target_os = "macos") || usable_junto_home() {
-        return false;
-    }
-    let home = std::env::home_dir();
-    let account = account_home();
-    if home.is_none() || home.map(|h| normalized(&h)) != account.map(|a| normalized(Path::new(&a)))
-    {
-        return false;
-    }
-    let real = |path: &str, directory: bool| {
-        std::fs::symlink_metadata(path)
-            .is_ok_and(|m| if directory { m.is_dir() } else { m.is_file() })
-    };
-    real(INSTALLED_APP, true)
-        && real(&format!("{INSTALLED_APP}/Contents/MacOS/Junto"), false)
-        && run(
+    let bundle_is_directory = real(INSTALLED_APP, true);
+    let executable_is_file =
+        bundle_is_directory && real(&format!("{INSTALLED_APP}/Contents/MacOS/Junto"), false);
+    let bundle_identifier = if executable_is_file {
+        run(
             "/usr/bin/plutil",
             &[
                 "-extract",
@@ -254,13 +281,55 @@ fn installed_app_startable() -> bool {
             ],
             Duration::from_secs(2),
         )
-        .as_deref()
-            == Some(BUNDLE_IDENTIFIER)
+    } else {
+        None
+    };
+    launch_refusal(&AppFacts {
+        macos: cfg!(target_os = "macos"),
+        junto_home: std::env::var("JUNTO_HOME").ok(),
+        home: std::env::home_dir(),
+        account_home: account_home(),
+        bundle_is_directory,
+        executable_is_file,
+        bundle_identifier,
+    })
+    .is_none()
+}
+
+/// Only the canonical installed app for the account's own home may be
+/// started; anything else is refused, and `open` is never called.
+fn launch_refusal(facts: &AppFacts) -> Option<&'static str> {
+    if !facts.macos {
+        return Some("not macOS");
+    }
+    if usable_junto_home(facts.junto_home.as_deref()) {
+        return Some("JUNTO_HOME names another home");
+    }
+    let (Some(home), Some(account)) = (&facts.home, &facts.account_home) else {
+        return Some("no home to compare");
+    };
+    if normalized(home) != normalized(Path::new(account)) {
+        return Some("HOME is not the account's home");
+    }
+    if !facts.bundle_is_directory {
+        return Some("no installed bundle");
+    }
+    if !facts.executable_is_file {
+        return Some("the bundle has no executable");
+    }
+    if facts.bundle_identifier.as_deref() != Some(BUNDLE_IDENTIFIER) {
+        return Some("another bundle uses Junto's name");
+    }
+    None
+}
+
+fn real(path: &str, directory: bool) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| if directory { m.is_dir() } else { m.is_file() })
 }
 
 /// usableJuntoHome: a JUNTO_HOME that names another home.
-fn usable_junto_home() -> bool {
-    std::env::var("JUNTO_HOME").is_ok_and(|home| {
+fn usable_junto_home(home: Option<&str>) -> bool {
+    home.is_some_and(|home| {
         let home = home.trim();
         !home.is_empty()
             && home.len() <= 4096
@@ -326,5 +395,149 @@ mod tests {
             .cloned()
             .collect();
         assert_eq!(keys, HELLO_FIELDS);
+    }
+
+    fn installed() -> AppFacts {
+        AppFacts {
+            macos: true,
+            junto_home: None,
+            home: Some(PathBuf::from("/Users/me")),
+            account_home: Some("/Users/me".into()),
+            bundle_is_directory: true,
+            executable_is_file: true,
+            bundle_identifier: Some(BUNDLE_IDENTIFIER.into()),
+        }
+    }
+
+    #[test]
+    fn starts_only_the_canonical_installed_app_for_the_accounts_home() {
+        assert_eq!(launch_refusal(&installed()), None);
+        assert_eq!(
+            launch_refusal(&AppFacts {
+                junto_home: Some("  ".into()),
+                ..installed()
+            }),
+            None
+        );
+        for (case, facts) in [
+            (
+                "not macOS",
+                AppFacts {
+                    macos: false,
+                    ..installed()
+                },
+            ),
+            (
+                "a Junto with its own home",
+                AppFacts {
+                    junto_home: Some("/Users/me/.junto-dev".into()),
+                    ..installed()
+                },
+            ),
+            (
+                "HOME pointed elsewhere",
+                AppFacts {
+                    home: Some(PathBuf::from("/tmp/jr-x")),
+                    ..installed()
+                },
+            ),
+            (
+                "no bundle in /Applications",
+                AppFacts {
+                    bundle_is_directory: false,
+                    ..installed()
+                },
+            ),
+            (
+                "a bundle without its executable",
+                AppFacts {
+                    executable_is_file: false,
+                    ..installed()
+                },
+            ),
+            (
+                "another app under Junto's name",
+                AppFacts {
+                    bundle_identifier: Some("com.example.other".into()),
+                    ..installed()
+                },
+            ),
+            (
+                "an unreadable Info.plist",
+                AppFacts {
+                    bundle_identifier: None,
+                    ..installed()
+                },
+            ),
+        ] {
+            assert!(launch_refusal(&facts).is_some(), "{case}");
+        }
+    }
+
+    #[test]
+    fn starts_nothing_when_the_app_already_answers() {
+        let launched = std::cell::Cell::new(false);
+        let asks = std::cell::Cell::new(0);
+        let result = wait_for_app(
+            |_| {
+                asks.set(asks.get() + 1);
+                Ok(json!({ "ok": true, "hello": {} }))
+            },
+            || {
+                launched.set(true);
+                true
+            },
+            |_| {},
+            || Duration::ZERO,
+        );
+        assert!(result.is_ok());
+        assert_eq!(asks.get(), 1);
+        assert!(!launched.get());
+    }
+
+    #[test]
+    fn starts_the_app_once_and_waits_for_its_socket() {
+        let launched = std::cell::Cell::new(false);
+        let elapsed = std::cell::Cell::new(Duration::ZERO);
+        let result = wait_for_app(
+            |_| {
+                if elapsed.get() >= Duration::from_secs(3) {
+                    Ok(json!({ "ok": true, "hello": {} }))
+                } else {
+                    Err(Refused::Down)
+                }
+            },
+            || {
+                launched.set(true);
+                true
+            },
+            |wait| elapsed.set(elapsed.get() + wait),
+            || elapsed.get(),
+        );
+        assert!(result.is_ok());
+        assert!(launched.get());
+        assert!(elapsed.get() <= Duration::from_millis(3_500));
+    }
+
+    #[test]
+    fn gives_up_at_the_wait_and_answers_app_not_running() {
+        let launched = std::cell::Cell::new(false);
+        let elapsed = std::cell::Cell::new(Duration::ZERO);
+        let result = wait_for_app(
+            |timeout| {
+                elapsed.set(elapsed.get() + Duration::from_millis(timeout.min(700)));
+                Err(Refused::Down)
+            },
+            || {
+                launched.set(true);
+                true
+            },
+            |wait| elapsed.set(elapsed.get() + wait),
+            || elapsed.get(),
+        );
+        assert_eq!(result, Err(Refused::Down));
+        assert!(launched.get());
+        // The first attempt precedes the launch; the wait after it is bounded.
+        assert!(elapsed.get().saturating_sub(Duration::from_millis(700)) <= LAUNCH_WAIT);
     }
 }

@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { BROWSER_ENABLED } from "../src/shared/features";
@@ -10,13 +9,12 @@ const catalogIds = (): ReadonlyArray<string> =>
 
 describe("browser hard product gate", () => {
   it.runIf(!BROWSER_ENABLED)(
-    "removes authoring, capability advertising, live composition, preload IPC, and CLI dispatch",
+    "removes authoring, capability advertising, live composition and preload IPC",
     () => {
       expect(catalogIds()).not.toContain("page");
 
       const preload = readFileSync("src/window/preload/index.ts", "utf8");
       const main = readFileSync("src/app/index.ts", "utf8");
-      const cli = readFileSync("src/cli/main.ts", "utf8");
       const canvas = readFileSync(
         "src/window/components/Canvas.tsx",
         "utf8",
@@ -32,27 +30,8 @@ describe("browser hard product gate", () => {
       expect(main).toContain(
         "if (BROWSER_ENABLED && productRuntimeStarted)",
       );
-      expect(cli).toContain('if (!BROWSER_ENABLED && group === "browser") return "browser";');
       expect(canvas).toContain("addPage: () => {\n    if (!BROWSER_ENABLED) return;");
       expect(linkNode).toContain('const isPage = BROWSER_ENABLED && kind === "page";');
-
-      const runtime = spawnSync(
-        "bun",
-        ["src/cli/main.ts", "browser", "doctor"],
-        {
-          cwd: process.cwd(),
-          encoding: "utf8",
-          env: {
-            ...process.env,
-            JUNTO_BROWSER: "0",
-          },
-        },
-      );
-      expect(runtime.status).toBe(2);
-      expect(runtime.stdout).toBe("");
-      expect(runtime.stderr).toContain(
-        "junto browser: disabled in this Junto build",
-      );
     },
   );
 

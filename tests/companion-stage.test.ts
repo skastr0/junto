@@ -4,9 +4,7 @@
  * over a stager that keeps pieces in memory, and the bounded stdin reader.
  */
 import { createHash } from "node:crypto";
-import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { boundedLines } from "../src/cli/companion-stdio";
 import {
   handleCompanionRequest,
   makeCompanionGates,
@@ -161,23 +159,3 @@ describe("content.stage on the phone path", () => {
   });
 });
 
-describe("the companion stdin reader", () => {
-  const read = async (chunks: ReadonlyArray<string>, max: number) => {
-    let overflowed = false;
-    const lines: string[] = [];
-    for await (const line of boundedLines(Readable.from(chunks.map((c) => Buffer.from(c))), max, () => (overflowed = true))) {
-      lines.push(line);
-    }
-    return { lines, overflowed };
-  };
-
-  it("splits lines across chunks", async () => {
-    expect(await read(["ab", "c\nde", "f\n", "g"], 16)).toEqual({ lines: ["abc", "def", "g"], overflowed: false });
-  });
-
-  it("stops at the cap without buffering the rest of the line", async () => {
-    expect(await read(["12345\n", "1234567", "89"], 8)).toEqual({ lines: ["12345"], overflowed: true });
-    // A line exactly at the cap, newline counted, is taken.
-    expect(await read(["1234567\n"], 8)).toEqual({ lines: ["1234567"], overflowed: false });
-  });
-});

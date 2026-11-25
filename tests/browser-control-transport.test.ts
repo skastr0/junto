@@ -1,11 +1,10 @@
 import { canvasOf, page as pageNode } from "./support/model-nodes";
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { access, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { createConnection } from "node:net";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ManagedRuntime } from "effect";
 import { SqlClient } from "effect/sql";
@@ -20,8 +19,6 @@ import {
   controlSocketPath,
   controlTokenPath,
 } from "../src/shared/browser-control";
-import { BROWSER_CONTROL_MAX_RESPONSE_BYTES } from "../src/shared/browser-limits";
-import { BROWSER_ENABLED } from "../src/shared/features";
 import {
   startBrowserControlServer,
   type BrowserControlRuntime,
@@ -44,7 +41,6 @@ import {
 import { localBrowserTestMachineName } from "./browser-test-machine";
 import { makeStateEngineLive } from "../src/core/state/engine";
 
-const repoRoot = resolve(import.meta.dirname, "..");
 const TEST_ROOT_PREFIX = "/tmp/vct-";
 const roots: string[] = [];
 const servers: BrowserControlServer[] = [];
@@ -299,45 +295,6 @@ const requestHead = (
     "",
     "",
   ].join("\r\n");
-
-const runCli = (
-  home: string,
-  args: ReadonlyArray<string>,
-  env: Readonly<Record<string, string>> = {},
-): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> =>
-  new Promise((resolveCli, rejectCli) => {
-    const child = spawn("bun", [join(repoRoot, "src/cli/main.ts"), "browser", ...args], {
-      cwd: repoRoot,
-      env: { ...process.env, JUNTO_BROWSER: BROWSER_ENABLED ? "1" : "0", ...env, HOME: home },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
-      rejectCli(new Error("browser CLI compatibility probe timed out"));
-    }, 5_000);
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.once("error", (error) => {
-      clearTimeout(timeout);
-      rejectCli(error);
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timeout);
-      resolveCli({ code, stdout, stderr });
-    });
-  });
-
-// A build without the browser refuses junto browser before any transport.
-const expectCliRefused = (result: { readonly code: number | null; readonly stderr: string }): void => {
-  expect(result.code).toBe(2);
-  expect(result.stderr).toContain("junto browser: disabled in this Junto build");
-};
 
 afterEach(async () => {
   for (const server of servers.splice(0)) await server.close();
@@ -1300,115 +1257,4 @@ describe("browser control Unix transport", () => {
     await expect(access(join(root, "profiles"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("bounds CLI response admission/accumulation and its wall-clock deadline", async () => {
-    if (!BROWSER_ENABLED) return expectCliRefused(await runCli(await newRoot(), ["doctor"]));
-    const root = await newRoot();
-    await mkdir(controlDir(root), { recursive: true });
-    await writeFile(controlTokenPath(root), "rogue-token\n", { mode: 0o600 });
-
-    const declared = createHttpServer((_req, res) => {
-      res.writeHead(200, {
-        "content-type": "application/json",
-        "content-length": String(BROWSER_CONTROL_MAX_RESPONSE_BYTES + 1),
-      });
-      res.end("{}");
-    });
-    rogueServers.push(declared);
-    await new Promise<void>((resolveListen, rejectListen) => {
-      declared.once("error", rejectListen);
-      declared.listen(controlSocketPath(root), resolveListen);
-    });
-    const declaredResult = await runCli(root, ["doctor"]);
-    expect(declaredResult.code).toBe(1);
-    expect(JSON.parse(declaredResult.stderr)).toMatchObject({
-      ok: false,
-      error: { type: "InputError", details: { reason: "result_too_large" } },
-    });
-    await new Promise<void>((resolveClose) => declared.close(() => resolveClose()));
-    rogueServers.splice(rogueServers.indexOf(declared), 1);
-
-    const streamed = createHttpServer((_req, res) => {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(Buffer.alloc(BROWSER_CONTROL_MAX_RESPONSE_BYTES + 1, 0x61));
-    });
-    rogueServers.push(streamed);
-    await new Promise<void>((resolveListen, rejectListen) => {
-      streamed.once("error", rejectListen);
-      streamed.listen(controlSocketPath(root), resolveListen);
-    });
-    const streamedResult = await runCli(root, ["doctor"]);
-    expect(streamedResult.code).toBe(1);
-    expect(JSON.parse(streamedResult.stderr)).toMatchObject({
-      ok: false,
-      error: { type: "InputError", details: { reason: "result_too_large" } },
-    });
-    await new Promise<void>((resolveClose) => streamed.close(() => resolveClose()));
-    rogueServers.splice(rogueServers.indexOf(streamed), 1);
-
-    const hanging = createHttpServer(() => {});
-    rogueServers.push(hanging);
-    await new Promise<void>((resolveListen, rejectListen) => {
-      hanging.once("error", rejectListen);
-      hanging.listen(controlSocketPath(root), resolveListen);
-    });
-    const timedOut = await runCli(
-      root,
-      ["doctor"],
-      { JUNTO_BROWSER_REQUEST_TIMEOUT_MS: "30" },
-    );
-    expect(timedOut.code).toBe(1);
-    expect(JSON.parse(timedOut.stderr)).toMatchObject({
-      ok: false,
-      error: { type: "Timeout", details: { reason: "timeout", retryable: true } },
-    });
-  }, 20_000);
-
-  it("types a premature CLI response close and removes the public screenshot path", async () => {
-    if (!BROWSER_ENABLED) return expectCliRefused(await runCli(await newRoot(), ["doctor"]));
-    const root = await newRoot();
-    await mkdir(controlDir(root), { recursive: true });
-    await writeFile(controlTokenPath(root), "rogue-token\n", { mode: 0o600 });
-    const reset = createHttpServer((_req, res) => {
-      res.writeHead(200, { "content-type": "application/json", "content-length": "100" });
-      res.write("{");
-      res.socket?.destroy();
-    });
-    rogueServers.push(reset);
-    await new Promise<void>((resolveListen, rejectListen) => {
-      reset.once("error", rejectListen);
-      reset.listen(controlSocketPath(root), resolveListen);
-    });
-    const resetResult = await runCli(root, ["doctor"]);
-    expect(resetResult.code).toBe(1);
-    expect(JSON.parse(resetResult.stderr)).toMatchObject({
-      ok: false,
-      error: { type: "InternalError", details: { reason: "failed" } },
-    });
-    await new Promise<void>((resolveClose) => reset.close(() => resolveClose()));
-    rogueServers.splice(rogueServers.indexOf(reset), 1);
-
-    const pathResult = await runCli(root, ["shot", "session-1", "--path", "/tmp/x.png"]);
-    expect(pathResult.code).toBe(1);
-    expect(pathResult.stderr).toContain("Unrecognized flag: --path");
-  });
-
-  it("keeps the installed browser CLI compatible with under-cap chunked JSON", async () => {
-    if (!BROWSER_ENABLED) return expectCliRefused(await runCli(await newRoot(), ["doctor"]));
-    const root = await newRoot();
-    // CLI is process-bind only — no capability env. Stub edge-grant admits the child.
-    const { sessions, auditId } = await startStack(root);
-    const result = await runCli(root, ["open", PAGE_REF]);
-
-    expect(result.code, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      ok: true,
-      command: "browser open",
-      data: { ref: PAGE_REF, nodeId: "cli-node", url: "https://example.com/" },
-    });
-    const sessionId = (JSON.parse(result.stdout) as { data: { sessionId: string } }).data.sessionId;
-    expect(sessions.stateForOwner(auditId, sessionId)).toMatchObject({
-      ok: true,
-      data: { ref: PAGE_REF, nodeId: "cli-node" },
-    });
-  });
 });
