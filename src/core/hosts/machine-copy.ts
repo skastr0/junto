@@ -148,15 +148,15 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
     const receipt = yield* Schema.decodeUnknownEffect(MachineInstallResult)(installed, { onExcessProperty: "error" });
     return yield* Effect.gen(function* () {
       if (receipt.build !== build || (pin !== undefined && receipt.installationId !== pin.installationId)) return yield* Effect.fail(refused("identity-mismatch", "The installed Junto identity does not match the selected machine"));
-      if (pin === undefined) {
-        const configuredProgram = yield* configureMachine(target, receipt, host.id);
-        const configuredOutput = yield* ownerTransfer(configuredProgram, "machine configure");
-        const configured = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ConfigureResponse))(configuredOutput.stdout.trim(), { onExcessProperty: "error" });
-        if (configured.data.machineName !== host.id || configured.data.installationId !== receipt.installationId) return yield* Effect.fail(refused("name-not-kept", "The machine did not keep its selected name and installation identity"));
+      /**
+       * The machine pins this one, plainly or by key, as a first send leaves it.
+       * A send to a pin already here runs it too: a take-over leaves a pin whose
+       * install was never told this machine (receipt 22), so that install would
+       * refuse every link from here while this side read ready. Pinning again is
+       * idempotent there.
+       */
+      const bindHere = Effect.gen(function* () {
         const own = { machineName: yield* machines.machineName, installationId: yield* machines.installationId };
-        // A remove that could not reach this machine left its line and pin of this one pending: they go first, so setup pins plainly.
-        // It settles only against the installation this send reached, the one that held the line.
-        if (options.settleRemovedLink !== undefined) yield* options.settleRemovedLink(host.id, { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot }, receipt.installationId).pipe(Effect.ignore);
         const setUp = Effect.gen(function* () {
           const setupProgram = yield* setupMachine(target, receipt, own);
           const setupOutput = yield* ownerTransfer(setupProgram, "machine setup");
@@ -178,15 +178,30 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
           if (keyState === "unreadable") return yield* failed(UNREADABLE_LINK_KEY_WORDS);
           if (!cleared || (yield* setUp).data.keyBound === true) return yield* failed(STALE_LINK_WORDS);
         }
-      } else if (receipt.machineName !== host.id) {
-        // A pin this machine never linked with (a take-over leaves one) names an install that was never told its
-        // name: it is told now. One that linked and then took another name was renamed there, and is refused.
-        const linked = (yield* machines.peersSeen).some(row => row.installationId === pin.installationId);
-        if (linked) return yield* Effect.fail(refused("name-changed", "The machine calls itself another name; keep its setup binding and choose the correct machine"));
+      });
+      if (pin === undefined) {
         const configuredProgram = yield* configureMachine(target, receipt, host.id);
         const configuredOutput = yield* ownerTransfer(configuredProgram, "machine configure");
         const configured = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ConfigureResponse))(configuredOutput.stdout.trim(), { onExcessProperty: "error" });
         if (configured.data.machineName !== host.id || configured.data.installationId !== receipt.installationId) return yield* Effect.fail(refused("name-not-kept", "The machine did not keep its selected name and installation identity"));
+        // A remove that could not reach this machine left its line and pin of this one pending: they go first, so setup pins plainly.
+        // It settles only against the installation this send reached, the one that held the line.
+        if (options.settleRemovedLink !== undefined) yield* options.settleRemovedLink(host.id, { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot }, receipt.installationId).pipe(Effect.ignore);
+        yield* bindHere;
+      } else {
+        const linked = (yield* machines.peersSeen).some(row => row.installationId === pin.installationId);
+        if (receipt.machineName !== host.id) {
+          // A pin this machine never linked with (a take-over leaves one) names an install that was never told its
+          // name: it is told now. One that linked and then took another name was renamed there, and is refused.
+          if (linked) return yield* Effect.fail(refused("name-changed", "The machine calls itself another name; keep its setup binding and choose the correct machine"));
+          const configuredProgram = yield* configureMachine(target, receipt, host.id);
+          const configuredOutput = yield* ownerTransfer(configuredProgram, "machine configure");
+          const configured = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ConfigureResponse))(configuredOutput.stdout.trim(), { onExcessProperty: "error" });
+          if (configured.data.machineName !== host.id || configured.data.installationId !== receipt.installationId) return yield* Effect.fail(refused("name-not-kept", "The machine did not keep its selected name and installation identity"));
+        }
+        // A send binds again whatever was seen: a hello seen from that install is no proof it pinned this one.
+        // An update never binds, so it never revives a binding that was taken away there.
+        if (mode === "send") yield* bindHere;
       }
       const configuredHost = { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot };
       yield* hosts.upsert(configuredHost);

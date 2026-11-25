@@ -255,11 +255,33 @@ it("sends to a pinned machine whose core does not answer: the installer checks t
   expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "location", "connect"]);
 });
 
-it("names a pinned install it never linked with, as a take-over leaves it, then connects", async () => {
+it("names a pinned install it never linked with, as a take-over leaves it, has it pin this machine, then connects", async () => {
   const f = await fixture({ receiptName: "box-node-f10f4a0d6fe5c4ab" });
   await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
   await f.copy("send");
-  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "location", "connect"]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "setup", "location", "connect"]);
+});
+
+// Receipt 22: after a take-over the new install held no pin of this machine, so it refused every link
+// from here while the send read ready. A hello seen from it is no proof it pinned this one.
+it.each([
+  ["a take-over pin never linked", false],
+  ["a pin whose hello was seen", true],
+])("has the machine pin this one on a send to %s, with the key checks of a first send", async (_label, seen) => {
+  const f = await fixture();
+  await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
+  if (seen) await f.runtime.runPromise(f.repository.notePeerHello({ machineName: "mini", installationId: f.receipt.installationId, build: "a".repeat(64) }));
+  await f.copy("send");
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "setup", "location", "connect"]);
+});
+
+it("fails a send to an existing pin in its own words when the machine lets this one in only by a key gone from here", async () => {
+  const f = await fixture({ keyBound: true, keyState: "unreadable" });
+  await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
+  const error = await f.error("send");
+  expect(error).toBeInstanceOf(MachineSetupError);
+  expect(error.message).toBe(UNREADABLE);
+  expect(f.calls).not.toContain("connect");
 });
 
 it("still refuses a pinned machine that linked and then took another name there", async () => {
