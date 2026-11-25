@@ -355,16 +355,17 @@ succeeded, so the sentence says so first.
 - Window: `<removed> is removed. It still lets <this> connect until Junto
   reaches it.`
 
-**A send to a re-added `<removed>` that stops before ready, because it
-still holds the link `<this>` made before the remove.**
+**A send to a re-added `<removed>` that still accepts the old link from
+`<this>`.** The send clears the stale link itself (remote-core's guard
+amendment); this replaces the earlier `junto machine link` refusal, and
+shows only when that clearing fails.
 
-- CLI: `<removed> still has the link <this> made before <removed> was
-  removed. Run junto machine link <this> <removed> to link them again.`
-- Window: `<removed> still has the old link from <this>. Link them again
-  from a terminal: junto machine link <this> <removed>`. The window has no
-  link button, so the command is the fix, as `peer-newer` names its fix.
-  The command is the last thing on the line and has no period after it, so
-  it copies clean.
+- Core's words, `ownWords: true`, for the CLI and the row's third line:
+  `An old link from this machine still works there, and Junto could not
+  clear it. Check it again.`
+- No machine name: the row already shows the label (rule 1), and the
+  sentence is the same in the CLI, where the answer names the machine. The
+  far machine is `there`; `this machine` is the near one.
 
 **Remove, when the list of removed machines that still accept the key
 cannot be read.** Junto sets the file aside and does not overwrite it.
