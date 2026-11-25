@@ -8,9 +8,11 @@
  * the regions that hold any. A region is never a recipient: picking one only
  * narrows the list to its seats.
  *
- * The draft (seats, text, files) is kept per canvas until it is sent, so
- * closing Quick thread loses nothing: after a send that reached only some
- * seats, the reason for each seat that got nothing is kept with it. The
+ * The text and files are kept per canvas until they are sent, so closing
+ * Quick thread loses no words. The seats chosen are not: a close clears them
+ * (operator rule), and the next open starts from the canvas selection. While
+ * it stays open after a send that reached only some seats, the reason for
+ * each seat that got nothing is kept with it. The
  * threads that were started need no record here; they are in Threads.
  * Nothing here writes the canvas.
  */
@@ -20,7 +22,7 @@ import { fuzzyMatch } from "@shared/fuzzy-match";
 import { asNodeId, regionName, type Canvas } from "@shared/model";
 import { buildFocusSwitcherCatalog } from "./focus-switcher";
 import { makeAttachmentHold, type AttachmentHold } from "./operator-attachments";
-import { isOperatorModalOpen, toggleOperatorModal } from "./operator-modal";
+import { isOperatorModalOpen, operatorModal$, toggleOperatorModal } from "./operator-modal";
 import { regionTrails } from "./region-path";
 import type { HeldThreadDraft } from "./seat-threads";
 import { state$ } from "./state";
@@ -197,10 +199,19 @@ export const hasQuickThreadDraft = (canvasName: string): boolean =>
   (texts.get(canvasName) ?? "").trim() !== "" ||
   (files.get(canvasName)?.items().length ?? 0) > 0;
 
+/** Closing Quick thread clears the seats chosen on this canvas, and why each got nothing; the words stay. */
+export const clearQuickThreadSeats = (canvasName: string): void => keepQuickThread(canvasName, NOTHING_KEPT);
+
+// A close, not a swap to another operator modal, drops the chosen seats.
+operatorModal$.open.onChange(({ value, getPrevious }) => {
+  if (value !== null || getPrevious() !== "quick-thread") return;
+  const canvasName = state$.canvasName.peek();
+  if (canvasName !== "") clearQuickThreadSeats(canvasName);
+});
+
 /**
  * Open Quick thread from anywhere, or close it when it is open (its own
- * key). The seats selected on the canvas start chosen, unless a draft with
- * seats of its own is waiting: that one comes back as it was left. False
+ * key). The seats selected on the canvas start chosen. False
  * with no canvas open, so the key passes.
  */
 export const openQuickThread = (): boolean => {

@@ -8,8 +8,8 @@ import { QuickThread } from "./QuickThread";
 /**
  * Quick thread's home on the canvas: a small frame near the top, as the
  * command bar sits, that opens from anywhere on its key. No title: the seat
- * picker is the top. Escape and a press outside close it, and what was not
- * sent (seats, text, files) is there on the next open. Once every seat has
+ * picker is the top. Escape and a press outside close it; the text and
+ * files are there on the next open, the chosen seats are cleared. Once every seat has
  * its thread it closes; the close is the confirmation. A seat the mail has
  * not reached yet is not left unsaid: the frame turns into a receipt that
  * names it, until Done.

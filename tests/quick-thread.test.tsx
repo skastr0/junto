@@ -4,8 +4,8 @@
  * in the seat field; a seat or a region is typed, a region narrows the list
  * and is never a recipient, a seat is chipped and the keyboard moves to the
  * message; Send starts one thread per chosen seat and the frame closes. A
- * seat that got nothing stays, named, with the text. What was not sent is
- * there on the next open.
+ * seat that got nothing stays, named, with the text, while the frame is
+ * open. A close clears the chosen seats; the text is there on the next open.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -305,7 +305,7 @@ describe("Quick thread from the canvas", () => {
     expect(operatorModal$.open.peek()).toBeNull();
   });
 
-  it("keeps what was not sent for the next open", async () => {
+  it("keeps the words for the next open and clears the chosen seats on close", async () => {
     await mountHost();
     await open();
     await typeIn(seatField()!, "ptyl");
@@ -313,15 +313,14 @@ describe("Quick thread from the canvas", () => {
     await typeIn(messageField(), "half a thought");
     await key(messageField(), "Escape");
     expect(operatorModal$.open.peek()).toBeNull();
+    expect(quickThreadSeats(CANVAS)).toEqual([]);
 
     await open();
-    expect(chosenNames()).toEqual(["s-pty"]);
+    expect(chosenNames()).toEqual([]);
     expect(messageField().value).toBe("half a thought");
-    // Seats already chosen: the keyboard starts in the message.
-    expect(document.activeElement).toBe(messageField());
   });
 
-  it("starts with the seats selected on the canvas, unless a draft with seats is waiting", async () => {
+  it("starts with the seats selected on the canvas, every open", async () => {
     await mountHost();
     state$.selectedNodeIds.set(["s-cli", "r-design", "s-type"]);
     await open();
@@ -331,7 +330,7 @@ describe("Quick thread from the canvas", () => {
 
     state$.selectedNodeIds.set(["s-pty"]);
     await open();
-    expect(chosenNames()).toEqual(["s-cli", "s-type"]);
+    expect(chosenNames()).toEqual(["s-pty"]);
   });
 
   it("keeps a seat that got nothing, with the reason and the text, and sends again to it alone", async () => {
@@ -347,14 +346,6 @@ describe("Quick thread from the canvas", () => {
     expect(q("quick-thread-unsent")?.textContent).toBe("Not sent to @cli-lead. cli-lead is on a machine that is not connected.");
     expect(messageField().value).toBe("status?");
     expect(spoken()).toBe("Not sent to 1 seat");
-
-    // Closed in the middle and opened again: it still says why.
-    await key(messageField(), "Escape");
-    expect(operatorModal$.open.peek()).toBeNull();
-    await open();
-    expect(chosenNames()).toEqual(["s-cli"]);
-    expect(q("quick-thread-unsent")?.textContent).toBe("Not sent to @cli-lead. cli-lead is on a machine that is not connected.");
-    expect(messageField().value).toBe("status?");
 
     refused = {};
     sends.length = 0;
