@@ -432,6 +432,19 @@ describe("signals in a thread", () => {
     expect(plain!.querySelector('[data-testid="seat-threads-answer-held"]')).toBeNull();
   });
 
+  it("names the seat in the held note by the pane's own name, never by anything on the message", async () => {
+    const fixture = fake();
+    fixture.state.messages.notes = [
+      mine,
+      raised({ ...ask, state: "withdrawn", crossed: true }),
+      { messageId: "m3", author: "you", mine: true, text: "junto.db holds them.", at: at(1, 9), answers: { ...ref, text: "pty-lead-impostor says" }, held: true },
+    ];
+    await openOn(fixture);
+    const note = q("seat-threads-answer-held")!.textContent;
+    expect(note).toBe("pty-lead says it withdrew this before the answer arrived.");
+    expect(note).not.toContain("impostor");
+  });
+
   it("heads a thread an answer started with the signal that began it, once the thread's start is read", async () => {
     const fixture = fake();
     const headSignal: ThreadHeadSignal = { signalId: "s0", kind: "blocked", state: "answered", text: "The store is locked.", at: at(1, 0) };
