@@ -209,6 +209,10 @@ test("[fake-tui] a seat reads its own threads and a connected seat's through the
     // 4. threads.read masked off; seat read on the same edge still answers.
     const masked = await run("4-masked-list", a, ["thread", "list", "--seat", D.id]);
     expectRefused("4-masked-list", masked, "ScopeError");
+    // 914c5268f: a port masked off an existing edge is named as such.
+    soft(masked.err?.error?.details?.reason, "4-masked-list: the refusal says the port is off").toBe("port_off");
+    soft(masked.err?.error?.details?.missing, "4-masked-list: the refusal names threads.read").toBe("threads.read");
+    soft(String(masked.err?.error?.message ?? ""), "4-masked-list: the words name the port").toContain("threads.read");
     const maskedShow = await run("4-masked-show", a, ["thread", "show", threads.get(D.id)!.threadId, "--seat", D.id]);
     expectRefused("4-masked-show", maskedShow, "ScopeError");
     const seatRead = await run("4-masked-seat-read", a, ["seat", "read", D.id, "--lines", "5"]);
