@@ -376,3 +376,54 @@ cannot be read.** Junto sets the file aside and does not overwrite it.
   The path travels in its own field, and the CLI prints it on its own line
   after the sentence: `Set aside at <path>`. The window shows the sentence
   only; the path stays in the CLI and the logs.
+
+## 6. The far install's refusal codes
+
+When a send or update fails on the far machine, its refusal carries one
+closed code (`MachineInstallCheck`), and the near side maps the code to the
+sentence below with `ownWords: true`. It shows as the failed row's third
+line (rule 3) and as the Machines window card's advice. The far text goes
+to logs only.
+
+Rules, from remote-security's term 5 and this doc:
+
+- No path, no host name, no far text. The far machine is `it` or `there`,
+  as rule 1 says, never a name and never `this machine`, which means the
+  operator's Mac.
+- Never an instruction to delete, edit or move a file by hand.
+- Each ends in one next step, a Junto action: `Send Junto again`, `Check it
+  again` (the row's `Check again`, `junto machine status` in the CLI), or
+  `Remove it`.
+- The row's status sentence already says what failed, so these say why.
+
+| Code | Sentence |
+|---|---|
+| `bundle-not-directory` | `What arrived there was not a Junto package. Send Junto again.` |
+| `bundle-special-file` | `The package that arrived held a link or a special file. Send Junto again.` |
+| `bundle-manifest-invalid` | `The package's list of files could not be read there. Send Junto again.` |
+| `bundle-writable-by-others` | `The package arrived with files others could change. Send Junto again.` |
+| `bundle-mismatch` | `The files that arrived did not match the package. Send Junto again.` |
+| `install-folder-not-ours` | `Its install folder belongs to another Junto. Check it again.` |
+| `send-in-progress` | `Junto is already being sent there. Send again when that send ends.` |
+| `install-lease-unavailable` | `Junto could not take the install lock there. Check it again.` |
+| `machine-path-unsafe` | `A Junto folder there is outside its home or not private. Check it again.` |
+| `service-not-ours` | `The Junto service there belongs to another install. Check it again.` |
+| `service-platform-unsupported` | `Junto runs on macOS and Linux machines only. Remove it from your machines.` |
+| `service-not-quiescent` | `The old Junto there did not stop. Check it, then send Junto again.` |
+| `core-mismatch` | `The Junto running there is not the one just installed. Check it again.` |
+| `database-copy-failed` | `Junto could not keep a copy of its data there, so nothing changed. Check it again.` |
+| `database-not-private` | `Its Junto data is not private to its account, so nothing changed. Check it again.` |
+| `restore-owed` | `Its data still waits for a restore, which finishes when Junto starts there. Check it again.` |
+| `restore-interrupted` | `An earlier restore of its data did not finish. Check it again before you send Junto.` |
+| `start-failed` | `Junto did not start there, and it is not confirmed stopped. Check it again before you send.` |
+| `start-and-restore-failed` | `The new build did not start, and its data was not restored. Check it again.` |
+| `home-lock-refused` | `Its Junto home is held by another Junto or another account. Check it again.` |
+| `status-unreadable` | `Junto there did not report its status. Check it again.` |
+| `boat-key-not-placed` | `Its machine key could not be written there. Check it again.` |
+
+Changed from remote-core's draft: no machine name (term 5); `Check this
+machine` is `Check it again`, since `this machine` is the operator's Mac;
+`Rebuild` is gone, because it is not a Junto action and a send makes the
+package; `Choose another install folder` is `Check it again`, since no Junto
+control chooses one; `Start the installed Junto on it` is gone, because it
+is not a Junto action; `database` is `data`.
