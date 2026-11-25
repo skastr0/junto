@@ -345,6 +345,42 @@ describe("a canvas removed on its editor reaches every machine that held a copy 
     expect(await rows(mini, "SELECT editor FROM canvas_removed")).toEqual([{ editor: MACBOOK }]);
   });
 
+  it("leaves another editor's canvas of the same name alone when this editor removes its own (two editors, each with base)", async () => {
+    const torn = teardowns();
+    const macbook = await boot("macbook", MACBOOK, ["mini", MINI]);
+    const mini = await boot("mini", MINI, ["macbook", MACBOOK], ["studio", STUDIO]);
+    const studio = await boot("studio", STUDIO, ["mini", MINI]);
+    // The mini holds the studio's base, with a seat running there.
+    const peer = seat("peer", { x: 0, y: 300, width: 200, height: 100, host: "mini" as never, agentKey: "mini:claude", bindingId: "binding-studio-peer" as never });
+    await studio.runtime.runPromise(seedCanvas("base", [peer]));
+    await link(studio, mini);
+    const [{ canvas_id: studioId }] = await rows(mini, "SELECT canvas_id FROM canvases WHERE canvas_name = 'base'") as Array<{ canvas_id: string }>;
+    // The macbook edits a base of its own, with a Files node on the mini, and the mini will not take it.
+    await macbook.runtime.runPromise(seedCanvas("base", [files("folder", { x: 400, y: 0, host: "mini" as never, root: ROOT })]));
+    await link(macbook, mini);
+    expect(await rows(mini, "SELECT canvas_id, editor_installation_id AS editor FROM canvases WHERE canvas_name = 'base'")).toEqual([{ canvas_id: studioId, editor: STUDIO }]);
+    const nodesBefore = await rows(mini, "SELECT * FROM seats WHERE canvas_name = 'base'");
+    // The macbook removes its base: whatever it owes the mini reaches a canvas it does not edit there.
+    await operator(macbook, { _tag: "RemoveCanvas", canvas: "base" });
+    await macbook.runtime.runPromise(macbook.exchange.removed("base"));
+    await settle();
+    unlink(macbook, mini);
+    await link(macbook, mini);
+    expect(await rows(mini, "SELECT canvas_id, editor_installation_id AS editor FROM canvases WHERE canvas_name = 'base'")).toEqual([{ canvas_id: studioId, editor: STUDIO }]);
+    expect(await rows(mini, "SELECT * FROM seats WHERE canvas_name = 'base'")).toEqual(nodesBefore);
+    expect(torn).toEqual([]);
+    expect(heldOn("mini")).toEqual([]);
+    expect(await rows(mini, "SELECT * FROM canvas_removed")).toEqual([]);
+    // It was sent the removal, and answered it: the canvas of that name there is not this one.
+    expect(framesSent.filter((frame) => frame.from === "macbook" && frame.kind === "canvas-removed").length).toBeGreaterThan(0);
+    expect(framesSent.filter((frame) => frame.from === "mini" && frame.kind === "canvas-removed-taken").length).toBeGreaterThan(0);
+    expect(await rows(macbook, "SELECT * FROM canvas_removals_owed")).toEqual([]);
+    // The studio's base still reaches the mini.
+    await studio.runtime.runPromise(studio.exchange.committed("base"));
+    await settle();
+    expect(studio.exchange.linked(MINI)).toBe(true);
+  });
+
   it("finishes the hold an earlier build left after an overseer removed the canvas", async () => {
     const torn = teardowns();
     const { macbook, mini } = await stage(true);
