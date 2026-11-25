@@ -318,6 +318,19 @@ export interface WorkServiceShape {
       admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Message>>;
     /**
+     * Many mailbox rows from one sender, written whole: every row in one
+     * transaction, with an overseer's live grant checked inside it (the
+     * guarded transaction's fence), and `rowsOf` read inside it from the same
+     * topology the rows are admitted against. A refusal or a failure at any
+     * row writes none. Delivery is told of each row only after the commit.
+     */
+    readonly workMessageAppendAll: <E>(
+      canvas: string,
+      rowsOf: (topology: Canvas) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: Message }>, E>,
+      sentBy: ActorRef,
+      admin?: OverseerWorkAdmin,
+    ) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: Message }>, E | WorkServiceError>;
+    /**
      * Command Center system mailbox notify (no process-bound sender).
      * Used when factory topology newly enables actor↔actor msg.send.
      * Appends as foreign user mail so message-delivery can inject the PTY.
@@ -988,6 +1001,53 @@ export const WorkLive = Layer.effect(
             return yield* complete(outcome);
           }),
         ),
+
+      workMessageAppendAll: <E>(
+        canvas: string,
+        rowsOf: (topology: Canvas) => Effect.Effect<ReadonlyArray<{ readonly nodeId: string; readonly message: Message }>, E>,
+        sentBy: ActorRef,
+        admin?: OverseerWorkAdmin,
+      ) =>
+        Effect.gen(function* () {
+          const written = yield* sql.withTransaction(
+            Effect.gen(function* () {
+              const read = yield* readTopology(canvas);
+              const rows = yield* rowsOf(read.topology);
+              const appended: Array<{ readonly nodeId: string; readonly message: Message }> = [];
+              for (const row of rows) {
+                yield* requireActor(read, sentBy, row.nodeId, "msg.send", admin);
+                yield* requireNode(read.topology, row.nodeId);
+                const policyWork = yield* policyRows(canvas, row.nodeId, []);
+                const policy = yield* runPolicy(() =>
+                  workMessageAppend(policyWork, read.topology, canvas, row.nodeId, null, row.message));
+                const materialized = yield* externalizeMessage(policy.message, {
+                  kind: "message",
+                  canvasName: canvas,
+                  nodeId: row.nodeId,
+                  recordId: policy.message.messageId,
+                });
+                // Each append joins this transaction: its fence and its commit are this one's.
+                const outcome = yield* local(
+                  repository.appendMessage({
+                    sink: sinkRef(canvas, row.nodeId),
+                    basis: intentBasis(read.intentWitness),
+                    message: materialized,
+                    sentBy,
+                    destination: { kind: "mailbox" as const },
+                  }),
+                  admin,
+                );
+                appended.push({ nodeId: row.nodeId, message: outcome.value });
+              }
+              return appended;
+            }),
+          ).pipe(
+            Effect.provideService(StateTransactionOperation, "work.message.append-all"),
+            Effect.catchTag("SqlError", (error) => Effect.fail(toWorkServiceError(error))),
+          );
+          for (const row of written) messageDelivery.notifyAppended(canvas, row.nodeId, row.message);
+          return written;
+        }),
 
       workSubjectRow: (canvas, nodeId, message, sentBy) =>
         asResult(

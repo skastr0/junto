@@ -26,7 +26,7 @@ const SHIP_OPERATIONS = [
   "canvas.list", "canvas.read", "canvas.create", "canvas.batch", "canvas.delete", "canvas.digest", "canvas.render", "canvas.screenshot",
   "node.list", "node.get", "node.create", "node.configure", "node.move", "node.resize", "node.recolor", "node.delete",
   "wire.list", "wire.get", "wire.verbs", "wire.connect", "wire.configure", "wire.disconnect",
-  "msg.list", "msg.send", "msg.read", "msg.reply", "msg.react",
+  "msg.list", "msg.send", "msg.read", "msg.reply", "msg.react", "msg.audience", "msg.broadcast",
   "thread.list", "thread.show",
   "agent.list", "agent.get", "agent.reseat", "agent.start", "agent.wake", "agent.prompt", "agent.output", "agent.interrupt", "agent.stop",
   "terminal.list", "terminal.get", "terminal.start", "terminal.input", "terminal.output", "terminal.resize", "terminal.interrupt", "terminal.stop",

@@ -59,8 +59,8 @@ pub struct Call {
     input: Option<String>,
     body: Option<String>,
     op_id: Option<String>,
-    /// `thread list` and `thread show`: the flags given, as the operation's args.
-    thread: Map<String, Value>,
+    /// A flag-shaped operation's flags given, as its args.
+    flags: Map<String, Value>,
     timeout: Timeout,
 }
 
@@ -76,8 +76,8 @@ impl Call {
             Shape::Rows => judged(self.send(self.args()?, None)?, refused_any),
             Shape::SecretPut => self.send(self.secret()?, None).map(Into::into),
             Shape::Body { empty } => self.send(self.with_body(empty)?, None).map(Into::into),
-            Shape::Thread => self
-                .send(Value::Object(self.thread.clone()), None)
+            Shape::Flags => self
+                .send(Value::Object(self.flags.clone()), None)
                 .map(Into::into),
             Shape::Automation(write) => {
                 let given = input::load(self.input.as_deref().unwrap_or("{}"))?;
@@ -357,51 +357,96 @@ fn unwrap(data: &Data) -> Result<Data> {
 
 // --- the command line, built from the catalog ---------------------------------
 
-/// The keys of `thread list` and `thread show`, in their schema's order
-/// (ThreadList, ThreadShow in src/shared/overseer-control.ts): the args go
-/// in that order, as the TypeScript decode sends them.
-const THREAD_LIST_KEYS: [&str; 7] = [
-    "canvas", "seat", "limit", "after", "group", "region", "search",
-];
-const THREAD_SHOW_KEYS: [&str; 5] = ["canvas", "seat", "threadId", "limit", "before"];
+/// How a flag-shaped operation's key is taken on the command line.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Take {
+    /// `--key <text>`.
+    Text,
+    /// `--key <integer>`.
+    Int,
+    /// `--key <integer>`, which the command needs.
+    RequiredInt,
+    /// `--key <text>`, repeated: a list.
+    Many,
+    /// The one positional argument.
+    Positional,
+}
 
-fn thread_keys(op: &Operation) -> &'static [&'static str] {
-    if op.name == "thread.list" {
-        &THREAD_LIST_KEYS
-    } else {
-        &THREAD_SHOW_KEYS
+/// The keys of each flag-shaped operation, in its schema's order
+/// (src/shared/overseer-control.ts): the args go in that order, as the
+/// TypeScript decode sends them.
+fn flag_keys(op: &Operation) -> &'static [(&'static str, Take)] {
+    use Take::{Int, Many, Positional, RequiredInt, Text};
+    match op.name {
+        "thread.list" => &[
+            ("canvas", Text),
+            ("seat", Text),
+            ("limit", Int),
+            ("after", Text),
+            ("group", Text),
+            ("region", Many),
+            ("search", Text),
+        ],
+        "thread.show" => &[
+            ("canvas", Text),
+            ("seat", Text),
+            ("threadId", Positional),
+            ("limit", Int),
+            ("before", Text),
+        ],
+        "msg.audience" => &[
+            ("region", Many),
+            ("seat", Many),
+            ("doing", Many),
+            ("needs", Many),
+        ],
+        "msg.broadcast" => &[
+            ("region", Many),
+            ("seat", Many),
+            ("doing", Many),
+            ("needs", Many),
+            ("text", Positional),
+            ("expect", RequiredInt),
+            ("set", Text),
+        ],
+        _ => &[],
     }
 }
 
-/// `thread list` and `thread show` take flags, not a JSON argument; a thread
-/// is named by its one positional argument.
-fn thread_command(op: &'static Operation, command: clap::Command) -> clap::Command {
-    thread_keys(op)
+/// A flag-shaped operation's command: its flags, and at most one positional argument.
+fn flags_command(op: &'static Operation, command: clap::Command) -> clap::Command {
+    flag_keys(op)
         .iter()
-        .fold(command, |command, key| match *key {
-            "threadId" => command.arg(Arg::new(*key)),
-            "limit" => command.arg(Arg::new(*key).long(*key).value_parser(value_parser!(i64))),
-            "region" => command.arg(Arg::new(*key).long(*key).action(ArgAction::Append)),
-            _ => command.arg(Arg::new(*key).long(*key)),
+        .fold(command, |command, (key, take)| match take {
+            Take::Positional => command.arg(Arg::new(*key)),
+            Take::Int => command.arg(Arg::new(*key).long(*key).value_parser(value_parser!(i64))),
+            Take::RequiredInt => command.arg(
+                Arg::new(*key)
+                    .long(*key)
+                    .required(true)
+                    .value_parser(value_parser!(i64)),
+            ),
+            Take::Many => command.arg(Arg::new(*key).long(*key).action(ArgAction::Append)),
+            Take::Text => command.arg(Arg::new(*key).long(*key)),
         })
 }
 
 /// The flags given, as the operation's args: a flag not given is no key.
-fn thread_args(op: &Operation, matches: &ArgMatches) -> Map<String, Value> {
+fn flags_args(op: &Operation, matches: &ArgMatches) -> Map<String, Value> {
     let mut args = Map::new();
-    for key in thread_keys(op) {
-        let value: Option<Value> = match *key {
-            "limit" => matches
+    for (key, take) in flag_keys(op) {
+        let value: Option<Value> = match take {
+            Take::Int | Take::RequiredInt => matches
                 .try_get_one::<i64>(key)
                 .ok()
                 .flatten()
                 .map(|n| (*n).into()),
-            "region" => matches
+            Take::Many => matches
                 .try_get_many::<String>(key)
                 .ok()
                 .flatten()
-                .map(|labels| labels.cloned().collect::<Vec<_>>().into()),
-            _ => matches
+                .map(|values| values.cloned().collect::<Vec<_>>().into()),
+            Take::Text | Take::Positional => matches
                 .try_get_one::<String>(key)
                 .ok()
                 .flatten()
@@ -420,8 +465,8 @@ fn verb_command(op: &'static Operation) -> clap::Command {
     let timeout = Arg::new("timeout")
         .long("timeout")
         .value_parser(value_parser!(i64));
-    if op.shape == Shape::Thread {
-        return thread_command(op, clap::Command::new(op.verb()).arg(timeout));
+    if op.shape == Shape::Flags {
+        return flags_command(op, clap::Command::new(op.verb()).arg(timeout));
     }
     let command = clap::Command::new(op.verb())
         .arg(Arg::new("input"))
@@ -484,8 +529,8 @@ impl FromArgMatches for Call {
             input: text("input"),
             body: text("body"),
             op_id: text("op_id"),
-            thread: if op.shape == Shape::Thread {
-                thread_args(op, matches)
+            flags: if op.shape == Shape::Flags {
+                flags_args(op, matches)
             } else {
                 Map::new()
             },
@@ -558,6 +603,69 @@ mod tests {
         ] });
         let op = catalog::named("canvas.batch").map(|op| seat_fields_main_works_out(op, &batch));
         assert_eq!(op, Some(vec!["launch", "overseer"]));
+    }
+
+    fn parsed(words: &[&str]) -> Result<Call, clap::Error> {
+        let command =
+            Call::augment_subcommands(clap::Command::new("overseer").no_binary_name(true));
+        Call::from_arg_matches(&command.try_get_matches_from(words)?)
+    }
+
+    #[test]
+    fn a_broadcast_sends_its_flags_as_the_operations_args() {
+        let call = parsed(&[
+            "msg",
+            "broadcast",
+            "Stop and commit.",
+            "--region",
+            "Junto",
+            "--region",
+            "Product",
+            "--doing",
+            "working",
+            "--doing",
+            "idle",
+            "--needs",
+            "blocked",
+            "--seat",
+            "cli-lead",
+            "--expect",
+            "12",
+            "--set",
+            "3f9a0c21b7de4a65",
+        ])
+        .ok();
+        assert_eq!(
+            call.as_ref().map(|call| call.op.name),
+            Some("msg.broadcast")
+        );
+        assert_eq!(
+            call.map(|call| Value::Object(call.flags)),
+            Some(json!({
+                "region": ["Junto", "Product"],
+                "seat": ["cli-lead"],
+                "doing": ["working", "idle"],
+                "needs": ["blocked"],
+                "text": "Stop and commit.",
+                "expect": 12,
+                "set": "3f9a0c21b7de4a65",
+            }))
+        );
+        // A flag not given is no key, and the audience takes no text.
+        let audience = parsed(&["msg", "audience", "--region", "Junto"]).ok();
+        assert_eq!(
+            audience.map(|call| Value::Object(call.flags)),
+            Some(json!({ "region": ["Junto"] }))
+        );
+    }
+
+    #[test]
+    fn a_broadcast_needs_the_count_it_expects() {
+        let missing = parsed(&["msg", "broadcast", "Stop.", "--region", "Junto"]);
+        assert_eq!(
+            missing.err().map(|error| error.kind()),
+            Some(ErrorKind::MissingRequiredArgument)
+        );
     }
 
     #[test]

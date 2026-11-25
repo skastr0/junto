@@ -20,6 +20,7 @@ import {
   SEAT_OFFBOARD_MAX_SEATS,
 } from "./seat-offboard";
 import { OFFBOARD_MODES } from "./seat-sessions";
+import { SEAT_DOING, SEAT_NEEDS } from "./broadcast";
 
 /**
  * Agent-native operator command contract.
@@ -69,6 +70,9 @@ export const OVERSEER_OPERATION_NAMES = [
   "msg.read",
   "msg.reply",
   "msg.react",
+  // One message to every seat in a set: msg.send over a set, with a guard on it.
+  "msg.audience",
+  "msg.broadcast",
   // Every seat's threads, read as the window reads them; no edge needed.
   "thread.list",
   "thread.show",
@@ -326,6 +330,60 @@ const MessageReact = Schema.Struct({
   messageId: Id,
   reaction: Schema.optionalKey(Schema.Literal("ack")),
 });
+// Broadcast: one message to every seat a set names, one way: the seats are
+// told not to answer it, and it opens no return path. Each row is a notice,
+// one new thread each, marked `broadcast` in its mail extension. The
+// set is region picks (each one region, by its name or node id, with the
+// regions inside it; several add up), narrowed by what a seat is doing and
+// what it needs, and single seats, which take no limit; no seat twice, and
+// never the overseer's own. `msg.audience` answers the set and sends nothing;
+// a broadcast names the count it expects and, optionally, the set's digest,
+// and is refused whole when the set read again at the send differs.
+
+/** How many hex characters of the set's digest are shown and checked. */
+export const BROADCAST_SET_DIGEST_LENGTH = 16;
+/** The most seats one broadcast reaches; a larger set is refused whole, by the audience too. */
+export const BROADCAST_SEATS_MAX = 200;
+/** What a seat is doing, the first limit: the shared set function's own literals. */
+export const BROADCAST_DOING = SEAT_DOING;
+/** What a seat needs from the operator, the second limit: its own open signals' kinds. */
+export const BROADCAST_NEEDS = SEAT_NEEDS;
+const BroadcastName = Id;
+// No canvas key: a broadcast's regions are the overseer's own canvas's.
+const BroadcastSelection = {
+  /** Each one region, by its name or node id, with the regions inside it. Several add up. */
+  region: Schema.optionalKey(Schema.Array(BroadcastName)),
+  /** Each one seat, by its name, node id or ref, beside the regions. A seat takes no limit. */
+  seat: Schema.optionalKey(Schema.Array(BroadcastName)),
+  /** Every region pick: seats doing any of these. None is no limit. */
+  doing: Schema.optionalKey(Schema.Array(Schema.Literals(BROADCAST_DOING))),
+  /** Every region pick: seats with an open signal of any of these kinds. None is no limit. */
+  needs: Schema.optionalKey(Schema.Array(Schema.Literals(BROADCAST_NEEDS))),
+};
+type BroadcastPicked = {
+  readonly region?: ReadonlyArray<string>;
+  readonly seat?: ReadonlyArray<string>;
+  readonly doing?: ReadonlyArray<string>;
+  readonly needs?: ReadonlyArray<string>;
+};
+const picksRule = Schema.makeFilter(({ region, seat, doing, needs }: BroadcastPicked) =>
+  (region?.length ?? 0) + (seat?.length ?? 0) === 0
+    ? "name at least one region or seat"
+    : (region?.length ?? 0) > 0 || ((doing?.length ?? 0) === 0 && (needs?.length ?? 0) === 0) ||
+      "doing and needs narrow the regions: name a region, or send seats without them");
+const MessageAudience = Schema.Struct(BroadcastSelection).pipe(Schema.check(picksRule));
+const BroadcastSetDigest = Schema.String.pipe(
+  Schema.check(Schema.isPattern(new RegExp(`^[0-9a-f]{${BROADCAST_SET_DIGEST_LENGTH}}$`))),
+);
+const MessageBroadcast = Schema.Struct({
+  ...BroadcastSelection,
+  /** msg.send's own text, with its own limits. */
+  text: MessageSend.fields.text,
+  /** The count `msg.audience` answered. A set of another size is refused, and nothing is sent. */
+  expect: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: BROADCAST_SEATS_MAX })),
+  /** The `set` digest `msg.audience` answered. A set with another digest is refused, and nothing is sent. */
+  set: Schema.optionalKey(BroadcastSetDigest),
+}).pipe(Schema.check(picksRule));
 // Threads: the overseer reads any seat's, through the one read the window
 // uses: one seat's list is seatThreadsPage, every seat's is threadRowsPage
 // (src/core/work/thread-rows.ts), and a thread is seatThreadMessagesPage.
@@ -603,6 +661,8 @@ export const OverseerArgsSchemas = {
   "msg.read": MessageRead,
   "msg.reply": MessageReply,
   "msg.react": MessageReact,
+  "msg.audience": MessageAudience,
+  "msg.broadcast": MessageBroadcast,
   "thread.list": ThreadList,
   "thread.show": ThreadShow,
   "content.ingest": ContentIngest,
@@ -725,6 +785,7 @@ export const OVERSEER_READ_ONLY_OPERATIONS = [
   "wire.list",
   "wire.get",
   "wire.verbs",
+  "msg.audience",
   "thread.list",
   "thread.show",
   "agent.list",

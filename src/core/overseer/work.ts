@@ -7,13 +7,14 @@
  * never treats WorkOpResult `{ ok: false }` as success.
  */
 import { Buffer } from "node:buffer";
-import { Effect, Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import { ulid } from "ulid";
 import type { Canvas } from "@shared/model";
 import { resolveMailboxTarget } from "@shared/mailbox-target";
 import { sortMessagesNewestFirst } from "@shared/message-delivery";
 import { makeUserMessage } from "@shared/task";
-import { mailThreadOf } from "@shared/crew";
+import { mailExtensionMetadata, mailThreadOf } from "@shared/crew";
+import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import {
   decodeOverseerArgs,
   decodeOverseerRequest,
@@ -27,6 +28,14 @@ import type { ActorRef } from "@shared/work-protocol";
 import type { Author } from "@shared/author";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import { ContentService } from "../content/service";
+import { messageDelivery } from "../work/message-delivery";
+import { seatStateRuntime } from "../term/agent-state/runtime";
+import { thisMachineName } from "../term/machine-name";
+import { checkBroadcastSet, readAudience, type Audience, type AudienceReadings } from "./broadcast";
+import { mailSenderStamp } from "../work-control/mail";
+import type { WorkCaller } from "../work-control/seat";
+import { AgentSignalRepository } from "../signals/repository";
+import { RemoteSeatState } from "../term/remote-seat-state";
 import type { ModelService } from "../model/service";
 import {
   admitLiveOverseer,
@@ -54,6 +63,8 @@ const WORK_OPERATIONS = new Set<string>([
   "msg.read",
   "msg.reply",
   "msg.react",
+  "msg.audience",
+  "msg.broadcast",
   "content.ingest",
 ]);
 
@@ -202,6 +213,77 @@ const targetOf = (caller: OverseerWorkCaller, named?: string): string =>
   named ?? caller.nodeId;
 
 /**
+ * The mail an overseer writes, as its own seat: one definition for msg.send,
+ * msg.reply and each mail of a broadcast, so none ever reads as the operator's.
+ */
+const overseerMail = (
+  canvas: string,
+  actor: ActorRef,
+  text: string,
+  extra: NonNullable<Parameters<typeof makeUserMessage>[0]["metadata"]> = {},
+) =>
+  makeUserMessage({
+    messageId: ulid(),
+    text: `[factory mail from ${actor.nodeId}] ${text}`,
+    contextId: canvas,
+    metadata: { factoryMail: true, fromSeat: actor.nodeId, ...extra },
+  });
+
+/**
+ * The overseer as a mail sender stamp reads it: its own seat's name, regions,
+ * harness and live epoch. An overseer call carries no generation credential,
+ * so with no live epoch the stamp says unknown, as it does for the harness.
+ */
+const overseerStampCaller = (caller: OverseerWorkCaller): WorkCaller => ({
+  canvasName: caller.canvasName,
+  nodeId: caller.nodeId,
+  workHome: caller.canvasName,
+  occupant: caller.nodeId,
+  generation: "unknown",
+});
+
+/**
+ * What the core holds of each seat, read for one broadcast set: this machine's
+ * name, a seat's state here, a seat's state its own machine reported, and the
+ * canvas's signals. With no signal store, no seat needs anything; with no
+ * remote seat state, no seat elsewhere is current.
+ */
+const audienceReadings = (canvasName: string): Effect.Effect<AudienceReadings, WorkErrorBody> =>
+  Effect.gen(function* () {
+    const machineName = yield* Effect.try({
+      try: () => thisMachineName(),
+      catch: (): WorkErrorBody => ({
+        type: "RuntimeDown",
+        message: "Junto has not loaded this machine's name yet, so the set cannot tell the seats here from those elsewhere",
+        details: { retryable: true, next_step: "send again in a moment" },
+      }),
+    });
+    const store = yield* Effect.serviceOption(AgentSignalRepository);
+    const signals = Option.isNone(store)
+      ? []
+      : yield* store.value.listCanvas(canvasName).pipe(
+          Effect.mapError((error): WorkErrorBody => ({
+            type: "RuntimeDown",
+            message: `the seats' signals could not be read: ${error.message}`,
+            details: { retryable: true },
+          })),
+        );
+    const remote = yield* Effect.serviceOption(RemoteSeatState);
+    const remoteEvents = Option.isNone(remote)
+      ? new Map<string, AgentSeatStateEvent>()
+      : new Map(remote.value.events().map((event) => [event.bindingId, event] as const));
+    return {
+      machineName,
+      localState: (bindingId) => seatStateRuntime.getState(bindingId),
+      remoteState: (bindingId) => ({
+        event: remoteEvents.get(bindingId),
+        current: Option.isSome(remote) && remote.value.current(bindingId),
+      }),
+      signals,
+    } satisfies AudienceReadings;
+  });
+
+/**
  * Execute one overseer work-plane operation.
  *
  * `admin` is main-derived. Live grant + compiled ActorRef are re-checked here
@@ -280,16 +362,90 @@ export const executeOverseerWork = (
         canvas,
         target,
         null,
-        makeUserMessage({
-          messageId: ulid(),
-          text: `[factory mail from ${actor.nodeId}] ${args.text}`,
-          contextId: canvas,
-          metadata: { factoryMail: true, fromSeat: actor.nodeId },
-        }),
+        overseerMail(canvas, actor, args.text),
         actor,
         admin,
       );
       return exposeMutation(yield* fromWorkResult(result));
+    }
+    if (op === "msg.audience") {
+      const args = yield* decodeArgs(op, raw);
+      const readings = yield* audienceReadings(caller.canvasName);
+      return yield* Effect.fromResult(readAudience({
+        canvasName: caller.canvasName,
+        canvas: origin.canvas,
+        callerId: caller.nodeId,
+        selection: args,
+        readings,
+      }));
+    }
+    if (op === "msg.broadcast") {
+      // The text was checked by the decode, before the set is read.
+      const args = yield* decodeArgs(op, raw);
+      const readings = yield* audienceReadings(caller.canvasName);
+      let audience: Audience | undefined;
+      // One transaction for the whole set: the live grant, the set read again
+      // and every row. A revoke, a changed set or a failure at any seat leaves
+      // no thread at all.
+      const written = yield* work.workMessageAppendAll(
+        caller.canvasName,
+        (topology) =>
+          Effect.gen(function* () {
+            const read = yield* Effect.fromResult(
+              Result.flatMap(
+                readAudience({ canvasName: caller.canvasName, canvas: topology, callerId: caller.nodeId, selection: args, readings }),
+                (set) => checkBroadcastSet(set, { expect: args.expect, ...(args.set === undefined ? {} : { set: args.set }) }),
+              ),
+            );
+            audience = read;
+            const stamp = mailSenderStamp(topology, overseerStampCaller(caller), actor);
+            return read.seats.map((seat) => {
+              // A new root: its id is the thread's. Stamped here, never taken from the arguments.
+              const message = overseerMail(caller.canvasName, actor, args.text, mailExtensionMetadata({
+                ...stamp,
+                mailKind: "notice",
+                broadcast: true,
+                // Stored on the row: a seat that is not up is never started by it, across a restart too.
+                noWake: true,
+              }));
+              // Held in memory too, before the commit, as delivery reads both.
+              messageDelivery.holdWake(message.messageId);
+              return { nodeId: seat.nodeId, message };
+            });
+          }),
+        actor,
+        admin,
+      ).pipe(
+        Effect.mapError((error): WorkErrorBody =>
+          error instanceof WorkServiceError ? mapWorkCode(error.code, error.message, error.details) : error),
+      );
+      const set = audience!;
+      const bySeat = new Map(set.seats.map((seat) => [seat.nodeId, seat] as const));
+      // After the commit: each seat's delivery state, as msg.send answers it for one.
+      const seats = yield* Effect.forEach(written, (row) =>
+        Effect.promise(() => messageDelivery.deliver(caller.canvasName, row.nodeId, row.message.messageId)).pipe(
+          Effect.map((delivery) => {
+            const seat = bySeat.get(row.nodeId)!;
+            return {
+              nodeId: row.nodeId,
+              name: seat.name,
+              running: seat.running,
+              elsewhere: seat.elsewhere,
+              messageId: row.message.messageId,
+              threadId: row.message.messageId,
+              delivery,
+            };
+          }),
+        ), { concurrency: "unbounded" });
+      return {
+        count: set.count,
+        set: set.set,
+        picks: set.picks,
+        notRunning: set.notRunning,
+        elsewhere: set.elsewhere,
+        unread: set.unread,
+        seats,
+      };
     }
     if (op === "msg.read") {
       const args = yield* decodeArgs(op, raw);
@@ -315,16 +471,9 @@ export const executeOverseerWork = (
         canvas,
         target,
         null,
-        makeUserMessage({
-          messageId: ulid(),
-          text: `[factory mail from ${actor.nodeId}] ${args.text}`,
-          contextId: canvas,
-          metadata: {
-            factoryMail: true,
-            fromSeat: actor.nodeId,
-            inReplyTo: args.inReplyTo,
-            ...(parent === undefined ? {} : { threadId: mailThreadOf(parent) }),
-          },
+        overseerMail(canvas, actor, args.text, {
+          inReplyTo: args.inReplyTo,
+          ...(parent === undefined ? {} : { threadId: mailThreadOf(parent) }),
         }),
         actor,
         admin,

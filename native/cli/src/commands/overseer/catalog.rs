@@ -54,8 +54,9 @@ pub enum Shape {
     Body { empty: &'static str },
     /// An automation write: this process mints its opId, or resends `--op-id`.
     Automation(Write),
-    /// `thread list` and `thread show`: flags, as the seat's own `junto thread` takes them.
-    Thread,
+    /// Flags, not a JSON argument: `thread list` and `thread show`, as the
+    /// seat's own `junto thread` takes them, and `msg audience` and `msg broadcast`.
+    Flags,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -114,6 +115,7 @@ const READ_ONLY: &[&str] = &[
     "wire.list",
     "wire.get",
     "wire.verbs",
+    "msg.audience",
     "thread.list",
     "thread.show",
     "agent.list",
@@ -141,7 +143,7 @@ const fn op(name: &'static str, shape: Shape) -> Operation {
     Operation { name, shape }
 }
 
-use Shape::{Automation, Body, Plain, Report, Rows, SecretPut, Thread};
+use Shape::{Automation, Body, Flags, Plain, Report, Rows, SecretPut};
 
 pub static OPERATIONS: &[Operation] = &[
     op("status", Plain),
@@ -172,8 +174,10 @@ pub static OPERATIONS: &[Operation] = &[
     op("msg.read", Plain),
     op("msg.reply", Plain),
     op("msg.react", Plain),
-    op("thread.list", Thread),
-    op("thread.show", Thread),
+    op("msg.audience", Flags),
+    op("msg.broadcast", Flags),
+    op("thread.list", Flags),
+    op("thread.show", Flags),
     op("content.ingest", Plain),
     op("agent.list", Plain),
     op("agent.get", Plain),

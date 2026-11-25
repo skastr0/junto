@@ -102,6 +102,12 @@ export const MailExtension = Schema.Struct({
   senderGeneration: Schema.String,
   senderHarness: Schema.String,
   /**
+   * One row of an overseer's broadcast: one way, the seat is told not to
+   * reply or acknowledge. Only the broadcast executor stamps it; a seat's own
+   * send or reply never carries it. Absent on every other mail.
+   */
+  broadcast: Schema.optionalKey(Schema.Literal(true)),
+  /**
    * This mail never starts its seat: it is typed if the seat is up, or when
    * something else starts it. Stamped by the sender at the append, so the hold
    * survives a restart and reaches the seat's own machine. Absent: mail wakes.
@@ -151,6 +157,7 @@ export const mailExtensionMetadata = (
   ...(ext.senderRegions !== undefined ? { senderRegions: ext.senderRegions } : {}),
   senderGeneration: ext.senderGeneration,
   senderHarness: ext.senderHarness,
+  ...(ext.broadcast === true ? { broadcast: true } : {}),
   ...(ext.noWake === true ? { noWake: true } : {}),
 });
 

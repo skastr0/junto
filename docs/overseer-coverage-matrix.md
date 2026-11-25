@@ -54,6 +54,7 @@ replay.
 | Dispatch | `tests/overseer-dispatch.test.ts` |
 | Canvas / node / wire | `tests/overseer-canvas-commands.test.ts` |
 | Work | `tests/overseer-work.test.ts` |
+| Broadcast set and its guard | `tests/overseer-broadcast.test.ts`, `tests/overseer-broadcast-send.test.ts`, native `commands/overseer/live.rs` tests |
 | Threads | `tests/overseer-work.test.ts`, `tests/overseer-cli.test.ts`, `tests/overseer-control.test.ts` |
 | Operator offboard | `tests/overseer-offboard.test.ts`, `tests/overseer-dispatch.test.ts`, `tests/overseer-cli.test.ts` |
 | Region environment / secrets | `tests/overseer-env-secret.test.ts`, `tests/overseer-canvas-commands.test.ts`, `tests/overseer-dispatch.test.ts`, `tests/overseer-cli.test.ts` |
@@ -62,7 +63,7 @@ replay.
 | Human toggle / identity | `tests/overseer-set.test.ts`, `tests/overseer-toggle.test.tsx`, `tests/overseer-mark.test.tsx` |
 | Canvas edits / grant isolation | `tests/canvas-edit-commands.test.ts`, `tests/overseer-set.test.ts` |
 
-## Wire operations (83)
+## Wire operations (85)
 
 | operation | catalog | owning service | coverage | suite |
 | --- | --- | --- | --- | --- |
@@ -94,6 +95,8 @@ replay.
 | `msg.read` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `msg.reply` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `msg.react` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
+| `msg.audience` | read | work `executeOverseerWork` over `readAudience` (`overseer/broadcast.ts`), the set from `broadcastSet` (`src/shared/broadcast.ts`); sends nothing | exercised | tests/overseer-broadcast.test.ts; tests/overseer-broadcast-send.test.ts; native live.rs tests |
+| `msg.broadcast` | mutation | work `executeOverseerWork`: one `workMessageAppendAll` transaction holds the live grant, `readAudience` again with `checkBroadcastSet` (refused whole, `Stale`, when the count or digest differs) and every row, each a notice marked `broadcast` and `noWake`, a new thread each; delivered after the commit | exercised | tests/overseer-broadcast.test.ts; tests/overseer-broadcast-send.test.ts; native live.rs tests |
 | `thread.list` | read | threads `executeOverseerThreads` over `seatThreadsView` (one seat) and `threadRowsPage` with `who: all` (every seat) | exercised | tests/overseer-work.test.ts; tests/overseer-cli.test.ts; tests/overseer-control.test.ts |
 | `thread.show` | read | threads `executeOverseerThreads` over `seatThreadMessagesView` | exercised | tests/overseer-work.test.ts; tests/overseer-cli.test.ts; tests/overseer-control.test.ts |
 | `content.ingest` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts; tests/overseer-dispatch.test.ts; local ingest exercised; Remote page/content stay on caller installation in dispatch |
