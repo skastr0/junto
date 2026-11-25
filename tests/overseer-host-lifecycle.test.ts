@@ -1,10 +1,10 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { runOverseerHost } from "../src/cli/overseer-host/main";
+import { runOverseerHost } from "../src/node/overseer-host/main";
 
 const mocks = vi.hoisted(() => ({ call: vi.fn(), turn: vi.fn().mockResolvedValue(undefined) }));
-vi.mock("../src/cli/overseer-host/session", () => ({ requestBackendResponse: vi.fn(), runOverseerTurn: mocks.turn }));
-vi.mock("../src/cli/core/socket", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/cli/core/socket")>();
+vi.mock("../src/node/overseer-host/session", () => ({ requestBackendResponse: vi.fn(), runOverseerTurn: mocks.turn }));
+vi.mock("../src/node/work/seat-socket", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/node/work/seat-socket")>();
   const { Effect, Layer } = await import("effect");
   return { ...actual, WorkSocketLive: Layer.succeed(actual.WorkSocket, { call: (op, args) => Effect.sync(() => mocks.call(op, args)) }) };
 });

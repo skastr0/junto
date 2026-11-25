@@ -1,5 +1,5 @@
 import { Effect, ManagedRuntime } from "effect";
-import { WorkSocketLive, callWorkRpc } from "../core/socket";
+import { WorkSocketLive, callWorkRpc } from "../work/seat-socket";
 import { Overseer, OverseerLive } from "../../contract/work/overseer";
 import type { OverseerRequest } from "../../shared/overseer-control";
 import type { OverseerHostEvent, OverseerHostRequest, OverseerHostRun } from "../../shared/overseer-host-control";

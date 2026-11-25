@@ -25,7 +25,7 @@ import { nameThisMachine } from "./support/name-this-machine";
 import { WorkRevisions, WorkRevisionsLive, WorkRepositoryLive } from "../src/core/work/repository";
 import { TaskRepositoryLive } from "../src/core/work/task-repository";
 import { RulingRecorderLive } from "../src/core/work/ruling-recorder";
-import { runOverseerTurn } from "../src/cli/overseer-host/session";
+import { runOverseerTurn } from "../src/node/overseer-host/session";
 import { asNodeId, type Node } from "../src/shared/model";
 import { note, seat } from "./support/model-nodes";
 import { formatNodeRef } from "../src/shared/node-ref";
