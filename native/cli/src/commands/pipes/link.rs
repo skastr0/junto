@@ -27,7 +27,9 @@ const USAGE: u8 = 64;
 const GENERIC: u8 = 1;
 const CORE_NOT_RUNNING: u8 = 3;
 const MACHINE_UPDATING: u8 = 4;
-/// ssh's own code for an unreachable machine; junto link never returns it.
+/// ssh's own code for an unreachable machine; junto link never returns it,
+/// so only the test that pins the codes names it.
+#[cfg(test)]
 const UNREACHABLE: u8 = 255;
 
 /// The fixed words this CLI speaks, pinned by the test below.
@@ -182,15 +184,25 @@ mod tests {
     #[test]
     fn an_absent_core_is_a_missing_or_stale_socket_only() {
         assert!(core_absent(&io::Error::from(io::ErrorKind::NotFound)));
-        assert!(core_absent(&io::Error::from(io::ErrorKind::ConnectionRefused)));
-        assert!(!core_absent(&io::Error::from(io::ErrorKind::PermissionDenied)));
+        assert!(core_absent(&io::Error::from(
+            io::ErrorKind::ConnectionRefused
+        )));
+        assert!(!core_absent(&io::Error::from(
+            io::ErrorKind::PermissionDenied
+        )));
         assert!(!core_absent(&io::Error::from(io::ErrorKind::TimedOut)));
     }
 
     #[test]
     fn the_contract_codes_and_words_are_the_pinned_ones() {
         assert_eq!(
-            (USAGE, GENERIC, CORE_NOT_RUNNING, MACHINE_UPDATING, UNREACHABLE),
+            (
+                USAGE,
+                GENERIC,
+                CORE_NOT_RUNNING,
+                MACHINE_UPDATING,
+                UNREACHABLE
+            ),
             (64, 1, 3, 4, 255)
         );
         assert_eq!(STARTING, "junto link: starting the Junto core");

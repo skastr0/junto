@@ -103,10 +103,10 @@ struct Plan {
 impl Plan {
     fn start(&self, runner: &impl Runner) -> io::Result<()> {
         let status = runner.run(Path::new(self.first.program), &self.first.args)?;
-        if !status.success() {
-            if let Some(retry) = &self.retry {
-                runner.run(Path::new(retry.program), &retry.args)?;
-            }
+        if !status.success()
+            && let Some(retry) = &self.retry
+        {
+            runner.run(Path::new(retry.program), &retry.args)?;
         }
         Ok(())
     }
@@ -290,9 +290,7 @@ fn valid_generation(generation: &str) -> bool {
         return false;
     };
     hash.len() == 64
-        && hash
-            .bytes()
-            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
         && matches!(target, "darwin-arm64" | "linux-x64")
 }
 
@@ -324,10 +322,7 @@ fn owner_json(label: &str, home: &str) -> String {
 /// An owned real directory, never a link, that group and others cannot write.
 fn owned_directory(path: &Path) -> Result<(), Refusal> {
     let metadata = fs::symlink_metadata(path).map_err(|_| Refusal::NotRunning)?;
-    if !metadata.is_dir()
-        || metadata.uid() != uid()
-        || metadata.mode() & 0o022 != 0
-    {
+    if !metadata.is_dir() || metadata.uid() != uid() || metadata.mode() & 0o022 != 0 {
         return Err(Refusal::NotRunning);
     }
     Ok(())
@@ -469,10 +464,8 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .map(|elapsed| elapsed.as_nanos())
                 .unwrap_or_default();
-            let path = std::env::temp_dir().join(format!(
-                "junto-link-{name}-{}-{nanos}",
-                std::process::id()
-            ));
+            let path = std::env::temp_dir()
+                .join(format!("junto-link-{name}-{}-{nanos}", std::process::id()));
             fs::create_dir_all(&path).expect("scratch");
             Self(path)
         }
@@ -507,11 +500,8 @@ mod tests {
         let bin = root.join("builds").join(&generation).join("bin");
         fs::create_dir_all(&bin).expect("bin");
         write(&bin.join("junto"), "binary", 0o755);
-        std::os::unix::fs::symlink(
-            Path::new("builds").join(&generation),
-            root.join("current"),
-        )
-        .expect("current");
+        std::os::unix::fs::symlink(Path::new("builds").join(&generation), root.join("current"))
+            .expect("current");
         root
     }
 
@@ -526,8 +516,11 @@ mod tests {
             0o600,
         );
         fs::create_dir_all(root.join(".install-lock")).expect("lock dir");
-        fs::set_permissions(root.join(".install-lock"), fs::Permissions::from_mode(0o700))
-            .expect("lock mode");
+        fs::set_permissions(
+            root.join(".install-lock"),
+            fs::Permissions::from_mode(0o700),
+        )
+        .expect("lock mode");
         write(&root.join(".install-lock/lease"), "", 0o600);
         let install = Install::new(root, home, scratch.path().join("account")).expect("install");
         (install, scratch.path().join("account"))
@@ -565,7 +558,12 @@ mod tests {
             Some(canonical.clone())
         );
         assert_eq!(
-            install_root(&root.join("builds").join(format!("{}-linux-x64", "b".repeat(64))).join("bin/junto")),
+            install_root(
+                &root
+                    .join("builds")
+                    .join(format!("{}-linux-x64", "b".repeat(64)))
+                    .join("bin/junto")
+            ),
             Some(canonical)
         );
     }
@@ -618,7 +616,11 @@ mod tests {
         let marker = install.root.join("owner.json");
         fs::remove_file(&marker).expect("remove");
         let outside = scratch.path().join("outside.json");
-        write(&outside, &owner_json(&install.label, install.home.to_str().expect("home")), 0o600);
+        write(
+            &outside,
+            &owner_json(&install.label, install.home.to_str().expect("home")),
+            0o600,
+        );
         std::os::unix::fs::symlink(&outside, &marker).expect("symlink");
         assert_eq!(
             Install::new(
@@ -646,11 +648,7 @@ mod tests {
         let scratch = Scratch::new("lease-unsafe");
         let (install, _) = owned_install(&scratch);
         fs::remove_file(install.root.join(".install-lock/lease")).expect("remove");
-        assert_eq!(
-            install.lease().err(),
-            Some(Refusal::NotRunning),
-            "missing"
-        );
+        assert_eq!(install.lease().err(), Some(Refusal::NotRunning), "missing");
 
         write(&install.root.join(".install-lock/lease"), "", 0o644);
         assert_eq!(
@@ -745,7 +743,9 @@ mod tests {
         );
 
         let fake = FakeRunner::default();
-        let file = Path::new("/Users/example/Library/LaunchAgents/dev.junto.machine.26d96d7bc0190e7e.plist");
+        let file = Path::new(
+            "/Users/example/Library/LaunchAgents/dev.junto.machine.26d96d7bc0190e7e.plist",
+        );
         let plan = launchd_plan("dev.junto.machine.26d96d7bc0190e7e", file, true);
         assert!(plan.start(&fake).is_ok());
         assert_eq!(
@@ -781,7 +781,10 @@ mod tests {
                     PathBuf::from("/bin/launchctl"),
                     vec![
                         OsString::from("kickstart"),
-                        OsString::from(format!("user/{}/dev.junto.machine.26d96d7bc0190e7e", uid())),
+                        OsString::from(format!(
+                            "user/{}/dev.junto.machine.26d96d7bc0190e7e",
+                            uid()
+                        )),
                     ],
                 ),
             ]
