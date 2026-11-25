@@ -16,7 +16,7 @@
  */
 import { lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { Effect, Schema, Stream } from "effect";
+import { Effect, Option, Schema, Stream } from "effect";
 import type { InstallationId } from "@shared/installation-id";
 import { canonicalLiteralHost, literalHostRefusal } from "@shared/literal-host";
 import type {
@@ -37,6 +37,8 @@ import {
 import { MachineLink } from "../link/service";
 import { MachineRepository } from "../machines/repository";
 import { parseHostSshRoute, parseSshRoute, SshTransport, type SshError } from "../ssh";
+import { machineStatusProgram } from "../ssh/machine-owner-commands";
+import { decodeMachineOwnStatus } from "./machine-status";
 import { makeRemoteCommand } from "../ssh/domain";
 import { dedicatedStream, resolveSshConfig } from "../ssh/program";
 import { SshTransferExitError } from "../ssh/service";
@@ -319,13 +321,24 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
   /**
    * This machine's stale trust on `route`, cleared with every: from a send
    * whose setup found it bound to a key this machine does not hold, or a
-   * remove with no key held. Clean only on the matched holder's answer that
-   * a line or the pin went.
+   * remove with no key held. Clean only on the matched holder's answer: a
+   * line or the pin went, or it had no line and no active pin of this
+   * installation, so it trusts nothing of this machine's.
    */
   const clearEvery = (route: OwnerRoute, holder: InstallationId) => Effect.gen(function* () {
     const answered = yield* ownerWith(route, route.sshKnownHostsFile, "link-revoke",
       { installationId: yield* machines.installationId, holder, unpin: true, every: true } satisfies MachineLinkRevokeInput, RevokeData).pipe(Effect.option);
-    return answered._tag === "Some" && answered.value.holder === holder && (answered.value.removed || answered.value.unpinned === true);
+    if (answered._tag === "None" || answered.value.holder !== holder || answered.value.unpinned === undefined) return false;
+    // Matched: a line or the pin went, or neither was there. Each way it trusts nothing of this machine's now.
+    return true;
+  });
+
+  /** The installation that answers `host`'s machine status over the operator's route. */
+  const answeringInstallation = (host: RemoteHost) => Effect.gen(function* () {
+    const target = yield* parseHostSshRoute(host);
+    const program = yield* machineStatusProgram(target, { juntoHome: host.juntoHome!, installRoot: host.installRoot! });
+    const answer = yield* ssh.run(program);
+    return (yield* decodeMachineOwnStatus(answer.stdout)).installationId;
   });
 
   /**
@@ -367,10 +380,18 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
    */
   const clearRemoved = (host: RemoteHost, holder: InstallationId | undefined) => Effect.gen(function* () {
     const state = linkKeyState(options.home, host.id);
-    // No key here: a line there trusts a key nobody can use, so every clears it, against the installation this machine knew.
-    if (state === "none") return holder === undefined || (yield* clearEvery(ownerRoute(host), holder)) ? "clear" as const : "kept" as const;
+    // A key here that cannot be read: nothing names its line, and nothing says it is gone.
+    if (state === "unreadable") return "unconfirmed" as const;
+    // No key here: a line there trusts a key nobody can use, so every clears it, against the installation this machine
+    // knew, or else the one that answers its status over the operator's route. Junto was never placed there without a
+    // location, so a machine with none has nothing of this one's to clear.
+    if (state === "none") {
+      if (holder === undefined && (host.juntoHome === undefined || host.installRoot === undefined)) return "clear" as const;
+      const known = holder ?? (yield* answeringInstallation(host).pipe(Effect.option)).pipe(Option.getOrUndefined);
+      return known !== undefined && (yield* clearEvery(ownerRoute(host), known)) ? "clear" as const : "unconfirmed" as const;
+    }
     const linkKeySha256 = ownLinkKeySha256(options.home, host.id);
-    if (linkKeySha256 === undefined) return "kept" as const;
+    if (linkKeySha256 === undefined) return "unconfirmed" as const;
     const knownHosts = boundKnownHosts(options.home, host.id);
     const row: PendingUnlink = {
       machineName: host.id, installationId: yield* machines.installationId, linkKeySha256,
@@ -400,9 +421,15 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
   });
 
   /** A machine taken off this one: its key and route here, and its line here, both go. */
+  /** Deletes this machine's link key for `name` without reading it; true when it is gone. */
+  const dropKey = (name: string) => Effect.try({ try: () => removeLinkKey(options.home, name), catch: () => "not deleted" }).pipe(
+    Effect.as(true), Effect.orElseSucceed(() => false));
+
+  /** The key for `name` goes, and its installation's line here; true when the key is gone. */
   const forget = (name: string, installationId: InstallationId) => Effect.gen(function* () {
-    yield* Effect.sync(() => removeLinkKey(options.home, name));
+    const dropped = yield* dropKey(name);
     yield* revoke({ installationId }).pipe(Effect.ignore);
+    return dropped;
   });
 
   /** Does that key-bound peer still have its line here: a missing one is drift, repaired by linking again. */
@@ -437,7 +464,7 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
 
   return {
     link: (input: MachineLinkInput) => setUp(input).pipe(Effect.tap(() => revokeEverywhere().pipe(Effect.ignore)), Effect.tap(() => settleRemoved().pipe(Effect.ignore))),
-    key, accept, open: openLink, revoke, forget, lineHeld, revokeEverywhere, clearRemoved, settleRemoved,
+    key, accept, open: openLink, revoke, forget, dropKey, lineHeld, revokeEverywhere, clearRemoved, settleRemoved,
     /** Pending files set aside unread since the last call: the remove says so. */
     takeSetAside: (): ReadonlyArray<string> => setAside.splice(0),
     /** Does this machine hold its own link key for `peer`: held, none, or unreadable, which counts as held. */

@@ -349,24 +349,31 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         // operator's route while it is still known; one it cannot reach now is
         // kept and cleared the next time Junto reaches it. Then its key comes off
         // here and off every machine this one reaches; one it cannot reach stays listed.
-        let linkKept = false;
+        let cleared: "clear" | "kept" | "unconfirmed" = "clear";
         if (options.linkSetup !== undefined) {
           yield* options.linkSetup.settleRemoved().pipe(Effect.ignore);
-          linkKept = (yield* options.linkSetup.clearRemoved(removedHost, removed?.installationId).pipe(Effect.orElseSucceed(() => "kept" as const))) === "kept";
+          cleared = yield* options.linkSetup.clearRemoved(removedHost, removed?.installationId).pipe(Effect.orElseSucceed(() => "unconfirmed" as const));
         }
-        if (removed !== undefined && options.linkSetup !== undefined) {
-          yield* options.linkSetup.forget(name, removed.installationId);
-          yield* options.linkSetup.revokeEverywhere(removed).pipe(Effect.ignore);
+        // The key goes with or without a pin: a send that failed before the machine was saved left a key and no pin.
+        let keyDropped = true;
+        if (options.linkSetup !== undefined) {
+          keyDropped = removed === undefined ? yield* options.linkSetup.dropKey(name) : yield* options.linkSetup.forget(name, removed.installationId);
+          if (removed !== undefined) yield* options.linkSetup.revokeEverywhere(removed).pipe(Effect.ignore);
         }
         // The record of the token it was given goes with it; revoking that token is the operator's, in 1Password.
         if (options.vaultSetup !== undefined) yield* options.vaultSetup.forget(name).pipe(Effect.ignore);
         yield* hosts.list;
         const setAside = options.linkSetup?.takeSetAside() ?? [];
-        if (!linkKept && setAside.length === 0) return { machineName: name, removed: true };
+        if (cleared === "clear" && keyDropped && setAside.length === 0) return { machineName: name, removed: true };
         const self = yield* machines.machineName;
         return { machineName: name, removed: true,
-          ...(linkKept ? { linkKept: { ownWords: true as const,
+          ...(cleared === "kept" ? { linkKept: { ownWords: true as const,
             message: `${name} is removed, but it still accepts ${self}'s link key. Junto clears it the next time it reaches ${name}.` } } : {}),
+          // No key here, and nothing said the far one lets go: never claimed clear, and never claimed it still holds the key.
+          ...(!keyDropped ? { linkKeyKept: { ownWords: true as const,
+            message: `${name} is removed, but Junto could not delete the link key ${self} holds for it. Add ${name} again, then remove it.` } } : {}),
+          ...(cleared === "unconfirmed" ? { linkKept: { ownWords: true as const,
+            message: `${name} is removed, but Junto could not confirm it stopped accepting links from ${self}. To clear that, add it again and send Junto to it.` } } : {}),
           // remote-design c72bde3ce: the words carry no path; the path is its own field.
           ...(setAside.length === 0 ? {} : { unlinkSetAside: { ownWords: true as const, paths: setAside,
             message: `Junto could not read its list of removed machines that still accept ${self}'s link key, and set the list aside unchanged. Machines on it may still accept the key until you link them again or remove them again.` } }),

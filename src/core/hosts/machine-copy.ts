@@ -37,6 +37,8 @@ export interface MachineCopyOptions {
 
 /** The words for a stale link this send could not clear: a resend runs the clear again. */
 export const STALE_LINK_WORDS = "That machine still accepts an old link from this one, and Junto could not clear it. Send Junto again.";
+/** The words for a link key here that cannot be read: a remove deletes it unread, and the next send clears the stale link. */
+export const UNREADABLE_LINK_KEY_WORDS = "This machine's link key for that machine cannot be read. Remove that machine, then add it again and send Junto to it.";
 
 /** A machine still holds the link this one made before it was removed, and this one no longer holds the key. */
 class LinkOutlivedRemove extends Schema.TaggedError<LinkOutlivedRemove>()("LinkOutlivedRemove", { message: Schema.String }) {}
@@ -140,7 +142,10 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
           const route = { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot };
           const cleared = keyState === "none" && options.clearStaleLink !== undefined
             && (yield* options.clearStaleLink(route, receipt.installationId).pipe(Effect.orElseSucceed(() => false)));
-          if (!cleared || (yield* setUp).data.keyBound === true) return yield* Effect.fail(new LinkOutlivedRemove({ message: STALE_LINK_WORDS }));
+          // The route is kept, never a pin: a remove can then reach it to clear what this send could not, and nothing reads ready.
+          const failed = (message: string) => hosts.upsert(route).pipe(Effect.andThen(Effect.fail(new LinkOutlivedRemove({ message }))));
+          if (keyState === "unreadable") return yield* failed(UNREADABLE_LINK_KEY_WORDS);
+          if (!cleared || (yield* setUp).data.keyBound === true) return yield* failed(STALE_LINK_WORDS);
         }
       } else if (receipt.machineName !== host.id) return yield* Effect.fail(refused("name-changed", "The machine calls itself another name; keep its setup binding and choose the correct machine"));
       const configuredHost = { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot };

@@ -118,20 +118,23 @@ it("clears a stale link once, against the installation it confirmed, when the ma
   expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup", "clear", "setup", "location", "hello"]);
 });
 
+const UNREADABLE = "This machine's link key for that machine cannot be read. Remove that machine, then add it again and send Junto to it.";
+
 it.each([
-  ["the clear did not take", { keyBound: true, cleared: false }, ["setup", "clear"]],
-  ["setup is still key-bound after the clear", { keyBound: true }, ["setup", "clear", "setup"]],
-  ["the link key here cannot be read", { keyBound: true, keyState: "unreadable" as const }, ["setup"]],
-])("fails in its own words, with no loop and before it records the route, when %s", async (_label, options, tail) => {
+  ["the clear did not take", { keyBound: true, cleared: false }, ["setup", "clear"], STALE],
+  ["setup is still key-bound after the clear", { keyBound: true }, ["setup", "clear", "setup"], STALE],
+  ["the link key here cannot be read", { keyBound: true, keyState: "unreadable" as const }, ["setup"], UNREADABLE],
+])("fails in its own words, with no loop and keeping the route but never a pin, when %s", async (_label, options, tail, words) => {
   const f = await fixture(options);
   const error = await f.error("send");
   expect(error).toBeInstanceOf(MachineSetupError);
+  expect(await f.runtime.runPromise(f.repository.peer("mini"))).toBeUndefined();
   if (error instanceof MachineSetupError) {
-    expect(error.message).toBe(STALE);
+    expect(error.message).toBe(words);
     expect(error.ownWords).toBe(true);
     expect(error.installed).toEqual(f.receipt);
   }
-  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", ...tail]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", ...tail, "location"]);
 });
 
 it("sends as before for a machine that still holds its link key, or a plain pin, with no clear", async () => {

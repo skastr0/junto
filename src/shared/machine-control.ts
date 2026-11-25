@@ -193,6 +193,8 @@ export const MachineRemoved = Schema.Struct({
   machineName: MachineName,
   removed: Schema.Literal(true),
   linkKept: Schema.optionalKey(Schema.Struct({ message: Schema.String, ownWords: Schema.Literal(true) })),
+  /** This machine's link key for the removed machine could not be deleted. `message` is the core's own words. */
+  linkKeyKept: Schema.optionalKey(Schema.Struct({ message: Schema.String, ownWords: Schema.Literal(true) })),
   /**
    * The list of machines still to clear could not be read, and was set aside
    * unchanged. `message` is the core's own words and holds no path (a

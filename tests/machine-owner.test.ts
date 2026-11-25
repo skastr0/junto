@@ -108,12 +108,15 @@ it("answers setup on a pin a link bound to its key with the pin's contract, and 
   expect(f.database.prepare("SELECT binding, retired_at FROM machine_peers WHERE machine_name = 'studio'").get()).toEqual({ binding: "key", retired_at: null });
 });
 
-it.each([["kept", true], ["unreachable", true], ["clear", false]] as const)("answers a remove ok here, and says in its own words when the removed machine still accepts this machine's link key (%s)", async (outcome, kept) => {
+const KEPT = "mini is removed, but it still accepts macbook's link key. Junto clears it the next time it reaches mini.";
+const UNCONFIRMED = "mini is removed, but Junto could not confirm it stopped accepting links from macbook. To clear that, add it again and send Junto to it.";
+it.each([["kept", KEPT], ["unconfirmed", UNCONFIRMED], ["unreachable", UNCONFIRMED], ["clear", undefined]] as const)("answers a remove ok here, and says in its own words when the removed machine still accepts this machine's link key, or Junto could not confirm it stopped (%s)", async (outcome, words) => {
   const cleared: string[] = [];
-  const linkSetup = (answer: Effect.Effect<"clear" | "kept", Error>) => ({
+  const linkSetup = (answer: Effect.Effect<"clear" | "kept" | "unconfirmed", Error>) => ({
     settleRemoved: () => Effect.succeed([]),
     clearRemoved: (host: { readonly id: string }) => answer.pipe(Effect.tap(() => Effect.sync(() => { cleared.push(host.id); }))),
-    forget: () => Effect.void,
+    forget: () => Effect.succeed(true),
+    dropKey: () => Effect.succeed(true),
     revokeEverywhere: () => Effect.succeed([]),
     takeSetAside: () => outcome === "clear" ? ["/home/user/.junto/core/link-keys/unlinked.json.bad-1"] : [],
   }) as never;
@@ -125,9 +128,7 @@ it.each([["kept", true], ["unreachable", true], ["clear", false]] as const)("ans
     const removed = await f.call("machine.remove", { name: "mini" });
     expect(removed).toMatchObject({ ok: true, data: { machineName: "mini", removed: true } });
     if (!removed.ok || removed.op !== "machine.remove") throw new Error("remove did not answer");
-    expect(removed.data.linkKept).toEqual(kept
-      ? { ownWords: true, message: "mini is removed, but it still accepts macbook's link key. Junto clears it the next time it reaches mini." }
-      : undefined);
+    expect(removed.data.linkKept).toEqual(words === undefined ? undefined : { ownWords: true, message: words });
     expect(removed.data.unlinkSetAside).toEqual(outcome === "clear" ? { ownWords: true, paths: ["/home/user/.junto/core/link-keys/unlinked.json.bad-1"],
       message: "Junto could not read its list of removed machines that still accept macbook's link key, and set the list aside unchanged. Machines on it may still accept the key until you link them again or remove them again." } : undefined);
     // The route and pin are gone here either way.
@@ -452,4 +453,23 @@ it("pushes an installed but not reconnected peer once across three passes", asyn
   }
   expect(copies).toBe(1);
   expect(store.latches.get("mini-install")).toMatchObject({ installationId: "mini-install", targetBuild: "a".repeat(64) });
+});
+
+it.each([[true, undefined], [false, "mini is removed, but Junto could not delete the link key macbook holds for it. Add mini again, then remove it."]] as const)("a remove with no pin still deletes this machine's link key by name, and says so when it could not (%s)", async (dropped, words) => {
+  const calls: string[] = [];
+  const linkSetup = {
+    settleRemoved: () => Effect.succeed([]),
+    clearRemoved: () => Effect.succeed("clear" as const),
+    forget: () => Effect.sync(() => { calls.push("forget"); return true; }),
+    dropKey: (name: string) => Effect.sync(() => { calls.push(`drop ${name}`); return dropped; }),
+    revokeEverywhere: () => Effect.succeed([]),
+    takeSetAside: () => [],
+  } as never;
+  const f = await fixture({ linkSetup });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  const removed = await f.call("machine.remove", { name: "mini" });
+  if (!removed.ok || removed.op !== "machine.remove") throw new Error("remove did not answer");
+  expect(calls).toEqual(["drop mini"]);
+  expect(removed.data.linkKeyKept).toEqual(words === undefined ? undefined : { ownWords: true, message: words });
+  expect(removed.data.linkKept).toBeUndefined();
 });
