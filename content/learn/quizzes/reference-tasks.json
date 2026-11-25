@@ -29,7 +29,9 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/task.ts:78@951f99eac"
+        "src/shared/rules.ts:103@85dfdfcb2",
+        "src/shared/rules.ts:114-118@85dfdfcb2",
+        "src/shared/task-machine.ts:348-349@85dfdfcb2"
       ]
     },
     {
@@ -59,7 +61,7 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/task.ts:87@951f99eac"
+        "native/cli/src/commands/task.rs:902-903@85dfdfcb2"
       ]
     },
     {

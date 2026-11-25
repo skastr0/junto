@@ -28,7 +28,9 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/overseer.ts:628@951f99eac"
+        "native/cli/corpus/overseer-skill.md:8@85dfdfcb2",
+        "src/core/work/control.ts:1079@85dfdfcb2",
+        "src/core/work/control.ts:1096@85dfdfcb2"
       ]
     },
     {
@@ -43,13 +45,13 @@
         {
           "id": "per-node",
           "text": "Yes, one line per node",
-          "why": "Overseer commands are marked edges not required."
+          "why": "Overseer commands are admitted without lines."
         },
         {
           "id": "no",
           "text": "No: overseer commands need no lines",
           "correct": true,
-          "why": "Every overseer command is described as Overseer; edges not required."
+          "why": "Overseers need no lines: their commands are admitted by the human-enabled overseer grant, not by lines."
         },
         {
           "id": "seats-only",
@@ -58,7 +60,9 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/overseer.ts:646-647@951f99eac"
+        "native/cli/corpus/overseer-skill.md:8@85dfdfcb2",
+        "native/cli/src/commands/overseer/offline.rs:96@85dfdfcb2",
+        "src/core/work/control.ts:1073-1074@85dfdfcb2"
       ]
     },
     {
@@ -88,8 +92,10 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/overseer.ts:49-51@951f99eac",
-        "src/cli/commands/overseer.ts:349-358@951f99eac"
+        "native/cli/corpus/overseer-skill.md:33@85dfdfcb2",
+        "native/cli/src/input.rs:20-26@85dfdfcb2",
+        "native/cli/corpus/overseer-skill.md:116@85dfdfcb2",
+        "native/cli/corpus/overseer-skill.md:137@85dfdfcb2"
       ]
     }
   ]

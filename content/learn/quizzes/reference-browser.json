@@ -64,7 +64,9 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/browser-contract.ts:61@951f99eac"
+        "src/shared/physics/verbs.ts:143-144@85dfdfcb2",
+        "src/app/browser/control.ts:698@85dfdfcb2",
+        "src/app/browser/control.ts:708@85dfdfcb2"
       ]
     },
     {
@@ -93,7 +95,9 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/browser-contract.ts:91@951f99eac"
+        "src/app/browser/control.ts:504-506@85dfdfcb2",
+        "src/app/browser/control.ts:980-981@85dfdfcb2",
+        "src/app/browser/control.ts:1014@85dfdfcb2"
       ]
     }
   ]

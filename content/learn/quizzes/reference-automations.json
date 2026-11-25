@@ -28,8 +28,9 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/automation.ts:77@951f99eac",
-        "src/shared/region-reach.ts:60-63@951f99eac"
+        "src/shared/region-reach.ts:60-63@951f99eac",
+        "native/cli/src/commands/automation.rs:2-3@85dfdfcb2",
+        "src/core/work/control.ts:1081-1085@85dfdfcb2"
       ]
     },
     {
@@ -59,7 +60,9 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/automation.ts:43@951f99eac"
+        "src/core/work/automation-control.ts:111-118@85dfdfcb2",
+        "src/core/automation/apply.ts:73-81@85dfdfcb2",
+        "src/core/automation/apply.ts:58@85dfdfcb2"
       ]
     },
     {
@@ -88,7 +91,7 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/automation.ts:48@951f99eac"
+        "src/shared/automation.ts:1041-1052@85dfdfcb2"
       ]
     }
   ]

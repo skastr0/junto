@@ -28,7 +28,8 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/artifact.ts:123@951f99eac"
+        "native/cli/src/commands/artifact.rs:319-320@85dfdfcb2",
+        "src/shared/seat-onboarding.ts:141@85dfdfcb2"
       ]
     },
     {
@@ -62,7 +63,10 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/artifact.ts:124@951f99eac"
+        "src/shared/wire/artifact-labels.ts:23@85dfdfcb2",
+        "src/shared/wire/artifact-labels.ts:77@85dfdfcb2",
+        "src/shared/wire/artifact-labels.ts:100-101@85dfdfcb2",
+        "src/core/work/artifact-control.ts:388-389@85dfdfcb2"
       ]
     },
     {

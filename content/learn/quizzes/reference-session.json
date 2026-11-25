@@ -33,7 +33,8 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/seat-discovery.ts:202@951f99eac"
+        "src/core/work-control/discovery.ts:707-709@85dfdfcb2",
+        "src/core/work-control/discovery.ts:717@85dfdfcb2"
       ]
     },
     {
@@ -68,8 +69,8 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/op.ts:22@951f99eac",
-        "src/cli/core/op-id.ts:14@951f99eac"
+        "src/contract/work/discovery.ts:70-74@85dfdfcb2",
+        "native/cli/src/wire.rs:356-361@85dfdfcb2"
       ]
     },
     {
@@ -104,7 +105,9 @@
         }
       ],
       "receipts": [
-        "src/cli/commands/seat-discovery.ts:150@951f99eac"
+        "src/contract/work/discovery.ts:288-290@85dfdfcb2",
+        "src/contract/work/discovery.ts:307-309@85dfdfcb2",
+        "native/cli/src/commands/seat_discovery.rs:91@85dfdfcb2"
       ]
     }
   ]
