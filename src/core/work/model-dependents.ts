@@ -50,6 +50,8 @@ export const makeWorkModelDependents = Effect.gen(function* () {
       // So do its purged comment shots (shot-purge-schema.ts). A removed page keeps
       // them: the shot stays unreadable whatever copy comes back.
       yield* sql`DELETE FROM content_purges WHERE canvas_name=${canvas}`;
+      // And its departure marks (X6, C2): a canvas made later under the name owes no machine a departure copy.
+      yield* sql`DELETE FROM canvas_files_carried WHERE canvas_name=${canvas}`;
     }
     yield* afterSqlCommit(sql, () => {
       for (const sink of affected)

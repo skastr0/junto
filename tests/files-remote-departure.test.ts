@@ -220,6 +220,14 @@ describe("a Files node leaving its machine (X6, remote-security C2)", () => {
     expect([...marked]).toEqual([MINI]);
   });
 
+  it("leaves no departure mark behind a removed canvas, so a canvas made later under its name owes no machine a departure copy", async () => {
+    const { macbook } = await stage(false);
+    const marked = () => macbook.runtime.runPromise(Effect.flatMap(WorkRepository, (repository) => repository.filesCarriedTo("factory")));
+    expect([...(await marked())]).toEqual([MINI]);
+    await operator(macbook, { _tag: "RemoveCanvas", canvas: "factory" });
+    expect([...(await marked())]).toEqual([]);
+  });
+
   for (const [how, change] of [
     ["moved to another machine", { _tag: "Edit", canvas: "factory", id: "folder", change: { kind: "files", host: "macbook" } }],
     ["deleted", { _tag: "Remove", canvas: "factory", nodes: ["folder"], wires: [] }],
