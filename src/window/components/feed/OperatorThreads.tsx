@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import { nodesOf, titleOf } from "@shared/model";
 import { feedRegionForCanvas } from "@shared/operator-feed";
+import { asNodeId } from "@shared/physics/schema";
 import { closeOperatorModal } from "../../lib/operator-modal";
 import { loadMoreOperatorThreads, useOperatorThreads } from "../../lib/operator-threads";
 import { openSeatOn } from "../../lib/seat-view";
@@ -65,7 +66,7 @@ export function OperatorThreads() {
           onSent={(sent) => {
             const first = sent[0];
             if (first === undefined) return done(undefined);
-            const node = canvas.nodes.get(first.seatId);
+            const node = canvas.nodes.get(asNodeId(first.seatId));
             done({
               ...first,
               ...(node === undefined

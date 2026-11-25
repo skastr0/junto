@@ -31,7 +31,7 @@ import { regionChipStyle } from "../../lib/region-chip-style";
 import { claimFocus, focusPrimaryControl } from "../../lib/focus-ownership";
 import { useListNav } from "../../lib/list-nav";
 import { regionPickKey, regionPickName } from "../../lib/operator-feed";
-import { previewText, useWaitingMarkHeld, waitingForSeats, type NewThread } from "../../lib/seat-threads";
+import { previewText, useWaitingMarkHeld, waitingForSeats } from "../../lib/seat-threads";
 import { ThreadTime } from "../threads/ThreadTime";
 import { provideThreadKey } from "../../lib/thread-keys";
 import { threadHeadline } from "../../lib/thread-text";
@@ -67,8 +67,14 @@ import "./threads-modal.css";
 const LIST_NEAR_END = 400;
 const SEATS_ROW_ID = "operator-threads-seats";
 
-/** The first quick-thread send, with the seat facts a synthetic first row needs. */
-export type ThreadsQuickLanding = NewThread & {
+/** The first quick-thread send, with the seat facts a synthetic first row needs when they ride along. */
+export type ThreadsQuickLanding = {
+  readonly seatId: string;
+  readonly threadId: string;
+  readonly arrival?: "arrived" | "waiting";
+  readonly messageId?: string;
+  readonly text?: string;
+  readonly at?: number;
   readonly seat?: ThreadRow["seat"];
   readonly region?: ThreadRow["region"];
 };
@@ -77,7 +83,8 @@ export type ThreadsQuickLanding = NewThread & {
  * The row a just-sent thread can show before the canvas-wide watch pushes it:
  * the write is already committed, and the pushed row replaces this one.
  */
-const quickLandingRow = (first: ThreadsQuickLanding): ThreadRow => {
+const quickLandingRow = (first: ThreadsQuickLanding): ThreadRow | undefined => {
+  if (first.messageId === undefined || first.text === undefined || first.at === undefined) return undefined;
   const at = first.at;
   const title = first.text.split(/\r?\n/, 1)[0]?.trim() ?? "";
   return {
@@ -520,8 +527,9 @@ export function ThreadsBody({
     focusAfter.current = { want: "landing", claimed: false };
     // With the list already unnarrowed, the committed row can open at once;
     // the store's pushed row takes its place when the watch catches up.
-    if (!narrowed) {
-      held.current = { key: viewKey, row: quickLandingRow(first), index: 0 };
+    const landed = narrowed ? undefined : quickLandingRow(first);
+    if (landed !== undefined) {
+      held.current = { key: viewKey, row: landed, index: 0 };
       setLanding(null);
       setPick({ id: first.threadId, mine: true });
       return;
