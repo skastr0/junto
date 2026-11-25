@@ -13,7 +13,7 @@
  *   bun src/contract/docs/publish.ts           rewrites src/contract/docs/published
  *   bun src/contract/docs/publish.ts --check   writes nothing; exits 1 naming each file that is not current
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,16 +51,12 @@ const profileDefines = (profile: "ship" | "all-on"): Defines => {
   );
 };
 
-const exportDocs = (defines: Defines): Promise<ExportedDocs> =>
-  new Promise((resolve, reject) => {
-    const args = [...[...defines].map(([key, value]) => `--define=${key}=${value}`), "src/contract/docs/export.ts"];
-    const child = spawn("bun", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
-    let out = "";
-    let err = "";
-    child.stdout.on("data", (chunk) => (out += chunk));
-    child.stderr.on("data", (chunk) => (err += chunk));
-    child.on("close", (code) => (code === 0 ? resolve(JSON.parse(out) as ExportedDocs) : reject(new Error(`docs export: ${err}`))));
-  });
+const exportDocs = (defines: Defines): ExportedDocs => {
+  const args = [...[...defines].map(([key, value]) => `--define=${key}=${value}`), "src/contract/docs/export.ts"];
+  const run = spawnSync("bun", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  if (run.status !== 0) throw new Error(`docs export: ${run.stderr}`);
+  return JSON.parse(run.stdout) as ExportedDocs;
+};
 
 const withGates = (base: Defines, on: ReadonlySet<string>): Defines =>
   new Map([...base, ...GATES.map(([name, define]) => [define, String(on.has(name))] as const)]);
@@ -82,16 +78,14 @@ const filesOf = (docs: ExportedDocs): ReadonlyArray<readonly [string, string]> =
 ];
 
 /** Each published file, by its path under the published directory, as the docs generate it now. */
-export const publishedDocs = async (): Promise<{ files: ReadonlyMap<string, string>; faults: ReadonlyArray<string> }> => {
+export const publishedDocs = (): { files: ReadonlyMap<string, string>; faults: ReadonlyArray<string> } => {
   const ship = profileDefines("ship");
   const allOn = profileDefines("all-on");
   const sets = combinations();
-  const [variants, shipDocs, allOnDocs, ...independent] = await Promise.all([
-    Promise.all(sets.map((on) => exportDocs(withGates(ship, on)))),
-    exportDocs(ship),
-    exportDocs(allOn),
-    ...INDEPENDENT.map((define) => exportDocs(new Map([...ship, [define, String(ship.get(define) !== "true")]]))),
-  ]);
+  const variants = sets.map((on) => exportDocs(withGates(ship, on)));
+  const shipDocs = exportDocs(ship);
+  const allOnDocs = exportDocs(allOn);
+  const independent = INDEPENDENT.map((define) => exportDocs(new Map([...ship, [define, String(ship.get(define) !== "true")]])));
   const files = new Map<string, string>();
   sets.forEach((on, at) => {
     for (const [name, text] of filesOf(variants[at]!)) files.set(`${directoryOf(on)}/${name}`, text);
@@ -112,7 +106,7 @@ const onDisk = (): ReadonlyArray<string> =>
   existsSync(PUBLISHED_DOCS_DIR) ? readdirSync(PUBLISHED_DOCS_DIR, { recursive: true, encoding: "utf8" }).filter((name) => /\.(md|json)$/.test(name)) : [];
 
 if (import.meta.main) {
-  const { files, faults } = await publishedDocs();
+  const { files, faults } = publishedDocs();
   if (faults.length > 0) {
     for (const fault of faults) console.error(fault);
     process.exit(1);
