@@ -816,6 +816,36 @@ git show --stat --oneline HEAD
   path from `$PARENT` (`git restore --source="$PARENT" -- <path>`), redo your
   edit on it, and run the block again. A deliberate return to an older copy
   goes in `REVERTS`.
+- A seat that lands from a linked worktree, a VM or by `update-ref` leaves
+  the shared checkout behind on every path it landed. Right after landing, it
+  brings those paths in the shared checkout up to main, each only if the
+  checkout file equals an older committed copy (the same guard as above, so
+  nobody's own edit is touched), and the shared index entry is main's, the
+  file's, or absent. From the shared checkout's root:
+
+```text
+# From the shared checkout's root, with OLD and NEW the main you landed over and onto:
+OLD=<main before your landing>; NEW=<main after it>
+PARENT=$(git rev-parse HEAD)
+git diff --name-only -z "$OLD" "$NEW" | while IFS= read -r -d '' p; do
+  hp=$(git rev-parse -q --verify "$PARENT:$p")             # empty: main no longer has the path
+  [ -e "$p" ] || { [ -z "$hp" ] || echo "absent here: $p"; continue; }
+  w=$(git hash-object -- "$p")
+  [ "$w" = "$hp" ] && continue                             # already main's copy
+  [ -n "$(git log --format=%h -n1 --find-object="$w" "$PARENT" -- "$p")" ] \
+    || { echo "kept, not an older copy of main's (someone's own edit): $p"; continue; }
+  i=$(git ls-files -s -- "$p" | awk '$3=="0"{print $2}')
+  [ -z "$i" ] || [ "$i" = "$w" ] || [ "$i" = "$hp" ] \
+    || { echo "kept, the shared index holds other content: $p"; continue; }
+  if [ -n "$hp" ]; then git restore --source="$PARENT" --staged --worktree -- "$p"
+  else rm -f -- "$p"; git rm -q --cached --ignore-unmatch -- "$p"; fi
+  echo "restored to main: $p"
+done
+```
+
+  A path it prints as `kept` is someone's own edit or staged content: leave it
+  and name its owner. A path main deleted is removed from the checkout under
+  the same guard.
 - For a deletion, name the deleted paths or their directory.
 - For only your lines of a shared file: write a patch with just your hunks
   and use `git apply --cached` on the private index in place of `git add`.
