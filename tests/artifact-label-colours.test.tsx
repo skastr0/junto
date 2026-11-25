@@ -27,6 +27,11 @@ const coloursOf = (held: Record<string, ArtifactLabelColour>, setColour = vi.fn(
   setColour,
 });
 
+// jsdom has no scrollIntoView; this file installs one for its own tests. The
+// shared lane reuses its environment, so the own property it adds is deleted
+// again (or the original descriptor put back), never left for the next file.
+const ownScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+
 let host: HTMLDivElement;
 let root: Root;
 const render = (node: React.ReactNode) => act(() => root.render(node));
@@ -52,6 +57,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  if (ownScrollIntoView === undefined) Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+  else Object.defineProperty(HTMLElement.prototype, "scrollIntoView", ownScrollIntoView);
 });
 
 describe("label colours in the header", () => {

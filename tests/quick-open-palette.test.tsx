@@ -13,9 +13,20 @@ let root: Root;
 
 // The shared lane runs files with no isolation, so a prototype this file
 // replaces is put back, or every later file in the worker reads a laid-out
-// page (focus-law-authority's parked surface came back rendered).
-const protoGetClientRects = HTMLElement.prototype.getClientRects;
-const protoScrollIntoView = HTMLElement.prototype.scrollIntoView;
+// page (focus-law-authority's parked surface came back rendered). The put-back
+// is the descriptor, not the saved value: jsdom inherits getClientRects and has
+// no scrollIntoView, so assigning the value back leaves an own property where
+// there was none, and the shared-lane guard names it.
+const ownGetClientRects = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "getClientRects");
+const ownScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+
+const restoreOwn = (
+  key: "getClientRects" | "scrollIntoView",
+  own: PropertyDescriptor | undefined,
+): void => {
+  if (own === undefined) Reflect.deleteProperty(HTMLElement.prototype, key);
+  else Object.defineProperty(HTMLElement.prototype, key, own);
+};
 
 beforeEach(() => {
   // The count announces on a settle timer, which fake time advances.
@@ -34,8 +45,8 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.useRealTimers();
-  HTMLElement.prototype.getClientRects = protoGetClientRects;
-  HTMLElement.prototype.scrollIntoView = protoScrollIntoView;
+  restoreOwn("getClientRects", ownGetClientRects);
+  restoreOwn("scrollIntoView", ownScrollIntoView);
 });
 
 const items = [
