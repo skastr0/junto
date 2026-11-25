@@ -465,9 +465,21 @@ export const settleAtlas = async (page: Page, timeoutMs = 180_000, stallMs = 20_
     if (landed !== progress.landed || requests !== progress.requests || now !== progress.pending || failed !== progress.failed) {
       progress = { at: Date.now(), pending: now, landed: landed ?? -1, requests: requests ?? -1, failed };
     }
+    // Pending 0 now is not settled yet: the next frame asks for the cells the
+    // new camera needs, and each quad shows its old picture until the new
+    // raster lands. So settle only across a window of two frames that sees no
+    // work in flight and no raster landing; then the shot holds the final
+    // picture. Without this a stop or a reference can catch a scaled stand-in.
     if (now === 0 && failed === 0) {
       await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-      return readProofState(page);
+      const after = await readProofState(page);
+      const left = after.atlas?.pending ?? after.pending ?? 0;
+      const landedAfter = after.atlas?.landed ?? null;
+      const requestsAfter = after.atlas?.requests ?? null;
+      const moved = landedAfter !== landed || requestsAfter !== requests;
+      if (left === 0 && moved === false && (after.atlas?.failedCells ?? 0) === 0) return after;
+      progress = { at: Date.now(), pending: left, landed: landedAfter ?? -1, requests: requestsAfter ?? -1, failed: after.atlas?.failedCells ?? -1 };
+      continue;
     }
     if (Date.now() - progress.at >= stallMs) {
       throw new Error(

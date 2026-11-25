@@ -21,8 +21,9 @@
  *       taken from a fresh launch that went from its opening camera straight
  *       to that camera with no zoom history. Tolerance: a pixel is changed
  *       when a channel differs by more than 48, and the stop fails on any
- *       16 px block holding 24 or more changed pixels. The diff is saved on
- *       failure;
+ *       16 CSS px block holding 24 or more changed pixels (at any device
+ *       scale: the block and the count scale with devicePixelRatio, so the
+ *       2x arm has the 1x arm's sensitivity). The diff is saved on failure;
  *   (b) `atlasAudit()` and the texel readback (`atlasAuditTexels`) are clean,
  *       and the readback is whole: it fails when it stopped at its limit or
  *       passed any cell over, and each stop logs what it compared and what
@@ -53,11 +54,12 @@
  * what the zoom did. A leg that crosses a tier ends just past the crossing,
  * hysteresis included (where a card changes its drawing and a pop would
  * show); any other leg ends at its geometric middle. The frame is compared,
- * downsampled to 8 px blocks, against the reference of the nearest stop of
+ * downsampled to 8 CSS px blocks (scaled with devicePixelRatio, as the stops
+ * are), against the reference of the nearest stop of
  * the same tier, mapped to the frame's camera; pixels under DOM at either end
  * of the mapping are skipped. Tolerance: a block is hot when one channel of
  * its mean colour differs by more than 40 of 255, and the frame fails on a
- * connected group of 12 or more hot blocks (about a 28 px square, smaller
+ * connected group of 12 or more hot blocks (about a 28 CSS px square, smaller
  * than a mid-tier portrait). A scaled stand-in blurs or sharpens and keeps
  * its block means; another item's pixels, a missing portrait, a black disc or
  * a whole page drawn in a quad do not.
@@ -468,9 +470,17 @@ const shot = async (page: Page, clip?: Rect): Promise<PngImage> => PNG.sync.read
 const delta = (a: PngImage, i: number, b: PngImage, j: number): number =>
   Math.max(Math.abs(a.data[i]! - b.data[j]!), Math.abs(a.data[i + 1]! - b.data[j + 1]!), Math.abs(a.data[i + 2]! - b.data[j + 2]!));
 
-/** Check (a): changed pixels, and the 16 px blocks that hold at least 24 of them. */
-const compareStop = (reference: PngImage, now: PngImage): { changed: number; blocks: number; diff: PngImage } => {
+/**
+ * Check (a): changed pixels, and the CSS-px blocks that hold at least 24 of
+ * them. A block is 16 CSS px and 24 changed pixels is 9.4% of it, at any
+ * device scale: at dpr 2 the same fault covers four times the device pixels,
+ * and a rule written in device pixels would make the 2x arm four times as
+ * sensitive as the 1x arm.
+ */
+const compareStop = (reference: PngImage, now: PngImage, dpr: number): { changed: number; blocks: number; diff: PngImage } => {
   const { width, height } = reference;
+  const block = Math.round(16 * dpr);
+  const perBlock = Math.round(24 * dpr * dpr);
   const diff = new PNG({ width, height });
   const blockCounts = new Map<number, number>();
   let changed = 0;
@@ -484,16 +494,17 @@ const compareStop = (reference: PngImage, now: PngImage): { changed: number; blo
     diff.data[i + 3] = 255;
     if (!hot) continue;
     changed += 1;
-    const key = Math.floor(p / width / 16) * 10_000 + Math.floor((p % width) / 16);
+    const key = Math.floor(p / width / block) * 10_000 + Math.floor((p % width) / block);
     blockCounts.set(key, (blockCounts.get(key) ?? 0) + 1);
   }
   let blocks = 0;
-  for (const n of blockCounts.values()) if (n >= 24) blocks += 1;
+  for (const n of blockCounts.values()) if (n >= perBlock) blocks += 1;
   return { changed, blocks, diff };
 };
 
-/** Pixels that moved across unheld shots (the board's own motion), grown by 3 px. */
-const motionMask = (shots: ReadonlyArray<PngImage>): Uint8Array => {
+/** Pixels that moved across unheld shots (the board's own motion), grown by 3 CSS px. */
+const motionMask = (shots: ReadonlyArray<PngImage>, dpr: number): Uint8Array => {
+  const grow = Math.round(3 * dpr);
   const { width, height } = shots[0]!;
   const moving = new Uint8Array(width * height);
   for (let s = 1; s < shots.length; s += 1) {
@@ -503,8 +514,8 @@ const motionMask = (shots: ReadonlyArray<PngImage>): Uint8Array => {
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       if (moving[y * width + x] === 0) continue;
-      for (let dy = -3; dy <= 3; dy += 1) {
-        for (let dx = -3; dx <= 3; dx += 1) {
+      for (let dy = -grow; dy <= grow; dy += 1) {
+        for (let dx = -grow; dx <= grow; dx += 1) {
           const yy = y + dy;
           const xx = x + dx;
           if (yy >= 0 && yy < height && xx >= 0 && xx < width) grown[yy * width + xx] = 1;
@@ -518,8 +529,10 @@ const motionMask = (shots: ReadonlyArray<PngImage>): Uint8Array => {
 /**
  * A zoom-end frame against a reference at another camera: each frame pixel is
  * mapped to the board, then to the reference's pixel at its camera. Both are
- * averaged over 8 px blocks; a block is hot over ZOOM_END_BLOCK_TOLERANCE; the
- * frame fails on a connected group of 12 hot blocks.
+ * averaged over 8 CSS px blocks; a block is hot over ZOOM_END_BLOCK_TOLERANCE;
+ * the frame fails on a connected group of 12 hot blocks, about a 28 CSS px
+ * square. Blocks are CSS px, so the 2x arm has the 1x arm's sensitivity: in
+ * device pixels the same ring arc covers four times the area at dpr 2.
  */
 /**
  * The pane's device pixels that lie under DOM (top bar, bottom bar, any
@@ -577,7 +590,7 @@ const compareZoomEnd = (
   dpr: number,
   overlay: Uint8Array,
 ): { worstGroup: number; hot: number; diff: PngImage } => {
-  const B = 8;
+  const B = Math.round(8 * dpr);
   const bw = Math.floor(frame.width / B);
   const bh = Math.floor(frame.height / B);
   const hot = new Uint8Array(bw * bh);
@@ -808,6 +821,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           await churn.baseline(junto.app);
           await page.waitForTimeout(1_500);
           const pane = await paneRect(page);
+          const dpr = await page.evaluate(() => window.devicePixelRatio);
           const camera = cameraAt(pane, place, zoom);
           await placeCamera(page, camera, 400);
           await parkPointer(page, pane);
@@ -822,7 +836,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           await release();
           const path = join(OUT, "references", `${place.name}-${String(zoom)}.png`);
           await writeFile(path, PNG.sync.write(image));
-          references.set(refKey(place.name, zoom), { image, unheld: unheldShots[0]!, mask: motionMask(unheldShots), camera, path });
+          references.set(refKey(place.name, zoom), { image, unheld: unheldShots[0]!, mask: motionMask(unheldShots, dpr), camera, path });
           const state = await readProofState(page);
           log(`reference ${refKey(place.name, zoom)}`, { tier: state.tier, gpuErrors: state.gpuErrors?.count, landed: state.atlas?.landed });
           if ((state.gpuErrors?.count ?? 0) > 0) fail(`reference ${refKey(place.name, zoom)}: ${String(state.gpuErrors?.count)} GPU error(s) in a fresh launch`, { last: state.gpuErrors?.last });
@@ -895,7 +909,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
         const path = join(OUT, "stops", `${String(stopIndex).padStart(3, "0")}-${name}.png`);
         await writeFile(path, PNG.sync.write(after));
         const before = failures.length;
-        const { changed, blocks, diff } = compareStop(ref.image, after);
+        const { changed, blocks, diff } = compareStop(ref.image, after, dpr);
         if (blocks > 0) {
           const diffPath = join(OUT, "stops", `${String(stopIndex).padStart(3, "0")}-${name}-diff.png`);
           await writeFile(diffPath, PNG.sync.write(diff));
