@@ -561,6 +561,51 @@ keeps its five; a send counts `step N of 6`.
 - Upcoming `Trust this machine`, done `Trusts this machine`, the verb S4
   uses.
 
+**A take-over that fails or is refused here** (remote-send, from
+ea4531fc1 and 450ca4ea7, `machine-owner.ts`). These are the operator's words:
+the CLI error from `machine-owner`, and the window may show the scrubbed
+copy that takeover-remote passes through. Each ends with a period, and the
+step is always a fresh preview, since a confirm must echo what the preview
+showed.
+
+- Commit failed after the old key went, retired or live (:252, :398, :413,
+  :417, one sentence for all four): `The take-over did not finish. Junto
+  removed this machine's old link key for that machine, and this machine
+  does not trust the new install. Preview the take-over again with junto
+  machine takeover.`
+- The install or removed time is not what this machine now holds (:313,
+  :328, and :303's `nothing was changed`): `Nothing changed, because the
+  confirm does not match what this machine now holds for that machine.
+  Preview the take-over again with junto machine takeover and confirm what
+  it shows.`
+- Two different removed times (:320): `Nothing changed, because the confirm
+  gives previousRetiredAt and expectedRetiredAt as two different times.
+  Preview the take-over again with junto machine takeover and confirm with
+  the time it shows.`
+- No removed time (:324): `Nothing changed, because the confirm needs the
+  previousRetiredAt time the preview showed. Preview the take-over again
+  with junto machine takeover and confirm with that time.`
+
+Why:
+
+- The retired and live commit failures share a sentence. What is true after
+  each is the same: the old link key here is gone, and the new install is
+  not trusted. What this machine trusts instead may have changed since the
+  preview, so neither sentence claims the old install is still trusted, or
+  that nothing is.
+- `Run the take-over again` (:413, :417) becomes the preview: after a
+  failed commit the counts or the trusted install may differ, and a confirm
+  must match them.
+- `pin` goes: the operator's words say `trust` (S4, the pinned step).
+  `link key` stays, as in the remove words.
+- `does not match what this machine now holds` covers both a stale preview
+  and a mistyped time, so it does not say the trust changed.
+- The field names are what the confirm takes and the preview prints, so the
+  operator can find them. They are not paths, host names or far text
+  (term 5).
+- The other machine is untouched in every case, so no sentence speaks for
+  it.
+
 ## 6. The far install's refusal codes
 
 When a send or update fails on the far machine, its refusal carries one
