@@ -57,9 +57,12 @@ const source = (): SeatThreadsSource => ({
   onReadChanged: () => () => undefined,
 });
 
-const closed = (...rows: Array<[string, ThreadSignal["state"]]>): void =>
+const closed = (...rows: Array<[string, ThreadSignal["state"]] | [string, ThreadSignal["state"], true]>): void =>
   signalListeners.forEach((listener) =>
-    listener({ canvasName: "factory", closed: rows.map(([signalId, state]) => ({ signalId, state })) }),
+    listener({
+      canvasName: "factory",
+      closed: rows.map(([signalId, state, crossed]) => ({ signalId, state, ...(crossed === true ? { crossed } : {}) })),
+    }),
   );
 const held = () => seatThreads$.messages[KEY].peek()!;
 const stateOf = (messageId: string): ThreadSignal["state"] | undefined => held().messages.find((m) => m.messageId === messageId)?.signal?.state;
@@ -117,6 +120,21 @@ describe("a signal that closes, on a page of older messages", () => {
     await loadOlderMessages(SEAT, "notes");
     closed(["s5", "withdrawn"]);
     expect(held().messages.find((m) => m.messageId === "m5")?.signal).toMatchObject({ state: "answered", crossed: true });
+  });
+
+  it("lays a crossing with the closing: an open signal that crossed reads withdrawn and crossed, on a held page and on one that lands", async () => {
+    await loadOlderMessages(SEAT, "notes");
+    closed(["s5", "withdrawn", true], ["s1", "withdrawn", true]);
+    expect(held().messages.find((m) => m.messageId === "m5")?.signal).toMatchObject({ state: "withdrawn", crossed: true });
+    await loadOlderMessages(SEAT, "notes");
+    expect(held().messages.find((m) => m.messageId === "m1")?.signal).toMatchObject({ state: "withdrawn", crossed: true });
+  });
+
+  it("adds the crossing to a closing already held, since the window's pair is the later word", async () => {
+    pages.c1 = { messages: [raised("m5", 50, signal("s5", { state: "answered" }))] };
+    await loadOlderMessages(SEAT, "notes");
+    closed(["s5", "withdrawn", true]);
+    expect(held().messages.find((m) => m.messageId === "m5")?.signal).toMatchObject({ state: "withdrawn", crossed: true });
   });
 
   it("changes nothing for a signal it does not hold, and nothing for an empty change", async () => {

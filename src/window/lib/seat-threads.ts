@@ -101,7 +101,7 @@ export type SeatThreadMessagesPage = {
  */
 export type SignalsChange = {
   readonly canvasName: string;
-  readonly closed?: ReadonlyArray<{ readonly signalId: string; readonly state: AgentSignalState }>;
+  readonly closed?: ReadonlyArray<{ readonly signalId: string; readonly state: AgentSignalState; readonly crossed?: true }>;
 };
 
 /** What reads a seat's threads, a page at a time. */
@@ -217,7 +217,11 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
         if (canvasName === undefined) return;
         listener({
           canvasName,
-          closed: signals.flatMap((signal) => (signal.state === "open" ? [] : [{ signalId: signal.signalId, state: signal.state }])),
+          closed: signals.flatMap((signal) =>
+            signal.state === "open"
+              ? []
+              : [{ signalId: signal.signalId, state: signal.state, ...(signal.crossed === true ? { crossed: true as const } : {}) }],
+          ),
         });
       }),
     unreadTotal: ({ canvasName, seatId }) => unreadTotal({ canvasName, nodeId: seatId }),
@@ -424,18 +428,26 @@ const refreshUnread = (key: string): Promise<void> =>
     }
   });
 
+/** Where the window knows a signal closed, and whether its answer and withdrawal crossed. */
+type Closing = { readonly state: AgentSignalState; readonly crossed?: true };
+
 /**
  * Where the window knows each signal closed, by canvas. A signal never
  * reopens (main refuses anything on a signal that is not open), so a closed
- * state is final and is only ever laid over a held state that is still open:
- * never open over closed, and never one closing over another, which keeps the
- * crossed answer main reported.
+ * state is final: it is laid over a held state that is still open, never open
+ * over closed, and never one closing over another, which keeps what main
+ * reported. A crossing is the one later word on a closed signal: the answer
+ * and the withdrawal met, so the pair the window holds replaces a held
+ * closing that does not say so.
  */
-const closedOn = new Map<string, Map<string, AgentSignalState>>();
+const closedOn = new Map<string, Map<string, Closing>>();
 
-const layClosed = <S extends ThreadSignal>(known: ReadonlyMap<string, AgentSignalState>, signal: S): S => {
+const layClosed = <S extends ThreadSignal>(known: ReadonlyMap<string, Closing>, signal: S): S => {
   const now = known.get(signal.signalId);
-  return signal.state === "open" && now !== undefined && now !== "open" ? { ...signal, state: now } : signal;
+  if (now === undefined || now.state === "open") return signal;
+  if (signal.state === "open") return { ...signal, state: now.state, ...(now.crossed === true ? { crossed: true as const } : {}) };
+  if (now.crossed === true && signal.crossed !== true) return { ...signal, state: now.state, crossed: true as const };
+  return signal;
 };
 
 /** These messages with every open signal in them that is known closed, closed; the same array when none is. */
@@ -461,7 +473,7 @@ const lay = (change: SignalsChange): void => {
     known = new Map();
     closedOn.set(change.canvasName, known);
   }
-  for (const { signalId, state } of change.closed) known.set(signalId, state);
+  for (const { signalId, state, crossed } of change.closed) known.set(signalId, { state, ...(crossed === true ? { crossed } : {}) });
   for (const [key, held] of Object.entries(seatThreads$.messages.peek())) {
     if (held === undefined || !key.startsWith(`${change.canvasName}\u0000`)) continue;
     const messages = closedOver(change.canvasName, held.messages);
