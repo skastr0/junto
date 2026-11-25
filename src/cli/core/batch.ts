@@ -65,7 +65,8 @@ export const runMutationBatch = <S extends Schema.Top, R>(options: {
       rawItems,
       (rawItem, index) =>
         Effect.gen(function* () {
-          const item = yield* Schema.decodeUnknownEffect(options.itemSchema)(rawItem).pipe(
+          // A key the op does not name is refused, as the native CLI and the closed published schema do.
+          const item = yield* Schema.decodeUnknownEffect(options.itemSchema, { onExcessProperty: "error" })(rawItem).pipe(
             Effect.mapError(
               (error) =>
                 new InputError({
