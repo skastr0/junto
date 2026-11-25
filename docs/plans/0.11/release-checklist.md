@@ -239,12 +239,26 @@ I run them at the cut hash if asked.
 - [ ] Notes re-read against the cut, bullet by bullet; delete the draft line.
 - [ ] `lint:design-tokens`, `lint:product-name`, `lint:no-middot`,
       `lint:layers` pass at the cut hash; `tests/motion-law.test.ts` passes.
+- [ ] **GPU canvas zoom ladder, before the bump.** On the Mac mini, built
+      there (`scripts/mini.sh at <seat> <commit>`), one run at 1x and one at
+      2x on a real board's shapes file (`JUNTO_FACTORY_JSON`, never a copy of
+      a database): `bun run release:zoom-ladder`. It must pass whole: every
+      stop's screenshot equal to a fresh launch's at the same camera, a clean
+      `atlasAudit()`, a whole texel readback (`truncated` false, `skipped`
+      empty), no failed cell, no uncaught GPU error, and evictions above zero.
+      Publish the contact sheet (`JUNTO_ZOOM_LADDER_OUT/contact/index.html`)
+      and have a seat read it. Receipt: the run's `proof.json` and the sheet
+      path, in the cut note. About 7 minutes at 1x, 12 at 2x.
 - [ ] `git status` clean of other seats' paths.
 - [ ] Carried from 0.10.3, still unverified: what the CLI prints for a derived
       task, and a 0.10.2 or 0.10.3 CLI against the new app (cli-lead's answer
       on files commands: none in 0.11).
 
 ## 5. Milestone runs (real app, one per feature)
+
+The GPU canvas zoom ladder above is the one gate that runs on every cut, not
+once per feature: it is the only proof that zooming does not corrupt the
+canvas.
 
 Run the release e2e at `--workers=1`. product-modals sees app launches die at
 `firstWindow` at `--workers=2` on this machine, the smoke spec included, while
