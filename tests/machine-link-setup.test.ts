@@ -6,7 +6,7 @@
  * owner command to that machine's own setup, as `junto machine <op> -` would.
  */
 import { wordsText } from "./helpers/command-words";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ChildProcess as Command } from "effect/process";
@@ -42,6 +42,7 @@ interface Machine {
   readonly address: string;
   readonly hostKey: string;
   readonly authorizedKeys: string;
+  readonly installRoot: string;
   readonly installationId: InstallationId;
   readonly hosts: Map<string, RemoteHost>;
   readonly dialed: Array<{ readonly name: string; readonly installationId: InstallationId }>;
@@ -127,8 +128,16 @@ const fleet = async () => {
     const installationId = await runtime.runPromise(Effect.flatMap(MachineRepository, (machines) => machines.installationId));
     const authorizedKeys = join(home, "authorized_keys");
     await writeFile(authorizedKeys, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOperatorsOwnKeyOperatorsOwnKeyOperators operator@laptop\n");
-    const machine: Machine = { name, home, address, hostKey: generatePairingKey().publicKey, authorizedKeys, installationId, hosts, dialed, sessions, runtime, setup: undefined as never };
-    machine.setup = await runtime.runPromise(makeMachineLinkSetup({ home, juntoPath: () => `/opt/${name}/current/bin/junto`, authorizedKeysPath: authorizedKeys }));
+    // The installed layout this machine's core runs from: an owned root with an
+    // owner marker and `current` as the selection link to one build.
+    const installRoot = join(home, "install");
+    const build = join("builds", `${"b".repeat(64)}-linux-x64`);
+    await mkdir(join(installRoot, build, "bin"), { recursive: true, mode: 0o700 });
+    await writeFile(join(installRoot, build, "bin", "junto"), "", { mode: 0o755 });
+    await symlink(build, join(installRoot, "current"));
+    await writeFile(join(installRoot, "owner.json"), JSON.stringify({ serviceLabel: "dev.junto.machine.0123456789abcdef", juntoHome: home }), { mode: 0o600 });
+    const machine: Machine = { name, home, address, hostKey: generatePairingKey().publicKey, authorizedKeys, installRoot, installationId, hosts, dialed, sessions, runtime, setup: undefined as never };
+    machine.setup = await runtime.runPromise(makeMachineLinkSetup({ home, juntoPath: () => join(installRoot, "current/bin/junto"), authorizedKeysPath: authorizedKeys }));
     all.set(name, machine);
     byEndpoint.set(`${name}-alias`, machine);
     byEndpoint.set(`ops@${address}`, machine);
@@ -142,7 +151,7 @@ const fleet = async () => {
   for (const far of [mini, vps]) {
     editor.hosts.set(far.name, Schema.decodeUnknownSync(RemoteHost)({
       id: far.name, label: far.name, isThisMachine: false, sshEndpoint: `${far.name}-alias`, capabilities: ["terminal"],
-      juntoHome: far.home, installRoot: `/opt/${far.name}`,
+      juntoHome: far.home, installRoot: far.installRoot,
     }));
     await run(editor, Effect.flatMap(MachineRepository, (machines) => machines.pinPeer({ machineName: far.name, installationId: far.installationId })));
     await run(far, Effect.flatMap(MachineRepository, (machines) => machines.pinPeer({ machineName: editor.name, installationId: editor.installationId })));
@@ -172,7 +181,7 @@ it("keys the mini to the VPS and the editor to both, over setup sessions strict 
   const vpsKeys = await readFile(vps.authorizedKeys, "utf8");
   expect(vpsKeys.startsWith("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOperatorsOwnKey")).toBe(true);
   for (const opener of [mini, editor]) {
-    expect(vpsKeys).toContain(`command="/usr/bin/env JUNTO_HOME='${vps.home}' '/opt/vps/current/bin/junto' link --opener ${opener.installationId}",restrict ssh-ed25519 `);
+    expect(vpsKeys).toContain(`command="/usr/bin/env JUNTO_HOME='${vps.home}' '${vps.installRoot}/current/bin/junto' link --opener ${opener.installationId}",restrict ssh-ed25519 `);
     expect(vpsKeys).toContain(`junto-link:${linkHomeTag(vps.home)}:${opener.installationId}\n`);
   }
   expect(await readFile(mini.authorizedKeys, "utf8")).toContain(`link --opener ${editor.installationId}",restrict`);
@@ -181,12 +190,32 @@ it("keys the mini to the VPS and the editor to both, over setup sessions strict 
   const miniRoute = readBoundRoute(mini.home, "vps")!;
   expect(miniRoute).toMatchObject({ user: "ops", host: vps.address, port: 22 });
   expect(await readFile(miniRoute.knownHostsFile, "utf8")).toBe(`${vps.address} ${vps.hostKey}\n`);
-  expect(mini.hosts.get("vps")).toMatchObject({ sshEndpoint: `ops@${vps.address}`, juntoHome: vps.home, installRoot: "/opt/vps" });
+  expect(mini.hosts.get("vps")).toMatchObject({ sshEndpoint: `ops@${vps.address}`, juntoHome: vps.home, installRoot: vps.installRoot });
   // The editor now dials both by key.
   expect(readBoundRoute(editor.home, "vps")).toBeDefined();
   expect(readBoundRoute(editor.home, "mini")).toBeDefined();
   // The VPS pinned the mini as a new peer under its own name.
   expect(await run(vps, Effect.flatMap(MachineRepository, (machines) => machines.peer("mini")))).toMatchObject({ installationId: mini.installationId });
+});
+
+it("refuses a junto path outside an installed current build before pinning or writing", async () => {
+  const { mini } = await fleet();
+  const before = await readFile(mini.authorizedKeys, "utf8");
+  const opener = { machineName: "ghost", installationId: Schema.decodeUnknownSync(InstallationId)("ghost-installation"), publicKey: generatePairingKey().publicKey };
+  const attempt = (juntoPath: string) => run(mini, Effect.flatMap(
+    makeMachineLinkSetup({ home: mini.home, juntoPath: () => juntoPath, authorizedKeysPath: mini.authorizedKeys }),
+    (setup) => setup.accept({ openers: [opener] })));
+  await expect(attempt(join(mini.installRoot, "builds", `${"b".repeat(64)}-linux-x64`, "bin/junto"))).rejects.toThrow(/installed current/);
+  await expect(attempt(join(mini.home, "unpacked/current/bin/junto"))).rejects.toThrow(/owned install/);
+  expect(await readFile(mini.authorizedKeys, "utf8")).toBe(before);
+  expect(await run(mini, Effect.flatMap(MachineRepository, (machines) => machines.peer("ghost")))).toBeUndefined();
+  // The installer admits an existing root at 0755 and an owner marker at 0644;
+  // the lock uses the same no-group-or-other-write rule, not stricter modes.
+  await chmod(mini.installRoot, 0o755);
+  await chmod(join(mini.installRoot, "owner.json"), 0o644);
+  const accepted = await run(mini, mini.setup.accept({ openers: [opener] }));
+  expect(accepted.pins).toHaveLength(1);
+  expect(await readFile(mini.authorizedKeys, "utf8")).toContain(`'${mini.installRoot}/current/bin/junto' link --opener ghost-installation`);
 });
 
 it("dials the VPS from the mini at the address the operator gives, still pinned to the verified key", async () => {

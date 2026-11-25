@@ -14,8 +14,8 @@
  * The other four operations are those steps, each run by its own machine's
  * Junto over the editing machine's route.
  */
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { Effect, Schema, Stream } from "effect";
 import type { InstallationId } from "@shared/installation-id";
 import type {
@@ -49,6 +49,39 @@ export interface MachineLinkSetupOptions {
 }
 
 const refused = (message: string) => new RemoteHostsError("conflict", message);
+
+/**
+ * Why this package root cannot mint a link line: the line must name the
+ * install's `current/bin/junto`, never a build folder or an unpacked package
+ * that an update or cleanup can delete. The install root proves itself with
+ * its own owner marker, and `current` must be the selection link it wrote.
+ */
+const linkPathProblem = (juntoPath: string, home: string): string | undefined => {
+  const install = "Install Junto on this machine, then link it.";
+  if (basename(juntoPath) !== "junto" || basename(dirname(juntoPath)) !== "bin") return `This machine's Junto is not an installed bin/junto, so it cannot be linked. ${install}`;
+  const packageRoot = dirname(dirname(juntoPath));
+  if (basename(packageRoot) !== "current") return `This machine's Junto runs from a build folder, not an installed current build, so it cannot be linked. ${install}`;
+  const installRoot = dirname(packageRoot);
+  const owned = (path: string, directory: boolean): boolean => {
+    try {
+      const metadata = lstatSync(path);
+      if (metadata.isSymbolicLink() || (directory ? !metadata.isDirectory() : !metadata.isFile())) return false;
+      return metadata.uid === process.getuid?.() && (metadata.mode & 0o022) === 0;
+    } catch { return false; }
+  };
+  if (!owned(installRoot, true) || !owned(join(installRoot, "owner.json"), false)) return `This machine's Junto is not an owned install, so it cannot be linked. ${install}`;
+  let marker: { readonly juntoHome?: unknown; readonly serviceLabel?: unknown };
+  try { marker = JSON.parse(readFileSync(join(installRoot, "owner.json"), "utf8")) as typeof marker; }
+  catch { return `This machine's Junto install owner marker cannot be read. ${install}`; }
+  if (marker.juntoHome !== home) return `This machine's Junto install belongs to another home, so it cannot be linked. ${install}`;
+  if (typeof marker.serviceLabel !== "string" || !/^dev\.junto\.machine\.[0-9a-f]{16}$/.test(marker.serviceLabel)) return `This machine's Junto install owner marker is not an install's. ${install}`;
+  try {
+    const current = lstatSync(join(installRoot, "current"));
+    if (!current.isSymbolicLink() || current.uid !== process.getuid?.()) return `This machine's Junto current build is not the install's selection link, so it cannot be linked. ${install}`;
+    if (!/^builds\/[0-9a-f]{64}-(?:darwin-arm64|linux-x64)$/.test(readlinkSync(join(installRoot, "current")))) return `This machine's Junto current build does not select an installed build. ${install}`;
+  } catch { return `This machine's Junto current build cannot be read. ${install}`; }
+  return undefined;
+};
 
 /** The fields of `ssh -G` output a bound route is built from, lowercased by key. */
 const resolvedFields = (output: string): ReadonlyMap<string, string> => {
@@ -182,6 +215,8 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
   const accept = Effect.fn("MachineLinkSetup.accept")(function* (input: MachineLinkAcceptInput) {
     const juntoPath = options.juntoPath();
     if (juntoPath === undefined) return yield* Effect.fail(refused("This Junto runs from no installed package, so no link key can name it"));
+    const problem = linkPathProblem(juntoPath, options.home);
+    if (problem !== undefined) return yield* Effect.fail(refused(problem));
     const pins: Array<MachineLinkAcceptData["pins"][number]> = [];
     for (const opener of input.openers) {
       // The line is built, and so checked, before anything is pinned.

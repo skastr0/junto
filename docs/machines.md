@@ -429,7 +429,9 @@ The one interface three seats build against.
   `from` makes an ed25519 key for `to` under `~/.junto/core/link-keys/<to>/`.
   `to` pins `from` with `binding = key` and writes one line,
   `command="... junto link --opener <id>",restrict`, built from typed fields
-  only. When no core is listening, `junto link` starts that home's service
+  only. The receiving side accepts only `<installRoot>/current/bin/junto`
+  under an owned install root, so no line names a build folder an update
+  removes. When no core is listening, `junto link` starts that home's service
   once: the install lock is taken without waiting (a held lock is the typed
   `machine updating` answer, exit 4), the definition must be the exact one the
   install wrote for this label at its fixed path, and with nothing owned to
