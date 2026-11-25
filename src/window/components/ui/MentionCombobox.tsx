@@ -166,6 +166,7 @@ export function MentionCombobox({
   placeholder,
   disabled,
   "aria-label": ariaLabel,
+  "aria-describedby": ariaDescribedBy,
   "aria-keyshortcuts": ariaKeyShortcuts,
   "data-testid": testId,
 }: {
@@ -204,6 +205,8 @@ export function MentionCombobox({
   readonly placeholder?: string;
   readonly disabled?: boolean;
   readonly "aria-label": string;
+  /** The ids of what describes the field, space separated and in reading order; pass only ids that are in the document. */
+  readonly "aria-describedby"?: string;
   readonly "aria-keyshortcuts"?: string;
   readonly "data-testid"?: string;
 }) {
@@ -459,6 +462,7 @@ export function MentionCombobox({
         className="mention-combobox__field"
         {...comboboxFieldAria(aria)}
         aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
         aria-keyshortcuts={ariaKeyShortcuts}
         data-testid={testId}
         placeholder={placeholder}

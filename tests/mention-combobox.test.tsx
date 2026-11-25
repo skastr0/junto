@@ -22,7 +22,7 @@ let written: string;
 let mentions: ReadonlyArray<MentionRef>;
 let outerKeys: string[];
 
-function Harness({ initial = "" }: { readonly initial?: string }) {
+function Harness({ initial = "", describedBy }: { readonly initial?: string; readonly describedBy?: string }) {
   const [value, setValue] = useState(initial);
   return (
     <div onKeyDown={(event) => outerKeys.push(event.key)}>
@@ -38,6 +38,7 @@ function Harness({ initial = "" }: { readonly initial?: string }) {
         listLabel={(trigger) => (trigger === "@" ? "Seats connected to product-lead" : "Tasks in reach")}
         noun={{ one: "seat", other: "seats" }}
         aria-label="Reply"
+        {...(describedBy === undefined ? {} : { "aria-describedby": describedBy })}
         onKeyDown={(event) => {
           if (event.key === "Enter") outerKeys.push("composer-send");
         }}
@@ -98,6 +99,12 @@ afterEach(() => {
 });
 
 describe("MentionCombobox", () => {
+  it("is described by the ids it is given, and by nothing when it has none", () => {
+    expect(field().hasAttribute("aria-describedby")).toBe(false);
+    act(() => root.render(<Harness describedBy="answers other" />));
+    expect(field().getAttribute("aria-describedby")).toBe("answers other");
+  });
+
   it("the field is a combobox whose list opens on @ and closes after a pick", () => {
     const element = field();
     expect(element.getAttribute("role")).toBe("combobox");
