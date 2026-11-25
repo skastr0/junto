@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { Header } from "tar";
 import { createPackage } from "@electron/asar";
+import { finished } from "node:stream/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   LINUX_DESKTOP_INSTALL_RESERVE_BYTES,
@@ -69,7 +70,7 @@ const makeAsar = async (root: string, version: string): Promise<Buffer> => {
   await writeFile(join(directory, "out/main/index.js"), main);
   await writeFile(join(directory, "out/package-runtime-provenance.json"), JSON.stringify({ schema: "junto/package-runtime-provenance/v2", product: "Junto", runtime: "electron-main", appVersion: version, sourceCommit: SOURCE, buildIdentity, state: {}, payload: { packagedPath: "out/main/index.js", bytes: main.length, sha256: sha256(main) } }));
   const path = `${directory}.asar`;
-  await createPackage(directory, path);
+  await finished(await createPackage(directory, path));
   return readFile(path);
 };
 

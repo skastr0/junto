@@ -1,4 +1,5 @@
 import { createPackage } from "@electron/asar";
+import { finished } from "node:stream/promises";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -65,7 +66,7 @@ describe("renderer asset types under the packaged protocol", () => {
     await mkdir(join(stage, "out/main"), { recursive: true });
     await writeFile(join(stage, "out/main/index.cjs"), "");
     const archive = join(root, "app.asar");
-    await createPackage(stage, archive);
+    await finished(await createPackage(stage, archive));
     expect(auditRendererAssetTypes(archive)).toBe(4);
   });
 
@@ -75,7 +76,7 @@ describe("renderer asset types under the packaged protocol", () => {
     await writeFile(join(stage, "out/renderer/index.html"), "<!doctype html>");
     await writeFile(join(stage, "out/renderer/assets/engine.wasm"), "");
     const archive = join(root, "app.asar");
-    await createPackage(stage, archive);
+    await finished(await createPackage(stage, archive));
     expect(() => auditRendererAssetTypes(archive)).toThrow(/out\/renderer\/assets\/engine\.wasm/u);
   });
 
@@ -84,7 +85,7 @@ describe("renderer asset types under the packaged protocol", () => {
     await mkdir(join(stage, "out/main"), { recursive: true });
     await writeFile(join(stage, "out/main/index.cjs"), "");
     const archive = join(root, "app.asar");
-    await createPackage(stage, archive);
+    await finished(await createPackage(stage, archive));
     expect(() => auditRendererAssetTypes(archive)).toThrow(/no renderer files/u);
   });
 });

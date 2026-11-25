@@ -1,4 +1,5 @@
 import { createPackage } from "@electron/asar";
+import { finished } from "node:stream/promises";
 import { spawnSync } from "node:child_process";
 import {
   lstat,
@@ -140,7 +141,7 @@ const createSyntheticLinuxRuntime = async (input: {
     file: path.join(appStage, MAIN_PROVENANCE_SOURCE_RELATIVE),
   });
   await mkdir(path.join(runtimeRoot, "resources"), { recursive: true });
-  await createPackage(appStage, path.join(runtimeRoot, "resources/app.asar"));
+  await finished(await createPackage(appStage, path.join(runtimeRoot, "resources/app.asar")));
   await writeLinuxRuntimeFiles(runtimeRoot);
   return { runtimeRoot, appStage, main };
 };
@@ -661,7 +662,7 @@ describe("raw ASAR admission", () => {
       await mkdir(path.join(candidate.appStage, "aa"), { recursive: true });
       await writeFile(path.join(candidate.appStage, "aa/hidden"), "hidden\n");
       const asar = path.join(root, "adversarial.asar");
-      await createPackage(candidate.appStage, asar);
+      await finished(await createPackage(candidate.appStage, asar));
       const body = await readFile(asar);
       const needle = Buffer.from('"aa"', "utf8");
       const index = body.indexOf(needle);

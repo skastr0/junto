@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import { createPackage } from "@electron/asar";
+import { finished } from "node:stream/promises";
 import { afterEach, expect, it } from "vitest";
 import { machineBundleFiles } from "../src/node/hosts/bundle";
 import { decodeMachineReleaseCatalog, getCompiledMachineReleaseCatalog, MACHINE_RELEASE_ORIGIN, MAX_MACHINE_ARCHIVE_BYTES, type MachineReleaseCatalog } from "../src/shared/machine-release";
@@ -50,7 +51,7 @@ it("uses the same compiled constant for runtime and publication admission", asyn
 it("anchors release files to packaged pins and refuses embedded bundles or detached metadata", async () => {
   const root = await scratch(), app = path.join(root, "Junto.app"), packed = path.join(root, "packed"), pins = catalog();
   await mkdir(path.join(packed, "out/main"), { recursive: true }); await writeFile(path.join(packed, "out/main/index.js"), `const pins=${JSON.stringify(machineReleaseCatalogConstant(pins))};`);
-  await mkdir(path.join(app, "Contents/Resources"), { recursive: true }); await createPackage(packed, path.join(app, "Contents/Resources/app.asar"));
+  await mkdir(path.join(app, "Contents/Resources"), { recursive: true }); await finished(await createPackage(packed, path.join(app, "Contents/Resources/app.asar")));
   await mkdir(path.join(root, "machines", pins.build), { recursive: true }); await writeFile(path.join(root, pins.archives[0]!.archivePath.slice(1)), "zip"); await writeFile(path.join(root, "machine-release-catalog.json"), JSON.stringify(pins));
   await expect(verifyMachineReleaseArtifacts(app, root)).resolves.toEqual(pins);
   await writeFile(path.join(root, "machine-release-catalog.json"), JSON.stringify({ ...pins, appVersion: "0.8.0" }));

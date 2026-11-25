@@ -1,4 +1,5 @@
 import { createPackage } from "@electron/asar";
+import { finished } from "node:stream/promises";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -192,7 +193,7 @@ describe("overlay gates", () => {
       mkdirSync(resources, { recursive: true });
       const bundle = join(stage, "out", "renderer", "assets", "index.js");
       writeFileSync(bundle, 'const marker = "junto-overlay:unreleased"; const ui = "overlay-store";');
-      await createPackage(stage, archive);
+      await finished(await createPackage(stage, archive));
       expect(await checkBundle(archive, { asar: true })).toEqual(expect.arrayContaining([
         "open-source bundle carries junto-overlay:unreleased",
         "open-source bundle carries premium UI: the store host",
@@ -213,7 +214,7 @@ describe("overlay gates", () => {
 
       writeFileSync(bundle, `const marker = ${JSON.stringify(OSS_OVERLAY_MARKER)};`);
       const cleanArchive = join(resources, "clean.asar");
-      await createPackage(stage, cleanArchive);
+      await finished(await createPackage(stage, cleanArchive));
       expect(await checkBundle(cleanArchive, { asar: true })).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });

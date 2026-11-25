@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createPackage } from "@electron/asar";
+import { finished } from "node:stream/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   RETIRED_PRODUCT_STATE_COMPOUND_SIGNATURES,
@@ -43,7 +44,7 @@ const makeAsar = async (
     await mkdir(dirname(destination), { recursive: true });
     await writeFile(destination, contents);
   }
-  await createPackage(source, archive);
+  await finished(await createPackage(source, archive));
   expect((await lstat(archive)).isFile()).toBe(true);
   return archive;
 };
