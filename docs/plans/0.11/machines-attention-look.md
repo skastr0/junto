@@ -416,7 +416,7 @@ Rules, from remote-security's term 5 and this doc:
 | `restore-owed` | `Its data still waits for a restore, which finishes when Junto starts there. Check it again.` |
 | `restore-interrupted` | `An earlier restore of its data did not finish. Check it again before you send Junto.` |
 | `start-failed` | `Junto did not start there, and it is not confirmed stopped. Check it again before you send.` |
-| `start-rolled-back` | `The new build did not start there, so the old build and its data are back. Check it again before you update.` |
+| `start-rolled-back` | `The new build did not start there. The old build and its data are back, but it may not be running. Check it again before you update.` |
 | `installed-not-started` | `The new build is installed there but did not start, and nothing runs there now. Update Junto on this machine, then send again.` |
 | `start-and-restore-failed` | `The new build did not start, and its data was not restored. Check it again.` |
 | `home-lock-refused` | `Its Junto home is held by another Junto or another account. Check it again.` |
@@ -446,7 +446,7 @@ without a name from the core. `install-folder-not-ours` points to `machine add` 
 install folder field today, so in the window this step runs from the CLI.
 
 `start-rolled-back` claims the old build is back only on the `rolled-back`
-disposition it comes with; `start-failed` is only the uncertain site
+disposition it comes with, and never that the old build runs, since its restart is best-effort (`mod.rs:747`); `start-failed` is only the uncertain site
 (`mod.rs:714`). `installed-not-started` claims it is installed and that
 nothing runs there only on the `activated` disposition its site sets
 (`mod.rs:761`); on any other it reads `The new build did not start there.
