@@ -61,8 +61,8 @@ describe("packaged feature build contract", () => {
     }
   });
 
-  it("keeps the dev CLI compiler on explicit ship defines", () => {
-    const build = standaloneControlBuild("junto-dev");
+  it("keeps the Bun bootstrap compiler on explicit ship defines", () => {
+    const build = standaloneControlBuild("junto-desktop-bootstrap-linux-x64");
     expect(build.profile).toBe("ship");
     for (const [key, feature] of Object.entries(FEATURE_CATALOG)) {
       expect(build.featureDefines).toContain(
@@ -74,6 +74,9 @@ describe("packaged feature build contract", () => {
   it("keeps package scripts on the profile-aware standalone compiler", async () => {
     const packageJson = await readFile(path.join(repoRoot, "package.json"), "utf8");
     expect(packageJson).toContain('"cli:build": "bun scripts/build-native-cli.ts --out dist/junto"');
+    // Every junto CLI, the dev one included, is the native binary.
+    expect(packageJson).not.toContain("cli:build:dev");
+    expect(packageJson).not.toContain("junto-dev\"");
     expect(packageJson).not.toContain("browser:build");
     expect(packageJson).not.toContain("station:build");
     expect(packageJson).not.toContain("content:build");
