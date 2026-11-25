@@ -106,6 +106,24 @@ it("answers setup on a pin a link bound to its key with the pin's contract, and 
   expect(f.database.prepare("SELECT binding, retired_at FROM machine_peers WHERE machine_name = 'studio'").get()).toEqual({ binding: "key", retired_at: null });
 });
 
+it("marks a copy refusal as the core's own words only when its message is the core's fixed sentence", async () => {
+  // remote-design 356400e7b: a failed-copy row shows a third line only for ownWords.
+  const own = new MachineInstallError({ message: "This machine's Junto did not say how many seats it runs, so nothing was changed. Check this machine before updating",
+    disposition: "staged", retryable: true, runningSeatsUnknown: true, ownWords: true });
+  const raw = new MachineInstallError({ message: "tar: /home/probe/x: Cannot open: Permission denied", disposition: "staged", retryable: false });
+  for (const [cause, marked] of [[own, true], [raw, false]] as const) {
+    const f = await fixture({ copy: () => Effect.fail(cause) });
+    await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+    const response = await f.call("machine.update", { name: "mini", bundle: "/tmp/package" });
+    expect(response.ok).toBe(false);
+    if (!response.ok) {
+      expect(response.error.message).not.toBe("machine result did not match its contract");
+      expect(response.error.details?.ownWords).toBe(marked ? true : undefined);
+      expect(Object.hasOwn(response.error.details ?? {}, "ownWords")).toBe(marked);
+    }
+  }
+});
+
 it("rolls back peer retirement if deleting the route fails", async () => {
   const f = await fixture();
   await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });

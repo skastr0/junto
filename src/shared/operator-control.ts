@@ -290,6 +290,8 @@ export const OperatorErrorBody = Schema.Struct({
     runningSeats: MachineInstallError.fields.runningSeats,
     /** An older target could not count its seats; the window still confirms before updating. */
     runningSeatsUnknown: MachineInstallError.fields.runningSeatsUnknown,
+    /** The message is the core's own fixed words (MachineInstallError.ownWords); a failed-copy row may show it. */
+    ownWords: MachineInstallError.fields.ownWords,
     /** The typed failure behind the message, encoded and scrubbed by the one encoder. */
     failure: Schema.optionalKey(EncodedFailure),
   })),

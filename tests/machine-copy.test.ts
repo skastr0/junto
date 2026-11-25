@@ -113,6 +113,7 @@ it("refuses an update before the transfer when seats run there, and keeps the li
     expect(error.disposition).toBe("staged");
     expect(error.runningSeats).toBe(2);
     expect(error.message).toContain("2 seats are running");
+    expect(error.ownWords).toBe(true);
   }
   expect(f.calls).toEqual(["platform", "status"]);
 });
@@ -125,6 +126,7 @@ it("fails closed when the machine cannot say how many seats it runs", async () =
   if (error instanceof MachineInstallError) {
     expect(error.disposition).toBe("staged");
     expect(error.runningSeatsUnknown).toBe(true);
+    expect(error.ownWords).toBe(true);
   }
   expect(f.calls).toEqual(["platform", "status"]);
 });

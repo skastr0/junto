@@ -95,6 +95,12 @@ export class MachineInstallError extends Schema.TaggedError<MachineInstallError>
   runningSeats: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
   runningSeatsUnknown: Schema.optionalKey(Schema.Literal(true)),
   /**
+   * The message is one of this core's own fixed sentences, with nothing in it
+   * from stderr, a path or a peer, so the window may show it as the reason.
+   * Set only where the core writes the whole sentence.
+   */
+  ownWords: Schema.optionalKey(Schema.Literal(true)),
+  /**
    * The typed chain behind the message, from the one encoder, set where this
    * machine wraps a cause. The install-local CLI never sets it: the sender
    * decodes that output closed.

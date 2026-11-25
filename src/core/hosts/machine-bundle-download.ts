@@ -139,7 +139,7 @@ export const makeReleaseMachineBundleAcquirer = (input: {
   const machine = input.machine ?? defaultMachineName;
   const failure = (cause: unknown): MachineInstallError => new MachineInstallError({
     message: cause instanceof Error ? cause.message : "Cannot download Junto. The machine has not changed",
-    disposition: "staged", retryable: true, ...failureHere(cause, machine()),
+    disposition: "staged", retryable: true, ...(cause instanceof Error ? {} : { ownWords: true as const }), ...failureHere(cause, machine()),
   });
   const catalog = decodeMachineReleaseCatalog(input.catalog);
   if (catalog.build !== input.build) throw downloadFailed("catalog-mismatch", "The machine download catalog does not match this Junto build");

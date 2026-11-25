@@ -79,11 +79,11 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
       }
       if (status.runningSeats === undefined) return yield* Effect.fail(new MachineInstallError({
         message: "This machine's Junto did not say how many seats it runs, so nothing was changed. Check this machine before updating",
-        disposition: "staged", retryable: true, runningSeatsUnknown: true,
+        disposition: "staged", retryable: true, runningSeatsUnknown: true, ownWords: true,
       }));
       if (status.runningSeats > 0) return yield* Effect.fail(new MachineInstallError({
         message: `${status.runningSeats === 1 ? "One seat is" : `${String(status.runningSeats)} seats are`} running on this machine. Confirm to stop ${status.runningSeats === 1 ? "it" : "them"} and update`,
-        disposition: "staged", retryable: true, runningSeats: status.runningSeats,
+        disposition: "staged", retryable: true, runningSeats: status.runningSeats, ownWords: true,
       }));
     }
     const bundle = options.acquireBundle === undefined ? input.bundle ?? options.bundles[targetPlatform]

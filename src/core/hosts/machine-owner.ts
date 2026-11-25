@@ -362,6 +362,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
               ...(cause.transitions === undefined ? {} : { transitions: cause.transitions }),
               ...(cause.runningSeats === undefined ? {} : { runningSeats: cause.runningSeats }),
               ...(cause.runningSeatsUnknown === undefined ? {} : { runningSeatsUnknown: cause.runningSeatsUnknown }),
+              ...(cause.ownWords === true ? { ownWords: true as const } : {}),
             } : {}),
             ...(cause instanceof MachineSetupError ? { installed: cause.installed } : {}),
             ...(failure === undefined ? {} : { failure }),

@@ -41,12 +41,14 @@ export const archiveFailure = (cause: unknown, machine: string, limitMs: number 
     message: `Packing Junto on ${machine} failed, so nothing was sent: ${exit}${said ? `, saying ${said}` : ""}` });
 };
 const installErrorWith = (machine: string) => (cause: unknown) => {
+  // Only a whole sentence written here is the core's own words; one carrying an SSH detail or a cause's message is not.
+  const own = (cause instanceof SshExitError && cause.detail === "permission denied") || cause instanceof SshTimeoutError;
   const message = cause instanceof SshExitError
     ? cause.detail === "permission denied" ? "SSH refused this account's key. Check SSH access, then send Junto again"
       : `Cannot reach this machine over SSH: ${cause.detail ?? "the connection failed"}. Check its address and SSH access, then send Junto again`
     : cause instanceof SshTimeoutError ? "This machine did not answer over SSH. Check that it is online and reachable, then send Junto again"
     : cause instanceof Error ? cause.message : String(cause);
-  return new MachineInstallError({message,retryable:true,disposition:"staged",...failureHere(cause, machine)});
+  return new MachineInstallError({message,retryable:true,disposition:"staged",...(own ? { ownWords: true as const } : {}),...failureHere(cause, machine)});
 };
 const Success = Schema.Struct({ok:Schema.Literal(true),command:Schema.Literal("machine install-local"),data:MachineInstallResult});
 const Failure = Schema.Struct({ ok: Schema.Literal(false), command: Schema.Literal("machine install-local"), error: Schema.Struct({
