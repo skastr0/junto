@@ -421,6 +421,17 @@ Rules, from remote-security's term 5 and this doc:
 | `status-unreadable` | `Junto there did not report its status. Check it again.` |
 | `boat-key-not-placed` | `Its machine key could not be written there. Check it again.` |
 
+**An outcome only the near side knows.** The code comes from the far
+machine, so a sentence never claims an outcome the near side did not
+establish. `, so nothing changed` in `database-copy-failed` and
+`database-not-private` shows only when the near disposition is `staged` or
+`rolled-back`; otherwise the clause is dropped and the rest stays:
+`Junto could not keep a copy of its data there. Check it again.` and `Its
+Junto data is not private to its account. Check it again.` (remote-security,
+on 811334d0a). `start-failed` says `it is not confirmed stopped`; if a site
+raises it after a clean rollback, that site gets its own code rather than
+these words.
+
 Changed from remote-core's draft: no machine name (term 5); `Check this
 machine` is `Check it again`, since `this machine` is the operator's Mac;
 `Rebuild` is gone, because it is not a Junto action and a send makes the
