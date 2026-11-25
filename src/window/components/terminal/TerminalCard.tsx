@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
 import { TASKS_ENABLED } from "@shared/features";
-import { agentSeat$, subscribeAgentSeatState } from "../../lib/agent-seat-state";
+import { useSeatReport, agentSeat$, subscribeAgentSeatState } from "../../lib/agent-seat-state";
 import { subscribeSeatAwareness } from "../../lib/seat-awareness";
 import { seatCardStatus } from "../../lib/seat-card-status";
 import { terminal$ } from "../../lib/terminal-state";
@@ -54,11 +54,9 @@ export function TerminalCard({
   const session = use$(
     terminal$.sessionByBindingId[native?.bindingId ?? "__junto-terminal-no-session__"],
   );
-  const seatEvent = use$(
-    agentSeat$.byBindingId[
-      native?.bindingId ?? "__junto-terminal-no-binding__"
-    ],
-  );
+  // The card draws the seat's state and reason, read through the drawn slice:
+  // a report that changes neither renders nobody.
+  const seatEvent = useSeatReport(native?.bindingId);
   const needsLook = use$(
     agentSeat$.needsLookByBindingId[
       native?.bindingId ?? "__junto-terminal-no-binding__"

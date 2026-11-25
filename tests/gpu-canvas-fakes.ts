@@ -83,6 +83,66 @@ const fakeDevice = (): FakeDevice => {
   };
 };
 
+/** A device that records texture copies: the shape the GPU atlas attaches to. */
+export const fakeAtlasDevice = () => {
+  const copies: Array<{ readonly width: number; readonly height: number; readonly layer: number; readonly x: number; readonly y: number }> = [];
+  const device = {
+    limits: { maxTextureDimension2D: 8192, maxTextureArrayLayers: 256, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
+    createTexture: (desc: GPUTextureDescriptor) => {
+      const size = desc.size as GPUExtent3DDict;
+      return {
+        width: size.width,
+        height: size.height,
+        depthOrArrayLayers: size.depthOrArrayLayers ?? 1,
+        format: desc.format,
+        createView: () => ({}),
+        destroy: () => undefined,
+      };
+    },
+    createSampler: () => ({}),
+    createCommandEncoder: () => ({
+      copyTextureToTexture: (
+        _src: unknown,
+        destination: { readonly origin?: { readonly x?: number; readonly y?: number; readonly z?: number } },
+        size: { readonly width: number; readonly height: number },
+      ) => {
+        copies.push({ width: size.width, height: size.height, x: destination.origin?.x ?? 0, y: destination.origin?.y ?? 0, layer: destination.origin?.z ?? 0 });
+      },
+      writeTexture: (
+        destination: { readonly origin?: { readonly x?: number; readonly y?: number; readonly z?: number } },
+        _data: unknown,
+        _layout: unknown,
+        size: { readonly width: number; readonly height: number },
+      ) => {
+        copies.push({ width: size.width, height: size.height, x: destination.origin?.x ?? 0, y: destination.origin?.y ?? 0, layer: destination.origin?.z ?? 0 });
+      },
+      submit: () => undefined,
+      writeBuffer: () => undefined,
+    }),
+    // The atlas uploads pixels through the device queue, not the encoder.
+    queue: {
+      writeTexture: (
+        destination: { readonly origin?: { readonly x?: number; readonly y?: number; readonly z?: number } },
+        _data: unknown,
+        _layout: unknown,
+        size: { readonly width: number; readonly height: number },
+      ) => {
+        copies.push({ width: size.width, height: size.height, x: destination.origin?.x ?? 0, y: destination.origin?.y ?? 0, layer: destination.origin?.z ?? 0 });
+      },
+      copyExternalImageToTexture: (
+        _source: unknown,
+        destination: { readonly origin?: { readonly x?: number; readonly y?: number; readonly z?: number } },
+        size: { readonly width: number; readonly height: number },
+      ) => {
+        copies.push({ width: size.width, height: size.height, x: destination.origin?.x ?? 0, y: destination.origin?.y ?? 0, layer: destination.origin?.z ?? 0 });
+      },
+      writeBuffer: () => undefined,
+      submit: () => undefined,
+    },
+  } as unknown as GPUDevice;
+  return { device, copies };
+};
+
 export type FakeGpu = {
   readonly gpu: GpuEntry;
   readonly devices: ReadonlyArray<FakeDevice>;

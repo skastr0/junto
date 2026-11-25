@@ -5,7 +5,7 @@ import type { HarnessId } from "@shared/managed-terminal-templates";
 import type { Seat } from "@shared/model";
 import type { ActivitySpec } from "../lib/activity";
 import { RING_HOLE_R } from "../lib/activity-rings";
-import { agentSeat$ } from "../lib/agent-seat-state";
+import { agentSeat$, useSeatReport } from "../lib/agent-seat-state";
 import { seatSignalRollups$, useSeatSignalRollup } from "../lib/agent-signals-state";
 import { kernel$ } from "../lib/kernel-view";
 import { cardMark, seatFactsForNode, type SeatFactsInput } from "../lib/seat-projections";
@@ -66,7 +66,9 @@ const seatControlOf = (
 
 /** A native seat's live facts, subscribed by its binding. */
 export function useSeatGlanceOf(seat: Seat): SeatGlance {
-  const seatEvent = use$(agentSeat$.byBindingId[seat.bindingId]);
+  // The ring and its line draw the seat's state and reason; a report that
+  // moves neither renders nobody, and asks the atlas for the same portrait.
+  const seatEvent = useSeatReport(seat.bindingId);
   const needsLook = use$(() => agentSeat$.needsLookByBindingId[seat.bindingId].get() === true);
   const session = use$(terminal$.sessionByBindingId[seat.bindingId]);
   const graphBlocked = use$(() => kernel$.execution.get()?.blocked.includes(seat.id) === true);
