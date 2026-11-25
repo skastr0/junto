@@ -666,13 +666,18 @@ for good. A canvas under another name has no `canvas_removed` row there, so it
 goes through.
 
 Core's words, `ownWords: true`, on the refused row for that machine and canvas:
-`That machine will not take this canvas, because it removed a canvas of the
-same name that it counts as newer. A canvas with a new name reaches it: make
-one with New canvas.`
+`That machine will not take this canvas: this machine removed a canvas of the
+same name, and that machine counts the removed one as newer. A canvas with a
+new name reaches it: make one with New canvas.`
+
+The removal is this machine's own: the far keeps a removal only from the
+canvas's editor (`live.ts` `takeRemoval`, :856), and these words show on the
+editor, so the far removed nothing of its own accord (remote-security on
+a73fbf1e7).
 
 - `will not take` states the lasting refusal: no later send or `Check it again`
   changes it for this canvas, so neither is offered.
-- `counts as newer` says what the far machine judges without claiming a cause:
+- `counts the removed one as newer` says what the far machine judges without claiming a cause:
   a backwards clock is the likely one, but the refusal does not record it.
 - `New canvas` is the window's button (`TopBar.tsx`). Junto has no canvas
   rename, so the step makes a new canvas; the sentence does not claim this
