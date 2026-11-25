@@ -110,7 +110,6 @@ fn in_range(query: &Query) -> Result<()> {
     let area = |b: u8| lower(b) || matches!(b, b'.' | b'_' | b'-');
     let id = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-');
     let canvas = |b: u8| lower(b) || matches!(b, b'_' | b'-');
-    let first = |b: u8| b.is_ascii_alphanumeric();
     let ok = query
         .level
         .as_deref()

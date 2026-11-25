@@ -274,15 +274,22 @@ fn owner_and_machine_commands_are_refused_when_a_seat_variable_is_present() {
 #[test]
 fn bare_reads_reach_the_socket_with_nothing_but_their_defaults() {
     let work = Work::start(vec![]);
-    for args in [
-        vec!["since"],
-        vec!["artifact", "list"],
-        vec!["msg", "list"],
-        vec!["seat", "read", "peer"],
-        vec!["task", "list"],
-        vec!["automation", "list"],
-    ] {
-        let output = work.run(&args);
+    // A read only exists in a build that carries its family; every other one
+    // is refused by main.rs before the socket, so a gated build skips it here.
+    let mut cases: Vec<(Vec<&str>, &str)> = vec![
+        (vec!["since"], "since"),
+        (vec!["msg", "list"], "msg.list"),
+        (vec!["seat", "read", "peer"], "seat.read"),
+        (vec!["automation", "list"], "automation.list"),
+    ];
+    if artifacts_on() {
+        cases.insert(1, (vec!["artifact", "list"], "artifact.list"));
+    }
+    if tasks_on() {
+        cases.push((vec!["task", "list"], "task.list"));
+    }
+    for (args, _) in &cases {
+        let output = work.run(args);
         assert_eq!(
             code(&output),
             0,
@@ -291,23 +298,14 @@ fn bare_reads_reach_the_socket_with_nothing_but_their_defaults() {
         );
     }
     let frames = work.frames();
-    assert_eq!(frames.len(), 6);
-    for ((args, op), frame) in [
-        (vec!["since"], "since"),
-        (vec!["artifact", "list"], "artifact.list"),
-        (vec!["msg", "list"], "msg.list"),
-        (vec!["seat", "read", "peer"], "seat.read"),
-        (vec!["task", "list"], "task.list"),
-        (vec!["automation", "list"], "automation.list"),
-    ]
-    .into_iter()
-    .zip(&frames)
-    {
+    assert_eq!(frames.len(), cases.len());
+    for ((args, op), frame) in cases.into_iter().zip(&frames) {
         assert_eq!(frame["op"], op, "{args:?}");
         assert_eq!(frame["token"], TOKEN, "{args:?}");
+        if op != "seat.read" {
+            assert_eq!(frame["args"], serde_json::json!({}), "{args:?}");
+        }
     }
-    assert_eq!(frames[0]["args"], serde_json::json!({}));
-    assert_eq!(frames[1]["args"], serde_json::json!({}));
 }
 
 // --- logs --------------------------------------------------------------------
@@ -369,6 +367,9 @@ fn logs_refuse_a_filter_they_cannot_read_before_the_socket() {
 
 #[test]
 fn a_write_mints_an_op_id_and_takes_the_one_it_is_given() {
+    if !artifacts_on() {
+        return;
+    }
     let work = Work::start(vec![Answer::ok(), Answer::ok()]);
     let created = work.run(&[
         "artifact",
@@ -418,6 +419,9 @@ fn a_write_mints_an_op_id_and_takes_the_one_it_is_given() {
 
 #[test]
 fn a_bad_op_id_is_refused_before_the_socket() {
+    if !artifacts_on() {
+        return;
+    }
     let work = Work::start(vec![]);
     for bad in [
         "",
@@ -441,6 +445,9 @@ fn a_bad_op_id_is_refused_before_the_socket() {
 
 #[test]
 fn artifact_create_lowers_its_body_tasks_and_labels() {
+    if !artifacts_on() {
+        return;
+    }
     let work = Work::start(vec![Answer::ok()]);
     let output = work.run(&[
         "artifact",
@@ -487,6 +494,9 @@ fn artifact_create_lowers_its_body_tasks_and_labels() {
 
 #[test]
 fn artifact_comment_and_label_lower_their_flags() {
+    if !artifacts_on() {
+        return;
+    }
     let work = Work::start(vec![Answer::ok(), Answer::ok()]);
     let comment = work.run(&[
         "artifact",
@@ -535,6 +545,9 @@ fn artifact_comment_and_label_lower_their_flags() {
 
 #[test]
 fn artifact_takes_one_body_and_colours_only_its_eight_names() {
+    if !artifacts_on() {
+        return;
+    }
     let work = Work::start(vec![Answer::ok(), Answer::ok()]);
     for args in [
         vec![
@@ -612,6 +625,9 @@ fn artifact_takes_one_body_and_colours_only_its_eight_names() {
 
 #[test]
 fn task_check_reads_each_flag_as_one_result_and_names_what_it_cannot() {
+    if !tasks_on() {
+        return;
+    }
     let work = Work::start(vec![Answer::ok()]);
     let output = work.run(&[
         "task",
@@ -687,6 +703,9 @@ fn task_check_reads_each_flag_as_one_result_and_names_what_it_cannot() {
 
 #[test]
 fn task_check_reads_results_from_a_file_and_keeps_the_tail_in_characters() {
+    if !tasks_on() {
+        return;
+    }
     let work = Work::start(vec![Answer::ok()]);
     let dir = temp_dir();
     let file = dir.join("checks.json");
@@ -946,8 +965,27 @@ fn a_silent_socket_times_out_and_a_write_says_what_may_have_happened() {
             .contains("timed out after 200ms")
     );
 
-    let write = Work::start(vec![Answer::Silent]);
-    let output = write.run(&[
+    let mail = Work::start(vec![Answer::Silent]);
+    let output = mail.run(&["msg", "send", "peer", "hi", "--timeout", "200"]);
+    assert_eq!(code(&output), 1);
+    let printed = stderr_json(&output);
+    assert_eq!(printed["error"]["type"], "UncertainCompletion");
+    assert_eq!(printed["error"]["details"]["operation"], "msg.send");
+    assert!(
+        printed["error"]["details"]["next_step"]
+            .as_str()
+            .unwrap()
+            .contains("mail may already be")
+    );
+}
+
+#[test]
+fn a_write_that_times_out_is_offered_for_replay_under_its_op_id() {
+    if !artifacts_on() {
+        return;
+    }
+    let work = Work::start(vec![Answer::Silent]);
+    let output = work.run(&[
         "artifact",
         "archive",
         "art-1",
@@ -966,19 +1004,6 @@ fn a_silent_socket_times_out_and_a_write_says_what_may_have_happened() {
             .as_str()
             .unwrap()
             .contains("--op-id")
-    );
-
-    let mail = Work::start(vec![Answer::Silent]);
-    let output = mail.run(&["msg", "send", "peer", "hi", "--timeout", "200"]);
-    assert_eq!(code(&output), 1);
-    let printed = stderr_json(&output);
-    assert_eq!(printed["error"]["type"], "UncertainCompletion");
-    assert_eq!(printed["error"]["details"]["operation"], "msg.send");
-    assert!(
-        printed["error"]["details"]["next_step"]
-            .as_str()
-            .unwrap()
-            .contains("mail may already be")
     );
 }
 
@@ -1059,6 +1084,9 @@ fn a_batch_width_must_be_positive() {
 
 #[test]
 fn browser_refuses_a_box_that_is_not_four_numbers_and_a_bad_session() {
+    if !browser_on() {
+        return;
+    }
     let work = Work::start(vec![]);
     for args in [
         vec![
@@ -1419,6 +1447,9 @@ fn overseer_secret_put_reads_stdin_and_never_prints_the_value() {
 
 #[test]
 fn overseer_artifact_move_sends_its_ids_destination_and_canvas_and_exits_on_a_refusal() {
+    if !artifacts_on() {
+        return;
+    }
     let work = Work::start(vec![
         Answer::Ok(serde_json::json!({
             "ok": true,
@@ -1493,6 +1524,9 @@ fn automation_show_and_history_lower_their_json() {
 
 #[test]
 fn task_finish_reads_the_handoff_note() {
+    if !tasks_on() {
+        return;
+    }
     let work = Work::start(vec![Answer::ok()]);
     let output = work.run(&[
         "task",
@@ -1552,6 +1586,9 @@ fn logs_refuse_a_filter_out_of_its_range() {
 
 #[test]
 fn browser_refuses_a_bad_session_a_tab_and_a_comment_text() {
+    if !browser_on() {
+        return;
+    }
     let work = Work::start(vec![]);
     let long_text = "x".repeat(64 * 1024 + 1);
     let cases: Vec<Vec<&str>> = vec![
@@ -1785,7 +1822,27 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
+/// Whether a build-time feature variable reads on, as src/features.rs does.
+fn on(value: Option<&str>) -> bool {
+    matches!(value, Some(value) if matches!(value.as_bytes(), b"1" | b"true"))
+}
+
 /// Whether this build carries fleet authority (off in ship, on in all-on).
 fn authority_on() -> bool {
-    matches!(std::option_env!("JUNTO_AUTHORITY_ENABLED"), Some(value) if matches!(value.as_bytes(), b"1" | b"true"))
+    on(std::option_env!("JUNTO_AUTHORITY_ENABLED"))
+}
+
+/// Whether this build carries artifacts: list, create, edit and labels.
+fn artifacts_on() -> bool {
+    on(std::option_env!("JUNTO_ARTIFACTS_ENABLED"))
+}
+
+/// Whether this build carries tasks (task, rulings).
+fn tasks_on() -> bool {
+    on(std::option_env!("JUNTO_TASKS_ENABLED"))
+}
+
+/// Whether this build carries the browser: off in a machine build, and in all-off.
+fn browser_on() -> bool {
+    on(std::option_env!("JUNTO_BROWSER_ENABLED")) && !on(std::option_env!("JUNTO_MACHINE_BUILD"))
 }
