@@ -253,7 +253,7 @@ const mainStageEvents = (): StageEvent[] => {
 const rendererStageEvents = (page: Page): Promise<StageEvent[]> =>
   page.evaluate(() => ((window as unknown as { __juntoPerfStages?: unknown[] }).__juntoPerfStages ?? []) as never[]);
 
-const stageTable = (name: string, click: number, painted: number, events: ReadonlyArray<StageEvent>) => {
+const stageTable = (name: string, click: number, resultMutation: number, painted: number, events: ReadonlyArray<StageEvent>) => {
   const wanted = (event: StageEvent): boolean => {
     if (name === "signal-answer") {
       return (
@@ -290,12 +290,13 @@ const stageTable = (name: string, click: number, painted: number, events: Readon
       .filter((event) => wanted(event) && event.id !== undefined)
       .map((event) => event.id),
   );
-  const filtered = inWindow
-    .filter((event) =>
+  const filtered = [
+    ...inWindow.filter((event) =>
       wanted(event) ||
       ((event.stage === "main-reply" || event.stage === "rpc-reply-arrived") && event.id !== undefined && requestIds.has(event.id)),
-    )
-    .sort((a, b) => a.t - b.t);
+    ),
+    { t: resultMutation, process: "renderer" as const, stage: "result-dom-mutation" },
+  ].sort((a, b) => a.t - b.t);
   const rows = filtered.map((event) => ({
     stage: `${event.process} ${event.stage}${event.op === undefined ? "" : ` ${event.op}`}`,
     atMs: Math.round((event.t - click) * 100) / 100,
@@ -355,7 +356,7 @@ const measureAction = async (
     clickToPaintMs: Math.round((painted - click) * 100) / 100,
     clickToResultDomMs: Math.round((resultMutation.t - click) * 100) / 100,
     paintAfterResultDomMs: Math.round((painted - resultMutation.t) * 100) / 100,
-    ...stageTable(name, click, painted, stages),
+    ...stageTable(name, click, resultMutation.t, painted, stages),
     renderer: {
       worstFrameMs: Math.round((renderer.worstFrame ?? 0) * 100) / 100,
       frameMs: Math.round((renderer.frameMs ?? 0) * 100) / 100,
