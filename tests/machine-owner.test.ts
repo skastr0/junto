@@ -600,8 +600,12 @@ it("takes over a retired pin by its id, reads the far over the route at both ste
     seats: 2, automations: 1, files: 1, takenOver: false } });
   expect(dials).toBe(1);
   expect(f.database.prepare("SELECT installation_id, retired_at IS NOT NULL AS retired FROM machine_peers WHERE machine_name='mini'").get()).toEqual({ installation_id: "mini-install", retired: 1 });
+  const removedAt = preview.ok && preview.op === "machine.takeover" ? preview.data.previousRetiredAt : undefined;
+  expect(removedAt).toBeTypeOf("string");
+  const noTime = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install", confirm: { seats: 2, automations: 1, files: 1 } });
+  expect(noTime).toMatchObject({ ok: false, error: { type: "validation", message: "The take-over confirm needs the removed time the preview showed. Preview the take-over again" } });
 
-  const confirmed = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install", confirm: { seats: 2, automations: 1, files: 1 } });
+  const confirmed = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install", previousRetiredAt: removedAt, confirm: { seats: 2, automations: 1, files: 1 } });
   expect(confirmed).toMatchObject({ ok: true, op: "machine.takeover", data: { previousInstallationId: "mini-install", previousRetiredAt: expect.any(String), takenOver: true } });
   expect(dials).toBe(2);
   expect(forgotten).toEqual([{ name: "mini", installationId: "mini-install" }]);
@@ -627,8 +631,9 @@ it("takes over a retired pin remotely with no route from the far back to this ma
   const preview = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", checkLive: true });
   expect(preview).toMatchObject({ ok: true, op: "machine.takeover", data: {
     previousInstallationId: "mini-install", previousRetiredAt: expect.any(String), takenOver: false } });
+  const removedAt = preview.ok && preview.op === "machine.takeover" ? preview.data.previousRetiredAt : undefined;
   const confirmed = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install",
-    expectedInstallationId: "mini-install", checkLive: true, confirm: { seats: 0, automations: 0, files: 0 } });
+    expectedInstallationId: "mini-install", previousRetiredAt: removedAt, checkLive: true, confirm: { seats: 0, automations: 0, files: 0 } });
   expect(confirmed).toMatchObject({ ok: true, op: "machine.takeover", data: { takenOver: true } });
   expect(f.database.prepare("SELECT installation_id, retired_at, binding FROM machine_peers WHERE machine_name='mini'").get())
     .toEqual({ installation_id: "new-install", retired_at: null, binding: null });

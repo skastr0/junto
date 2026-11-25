@@ -276,8 +276,10 @@ describe("a first send to a reinstalled machine", () => {
     const preview = await call("machine.takeover", { machineName: "mini", installationId: NEW });
     expect(preview).toMatchObject({ ok: true, op: "machine.takeover", data: {
       previousInstallationId: OLD, previousRetiredAt: expect.any(String), seats: 1, automations: 0, files: 0, takenOver: false } });
+    const removedAt = preview.ok && preview.op === "machine.takeover" ? preview.data.previousRetiredAt : undefined;
+    expect(removedAt).toBeTypeOf("string");
     const confirmed = await call("machine.takeover", { machineName: "mini", installationId: NEW,
-      expectedInstallationId: OLD, confirm: placed });
+      expectedInstallationId: OLD, previousRetiredAt: removedAt, confirm: placed });
     expect(confirmed).toMatchObject({ ok: true, op: "machine.takeover", data: { takenOver: true } });
     expect(await pinOfMini()).toMatchObject({ machineName: "mini", installationId: NEW });
     expect(forgotten).toEqual([["mini", OLD]]);

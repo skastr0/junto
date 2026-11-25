@@ -241,6 +241,8 @@ export const MachineTakeoverInput = Schema.Struct({
   checkLive: Schema.optionalKey(Schema.Literal(true)),
   /** The retired time a preview saw, so a confirm requires that same retired row. */
   expectedRetiredAt: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(64)))),
+  /** The preview's own name for that time, so a preview can be echoed into a confirm. */
+  previousRetiredAt: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(64)))),
 });
 export type MachineTakeoverInput = typeof MachineTakeoverInput.Type;
 export const MachineTakeoverData = Schema.Struct({

@@ -313,8 +313,18 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         return yield* Effect.fail(new RemoteHostsError("conflict", "The pin changed before the take-over; preview the take-over again"));
       }
     }
-    if (input.expectedRetiredAt !== undefined
-      && (retired === undefined || retired.installationId !== previous || retired.retiredAt !== input.expectedRetiredAt)) {
+    // The preview prints previousRetiredAt; a confirm may echo that name or
+    // use expectedRetiredAt. Two different times are ambiguous, never a CAS.
+    if (input.previousRetiredAt !== undefined && input.expectedRetiredAt !== undefined
+      && input.previousRetiredAt !== input.expectedRetiredAt) {
+      return yield* Effect.fail(new RemoteHostsError("validation", "The take-over confirm names two different removed times. Preview the take-over again"));
+    }
+    const removedTime = input.previousRetiredAt ?? input.expectedRetiredAt;
+    if (input.confirm !== undefined && retired !== undefined && removedTime === undefined) {
+      return yield* Effect.fail(new RemoteHostsError("validation", "The take-over confirm needs the removed time the preview showed. Preview the take-over again"));
+    }
+    if (removedTime !== undefined
+      && (retired === undefined || retired.installationId !== previous || retired.retiredAt !== removedTime)) {
       return yield* Effect.fail(new RemoteHostsError("conflict", "The pin changed before the take-over; preview the take-over again"));
     }
     const other = yield* sql`SELECT machine_name FROM machine_peers WHERE installation_id = ${input.installationId}`.pipe(
@@ -379,7 +389,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         const row = rows[0] as { readonly installation_id: InstallationId; readonly retired_at: string | null } | undefined;
         // T1: the row is still retired under the id the preview named.
         if (row === undefined || row.retired_at === null || row.installation_id !== previous
-          || (input.expectedRetiredAt !== undefined && row.retired_at !== input.expectedRetiredAt)) return false;
+          || (removedTime !== undefined && row.retired_at !== removedTime)) return false;
         const atCommit = yield* countTakeover(name);
         if (atCommit.seats !== counts.seats || atCommit.automations !== counts.automations || atCommit.files !== counts.files) return false;
         // The same sweep and plain pin as a first send (T3), in this transaction.
@@ -470,7 +480,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       installationId: self.installationId,
       checkLive: true as const,
       ...(input.expectedInstallationId === undefined ? {} : { expectedInstallationId: input.expectedInstallationId }),
-      ...(preview?.previousRetiredAt === undefined ? {} : { expectedRetiredAt: preview.previousRetiredAt }),
+      ...(preview?.previousRetiredAt === undefined ? {} : { previousRetiredAt: preview.previousRetiredAt }),
       ...(confirmed === undefined ? {} : { confirm: confirmed }),
     };
     const program = yield* takeoverMachine(route, { juntoHome: host.juntoHome, installRoot: host.installRoot }, payload).pipe(
