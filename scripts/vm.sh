@@ -110,8 +110,15 @@ case "${1:-}" in
     name="$region-pool-$n"
     # The oldest VM of that name that is up or starting. Two seats that ask
     # at once may start two, and both then settle on that one; the other
-    # stops itself. A stopped one is not resumed: it is left to expire.
-    id=$("$BOAT" list --filter rp --json | jq -r --arg name "$name" '[.sandboxes[] | select(.name == $name)] | sort_by(.createdAt) | first | .id // empty')
+    # stops itself. With none up, the oldest stopped one whose disk is still
+    # kept is resumed, within the included starts: its clones and installs are
+    # warm, where a new VM starts cold. A new one only when none is left.
+    oldest() { "$BOAT" list --filter "$1" --json | jq -r --arg name "$name" '[.sandboxes[] | select(.name == $name and .dataExpiredAt == null)] | sort_by(.createdAt) | first | .id // empty'; }
+    id=$(oldest rp)
+    if [ -z "$id" ] && id=$(oldest st) && [ -n "$id" ]; then
+      may_start
+      "$BOAT" resume "$id" --json >/dev/null || id=""
+    fi
     if [ -n "$id" ]; then
       "$BOAT" extend "$id" --hours 1 --json >/dev/null
     else
