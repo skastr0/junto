@@ -346,6 +346,40 @@ describe("signals in a thread", () => {
     expect(q("seat-threads-said")!.textContent).toBe("pty-lead withdrew: Which store holds the notes? Dismissed: The migration is stuck");
   });
 
+  it.each([["withdrawn"], ["answered"]] as const)("says a crossing aloud as the seat's own statement when the signal closes %s with it", async (state) => {
+    const fixture = fake();
+    fixture.state.messages.notes = [mine, raised(ask)];
+    await openOn(fixture);
+    fixture.state.messages.notes = [mine, raised({ ...ask, state, crossed: true })];
+    fixture.signalChange();
+    await flush();
+    expect(q("seat-threads-said")!.textContent).toBe("pty-lead says it withdrew a signal before your answer reached it: Which store holds the notes?");
+  });
+
+  it("says the crossing when a withdrawn signal turns out to have crossed, once, and a plain withdrawal as before", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = fake();
+      fixture.state.messages.notes = [mine, raised(ask)];
+      await openOn(fixture);
+      const later = async (ms: number) => {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(ms);
+        });
+      };
+      fixture.state.messages.notes = [mine, raised({ ...ask, state: "withdrawn" })];
+      fixture.signalChange();
+      await later(600);
+      expect(q("seat-threads-said")!.textContent).toBe("pty-lead withdrew: Which store holds the notes?");
+      fixture.state.messages.notes = [mine, raised({ ...ask, state: "withdrawn", crossed: true })];
+      fixture.signalChange();
+      await later(600);
+      expect(q("seat-threads-said")!.textContent).toBe("pty-lead says it withdrew a signal before your answer reached it: Which store holds the notes?");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not say an answered signal", async () => {
     const fixture = fake();
     fixture.state.messages.notes = [mine, raised(ask)];

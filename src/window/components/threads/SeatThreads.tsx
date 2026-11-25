@@ -22,6 +22,7 @@ import { openNeedsYouOn } from "../../lib/operator-feed";
 import { mentionChipOf, openMention, subjectChipOf, type MentionChip } from "../../lib/mention-open";
 import { stripAuthorPreamble } from "../../lib/thread-text";
 import { useCanvas } from "../../lib/use-model";
+import { crossedLiveWords } from "@shared/signal-crossing";
 import { answerHeldWords } from "../../lib/feed-exchange";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
@@ -618,11 +619,15 @@ export function ThreadChat({
     ];
     const changed: string[] = [];
     for (const { signal, author } of now) {
+      // Where it stands, and whether its answer and the seat's withdrawal crossed.
+      const standing = `${signal.state}${signal.crossed === true ? "+crossed" : ""}`;
       const was = states.get(signal.signalId);
-      states.set(signal.signalId, signal.state);
-      if (!shown || was === undefined || was === signal.state) continue;
+      states.set(signal.signalId, standing);
+      if (!shown || was === undefined || was === standing) continue;
       const headline = threadHeadlineText(signal.text, thread.participants);
-      if (signal.state === "withdrawn") changed.push(`${author} withdrew: ${headline}`);
+      // A crossing is said as the signal's line says it, the seat's own statement, whichever way it closed.
+      if (signal.crossed === true) changed.push(crossedLiveWords(author, headline));
+      else if (signal.state === "withdrawn") changed.push(`${author} withdrew: ${headline}`);
       else if (signal.state === "dismissed") changed.push(`Dismissed: ${headline}`);
     }
     // Each saying ends on a headline, so the next starts after a full stop
