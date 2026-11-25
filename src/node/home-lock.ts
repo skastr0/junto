@@ -29,8 +29,10 @@ export type HomeLock = Readonly<{ held: () => boolean; release: () => Promise<vo
 
 /** Why the lock was not taken: `held` is another core or an install; `unsafe` is a state directory or lock file this uid does not own alone. */
 export class HomeLockRefused extends Error {
-  constructor(readonly reason: "held" | "unsafe", message: string, options?: ErrorOptions) {
+  readonly reason: "held" | "unsafe";
+  constructor(reason: "held" | "unsafe", message: string, options?: ErrorOptions) {
     super(message, options);
+    this.reason = reason;
     this.name = "HomeLockRefused";
   }
 }

@@ -9,7 +9,7 @@
  * unlinked.
  */
 import { randomBytes } from "node:crypto";
-import { closeSync, constants, fstatSync, fsyncSync, linkSync, openSync, readSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, openSync, readdirSync, readSync, unlinkSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 const code = (error: unknown): string | undefined => (error as NodeJS.ErrnoException | undefined)?.code;
@@ -19,17 +19,43 @@ export type OwnerSecretFault = "unreadable" | "not-owner-private" | "short";
 
 /** Why a secret file was not read. `short` is a file that is not one of these: no maker leaves it. */
 export class OwnerSecretFileRefused extends Error {
-  constructor(readonly fault: OwnerSecretFault, readonly path: string, options?: ErrorOptions) {
+  readonly fault: OwnerSecretFault;
+  readonly path: string;
+  constructor(fault: OwnerSecretFault, path: string, options?: ErrorOptions) {
     super(fault === "short" ? `${path} is not whole` : fault === "not-owner-private" ? `${path} is not a file only this user owns` : `${path} cannot be read`, options);
     this.name = "OwnerSecretFileRefused";
+    this.fault = fault;
+    this.path = path;
   }
 }
 
-/** A regular file of this uid, one link, no group or other bits. */
-const ownerPrivate = (fd: number): boolean => {
+/** A maker's temporary name beside `path`: `<name>.<hex>`, as this module and the native installer write it. */
+const makerTemporary = (path: string, entry: string): boolean =>
+  entry.startsWith(`${basename(path)}.`) && /^[0-9a-f]{32,64}$/u.test(entry.slice(basename(path).length + 1));
+
+/**
+ * Its second name, when it has one, is a maker's temporary beside it: a file
+ * just linked into place keeps that name until its maker unlinks it, and a
+ * reader that loses the race to make it opens it in that window.
+ */
+const secondNameIsMakers = (path: string, stat: { dev: bigint; ino: bigint }): boolean => {
+  try {
+    return readdirSync(dirname(path)).some((entry) => {
+      if (!makerTemporary(path, entry)) return false;
+      const other = lstatSync(join(dirname(path), entry), { bigint: true });
+      return other.isFile() && other.dev === stat.dev && other.ino === stat.ino;
+    });
+  } catch {
+    return false;
+  }
+};
+
+/** A regular file of this uid, no group or other bits, one link, or two while its maker still holds the second beside it. */
+const ownerPrivate = (fd: number, path: string): boolean => {
   const stat = fstatSync(fd, { bigint: true });
   const uid = ownUid();
-  return stat.isFile() && (uid === undefined || stat.uid === uid) && stat.nlink === 1n && (stat.mode & 0o077n) === 0n;
+  if (!stat.isFile() || (uid !== undefined && stat.uid !== uid) || (stat.mode & 0o077n) !== 0n) return false;
+  return stat.nlink === 1n || (stat.nlink === 2n && secondNameIsMakers(path, stat));
 };
 
 /** Make `path` with `bytes` random bytes unless it exists; never replaces one that does. */
@@ -55,7 +81,7 @@ const makeOwnerSecretFile = (path: string, bytes: number): void => {
   }
 };
 
-/** Read `path`'s whole secret, making it first if no one has; refuses at once a file that is short, linked twice, or not this user's alone. */
+/** Read `path`'s whole secret, making it first if no one has; refuses at once a file that is short, linked elsewhere, or not this user's alone. */
 export const ownerSecretFile = (path: string, bytes: number): Buffer => {
   let fd: number | undefined;
   try {
@@ -72,7 +98,7 @@ export const ownerSecretFile = (path: string, bytes: number): Buffer => {
     }
   }
   try {
-    if (!ownerPrivate(fd)) throw new OwnerSecretFileRefused("not-owner-private", path);
+    if (!ownerPrivate(fd, path)) throw new OwnerSecretFileRefused("not-owner-private", path);
     const secret = Buffer.alloc(bytes + 1);
     let read = 0;
     for (;;) {

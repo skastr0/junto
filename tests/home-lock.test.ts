@@ -89,10 +89,23 @@ describe("the home lock", () => {
     await (await take(linked)).release();
     linkSync(join(stateOf(linked), HOME_LOCK_FILE), join(linked, "second-name"));
     await expect(acquireHomeLock(linked)).rejects.toMatchObject({ reason: "unsafe" });
+    const beside = await home();
+    await (await take(beside)).release();
+    linkSync(join(stateOf(beside), HOME_LOCK_FILE), join(stateOf(beside), `${HOME_LOCK_FILE}.bak`));
+    await expect(acquireHomeLock(beside)).rejects.toMatchObject({ reason: "unsafe" });
     const readable = await home();
     await (await take(readable)).release();
     chmodSync(join(stateOf(readable), HOME_LOCK_FILE), 0o644);
     await expect(acquireHomeLock(readable)).rejects.toMatchObject({ reason: "unsafe" });
+  });
+});
+
+describe("the home lock's maker", () => {
+  it("takes a lock file whose second name is still its maker's temporary beside it, as a reader that lost the race to make it sees", async () => {
+    const at = await home();
+    await (await take(at)).release();
+    linkSync(join(stateOf(at), HOME_LOCK_FILE), join(stateOf(at), `${HOME_LOCK_FILE}.${"ab".repeat(16)}`));
+    await (await take(at)).release();
   });
 });
 
