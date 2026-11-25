@@ -606,6 +606,41 @@ Why:
 - The other machine is untouched in every case, so no sentence speaks for
   it.
 
+**The same failures on a take-over-remote** (remote-security on
+ccc4e2b32). `takeover()` is also what the far runs for a take-over-remote,
+and `takeoverRemote` passed the far's message through (`scrubMessage`,
+:497). There `this machine` is the far, `junto machine takeover` is the
+wrong command (on the near it is a different act), and the near operator
+never types the removed-time fields. So the near never shows the far's
+sentence. It maps the far's failure to its own words, as it does with
+`REMOTE_CHANGED_WORDS`.
+
+- Refused before anything changed there: `Nothing changed on that machine.
+  Preview the take-over again with junto machine takeover-remote <name>.`
+- Failed after that machine removed its old key: `The take-over did not
+  finish. That machine removed its old link key for this one, and it does
+  not trust this one yet. Preview the take-over again with junto machine
+  takeover-remote <name>.`
+- Stage not known: `The take-over did not finish, and that machine does
+  not trust this one yet. Preview the take-over again with junto machine
+  takeover-remote <name>.`
+
+The far's error code cannot pick between the first two. A failed commit
+fails as `conflict` (:416), the same code as the refusals before the change
+(:303, :313, :328), and the key-removal failure at :384 is `io` before any
+change. Until the far's answer carries a typed stage (before the change, or
+after the old key went), the near uses the stage-not-known sentence for
+every far failure. That sentence is true at both stages, and the step is
+the same.
+
+`<name>` is the name the operator typed, printed in the command as R3 does.
+`this one` matches the confirmed `That machine now trusts this one`.
+
+**The local key-removal failure** (:384, `The old link key could not be
+removed; nothing was changed`, never sent before): `Nothing changed,
+because Junto could not remove this machine's old link key for that
+machine. Preview the take-over again with junto machine takeover.`
+
 ## 6. The far install's refusal codes
 
 When a send or update fails on the far machine, its refusal carries one
