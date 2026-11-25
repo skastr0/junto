@@ -25,7 +25,8 @@
 # The VM holds a git clone, so a sync sends only the commits it lacks, as a
 # git bundle (kilobytes), never the working tree. It never reads the shared
 # checkout's working tree: only commits, and the paths you name, as a patch
-# against <ref>. `bun install` runs only when bun.lock changed.
+# against <ref>. `bun install` runs only when bun.lock changed. A sync also
+# brings the VM to the pinned bun, Xvfb and an unpacked Electron when missing.
 #
 # Another repository uses this same script from its own root, with its own
 # snapshot: VM_BASE (default junto-base) names the snapshot, and VM_DIR
@@ -185,8 +186,22 @@ case "${1:-}" in
         patch="&& git apply ~/$VM_DIR.own.patch && rm -f ~/$VM_DIR.own.patch"
       fi
     fi
-    put="old=\$(git rev-parse HEAD) && git checkout -q -f --detach $target && git clean -q -fd \
-      && { git diff --quiet \$old $target -- bun.lock || bun install --frozen-lockfile >/dev/null; } $patch \
+    # The image lags what the app needs to run off the Mac mini, so a sync
+    # brings the VM up to it, once per VM. First the bun package.json pins (CI
+    # pins the same), before any install, over the image's /usr/local/bin/bun.
+    bun="pin=\$(sed -n 's/.*\"packageManager\": *\"bun@\\([0-9.]*\\)\".*/\\1/p' package.json) \
+      && { [ -z \"\$pin\" ] || [ \"\$(bun --version)\" = \"\$pin\" ] || { b=\$(mktemp -d) \
+        && curl -fsSL -o \$b/bun.zip https://github.com/oven-sh/bun/releases/download/bun-v\$pin/bun-linux-x64.zip \
+        && unzip -q -o \$b/bun.zip -d \$b && install -m 755 \$b/bun-linux-x64/bun \"\$(command -v bun)\" && rm -rf \$b \
+        && echo \"vm.sh: bun is now \$(bun --version), as package.json pins\" >&2; } || echo \"vm.sh: could not install bun \$pin\" >&2; }"
+    # Then Xvfb, for a run with no display. And after an install Electron's
+    # binary can be missing (bun skipped its postinstall): its own install.js
+    # unpacks the cached zip, offline, in about a second.
+    app="{ command -v Xvfb >/dev/null || sudo -n apt-get install -y -qq xvfb >/dev/null 2>&1 || echo 'vm.sh: could not install xvfb' >&2; } \
+      && { [ ! -f node_modules/electron/install.js ] || { [ -s node_modules/electron/path.txt ] && [ -x \"node_modules/electron/dist/\$(cat node_modules/electron/path.txt)\" ]; } \
+        || node node_modules/electron/install.js >/dev/null; }"
+    put="old=\$(git rev-parse HEAD) && git checkout -q -f --detach $target && git clean -q -fd && $bun \
+      && { git diff --quiet \$old $target -- bun.lock || bun install --frozen-lockfile >/dev/null; } $patch && $app \
       && test \"\$(git rev-parse HEAD)\" = $target && git log --oneline -1"
     if ! remote "$id" "cd ~/$VM_DIR && $fetch $put"; then
       # A clone missing objects (seen after a resume) cannot unpack a bundle
