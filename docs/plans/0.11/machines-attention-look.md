@@ -451,6 +451,19 @@ automations that move (`docs/machines.md`, take-over).
   `installationId`), since the id is what that machine answers, not what
   this one verified.
 
+**The same, found only after the new build started there** (case B,
+remote-verify's receipt 18): no core ran there, so the send installed the
+new build, started it, met a different installation, and stopped it.
+`nothing changed` is false here.
+
+- Core's words, `ownWords: true`: `The new build is installed there but
+  answers as a different install of Junto, so Junto stopped it. Preview a
+  take-over with junto machine takeover to see which seats and automations
+  move.`
+- `so Junto stopped it` only when the stop is confirmed on this side;
+  otherwise the clause is dropped and the rest stays. The same printed
+  preview line follows, under the same three conditions.
+
 ## 6. The far install's refusal codes
 
 When a send or update fails on the far machine, its refusal carries one
