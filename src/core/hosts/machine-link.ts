@@ -31,7 +31,7 @@ import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { defaultAuthorizedKeysPath, editAuthorizedKeys, readAuthorizedKeys } from "../companion/authorized-keys";
 import { readBoatRecords } from "../../node/boat/files";
 import {
-  boundKnownHosts, hasLinkLine, hasLinkLineWithKey, linkHomeTag, linkKeyLine, makeLinkKey, ownLinkKeySha256, readBoundRoute, removeLinkKey,
+  boundKnownHosts, hasLinkLine, hasLinkLineWithKey, linkHomeTag, linkKeyLine, linkKeyState, linkLineCount, makeLinkKey, ownLinkKeySha256, readBoundRoute, removeLinkKey,
   removeLinkLines, removeLinkLineWithKey, upsertLinkLine, verifiedHostKeys, writeBoundRoute, writeLinkKnownHosts,
 } from "../link/link-keys";
 import { MachineLink } from "../link/service";
@@ -270,6 +270,8 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
    */
   const revoke = Effect.fn("MachineLinkSetup.revoke")(function* (input: MachineLinkRevokeInput) {
     const home = linkHomeTag(options.home);
+    if (input.every === true) return yield* revokeEvery(input);
+    if (input.holder !== undefined) return yield* Effect.fail(refused("Only a clear of every line names the machine that holds them"));
     if (input.unpin === true && input.linkKeySha256 === undefined) return yield* Effect.fail(refused("An unpin names the link key whose line it clears"));
     const before = yield* Effect.try({ try: () => readAuthorizedKeys(authorizedKeys), catch: (cause) => refused((cause as Error).message) });
     const sha = input.linkKeySha256;
@@ -282,6 +284,48 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
       catch: (cause) => refused((cause as Error).message),
     });
     return { installationId: input.installationId, removed: true, ...(unpinned === undefined ? {} : { unpinned }), ...holder } satisfies MachineLinkRevokeData;
+  });
+
+  /**
+   * Every line of one installation, and its pin, from a machine that holds
+   * no key for this one: each such line trusts a key nobody there can use.
+   * Only when `holder` is this machine's own installation, so a machine
+   * rebuilt at that address has nothing of another installation cleared.
+   * The pin goes even when no line is left. Only an owner op reaches it, over
+   * the operator's route: a link key runs only `junto link`.
+   */
+  const revokeEvery = (input: MachineLinkRevokeInput) => Effect.gen(function* () {
+    if (input.linkKeySha256 !== undefined) return yield* Effect.fail(refused("A clear of every line names no link key"));
+    if (input.unpin !== true) return yield* Effect.fail(refused("A clear of every line unpins too"));
+    if (input.holder === undefined) return yield* Effect.fail(refused("A clear of every line names the machine that holds them"));
+    const holder = yield* machines.installationId;
+    const matched = input.holder === holder;
+    let lines = 0;
+    let unpinned = false;
+    if (matched) {
+      const home = linkHomeTag(options.home);
+      const before = yield* Effect.try({ try: () => readAuthorizedKeys(authorizedKeys), catch: (cause) => refused((cause as Error).message) });
+      lines = linkLineCount(before, home, input.installationId);
+      unpinned = yield* machines.retirePeerInstallation(input.installationId);
+      if (lines > 0) yield* Effect.tryPromise({
+        try: () => editAuthorizedKeys((text) => removeLinkLines(text, home, input.installationId), authorizedKeys),
+        catch: (cause) => refused((cause as Error).message),
+      });
+    }
+    yield* Effect.logInfo("a link clear of every line", { installationId: input.installationId, holderMatched: matched, linesRemoved: lines, unpinned });
+    return { installationId: input.installationId, removed: lines > 0, unpinned, holder } satisfies MachineLinkRevokeData;
+  });
+
+  /**
+   * This machine's stale trust on `route`, cleared with every: from a send
+   * whose setup found it bound to a key this machine does not hold, or a
+   * remove with no key held. Clean only on the matched holder's answer that
+   * a line or the pin went.
+   */
+  const clearEvery = (route: OwnerRoute, holder: InstallationId) => Effect.gen(function* () {
+    const answered = yield* ownerWith(route, route.sshKnownHostsFile, "link-revoke",
+      { installationId: yield* machines.installationId, holder, unpin: true, every: true } satisfies MachineLinkRevokeInput, RevokeData).pipe(Effect.option);
+    return answered._tag === "Some" && answered.value.holder === holder && (answered.value.removed || answered.value.unpinned === true);
   });
 
   /**
@@ -322,8 +366,11 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
    * now is kept too: a send that reaches that installation clears it.
    */
   const clearRemoved = (host: RemoteHost, holder: InstallationId | undefined) => Effect.gen(function* () {
+    const state = linkKeyState(options.home, host.id);
+    // No key here: a line there trusts a key nobody can use, so every clears it, against the installation this machine knew.
+    if (state === "none") return holder === undefined || (yield* clearEvery(ownerRoute(host), holder)) ? "clear" as const : "kept" as const;
     const linkKeySha256 = ownLinkKeySha256(options.home, host.id);
-    if (linkKeySha256 === undefined) return "clear" as const;
+    if (linkKeySha256 === undefined) return "kept" as const;
     const knownHosts = boundKnownHosts(options.home, host.id);
     const row: PendingUnlink = {
       machineName: host.id, installationId: yield* machines.installationId, linkKeySha256,
@@ -393,8 +440,9 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
     key, accept, open: openLink, revoke, forget, lineHeld, revokeEverywhere, clearRemoved, settleRemoved,
     /** Pending files set aside unread since the last call: the remove says so. */
     takeSetAside: (): ReadonlyArray<string> => setAside.splice(0),
-    /** Does this machine hold its own link key for `peer`. */
-    holdsLinkKey: (peer: string): boolean => ownLinkKeySha256(options.home, peer) !== undefined,
+    /** Does this machine hold its own link key for `peer`: held, none, or unreadable, which counts as held. */
+    linkKeyState: (peer: string) => linkKeyState(options.home, peer),
+    clearEvery,
     /** Removed machines whose key each holder may still hold. */
     pending: () => readPending(options.home),
   };

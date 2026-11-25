@@ -490,7 +490,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     } });
     const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
       connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect,
-      settleRemovedLink: (name, route, installationId) => linkSetup.settleRemoved({ machineName: name, route, installationId }), holdsLinkKey: linkSetup.holdsLinkKey });
+      settleRemovedLink: (name, route, installationId) => linkSetup.settleRemoved({ machineName: name, route, installationId }), linkKeyState: linkSetup.linkKeyState, clearStaleLink: linkSetup.clearEvery });
     const installOps = yield* Effect.serviceOption(InstallOpsService);
     // Off in the ship build: no vault token is placed, recorded or listed.
     const vaultSetup = VAULT_ENABLED ? yield* makeVaultSetup({

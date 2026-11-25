@@ -288,6 +288,27 @@ export const removeLinkLines = (text: string, home: string, opener?: string): st
   return lines.length === parsed.lines.length ? text : joined({ lines, trailingNewline: parsed.trailingNewline });
 };
 
+/** How many of that opener's lines for that home are present. */
+export const linkLineCount = (text: string, home: string, opener: string): number =>
+  split(text).lines.filter((line) => {
+    const held = linkLineOwner(line);
+    return held !== undefined && held.home === home && held.opener === opener;
+  }).length;
+
+/**
+ * Does this machine hold its own link key for `peer`: held, none (no key
+ * file there), or unreadable (any other failure, which counts as held).
+ */
+export const linkKeyState = (home: string, peer: string): "held" | "none" | "unreadable" => {
+  if (!isValidMachineName(peer)) return "unreadable";
+  try {
+    const [kind, blob] = readFileSync(join(linkKeyDirectory(home, peer), "id_ed25519.pub"), "utf8").trim().split(/\s+/u);
+    return kind === "ssh-ed25519" && blob !== undefined ? "held" : "unreadable";
+  } catch (cause) {
+    return (cause as NodeJS.ErrnoException).code === "ENOENT" ? "none" : "unreadable";
+  }
+};
+
 /** The sha256, in hex, of `ssh-ed25519 <key>`: the one generation of a link a line or a key file holds. */
 export const linkKeySha256 = (key: string): string => createHash("sha256").update(publicKey(key)).digest("hex");
 

@@ -29,9 +29,14 @@ export interface MachineCopyOptions {
   readonly disconnect: (name: string) => Effect.Effect<void, unknown>;
   /** Clears what a remove left pending on `name`, over the route this send just reached, before setup pins this machine again. */
   readonly settleRemovedLink?: (name: string, route: RemoteHost, installationId: InstallationId) => Effect.Effect<unknown, unknown>;
-  /** Does this machine hold its own link key for `name`. */
-  readonly holdsLinkKey?: (name: string) => boolean;
+  /** Does this machine hold its own link key for `name`: held, none, or unreadable, which counts as held. */
+  readonly linkKeyState?: (name: string) => "held" | "none" | "unreadable";
+  /** Clears every line and the pin of this machine on `route`, only when `holder` answers: true when one went. */
+  readonly clearStaleLink?: (route: RemoteHost, holder: InstallationId) => Effect.Effect<boolean, unknown>;
 }
+
+/** The words for a stale link this send could not clear: a resend runs the clear again. */
+export const STALE_LINK_WORDS = "That machine still accepts an old link from this one, and Junto could not clear it. Send Junto again.";
 
 /** A machine still holds the link this one made before it was removed, and this one no longer holds the key. */
 class LinkOutlivedRemove extends Schema.TaggedError<LinkOutlivedRemove>()("LinkOutlivedRemove", { message: Schema.String }) {}
@@ -119,13 +124,24 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
         // A remove that could not reach this machine left its line and pin of this one pending: they go first, so setup pins plainly.
         // It settles only against the installation this send reached, the one that held the line.
         if (options.settleRemovedLink !== undefined) yield* options.settleRemovedLink(host.id, { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot }, receipt.installationId).pipe(Effect.ignore);
-        const setupProgram = yield* setupMachine(target, receipt, own);
-        const setupOutput = yield* ownerTransfer(setupProgram, "machine setup");
-        const setup = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(SetupResponse))(setupOutput.stdout.trim(), { onExcessProperty: "error" });
-        if (setup.data.machineName !== own.machineName || setup.data.installationId !== own.installationId) return yield* Effect.fail(refused("binding-not-kept", "The machine did not bind this Junto installation"));
+        const setUp = Effect.gen(function* () {
+          const setupProgram = yield* setupMachine(target, receipt, own);
+          const setupOutput = yield* ownerTransfer(setupProgram, "machine setup");
+          const setup = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(SetupResponse))(setupOutput.stdout.trim(), { onExcessProperty: "error" });
+          if (setup.data.machineName !== own.machineName || setup.data.installationId !== own.installationId) return yield* Effect.fail(refused("binding-not-kept", "The machine did not bind this Junto installation"));
+          return setup;
+        });
+        const setup = yield* setUp;
         // It lets this machine in only through a link key this machine no longer holds: a send that ended ready here would sit beside a dead route.
-        if (setup.data.keyBound === true && options.holdsLinkKey?.(host.id) !== true) return yield* Effect.fail(new LinkOutlivedRemove({
-          message: `${host.id} still has the link ${own.machineName} made before ${host.id} was removed. Run junto machine link ${own.machineName} ${host.id} to link them again.` }));
+        // With no key here, that trust is stale: it is cleared once, against the installation this send confirmed, and setup runs once more.
+        // A key this machine cannot read counts as held elsewhere: never cleared, the send fails in its own words.
+        const keyState = setup.data.keyBound === true ? options.linkKeyState?.(host.id) ?? "unreadable" : "held";
+        if (keyState !== "held") {
+          const route = { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot };
+          const cleared = keyState === "none" && options.clearStaleLink !== undefined
+            && (yield* options.clearStaleLink(route, receipt.installationId).pipe(Effect.orElseSucceed(() => false)));
+          if (!cleared || (yield* setUp).data.keyBound === true) return yield* Effect.fail(new LinkOutlivedRemove({ message: STALE_LINK_WORDS }));
+        }
       } else if (receipt.machineName !== host.id) return yield* Effect.fail(refused("name-changed", "The machine calls itself another name; keep its setup binding and choose the correct machine"));
       const configuredHost = { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot };
       yield* hosts.upsert(configuredHost);

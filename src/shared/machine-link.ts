@@ -78,10 +78,19 @@ export const LinkKeySha256 = Schema.String.pipe(Schema.check(Schema.isPattern(/^
  * only while the line holding exactly `linkKeySha256` is still here: a later
  * link made its own line and its own pin, which this never touches.
  */
+/**
+ * Three shapes, checked closed where they are answered: a plain revoke of
+ * that installation's lines; an unpin of exactly one generation, named by
+ * its key; and `every`, from a machine that holds no key for this one, which
+ * clears every line of that installation and its pin, only when `holder` is
+ * the answering machine's own installation.
+ */
 export const MachineLinkRevokeInput = Schema.Struct({
   installationId: InstallationId,
   unpin: Schema.optionalKey(Schema.Literal(true)),
   linkKeySha256: Schema.optionalKey(LinkKeySha256),
+  every: Schema.optionalKey(Schema.Literal(true)),
+  holder: Schema.optionalKey(InstallationId),
 });
 export type MachineLinkRevokeInput = typeof MachineLinkRevokeInput.Type;
 /** With `unpin`, `holder` is the answering machine's own installation: a clear settles only against the machine that held the line. */

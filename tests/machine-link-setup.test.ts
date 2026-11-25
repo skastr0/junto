@@ -374,7 +374,7 @@ it("settles a kept clear over the route a send just reached, before setup pins t
   expect(await readFile(vps.authorizedKeys, "utf8")).not.toContain(`:${editor.installationId}`);
   expect(await pinOf(vps, "book")).toBeUndefined();
   expect(editor.sessions.at(-1)!.at(-2)).toBe("vps-alias");
-  expect(editor.setup.holdsLinkKey("vps")).toBe(false);
+  expect(editor.setup.linkKeyState("vps")).toBe("none");
 });
 
 it("keeps a clear pending when the address now answers as another installation, by a retry or by a send", async () => {
@@ -445,4 +445,116 @@ it.skipIf(process.getuid?.() === 0)("writes nothing over a list it could not rea
   } finally { await chmod(dir, 0o700); }
   expect(await readFile(file, "utf8")).toBe("not json");
   expect(editor.setup.takeSetAside()).toEqual([file, file]);
+});
+
+/** The pending clear lost: its row and its host keys are gone, and this machine holds no key for that machine. */
+const loseRow = async (editor: Machine) => {
+  await rm(join(editor.home, ".junto/core/link-keys/unlinked.json"), { force: true });
+  await rm(join(editor.home, ".junto/core/link-keys/unlinked"), { recursive: true, force: true });
+};
+
+it("ends a lost pending clear with every: the send's clear takes this machine's lines and pin there, nothing else, and setup can pin plainly", async () => {
+  const { editor, mini, vps, reach } = await fleet();
+  await run(editor, editor.setup.link({ from: "mini", to: "vps" }));
+  // Removed while it is off the network, then the pending row is lost (receipt 15, case 3).
+  editor.hosts.set("vps", { ...editor.hosts.get("vps")!, sshEndpoint: "later-alias" as never });
+  await expect(run(editor, editor.setup.clearRemoved(editor.hosts.get("vps")!, vps.installationId))).resolves.toBe("kept");
+  await removeHere(editor, vps);
+  await loseRow(editor);
+  expect(editor.setup.linkKeyState("vps")).toBe("none");
+  // It still trusts a key nobody here holds: what setup reads as keyBound.
+  expect(await pinOf(vps, "book")).toMatchObject({ installationId: editor.installationId, binding: "key" });
+  const before = await readFile(vps.authorizedKeys, "utf8");
+  expect(before).toContain(`junto-link:${linkHomeTag(vps.home)}:${editor.installationId}`);
+
+  // Back on the network and added again: the send clears it, against the installation it confirmed.
+  reach("later-alias", vps);
+  await addAgain(editor, vps);
+  await expect(run(editor, editor.setup.clearEvery(editor.hosts.get("vps")!, vps.installationId))).resolves.toBe(true);
+  const after = await readFile(vps.authorizedKeys, "utf8");
+  expect(after).toBe(before.split("\n").filter((line) => !line.endsWith(`:${editor.installationId}`)).join("\n"));
+  // The mini's line and pin, and the operator's own key, survive; the next setup pins the editor plainly.
+  expect(after).toContain(`:${mini.installationId}`);
+  expect(after).toContain("operator@laptop");
+  expect(await pinOf(vps, "book")).toBeUndefined();
+  expect(await pinOf(vps, "mini")).toMatchObject({ installationId: mini.installationId, binding: "key" });
+  expect(editor.sessions.at(-1)!.at(-1)).toContain("'machine' 'link-revoke' '-'");
+});
+
+it("a remove with no key here clears with every, and says kept when the machine cannot be reached, with no row", async () => {
+  const { editor, vps } = await fleet();
+  await run(editor, editor.setup.link({ from: "mini", to: "vps" }));
+  await run(editor, editor.setup.forget("vps", vps.installationId));
+  await loseRow(editor);
+  expect(editor.setup.linkKeyState("vps")).toBe("none");
+  editor.hosts.set("vps", { ...editor.hosts.get("vps")!, sshEndpoint: "later-alias" as never });
+  await expect(run(editor, editor.setup.clearRemoved(editor.hosts.get("vps")!, vps.installationId))).resolves.toBe("kept");
+  await expect(readFile(join(editor.home, ".junto/core/link-keys/unlinked.json"), "utf8")).rejects.toThrow(/ENOENT/);
+  editor.hosts.set("vps", { ...editor.hosts.get("vps")!, sshEndpoint: "vps-alias" as never });
+  await expect(run(editor, editor.setup.clearRemoved(editor.hosts.get("vps")!, vps.installationId))).resolves.toBe("clear");
+  expect(await readFile(vps.authorizedKeys, "utf8")).not.toContain(`:${editor.installationId}`);
+  expect(await pinOf(vps, "book")).toBeUndefined();
+});
+
+it("every is a closed shape: refused with a key, without unpin or without holder, and a holder only rides with every", async () => {
+  const { editor, vps } = await fleet();
+  await run(editor, editor.setup.link({ from: "mini", to: "vps" }));
+  const before = await readFile(vps.authorizedKeys, "utf8");
+  const id = editor.installationId;
+  await expect(run(vps, vps.setup.revoke({ installationId: id, holder: vps.installationId, unpin: true, every: true, linkKeySha256: "0".repeat(64) }))).rejects.toThrow(/names no link key/);
+  await expect(run(vps, vps.setup.revoke({ installationId: id, holder: vps.installationId, every: true }))).rejects.toThrow(/unpins too/);
+  await expect(run(vps, vps.setup.revoke({ installationId: id, unpin: true, every: true }))).rejects.toThrow(/names the machine that holds them/);
+  await expect(run(vps, vps.setup.revoke({ installationId: id, holder: vps.installationId }))).rejects.toThrow(/Only a clear of every line/);
+  await expect(run(vps, vps.setup.revoke({ installationId: id, holder: vps.installationId, unpin: true, linkKeySha256: "0".repeat(64) }))).rejects.toThrow(/Only a clear of every line/);
+  expect(await readFile(vps.authorizedKeys, "utf8")).toBe(before);
+  expect(await pinOf(vps, "book")).toMatchObject({ binding: "key" });
+});
+
+it("every acts on nothing for another installation's holder, as after a rebuild at that address, and answers its own", async () => {
+  const { editor, mini, vps } = await fleet();
+  await run(editor, editor.setup.link({ from: "mini", to: "vps" }));
+  const before = await readFile(vps.authorizedKeys, "utf8");
+  await expect(run(vps, vps.setup.revoke({ installationId: editor.installationId, holder: mini.installationId, unpin: true, every: true })))
+    .resolves.toEqual({ installationId: editor.installationId, removed: false, unpinned: false, holder: vps.installationId });
+  expect(await readFile(vps.authorizedKeys, "utf8")).toBe(before);
+  expect(await pinOf(vps, "book")).toMatchObject({ binding: "key" });
+  // From the near side the clear is not clean: the answer came from another installation.
+  await expect(run(editor, editor.setup.clearEvery(editor.hosts.get("vps")!, mini.installationId))).resolves.toBe(false);
+  expect(await readFile(vps.authorizedKeys, "utf8")).toBe(before);
+});
+
+it("every retires the pin even with no line left, and answers removed and unpinned apart", async () => {
+  const { editor, vps } = await fleet();
+  expect(await pinOf(vps, "book")).toMatchObject({ installationId: editor.installationId });
+  expect(await readFile(vps.authorizedKeys, "utf8")).not.toContain(`:${editor.installationId}`);
+  await expect(run(vps, vps.setup.revoke({ installationId: editor.installationId, holder: vps.installationId, unpin: true, every: true })))
+    .resolves.toEqual({ installationId: editor.installationId, removed: false, unpinned: true, holder: vps.installationId });
+  expect(await pinOf(vps, "book")).toBeUndefined();
+  // Nothing left: a second clear is not clean.
+  await expect(run(editor, editor.setup.clearEvery(editor.hosts.get("vps")!, vps.installationId))).resolves.toBe(false);
+});
+
+it("only the send's key-bound guard and machine.remove reach every, and no retry", async () => {
+  const source = (path: string) => readFile(join(import.meta.dirname, "..", path), "utf8");
+  const link = await source("src/core/hosts/machine-link.ts");
+  const copy = await source("src/core/hosts/machine-copy.ts");
+  const runtime = await source("src/core/core-runtime.ts");
+  // One request writes every, from clearEvery; clearEvery is called only from the remove's clear and handed out once.
+  expect(link.match(/every: true \}/gu)).toHaveLength(1);
+  expect(link.match(/clearEvery\(/gu)).toHaveLength(1);
+  const callers = link.split("\n").filter((line) => line.includes("clearEvery(") || /\bclearEvery,/u.test(line));
+  expect(callers).toHaveLength(2);
+  expect(callers[0]).toContain('if (state === "none")');
+  for (const retry of ["readPending", "unlinkRemoved", "revokeEverywhere", "settleRemoved"]) {
+    const start = link.indexOf(`const ${retry} =`);
+    expect(start).toBeGreaterThan(-1);
+    const rest = link.slice(start + 1);
+    const body = rest.slice(0, rest.search(/\n {0,2}(?:const |return \{|\/\*\*)/u));
+    expect(body.length).toBeGreaterThan(0);
+    expect(body).not.toContain("clearEvery");
+    expect(body).not.toContain("every:");
+  }
+  expect(copy.match(/clearStaleLink\(/gu)).toHaveLength(1);
+  expect(runtime.match(/clearEvery/gu)).toEqual(["clearEvery"]);
+  expect(runtime).toContain("clearStaleLink: linkSetup.clearEvery");
 });
