@@ -179,68 +179,80 @@ with no path, name, size or hash.
 - A 25 MB PDF read by ranges beside a typing seat, with the seat's frames
   never behind more than one chunk.
 
-## X6, a Files node on another machine (design, remote-core, for remote-security)
+## X6, a Files node on another machine (design, remote-core, under remote-security's F1 to F8)
 
 remote-verify found the gap: `requireFilesPlace` (`src/core/model/records.ts`)
 refuses any host but this machine's own, on Add and on an Edit that changes
-the host or the root. With `filesRemote` on, nothing can make the node the
-feature serves.
+the host or the root. With `filesRemote` on, nothing could make the node the
+feature serves. With the flag off, every rule below is today's, unchanged.
 
-**The rule, behind `filesRemote`.** A Files node's `host` is this machine's
-name, or the name of a machine pinned in this machine's list and not removed
-(`machine_peers`, `retired_at IS NULL`), the same set `requireSeatHost` reads.
-`UNNAMED_MACHINE`, a name not in the list, and a removed machine still refuse,
-each with its own sentence. The root is absolute, as today, and is checked
-only for being absolute: this machine never resolves or stats a folder on
-another machine. With the flag off, the gate is today's, byte for byte.
+**The gate at write (F1, F2).** `requireFilesPlace` takes the command's
+source.
+- A host other than this machine is admitted only from source `operator`.
+  That source is the window's `ModelCommand` over main's trusted IPC
+  (`src/core/ops/ipc-model.ts`), the only caller that sends it. Overseer,
+  seat, CLI and automation commands keep this machine only.
+- The host is this machine's name, or a pin in `machine_peers` with
+  `retired_at IS NULL` whose name is not a Boat machine. A retired pin, a
+  bare host record, a Boat machine, `UNNAMED_MACHINE` and an unknown name
+  each refuse with their own sentence.
+- The root is absolute.
+- Add checks both the host and the root. An Edit that changes the host checks
+  both, even when the root is unchanged. An Edit that changes only the root
+  checks the root against the node's host.
 
-**Who may name another machine.** The operator only. An Add or an Edit from
-any other source (a seat, an overseer, the runtime) that names a host other
-than this machine is refused, whatever the flag says. This follows Decided 2,
-"operator surface only". A seat cannot point the operator's window at a
-folder on another machine. The node stays on its canvas like any other, and
-a seat may still move or relabel it, since neither changes the host or the
-root.
+**The far trusts nothing in the copy (F3).** `installCopy` stays ungated,
+since a copy carries every machine's nodes. The far's checks are made where
+it serves. Every op on the far, ReadChunk included, re-reads the node from
+the far's own record. It then serves only when all of these hold:
+- the host is the far's own name;
+- the root is absolute and realpath'd;
+- the root is not `/` and does not contain the far's Junto home;
+- the root is not under the deny list.
+The deny list holds on every path under the root, as it does today. These
+are added to the far's service alone, the headless one
+(`src/core/files/headless-service.ts`), so a local Files node on `~` keeps
+working on its own machine. A copy that changes an existing node meets the
+same checks at the next op.
 
-**The far copy.** `installCopy` does not run `requireFilesPlace`, today or
-after this change. A copy carries every machine's nodes, and gating it would
-refuse a copy that names a third machine the far has not pinned. The far's
-gate is where it serves. `rootOf` (`src/core/files/service.ts`) serves a node
-only when its `host` is the far's own name, then takes the realpath of the
-root its own copy names and applies its deny list. Every op runs
-`admitFilesPeer` (pinned id, editor of the canvas). A node that names a
-machine other than the far is refused `elsewhere` there. The far's own name
-cannot change under such a node: `configureName` refuses once a peer is
-pinned or a canvas is authored (`src/core/machines/repository.ts`).
+**Admission (F4).** `admitFilesPeer` is unchanged: a pinned id, and the
+editor of the canvas. A test shows a pinned peer that is not the editor is
+denied.
 
-**A machine removed later.** Its nodes stay on the canvas. The router
-(`src/core/files/router.ts`) sends a node whose host is not this machine to
-the link client. With no link to that name, every op answers `unreachable`,
-with the last reached time. The card and the modal show its machine as
-offline, and no tree. A node never falls back to this machine: the router
-goes to the local service only when `host` equals this machine's name, and
-that name is fixed once a peer is pinned, so a removed machine's name can
-never become this machine's. Editing such a node's root or host refuses, as
-the machine is no longer in the list. Its label and position still change.
+**A node that changes or goes (F5).**
+- An X3 stream or upload records the node's realpath'd root when it opens.
+  Every later op compares it with the root the far resolves now. A
+  different host or root, or a missing node, closes the stream or drops the
+  upload, refused `no-node`.
+- A peer's watch, the `files` channel's open session, is closed when the
+  canvas changes the node's host or root or removes the node. The far
+  listens to its own canvas changes, closes the session and sends `closed`.
 
-**For remote-window, the add and edit UI.**
-- The machine choice lists this machine first, then each pinned machine by
-  name, from `machine.list` (rows that are not removed).
-- The choice shows only with `filesRemote` on.
-- The folder picker opens this machine's dialog, so it is offered only when
-  the choice is this machine. For another machine the root is typed as an
-  absolute path, and the field says it is a folder on that machine.
-- A refusal shows the core's sentence as given.
+**A machine removed (F6).** Its nodes stay on the canvas as data and open
+nothing. The window router checks for an active pin before any request to
+another machine. Without one, it answers the new window-side refusal
+`not-set-up`, and no request goes to that name. The view says its machine is
+not set up. This machine's name is fixed once a peer is pinned
+(`configureName`), so a removed machine's name can never become this
+machine's, and a node never falls back to the local service.
 
-**Tests.**
-- With the flag on: the operator adds and edits a node on a pinned machine,
-  and each refusal is checked (unnamed, unknown, removed, relative root, and
-  a non-operator naming another machine).
-- With the flag off, today's refusal for another machine.
-- A removed machine's node answers `unreachable` through the router, and
-  never reaches the local service.
-- On the far, a copy whose node names a third machine is installed, and that
-  node is refused `elsewhere`.
+**A re-pin (F7).**
+- The take-over preview also counts the Files nodes placed on that name.
+- The new installation serves nothing until the editor's copy reaches it.
+  This already holds: it holds no such canvas, so `admitFilesPeer` answers
+  `no-node`.
+
+**Logs (F8).** The far logs the op, the node and the outcome, with no root
+or path. This is X1's rule, and a test now holds it for the new refusals.
+
+**For remote-window.**
+- The add and edit choice shows only with `filesRemote` on, on the operator
+  source. It lists this machine first, then each active, non-Boat pin.
+- For another machine the root is typed, and the field says it is a folder
+  on that machine.
+- An Edit that moves a node to another machine sends the host and the root
+  together.
+- The `not-set-up` view is new.
 
 ## Decided (product-lead, 2026-10-29)
 
