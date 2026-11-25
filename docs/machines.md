@@ -253,7 +253,7 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
     take-over removes the old link key and closes the old live sessions, then
     one retire transaction recounts and refuses a changed count, sweeps the old
     pin's owed deletes by name, deletes its vault token and last-seen rows,
-    writes the new pin, and returns. Nothing runs for the new installation
+    writes a plain new pin, and returns. Nothing runs for the new installation
     until that transaction commits, and the old pin's owed deletes are never
     delivered to the installation that follows it.
     An update whose machine reports any running seat, or no seat count at all,

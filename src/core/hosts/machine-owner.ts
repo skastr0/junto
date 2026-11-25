@@ -266,7 +266,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       // Old delete debt and vault scope belong to the installation that left.
       yield* sql`DELETE FROM terminal_delete_owed WHERE machine_name = ${name}`;
       yield* sql`DELETE FROM machine_vault_tokens WHERE machine_name = ${name}`;
-      yield* sql`INSERT INTO machine_peers(machine_name, installation_id, bound_at, retired_at, binding) VALUES (${name}, ${input.installationId}, ${at}, NULL, 'key')`;
+      yield* sql`INSERT INTO machine_peers(machine_name, installation_id, bound_at, retired_at, binding) VALUES (${name}, ${input.installationId}, ${at}, NULL, NULL)`;
       return true;
     })).pipe(Effect.provideService(StateTransactionOperation, "machine.takeover"), Effect.mapError((cause) => new RemoteHostsError(cause instanceof RemoteHostsError ? cause.code : "io", "The old link key is removed; the pin was not replaced. Run the take-over again")));
     if (!committed) {

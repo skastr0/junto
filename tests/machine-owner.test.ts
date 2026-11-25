@@ -501,7 +501,7 @@ it("takes over a pin by installation id, sweeps its old debt, and closes its lin
 
   const taken = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install", confirm: { seats: 2, automations: 3 } });
   expect(taken).toMatchObject({ ok: true, op: "machine.takeover", data: { takenOver: true, previousInstallationId: "mini-install", installationId: "new-install" } });
-  expect(f.database.prepare("SELECT installation_id FROM machine_peers WHERE machine_name = 'mini'").get()).toEqual({ installation_id: "new-install" });
+  expect(f.database.prepare("SELECT installation_id, binding FROM machine_peers WHERE machine_name = 'mini'").get()).toEqual({ installation_id: "new-install", binding: null });
   expect(f.database.prepare("SELECT count(*) AS count FROM terminal_delete_owed WHERE machine_name = 'mini'").get()).toEqual({ count: 0 });
   expect(f.database.prepare("SELECT count(*) AS count FROM machine_vault_tokens WHERE machine_name = 'mini'").get()).toEqual({ count: 0 });
   expect(f.database.prepare("SELECT count(*) AS count FROM machine_peer_seen WHERE installation_id = 'mini-install'").get()).toEqual({ count: 0 });

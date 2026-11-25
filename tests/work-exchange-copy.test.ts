@@ -1397,6 +1397,21 @@ describe("a copy carrying the authority list", () => {
     expect(await copyList(mini)).toMatchObject({ term: 0, index: 0, sender: MACBOOK, members: [MACBOOK, MINI] });
   });
 
+  it("refuses a take-over's plain pin for a keeper copy until the link key binds it", async () => {
+    const macbook = await boot("macbook", MACBOOK, [["mini", MINI]]);
+    const mini = await boot("mini", MINI, [["macbook", MACBOOK]]);
+    await factoryOn(macbook);
+    await authorities(macbook, [MACBOOK, MINI]);
+    const honest = await copyFor(macbook, mini);
+    expect(honest.notes).toBeDefined();
+    // The take-over writes a plain pin, which grants no newcomer keeper trust.
+    expect(await mini.runtime.runPromise(mini.exchange.installCopy(honest))).toMatchObject({ installed: false });
+    expect(await header(mini)).toBeUndefined();
+    // junto machine link makes it key-bound, and the same copy is admitted.
+    await pinKey(mini, "macbook", MACBOOK);
+    expect(await mini.runtime.runPromise(mini.exchange.installCopy(honest))).toMatchObject({ installed: true });
+  });
+
   it("hands the newcomer its copy ahead of the first rows once the list commits", async () => {
     const macbook = await boot("macbook", MACBOOK, [["mini", MINI]]);
     const mini = await boot("mini", MINI, [["macbook", MACBOOK]]);
