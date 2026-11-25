@@ -16,6 +16,7 @@ import {
   filesErrorLine,
   filesSource,
   fileViewOf,
+  saveErrorLine,
   setFileDraft,
   unreachableLine,
   useDraftsVersion,
@@ -697,7 +698,8 @@ function SelectedFile({
     // Something is at the path again since it was deleted: that is a change on disk, reload or keep.
     if (result.error === "stale" || (base === null && result.error === "exists")) setStale("changed");
     else if (result.error === "not-found" && base !== null) setStale("deleted");
-    else setError(filesErrorLine(result.error));
+    // The draft is kept: a refused save never drops the text.
+    else setError(saveErrorLine(result.error, here));
     return false;
   };
   useEffect(() => {

@@ -243,6 +243,17 @@ export const filesErrorLine = (error: FilesError): string => {
   }
 };
 
+/**
+ * A save to another machine's node that is too large to send there: the draft
+ * stays, and nothing on that machine changed (0.12.1, X3, remote-design).
+ */
+export const REMOTE_SAVE_TOO_LARGE_LINE =
+  "This file is too large to save from this machine. Your changes are still here, and the file on its machine is unchanged.";
+
+/** A refused save in the operator's words; `here` is whether the node's folder is on this machine. */
+export const saveErrorLine = (error: FilesError, here: boolean): string =>
+  error === "too-large" && !here ? REMOTE_SAVE_TOO_LARGE_LINE : filesErrorLine(error);
+
 /** The machine an `unreachable` refusal names, and when its link last answered. */
 export type FilesOffline = { readonly machine: string; readonly lastReachedAt: number | null };
 
