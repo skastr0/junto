@@ -400,4 +400,3 @@ mod tests {
         assert!(!account_name("junto--read") && !account_name("junto-mini-admin"));
     }
 }
-

@@ -582,4 +582,3 @@ mod tests {
         assert!(make_restore_point(&state).expect("read").is_none());
     }
 }
-

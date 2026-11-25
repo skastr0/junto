@@ -785,4 +785,3 @@ mod tests {
         assert_eq!(pid_of("no pid here"), 0);
     }
 }
-

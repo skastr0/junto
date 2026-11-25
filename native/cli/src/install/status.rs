@@ -92,4 +92,3 @@ mod tests {
         assert!(data.ready);
     }
 }
-

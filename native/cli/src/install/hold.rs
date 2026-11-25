@@ -256,4 +256,3 @@ mod tests {
         assert!(running_seats_unknown().message.contains("did not answer"));
     }
 }
-

@@ -403,4 +403,3 @@ fn usage(error: &clap::Error, words: &[&str]) -> ExitCode {
     };
     help::refuse_usage(words, &message, tagged)
 }
-

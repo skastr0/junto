@@ -119,7 +119,10 @@ mod tests {
         let removed = prune_machine_builds(&root, &[format!("builds/{current}"), previous.clone()])
             .expect("pruned");
         for name in [&current, &previous] {
-            assert!(root.join("builds").join(name).is_dir(), "{name} was removed");
+            assert!(
+                root.join("builds").join(name).is_dir(),
+                "{name} was removed"
+            );
         }
         assert_eq!(removed, vec![old.clone()]);
         assert!(root.join("builds").join("not-a-generation").is_dir());
@@ -157,4 +160,3 @@ mod tests {
         assert!(!is_generation("incoming-1"));
     }
 }
-

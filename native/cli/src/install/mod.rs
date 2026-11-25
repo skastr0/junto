@@ -994,4 +994,3 @@ mod tests {
         assert_eq!(details["disposition"], json!("uncertain"));
     }
 }
-

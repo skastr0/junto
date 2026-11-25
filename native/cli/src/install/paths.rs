@@ -254,4 +254,3 @@ mod tests {
         assert!(!owned_machine_file(&directory.join("absent")).expect("absent"));
     }
 }
-

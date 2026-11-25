@@ -170,4 +170,3 @@ mod tests {
         assert!(!pattern.is_match("  0  12 Mon Jan 12 10:00:00 2026"));
     }
 }
-

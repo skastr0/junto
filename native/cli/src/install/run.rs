@@ -154,4 +154,3 @@ mod tests {
         assert_eq!(completed.status, None);
     }
 }
-

@@ -127,4 +127,3 @@ impl Failure {
 }
 
 pub type Result<T, E = Failure> = std::result::Result<T, E>;
-
