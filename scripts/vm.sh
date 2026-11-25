@@ -98,7 +98,8 @@ remote() { # remote <id> <shell…>: run on the VM, print stdout and stderr, exi
 
 case "${1:-}" in
   pool)
-    region=${2:?region name}
+    # One VM per region however it is typed: CLI, Cli and cli share cli-pool-1.
+    region=$(printf %s "${2:?region name}" | tr "[:upper:]" "[:lower:]")
     n=${3:-1}
     case "$n" in
       1 | 2) ;;
