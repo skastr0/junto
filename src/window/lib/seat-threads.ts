@@ -834,7 +834,7 @@ const laySentMessage = (
     mine: true,
     text: mail.text,
     at: Date.now(),
-    ...(mail.attachments === undefined ? {} : { attachments: mail.attachments }),
+    ...(mail.attachments === undefined ? {} : { attachments: mail.attachments as ReadonlyArray<ContentRef> }),
     ...(sent.delivery === "delivered" ? {} : { waiting: true as const }),
   };
   seatThreads$.messages[key].set({
