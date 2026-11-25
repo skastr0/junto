@@ -19,7 +19,8 @@ Each keeps its old copy until the canvas is deleted there by hand.
 
 Known: a machine holds one canvas of each name. When two editors both send a
 seat on a canvas of the same name, such as base, to the same machine, the
-second is refused without saying why.
+second is refused. `junto machine exchange` gives the reason, but the seat card
+in the window still names the wrong one.
 
 ## 0.12.0 — 2026-11-25
 
