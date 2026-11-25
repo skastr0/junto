@@ -487,20 +487,29 @@ here says `nothing changed`.
 machine's name**, so it refused to pin this one. Nothing there moves on
 its own.
 
-- Core's words, `ownWords: true`: `It already trusts a different install
-  of Junto under this machine's name, so nothing changed. Preview a
-  take-over there with junto machine takeover-remote to see which seats
-  and automations move.`
+- Core's words, `ownWords: true`: `Junto is installed there, but it
+  already trusts a different install of Junto under this machine's name.
+  Preview a take-over there with junto machine takeover-remote to see
+  which seats and automations move.` S4 is raised only after the install
+  receipt (remote-core), so the build is installed and `nothing changed`
+  never holds.
 - The step: `machine.takeover-remote` starts a take-over on the far
   machine that holds the old pin (`MachineTakeoverRemoteInput`,
   `src/shared/machine-control.ts`), which is this case; `machine takeover`
   is the other way round, a stale pin held here. The CLI prints the ready
   preview command on its own line, with the name from this machine's list,
   under the same conditions as the take-over line above.
-- `so nothing changed` only on a `staged` or `rolled-back` near
-  disposition, as section 6 rules for a far claim: a send may have
-  installed the build before setup refused the pin. Otherwise the clause
-  is dropped and the rest stays.
+- A first send has no pin here, so there is nothing for takeover-remote
+  to preview: that send keeps today's `could not finish setup` line, with
+  no take-over line.
+
+**The send's own `pinned` step.** It shows, on a send only, as a sixth
+step after `Junto answers`, so a refused pin shows where it stopped
+instead of five done steps beside a failure. An update never pins and
+keeps its five; a send counts `step N of 6`.
+
+- Upcoming `Trust this machine`, done `Trusts this machine`, the verb S4
+  uses.
 
 ## 6. The far install's refusal codes
 
