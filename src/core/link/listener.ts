@@ -143,6 +143,7 @@ export const startLinkListener = async (
   return {
     socketPath,
     ready: () => !stopping && server.listening && controlListenerLeaseHeld(lease) && identity !== undefined && controlSocketPathOwnedByLease(lease, identity),
+    ownsPath: () => identity !== undefined && controlListenerLeaseHeld(lease) && controlSocketPathOwnedByLease(lease, identity),
     beginShutdown,
     close,
   };

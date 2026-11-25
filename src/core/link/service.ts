@@ -12,6 +12,8 @@ export type { LinkChannelBinding, LinkChannelContext, LinkChannelHandler, LinkCh
 export interface MachineLinkListener {
   readonly socketPath: string;
   readonly ready: () => boolean;
+  /** Whether the socket path still names this listener's socket: false once its home was deleted, relinked or replaced. */
+  readonly ownsPath: () => boolean;
   /** Closes each admitted session with `cause` (a close frame the peer reads), then drops the rest. */
   readonly beginShutdown: (cause?: unknown) => void;
   readonly close: (cause?: unknown) => Promise<void>;

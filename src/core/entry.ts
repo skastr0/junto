@@ -103,10 +103,13 @@ const main = async (parent: ParentPort): Promise<void> => {
   const broadcasts = publishWindowBroadcasts(pushes);
   // This core's overseer page calls: the host pages give each its id, and the recheck handler reads them back.
   const pageFlights = OverseerPageFlights.make();
+  // A home moved under this core stops it as main's SIGTERM does (socket-path-watch.ts).
+  let stopForHomeMoved: (() => void) | undefined;
   const core = await startCore({
     home: boot.home,
     build: boot.build,
     log,
+    onHomeMoved: () => stopForHomeMoved?.(),
     // What the core asks of Electron rides the same port, answered by main's host server.
     host: Layer.merge(
       HostClientsLive.pipe(Layer.provide(Layer.succeed(HostLink, parentCorePort(parent)))),
@@ -156,13 +159,17 @@ const main = async (parent: ParentPort): Promise<void> => {
     .runPromise(Layer.buildWithScope(CoreStartup, core.runtime.scope))
     .catch((cause: unknown) => console.error("[core] startup wiring failed:", cause instanceof Error ? cause.message : cause));
   served.push("core.ready", {});
+  let stopping = false;
   const stop = (): void => {
+    if (stopping) return;
+    stopping = true;
     // The last heap row, before the core closes its log.
     stopHeapLog();
     // Main stops the core; a host call still out fails when its link says main is gone.
     stopCoreOnSignal(() => closeCoreProcess(() => core.close()));
   };
   process.once("SIGTERM", stop);
+  stopForHomeMoved = stop;
 };
 
 const parent = parentPortOf();

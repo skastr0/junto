@@ -19,6 +19,7 @@ import { MachineOwnerControl } from "./hosts/machine-owner";
 import { MachineLink, type MachineLinkListener } from "./link/service";
 import { startOperatorControlServer, type OperatorControlServer } from "../node/operator-control";
 import { evaluateSchemaCompatibility, probeInstalledStateSchema } from "../node/state/schema-version-probe";
+import { watchSocketPathOwned } from "../node/socket-path-watch";
 import { quiesceServiceChildrenOnQuit } from "./services/process";
 import { terminateAdapterChildrenOnQuit } from "./adapters/exec";
 import { releaseDemoRuntimeIsolation } from "./demo/runtime-isolation";
@@ -66,6 +67,12 @@ import { companionNotePreamble, wireCompanionChanges } from "./companion/wiring"
 export type CoreOptions = Omit<MachineCoreOptions, "ready" | "log"> & {
   /** The core process's log, built by the entry that owns the ring sink and the file. */
   readonly log?: Log;
+  /**
+   * Called once when this core's link socket path no longer names its socket,
+   * because its home was deleted, relinked or replaced: no client reaches it.
+   * The entry stops the core as on SIGTERM. A test core leaves it out.
+   */
+  readonly onHomeMoved?: (message: string) => void;
   /** The desktop core also serves canvas edits (`junto canvas`); a headless machine core does not. */
   readonly canvasControl?: boolean;
   /** The desktop core runs the overseer, asking main for the window's pixels and the browser's pages. */
@@ -166,6 +173,7 @@ export const startCore = async (options: CoreOptions) => {
   let sessions: SeatSessions | undefined;
   let stopSeatReports: (() => void) | undefined;
   let stopSeatWatches: (() => void) | undefined;
+  let stopPathWatch: (() => void) | undefined;
   let releaseRunner: (() => void) | undefined;
   // An on-demand operator socket not yet asked for is not a core that is down.
   const ownerReady = (): boolean => owner === undefined ? options.operator?.listen === "on-demand" : owner.ready();
@@ -201,6 +209,7 @@ export const startCore = async (options: CoreOptions) => {
     sessions?.stop();
     stopSeatReports?.();
     stopSeatWatches?.();
+    stopPathWatch?.();
     seatProcesses?.beginShutdown();
     closeFlight = (async () => {
       // A socket still opening lands in `owner` first, so it closes with the rest.
@@ -460,6 +469,15 @@ export const startCore = async (options: CoreOptions) => {
     }
     listener = await runtime.runPromise(link.listen(options.home));
     if (desk?.listen !== "on-demand") await ensureOperatorListening();
+    const onHomeMoved = options.onHomeMoved;
+    const linkListener = listener!;
+    if (onHomeMoved !== undefined) {
+      stopPathWatch = watchSocketPathOwned(() => stopping || linkListener.ownsPath(), () => {
+        const message = `This machine's Junto core is stopping: ${linkListener.socketPath} no longer names its socket, so its home was moved or replaced`;
+        console.error(`[core] ${message}`);
+        onHomeMoved(message);
+      });
+    }
     admitted = true;
     compositionReady = true;
     stopMachineUpdates = actions.startAutoUpdates === undefined ? undefined : await runtime.runPromise(actions.startAutoUpdates());

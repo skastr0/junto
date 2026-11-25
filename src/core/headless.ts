@@ -47,8 +47,11 @@ const main = async (): Promise<void> => {
   const nativeTarget = `${process.platform}-${process.arch}`;
   const bundles = existsSync(join(packageRoot, "manifest.json")) && (nativeTarget === "darwin-arm64" || nativeTarget === "linux-x64")
     ? { [nativeTarget]: packageRoot } : {};
+  // A home moved under this core stops it as SIGTERM does (socket-path-watch.ts).
+  let stopForHomeMoved: ((message: string) => void) | undefined;
   const core = await startCore({
     home,
+    onHomeMoved: (message) => stopForHomeMoved?.(message),
     build: runningBuildIdentity(),
     bundles,
     log,
@@ -59,18 +62,23 @@ const main = async (): Promise<void> => {
   // to the rotated log now, while its credentials are registered for the scrub.
   if (installRoot !== undefined) recordServiceBoot(log, installRoot, previousStderr);
   let closing = false;
-  const stop = (signal: NodeJS.Signals): void => {
+  // `cleanCode` is the exit after a clean stop: 0 for a signal; nonzero for a
+  // home moved under the core, so the service manager starts a core on the
+  // home as it is now (Restart=on-failure, launchd KeepAlive).
+  const stopFor = (message: string, cleanCode = 0): void => {
     if (closing) return;
     closing = true;
     // The service manager stopping this core is the first fact a reader of either log needs.
-    console.info(`[core] Junto core is stopping: it received ${signal}`);
-    void closeCoreProcess(() => core.close(new LinkUnavailable({ reason: "shutting-down", message: `This machine's Junto core is stopping: it received ${signal}` }))).then(() => { stopHeapLog(); process.exitCode = 0; }, (cause: unknown) => {
+    console.info(`[core] ${message}`);
+    void closeCoreProcess(() => core.close(new LinkUnavailable({ reason: "shutting-down", message }))).then(() => { stopHeapLog(); process.exitCode = cleanCode; }, (cause: unknown) => {
       stopHeapLog();
       console.error("[core] Junto could not stop cleanly", cause);
       process.stderr.write(`Junto could not stop cleanly; the reason is in ${machineLogDir(home)}\n`);
       process.exitCode = 1;
     });
   };
+  const stop = (signal: NodeJS.Signals): void => stopFor(`This machine's Junto core is stopping: it received ${signal}`);
+  stopForHomeMoved = (message) => stopFor(message, 75);
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
   console.info("[core] Junto core is ready");
