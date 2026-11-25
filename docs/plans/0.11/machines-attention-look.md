@@ -431,12 +431,18 @@ automations that move (`docs/machines.md`, take-over).
 
 - Core's words, `ownWords: true`, for the CLI and the row's third line:
   `It now answers as a different install of Junto, so nothing changed.
-  Take it over to see which seats and automations move.`
-- The step: the window's `Take over` button, which opens the preview, and
-  `junto machine takeover` in the CLI. `nothing changed` holds on the near
-  side, since the send refuses before it changes anything. No name, no
-  installation id: the row shows the label, and the preview names the
-  installation it replaces.
+  Preview a take-over with junto machine takeover to see which seats and
+  automations move.`
+- The step is the CLI command: the window has no take-over button on
+  main. When remote-window builds one, the sentence names its label
+  instead. `nothing changed` holds on the near side, since the send
+  refuses before it changes anything.
+- The preview needs the machine name and the new installation id
+  (`MachineTakeoverInput`), so the CLI prints the ready preview command on
+  its own line after the sentence, built from the refusal's typed fields
+  (the name from this machine's list, the id decoded as `InstallationId`),
+  as the set-aside path is. Neither is in core's words, and the window
+  shows the sentence only.
 
 ## 6. The far install's refusal codes
 
