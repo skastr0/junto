@@ -17,6 +17,8 @@ import {
   USAGE_ENABLED,
 } from "@shared/features";
 import { state$ } from "../lib/state";
+import { agentSignals$ } from "../lib/agent-signals-state";
+import { openSignalCount, signalsCloseLine } from "../lib/canvas-delete";
 import { openOperatorModal } from "../lib/operator-modal";
 import { retrySave } from "../lib/mutations";
 import { unseenRef } from "../lib/unseen";
@@ -61,6 +63,8 @@ function CanvasPicker({
   const createOpen = use$(createOpen$);
   const deleteOpen = use$(deleteOpen$);
   const deleteTarget = use$(deleteTarget$);
+  // The signals still open on this canvas's seats close with it; the confirm says so when there are any.
+  const closingLine = use$(() => (deleteOpen ? signalsCloseLine(openSignalCount(Object.values(agentSignals$.get()), deleteTarget)) : undefined));
 
   const closeCreate = () => {
     createOpen$.set(false);
@@ -140,6 +144,11 @@ function CanvasPicker({
           onCancel={closeDelete}
         >
           <span>Permanently delete <strong className="text-ink">{deleteTarget}</strong>? This cannot be undone.</span>
+          {closingLine === undefined ? null : (
+            <span className="mt-2 block" data-testid="canvas-delete-signals">
+              {closingLine}
+            </span>
+          )}
         </ConfirmDialog>
       ) : null}
     </>
