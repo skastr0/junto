@@ -286,8 +286,13 @@ each seat it runs there with a durable delete hold, drops the copy whole in
 one transaction, Files nodes and their roots included, keeps the removed id in
 `canvas_removed` so no copy brings it back, then stops each seat through the
 dropped-seat finish. A canvas an earlier build removed is found by the have
-the other machine states, and a hold left behind a canvas no longer held is
-finished on the next link (`tests/canvas-removal-across-machines.test.ts`).
+the other machine states, against the copy history that build left, recorded
+once at state step 83 (`canvas_removed_earlier`) and never from the copy
+history of a live canvas, which after an editor handoff names machines whose
+copy is live under the new editor. A removal that machine refuses is answered
+`canvas-removal-refused` and owed no more. A hold left behind a canvas no
+longer held is finished on the next link
+(`tests/canvas-removal-across-machines.test.ts`).
 
 **For remote-window.**
 - The add and edit choice shows only with `filesRemote` on, on the operator

@@ -19,7 +19,6 @@ import {
   type StateSchemaMigrationDatabase,
   type StateSchemaMigrationPlan,
 } from "../src/core/state/migrations";
-import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
 import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_V81_SQL, STATE_SCHEMA_V82_SQL } from "./fixtures/state-v13/schema";
@@ -60,7 +59,6 @@ describe("state migration 81 -> 82 (a canvas removed across machines)", () => {
   it("starts from the version-81 witness and ends at the version-82 one, as a fresh install has it", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V81_SQL)).toEqual(STATE_SCHEMA_V81_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V82_SQL)).toEqual(STATE_SCHEMA_V82_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V82_IDENTITY);
   });
 
   it("is expand only: it replaces, removes, renames and retires nothing", () => {

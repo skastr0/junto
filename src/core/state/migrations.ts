@@ -26,6 +26,8 @@ import {
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
   CANVAS_FILES_CARRIED_STATE_SCHEMA_SQL,
   CANVAS_REMOVALS_STATE_SCHEMA_SQL,
+  CANVAS_REMOVED_EARLIER_FILL_SQL,
+  CANVAS_REMOVED_EARLIER_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL,
 } from "../work/exchange/state-schema";
 import {
@@ -1026,6 +1028,18 @@ export const STATE_SCHEMA_V82_IDENTITY = {
     "dff012b01c2943f5ad2a94ed632ef95edf089f1e4f111caf0330f4e152990f9d",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+/**
+ * Version 83 adds `canvas_removed_earlier`: the canvases an earlier build
+ * removed while this machine edited them, with each machine it sent a copy,
+ * read once from what that build left in `canvas_copies_sent` for a canvas
+ * no longer here. Expand only: one new table, filled at the step, and no kept
+ * row moves.
+ */
+export const STATE_SCHEMA_V83_IDENTITY = {
+  actualSchemaSha256:
+    "903eba722fabd17936b39b1b36e3f3acf222b64ddc90a4a4594780dcd5bef07a",
+} as const satisfies VerifiedStateSchemaIdentity;
+
 import { CURRENT_STATE_SCHEMA_VERSION } from "../../node/state/schema-version";
 
 export { CURRENT_STATE_SCHEMA_VERSION };
@@ -1696,6 +1710,17 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V81_IDENTITY,
     migrate: (database) => database.exec(CANVAS_REMOVALS_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 82,
+    toVersion: 83,
+    name: "keep the canvases an earlier build removed here, apart from the copy history of live ones",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V82_IDENTITY,
+    migrate: (database) => {
+      database.exec(CANVAS_REMOVED_EARLIER_STATE_SCHEMA_SQL);
+      database.exec(CANVAS_REMOVED_EARLIER_FILL_SQL);
+    },
   },
 ];
 

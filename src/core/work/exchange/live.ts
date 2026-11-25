@@ -816,9 +816,11 @@ export const makeLiveRowExchange = (
     /**
      * That machine holds a canvas of this name and id that this machine does
      * not: one it edited and removed. Owed to it now, or removed by an
-     * earlier build, which kept the copy history by name and owed nobody the
-     * removal. The receiver's own check, that this machine is the recorded
-     * editor of that id, is what decides.
+     * earlier build, recorded once at state step 83 (`canvas_removed_earlier`).
+     * The copy history of a live canvas is never read here: after an editor
+     * handoff it names machines whose copy is live under the new editor
+     * (remote-security, LOW 1 on 4689b5d6e). The receiver's own check, that
+     * this machine is the recorded editor of that id, is what decides.
      */
     const removedHere = (peer: InstallationId, canvasName: string, canvasId: string): Effect.Effect<boolean, unknown> =>
       Effect.gen(function* () {
@@ -826,13 +828,16 @@ export const makeLiveRowExchange = (
         if (owed.length > 0) return true;
         const header = yield* records.getCanvas(canvasName);
         if (header !== undefined && header.canvas_id === canvasId) return false;
-        const sent = yield* sql`SELECT 1 AS sent FROM canvas_copies_sent WHERE canvas_name = ${canvasName} AND target = ${peer} LIMIT 1`;
-        return sent.length > 0;
+        const earlier = yield* sql`SELECT 1 AS earlier FROM canvas_removed_earlier WHERE canvas_name = ${canvasName} AND target = ${peer}`;
+        return earlier.length > 0;
       });
 
+    /** That machine took the removal, or refused it: owed no more, by this build or an earlier one. */
     const removalTaken = (peer: InstallationId, canvasName: string, canvasId: string): Effect.Effect<void, unknown> =>
-      sql`DELETE FROM canvas_removals_owed WHERE canvas_id = ${canvasId} AND canvas_name = ${canvasName} AND target = ${peer}`.pipe(
-        Effect.asVoid,
+      Effect.gen(function* () {
+        yield* sql`DELETE FROM canvas_removals_owed WHERE canvas_id = ${canvasId} AND canvas_name = ${canvasName} AND target = ${peer}`;
+        yield* sql`DELETE FROM canvas_removed_earlier WHERE canvas_name = ${canvasName} AND target = ${peer}`;
+      }).pipe(
         sql.withTransaction,
         Effect.provideService(StateTransactionOperation, "exchange.removal-taken"),
       );

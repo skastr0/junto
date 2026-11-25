@@ -50,6 +50,9 @@ import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { termPlane } from "../src/core/term/plane";
 import { makeMemoryTerminalNodeDeleteStore } from "../src/core/term/node-delete-store";
 import type { CanvasCopy } from "../src/shared/canvas-copy";
+import { CANVAS_REMOVED_EARLIER_FILL_SQL } from "../src/core/work/exchange/state-schema";
+import { makeMachineExchangeQuery } from "../src/core/work/exchange/queries";
+import { COPY_REFUSED_REMOVED_WORDS } from "../src/shared/work-exchange";
 import { SqlClient as Sql } from "effect/sql";
 import { makeTestLog } from "./support/test-log";
 
@@ -100,6 +103,8 @@ type Machine = {
 const queue: Array<{ readonly from: Machine; readonly to: Machine; readonly payload: unknown }> = [];
 /** Every copy any machine sent, as it was sent. */
 const copiesSent: Array<CanvasCopy> = [];
+/** Every frame any machine sent, by sender, receiver and kind. */
+const framesSent: Array<{ readonly from: string; readonly to: string; readonly kind: string }> = [];
 const booted: Machine[] = [];
 
 afterEach(async () => {
@@ -110,6 +115,7 @@ afterEach(async () => {
   }
   queue.length = 0;
   copiesSent.length = 0;
+  framesSent.length = 0;
   vi.restoreAllMocks();
 });
 
@@ -155,6 +161,7 @@ const contextOf = (from: Machine, to: Machine): RowsChannelContext => ({
   sendEvent: (_channel, payload) =>
     Effect.sync(() => {
       if (payload.kind === "copy") copiesSent.push(payload.copy);
+      framesSent.push({ from: from.name, to: to.name, kind: payload.kind });
       queue.push({ from, to, payload: rowsWire(payload) });
     }),
 });
@@ -333,11 +340,78 @@ describe("a canvas removed on its editor reaches every machine that held a copy 
     for (const row of history) {
       await rows(macbook, `INSERT INTO canvas_copies_sent(canvas_name, target, seq, sent_at) VALUES ('${row.canvas_name}', '${row.target}', ${row.seq}, '${row.sent_at}')`);
     }
+    // Then state step 83 records once what that build left, as it does on upgrade.
+    await rows(macbook, CANVAS_REMOVED_EARLIER_FILL_SQL);
+    expect(await rows(macbook, "SELECT canvas_name, target FROM canvas_removed_earlier")).toEqual([{ canvas_name: "factory", target: MINI }]);
     expect(heldOn("mini")).toHaveLength(1);
     await link(macbook, mini);
     expect(await canvasesOn(mini)).toEqual([]);
     expect(torn).toEqual(["binding-peer"]);
     expect(heldOn("mini")).toEqual([]);
+    expect(await rows(macbook, "SELECT * FROM canvas_removed_earlier")).toEqual([]);
+  });
+
+  it("sends no removal from the copy history alone, as after an editor handoff (remote-security LOW 1)", async () => {
+    const torn = teardowns();
+    const { macbook, mini } = await stage(true);
+    // The macbook sent the mini a copy, then holds the canvas no more, with no
+    // removal of its own on record: as when another machine took over the
+    // editing and the macbook let its copy go. The mini's copy may be live
+    // under the new editor, so the history alone sends it nothing.
+    const history = await rows(macbook, "SELECT canvas_name, target, seq, sent_at FROM canvas_copies_sent") as Array<{ canvas_name: string; target: string; seq: number; sent_at: string }>;
+    unlink(macbook, mini);
+    await operator(macbook, { _tag: "RemoveCanvas", canvas: "factory" });
+    await rows(macbook, "DELETE FROM canvas_removals_owed");
+    for (const row of history) {
+      await rows(macbook, `INSERT INTO canvas_copies_sent(canvas_name, target, seq, sent_at) VALUES ('${row.canvas_name}', '${row.target}', ${row.seq}, '${row.sent_at}')`);
+    }
+    await link(macbook, mini);
+    expect(framesSent.filter((frame) => frame.kind === "canvas-removed")).toEqual([]);
+    expect(await canvasesOn(mini)).toEqual(["factory"]);
+    expect(torn).toEqual([]);
+  });
+
+  it("answers a removal it refuses, so the sender owes it no more and sends it on no later have (remote-security LOW 2)", async () => {
+    teardowns();
+    const { mini } = await stage(true);
+    const studio = await boot("studio", STUDIO, ["mini", MINI]);
+    const [{ canvas_id: canvasId }] = await rows(mini, "SELECT canvas_id FROM canvases WHERE canvas_name = 'factory'") as Array<{ canvas_id: string }>;
+    // The studio believes it owes the mini this removal, and that an earlier build removed it too.
+    await rows(studio, `INSERT INTO canvas_removals_owed (canvas_name, canvas_id, target, removed_at) VALUES ('factory', '${canvasId}', '${MINI}', '2026-11-25T00:00:00.000Z')`);
+    await rows(studio, `INSERT INTO canvas_removed_earlier (canvas_name, target) VALUES ('factory', '${MINI}')`);
+    await link(studio, mini);
+    expect(framesSent.filter((frame) => frame.kind === "canvas-removal-refused")).toEqual([{ from: "mini", to: "studio", kind: "canvas-removal-refused" }]);
+    expect(await rows(studio, "SELECT * FROM canvas_removals_owed")).toEqual([]);
+    expect(await rows(studio, "SELECT * FROM canvas_removed_earlier")).toEqual([]);
+    const sent = framesSent.filter((frame) => frame.kind === "canvas-removed").length;
+    // Another have on this link, and a new link: nothing is sent again.
+    await mini.runtime.runPromise(mini.exchange.committed("factory"));
+    await settle();
+    unlink(studio, mini);
+    await link(studio, mini);
+    expect(framesSent.filter((frame) => frame.kind === "canvas-removed")).toHaveLength(sent);
+    expect(await canvasesOn(mini)).toEqual(["factory"]);
+    expect(studio.exchange.linked(MINI)).toBe(true);
+  });
+
+  it("puts the operator's words on a copy that machine refuses as removed", async () => {
+    teardowns();
+    const { macbook, mini } = await stage(true);
+    const [{ canvas_id: oldId }] = await rows(macbook, "SELECT canvas_id FROM canvases WHERE canvas_name = 'factory'") as Array<{ canvas_id: string }>;
+    await remove(macbook);
+    // A canvas made later under the name, carrying an id the mini counts as older, as after a clock that went back.
+    await macbook.runtime.runPromise(seedCanvas("factory", [files("folder", { x: 400, y: 0, host: "mini" as never, root: ROOT })]));
+    const older = `0${oldId.slice(1, 25)}0`;
+    expect(older < oldId).toBe(true);
+    await rows(macbook, `UPDATE canvases SET canvas_id = '${older}' WHERE canvas_name = 'factory'`);
+    await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+    await settle();
+    expect(await canvasesOn(mini)).toEqual([]);
+    const query = await macbook.runtime.runPromise(makeMachineExchangeQuery(macbook.exchange));
+    const data = await macbook.runtime.runPromise(query({ canvas: "factory" as never }));
+    expect(data.canvases[0]!.links.find((row) => row.installationId === MINI)?.refused).toEqual({
+      reason: "removed", message: COPY_REFUSED_REMOVED_WORDS, ownWords: true,
+    });
   });
 
   it("keeps a hold whose teardown is not proven, and finishes it on the next link", async () => {

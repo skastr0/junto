@@ -135,6 +135,31 @@ export const CANVAS_REMOVALS_STATE_SCHEMA_SQL = `
 `;
 
 /**
+ * The canvases an earlier build removed on this machine while it edited them,
+ * by name, with each machine it had sent a copy: what that build left in
+ * `canvas_copies_sent` for a canvas this machine no longer held. Recorded once,
+ * at state migration 82 -> 83, and never fed again: the copy history of a live
+ * canvas is not a removal (remote-security, LOW 1 on 4689b5d6e). A machine
+ * that states it still holds one is sent the removal, and admits it only from
+ * its recorded editor with the id it holds.
+ */
+export const CANVAS_REMOVED_EARLIER_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS canvas_removed_earlier (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    target TEXT NOT NULL CHECK (length(target) BETWEEN 1 AND 128),
+    PRIMARY KEY (canvas_name, target)
+  ) STRICT, WITHOUT ROWID;
+`;
+
+/** The one fill of `canvas_removed_earlier`, from what an earlier build left. */
+export const CANVAS_REMOVED_EARLIER_FILL_SQL = `
+  INSERT OR IGNORE INTO canvas_removed_earlier (canvas_name, target)
+  SELECT DISTINCT sent.canvas_name, sent.target
+  FROM canvas_copies_sent sent
+  WHERE NOT EXISTS (SELECT 1 FROM canvases c WHERE c.canvas_name = sent.canvas_name);
+`;
+
+/**
  * Which machine each automation was on from which count to which, as the
  * machine that edits a canvas sent it in its copies: an automation is judged
  * as a seat is (`canvas_placements`), by its Automations node and its id,

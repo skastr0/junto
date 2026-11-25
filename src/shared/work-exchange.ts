@@ -179,6 +179,25 @@ export const CanvasRemovedTakenFrame = Schema.Struct({
 });
 export type CanvasRemovedTakenFrame = typeof CanvasRemovedTakenFrame.Type;
 
+/**
+ * The answer to a removal this machine would not take: the canvas of that id
+ * here is edited by another machine. The sender owes this machine that
+ * removal no more, and sends it again on no have of this link.
+ */
+export const CanvasRemovalRefusedFrame = Schema.Struct({
+  kind: Schema.Literal("canvas-removal-refused"),
+  canvasName: WorkCanvasName,
+  canvasId: CanvasId,
+});
+export type CanvasRemovalRefusedFrame = typeof CanvasRemovalRefusedFrame.Type;
+
+/**
+ * The operator's words for a copy refused as `removed` (remote-design,
+ * docs/plans/0.11/machines-attention-look.md section 7).
+ */
+export const COPY_REFUSED_REMOVED_WORDS =
+  "That machine will not take this canvas: this machine removed a canvas of the same name, and that machine counts the removed one as newer. A canvas with a new name reaches it: make one with New canvas.";
+
 export const EXCHANGE_MAX_SIGNALS_PER_FRAME = 32;
 /** What one signal may name when it crosses: more than this, and the rest stay where it was raised. */
 export const EXCHANGE_MAX_SIGNAL_ATTACHMENTS = 64;
@@ -274,7 +293,7 @@ export const SignalsFrame = Schema.Struct({
 });
 export type SignalsFrame = typeof SignalsFrame.Type;
 
-export const ExchangeFrame = Schema.Union([HaveFrame, RowsFrame, CopyFrame, CopyRefusedFrame, SignalsFrame, CanvasRemovedFrame, CanvasRemovedTakenFrame]);
+export const ExchangeFrame = Schema.Union([HaveFrame, RowsFrame, CopyFrame, CopyRefusedFrame, SignalsFrame, CanvasRemovedFrame, CanvasRemovedTakenFrame, CanvasRemovalRefusedFrame]);
 export type ExchangeFrame = typeof ExchangeFrame.Type;
 
 export const decodeExchangeFrame = Schema.decodeUnknownResult(ExchangeFrame, { onExcessProperty: "error" });

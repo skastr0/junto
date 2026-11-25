@@ -2,6 +2,7 @@ import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import { MachineExchangeData, type MachineExchangeInput } from "@shared/machine-exchange";
 import { asCanvasName } from "@shared/model";
+import { COPY_REFUSED_REMOVED_WORDS } from "@shared/work-exchange";
 import { MachineRepository } from "../../machines/repository";
 import { ModelRecords } from "../../model/records";
 import { withSqlRead } from "../../state/sql-read";
@@ -31,8 +32,12 @@ export const makeMachineExchangeQuery = (exchange: RowExchange) => Effect.gen(fu
         const machineName = names.get(link.peer);
         if (machineName === undefined) continue;
         const counts = link.rows.find(row => row.canvasName === name);
+        const refused = link.refused.find(row => row.canvasName === name && row.canvasId === header.canvas_id);
         held.push({ machineName, installationId: link.peer, sent: counts?.sent ?? 0, taken: counts?.taken ?? 0,
-          waiting: yield* exchange.waiting(name, link.peer) });
+          waiting: yield* exchange.waiting(name, link.peer),
+          ...(refused === undefined ? {} : { refused: refused.reason === "removed"
+            ? { reason: refused.reason, message: COPY_REFUSED_REMOVED_WORDS, ownWords: true as const }
+            : { reason: refused.reason } }) });
       }
       canvases.push({
         canvasName: asCanvasName(name), canvasId: header.canvas_id, editor,

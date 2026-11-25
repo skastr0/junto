@@ -40,6 +40,7 @@ import {
   type CanvasPlacement,
   type CanvasRemovedFrame,
   type CanvasRemovedTakenFrame,
+  type CanvasRemovalRefusedFrame,
   type CopyRefusedFrame,
   type ExchangeFrame,
   type ExchangeSignal,
@@ -119,11 +120,14 @@ export type RowExchangeDeps = {
      * build that owed nobody the removal. Then it is sent the removal too.
      */
     readonly removedHere: (peer: InstallationId, canvasName: string, canvasId: string) => Effect.Effect<boolean, unknown>;
-    /** That machine took the removal: owed no more. */
+    /**
+     * That machine took the removal, or refused it because another machine
+     * edits the canvas of that id there: owed it no more, either way.
+     */
     readonly taken: (peer: InstallationId, canvasName: string, canvasId: string) => Effect.Effect<void, unknown>;
     /**
      * A removal arrived from that machine. `removed` or `not-held` is answered
-     * taken; `refused` changes nothing here and is not answered.
+     * taken; `refused` changes nothing here and is answered refused.
      */
     readonly take: (peer: InstallationId, canvasName: string, canvasId: string) => Effect.Effect<"removed" | "not-held" | "refused", unknown>;
   };
@@ -175,6 +179,8 @@ type LinkState = {
   readonly copies: Map<string, { readonly canvasId: string; readonly seq: number; readonly carried: string }>;
   /** What the peer would not take, by canvas. */
   readonly refused: Map<string, Omit<CopyRefusedFrame, "kind">>;
+  /** The canvas ids whose removal the peer refused on this link: not sent it again on its have. */
+  readonly removalsRefused: Set<string>;
   readonly rows: Map<string, { sent: number; taken: number }>;
   /** Each signal as last stated on this link, by canvas and signal id. */
   readonly signals: Map<string, string>;
@@ -200,7 +206,7 @@ type Owed = {
   /** Every removal this machine owes the peer, again: a canvas it edits was removed. */
   removals: boolean;
   /** Removals a peer's have called for, and the answers to removals taken. */
-  readonly answers: Array<CanvasRemovedFrame | CanvasRemovedTakenFrame>;
+  readonly answers: Array<CanvasRemovedFrame | CanvasRemovedTakenFrame | CanvasRemovalRefusedFrame>;
 };
 
 /**
@@ -528,6 +534,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
           if (
             (placement === undefined || placement.canvasId !== canvas.canvasId) &&
             deps.removals !== undefined &&
+            !state.removalsRefused.has(canvas.canvasId) &&
             (yield* deps.removals.removedHere(peer, canvas.canvasName, canvas.canvasId).pipe(Effect.mapError(closed)))
           ) {
             removals.push({ kind: "canvas-removed", canvasName: canvas.canvasName, canvasId: canvas.canvasId });
@@ -558,14 +565,25 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       if (frame.kind === "canvas-removed") {
         if (deps.removals === undefined) return yield* Effect.fail(new ExchangeClosed({ message: "this machine takes no removal" }));
         const outcome = yield* deps.removals.take(peer, frame.canvasName, frame.canvasId).pipe(Effect.mapError(closed));
-        // A removal not from the canvas's editor changes nothing and is not
-        // answered: the copy stays, and the link with it.
-        if (outcome === "refused") return;
+        // A removal not from the canvas's editor changes nothing: the copy
+        // stays, and the link with it. It is answered, so it is not sent again.
+        if (outcome === "refused") {
+          owe(state, (owed) => {
+            owed.answers.push({ kind: "canvas-removal-refused", canvasName: frame.canvasName, canvasId: frame.canvasId });
+          });
+          return;
+        }
         if (outcome === "removed") state.have.delete(frame.canvasName);
         owe(state, (owed) => {
           owed.answers.push({ kind: "canvas-removed-taken", canvasName: frame.canvasName, canvasId: frame.canvasId });
           if (outcome === "removed") owed.have = true;
         });
+        return;
+      }
+      if (frame.kind === "canvas-removal-refused") {
+        if (deps.removals === undefined) return;
+        state.removalsRefused.add(frame.canvasId);
+        yield* deps.removals.taken(peer, frame.canvasName, frame.canvasId).pipe(Effect.mapError(closed));
         return;
       }
       if (frame.kind === "canvas-removed-taken") {
@@ -684,6 +702,7 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
           have: new Map(),
           copies: new Map(),
           refused: new Map(),
+          removalsRefused: new Set(),
           rows: new Map(),
           signals: new Map(),
           owed: nothingOwed(),

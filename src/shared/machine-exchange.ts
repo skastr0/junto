@@ -26,6 +26,12 @@ export const MachineExchangeData = Schema.Struct({
     links: Schema.Array(Schema.Struct({
       machineName: MachineName, installationId: InstallationId,
       sent: Count, taken: Count, waiting: Schema.Boolean,
+      /** That machine would not take this canvas's copy, and why; `message` in the operator's words when there are some. */
+      refused: Schema.optionalKey(Schema.Struct({
+        reason: Schema.Literals(["a-canvas-of-that-name", "removed"]),
+        message: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(512)))),
+        ownWords: Schema.optionalKey(Schema.Literal(true)),
+      })),
     })).pipe(Schema.check(Schema.isMaxLength(32))),
   })).pipe(Schema.check(Schema.isMaxLength(64))),
   next: Schema.optionalKey(CanvasName),

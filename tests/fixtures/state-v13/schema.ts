@@ -486,3 +486,9 @@ export const STATE_SCHEMA_V82_SQL = stepped(
   STATE_SCHEMA_V81_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 82)!.migrate,
 );
+
+/** Step 83 adds `canvas_removed_earlier`, the canvases an earlier build removed here. */
+export const STATE_SCHEMA_V83_SQL = stepped(
+  STATE_SCHEMA_V82_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 83)!.migrate,
+);
