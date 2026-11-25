@@ -7,6 +7,7 @@ import {
 } from "@shared/machine-control";
 import { MachineRepository } from "./machines/repository";
 import { InstallOpsService } from "./install-ops/service";
+import { AutomationRepository } from "./automation/repository";
 import { HostsService } from "./hosts/service";
 import { detectMachineForm } from "./hosts/machine-form";
 import { detectMachineKeychain } from "./hosts/machine-keychain";
@@ -484,6 +485,8 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
       connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect });
     const installOps = yield* Effect.serviceOption(InstallOpsService);
+    const automations = yield* Effect.serviceOption(AutomationRepository);
+    const model = yield* ModelService;
     const linkSetup = yield* makeMachineLinkSetup({ home: options.home, juntoPath: () => {
       const bin = machinePackageCliDir();
       return bin === undefined ? undefined : join(bin, "junto");
@@ -495,6 +498,17 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const actions = yield* makeMachineOwnerActions({
       autoUpdate: { downloadsBundles: options.acquireBundle !== undefined, signedRelease: false },
       ...(Option.isSome(installOps) ? { installOps: installOps.value } : {}),
+      takeoverAutomations: (name) => Effect.gen(function* () {
+        if (Option.isNone(automations)) return 0;
+        let count = 0;
+        for (const canvas of yield* model.listCanvases()) {
+          for (const entry of (yield* automations.value.loadState(canvas)).values()) {
+            if (!entry.archived && entry.automation.machine === name) count += 1;
+          }
+        }
+        return count;
+      }),
+      takeoverForget: (name, installationId) => linkSetup.forget(name, installationId),
       linkSetup,
       ...(vaultSetup === undefined ? {} : { vaultSetup }),
       ownStatus: machineStatus.own,

@@ -50,6 +50,8 @@ enum Command {
     Harnesses(Input),
     Configure(Input),
     Setup(Input),
+    Takeover(Input),
+    TakeoverRemote(Input),
     Exchange(Input),
     BoatConnect(Input),
     BoatDisconnect(Input),
@@ -98,7 +100,9 @@ fn bound(op: &str) -> Option<u64> {
         | "machine.sleep"
         | "machine.remove"
         | "machine.link"
-        | "machine.link-open" => Some(5 * 60_000),
+        | "machine.link-open"
+        | "machine.takeover"
+        | "machine.takeover-remote" => Some(5 * 60_000),
         _ => None,
     }
 }
@@ -159,6 +163,8 @@ impl Run for Machine {
             Command::Harnesses(i) => owned("harnesses", "machine.harnesses", &i),
             Command::Configure(i) => owned("configure", "machine.configure", &i),
             Command::Setup(i) => owned("setup", "machine.setup", &i),
+            Command::Takeover(i) => owned("takeover", "machine.takeover", &i),
+            Command::TakeoverRemote(i) => owned("takeover-remote", "machine.takeover-remote", &i),
             Command::Exchange(i) => owned("exchange", "machine.exchange", &i),
             Command::BoatConnect(i) => owned("boat-connect", "machine.boat-connect", &i),
             Command::BoatDisconnect(i) => owned("boat-disconnect", "machine.boat-disconnect", &i),
