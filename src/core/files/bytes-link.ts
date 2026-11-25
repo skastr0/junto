@@ -67,8 +67,15 @@ type Upload = Owned & {
   readonly handle: FileHandle;
   readonly size: number;
   readonly into: FilePath;
+  /** Bytes taken by chunks so far, counted before each is written: a second chunk at an offset already taken is refused. */
   written: number;
   readonly hash: Hash;
+  /**
+   * The upload's ops, one after another. The session already runs a channel's
+   * requests in order, but a request the peer interrupts leaves its write
+   * running; the next op on this upload waits for it here.
+   */
+  tail: Promise<unknown>;
 };
 type Session = { readonly streams: Map<string, Stream>; readonly uploads: Map<string, Upload> };
 
@@ -117,13 +124,24 @@ export const makeFileBytesLinkChannel = Effect.fn("FileBytesLink.make")(function
     clearTimeout(stream.timer);
     void stream.handle.close().catch(() => undefined);
   };
-  const dropUpload = (session: Session, id: string): Promise<void> => {
+  /**
+   * Takes the upload off at once, then closes and removes it after its pending
+   * ops. An op on the upload's own chain passes `within`: it is the pending op,
+   * and waiting for itself would never end.
+   */
+  const dropUpload = (session: Session, id: string, within = false): Promise<void> => {
     const upload = session.uploads.get(id);
     if (upload === undefined) return Promise.resolve();
     session.uploads.delete(id);
     clearTimeout(upload.timer);
     stagedBytes -= upload.size;
-    return upload.handle.close().catch(() => undefined).then(() => rm(upload.directory, { recursive: true, force: true })).catch(() => undefined);
+    return (within ? Promise.resolve() : upload.tail).then(() => upload.handle.close()).catch(() => undefined).then(() => rm(upload.directory, { recursive: true, force: true })).catch(() => undefined);
+  };
+  /** Runs `work` after every op already chained on this upload, whatever each of them ended in. */
+  const inOrder = <A>(upload: Upload, work: () => Promise<A>): Promise<A> => {
+    const run = upload.tail.then(work, work);
+    upload.tail = run.catch(() => undefined);
+    return run;
   };
   /** Idle for the limit, a stream or upload is closed and its stage removed. */
   const touch = (session: Session, id: string, held: Owned, kind: "stream" | "upload"): void => {
@@ -213,7 +231,7 @@ export const makeFileBytesLinkChannel = Effect.fn("FileBytesLink.make")(function
         const id = newId();
         const upload: Upload = {
           canvas: request.canvas, node: request.node, timer: undefined, directory, file, handle, size: request.size,
-          into: request.into, written: 0, hash: createHash("sha256"),
+          into: request.into, written: 0, hash: createHash("sha256"), tail: Promise.resolve(),
         };
         stagedBytes += request.size;
         session.uploads.set(id, upload);
@@ -225,28 +243,36 @@ export const makeFileBytesLinkChannel = Effect.fn("FileBytesLink.make")(function
         const session = sessionOf(context);
         const found = owned(session.uploads.get(request.upload));
         if (found === undefined) return nowhere(context, "ImportChunk");
-        return serve("ImportChunk", found.ref, context, async () => {
+        return serve("ImportChunk", found.ref, context, () => inOrder(found.held, async (): Promise<FilesResult<null>> => {
           const upload = found.held;
           const bytes = decodeChunk(request.data);
-          if (bytes === undefined || request.offset !== upload.written || upload.written + bytes.byteLength > upload.size) {
-            await dropUpload(session, request.upload);
+          if (session.uploads.get(request.upload) !== upload || bytes === undefined
+            || request.offset !== upload.written || upload.written + bytes.byteLength > upload.size) {
+            await dropUpload(session, request.upload, true);
             return { ok: false, error: "denied" };
           }
           touch(session, request.upload, upload, "upload");
-          await upload.handle.write(bytes, 0, bytes.byteLength, request.offset);
+          // Taken and hashed before the write is awaited, in the order the chunks came: the end only compares.
           upload.written += bytes.byteLength;
-          // Hashed as it is written: the end only compares.
           upload.hash.update(bytes);
+          try {
+            await upload.handle.write(bytes, 0, bytes.byteLength, request.offset);
+          } catch {
+            await dropUpload(session, request.upload, true);
+            return { ok: false, error: "failed" };
+          }
           return { ok: true, value: null };
-        });
+        }));
       },
       /** NOT idempotent: it imports, once; the stage goes either way. A repeat names an upload that is gone. */
       ImportEnd: (request, context) => {
         const session = sessionOf(context);
         const found = owned(session.uploads.get(request.upload));
         if (found === undefined) return nowhere(context, "ImportEnd");
-        return serve("ImportEnd", found.ref, context, async (host): Promise<FilesResult<ReadonlyArray<FileImported>>> => {
+        return serve("ImportEnd", found.ref, context, (host) => inOrder(found.held, async (): Promise<FilesResult<ReadonlyArray<FileImported>>> => {
           const upload = found.held;
+          // A chunk that failed while this waited dropped the upload.
+          if (session.uploads.get(request.upload) !== upload) return { ok: false, error: "not-found" };
           clearTimeout(upload.timer);
           const whole = upload.written === upload.size && upload.hash.digest("hex") === request.sha256;
           try {
@@ -254,9 +280,9 @@ export const makeFileBytesLinkChannel = Effect.fn("FileBytesLink.make")(function
             await upload.handle.close();
             return await host.import(found.ref, upload.into, [upload.file]);
           } finally {
-            await dropUpload(session, request.upload);
+            await dropUpload(session, request.upload, true);
           }
-        }).pipe(Effect.uninterruptible);
+        })).pipe(Effect.uninterruptible);
       },
     },
     overWindow: (context, _tag, payload) => {

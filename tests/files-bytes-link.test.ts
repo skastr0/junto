@@ -14,7 +14,7 @@ import { FileBytesLink, makeFileBytesLinkChannel, type FileBytesHost } from "../
 import { makeFilesService } from "../src/core/files/service";
 import { bindLinkChannel, linkClient } from "../src/core/link/contract";
 import { MachineLink } from "../src/core/link/service";
-import type { LinkSession, MachineLinkError } from "../src/core/link/types";
+import type { LinkChannelContext, LinkSession, MachineLinkError } from "../src/core/link/types";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
 import { ModelService } from "../src/core/model/service";
 import { makeStateEngineLive } from "../src/core/state/engine";
@@ -137,7 +137,14 @@ const fixture = async (options: {
     const entries = await readdir(stageParent);
     return entries.length === 0 ? [] : readdir(join(stageParent, entries[0]!));
   };
-  return { base, root, stageParent, ask, where, asker, hostEnd, ownStage };
+  /** A request as the session hands it to the host, without the session's own ordering. */
+  const context: LinkChannelContext = {
+    peer: { build: "same-build", installationId: editor, machineName: "macbook" },
+    keyBound: false, sessionId: "direct-session", operationId: "op-bytes", signal: new AbortController().signal,
+    sendEvent: () => Effect.void, close: () => Effect.void, request: () => Effect.die("unused"),
+  };
+  const direct = (tag: string, payload: unknown) => runtime.runPromise(Effect.result(channel.handleRequest(tag, context, payload)));
+  return { base, root, stageParent, ask, where, asker, hostEnd, ownStage, direct };
 };
 
 const answer = <A>(outcome: Outcome<A>): A => {
@@ -299,5 +306,39 @@ describe("file-bytes host", () => {
     expect(one).toHaveProperty("answer");
     expect(two).toHaveProperty("answer");
     expect(opens).toBe(2);
+  });
+
+  it("refuses a second chunk at an offset already taken while the first still writes, and drops the upload", async () => {
+    const f = await fixture();
+    const opened = await f.direct("ImportOpen", { ...f.where, into: "", name: "drop.bin", size: 8 });
+    if (opened._tag !== "Success") throw new Error("open refused");
+    const { upload } = opened.success as { upload: string };
+    const chunk = { upload, offset: 0, data: encodeChunk(Buffer.from("abcd")) };
+    // Not through the session, whose queue would order them: both at once, as after an interrupted request.
+    const [first, second] = await Promise.all([f.direct("ImportChunk", chunk), f.direct("ImportChunk", chunk)]);
+    expect(first._tag).toBe("Success");
+    expect(second._tag).toBe("Failure");
+    if (second._tag === "Failure") expect(second.failure).toMatchObject({ error: "denied" });
+    // Dropped: its end is not found, and nothing is staged or imported.
+    const end = await f.direct("ImportEnd", { upload, sha256: sha(Buffer.from("abcd")) });
+    expect(end._tag === "Failure" ? end.failure : undefined).toMatchObject({ error: "not-found" });
+    expect(await f.ownStage()).toEqual([]);
+    expect(await readdir(f.root)).toEqual([]);
+  });
+
+  it("runs an end after the chunk before it has written", async () => {
+    const f = await fixture();
+    const body = Buffer.from("abcdefgh");
+    const opened = await f.direct("ImportOpen", { ...f.where, into: "", name: "drop.bin", size: body.length });
+    if (opened._tag !== "Success") throw new Error("open refused");
+    const { upload } = opened.success as { upload: string };
+    const [, , end] = await Promise.all([
+      f.direct("ImportChunk", { upload, offset: 0, data: encodeChunk(body.subarray(0, 4)) }),
+      f.direct("ImportChunk", { upload, offset: 4, data: encodeChunk(body.subarray(4)) }),
+      f.direct("ImportEnd", { upload, sha256: sha(body) }),
+    ]);
+    expect(end._tag).toBe("Success");
+    expect(Buffer.compare(await readFile(join(f.root, "drop.bin")), body)).toBe(0);
+    expect(await f.ownStage()).toEqual([]);
   });
 });
