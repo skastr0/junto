@@ -95,14 +95,15 @@ export type FeedRow =
   | { readonly kind: "fold"; readonly chainId: string; readonly count: number; readonly firstId: string };
 
 /**
- * What a card says when a key steps onto it: who, what kind, whether it waits,
- * its place in a chain, then its sentence. The list keeps the keyboard on the
+ * What a card says when a key steps onto it: who, what kind (or, for a card that
+ * depends on another, that it is not ready), its place in a chain, then its sentence. The list keeps the keyboard on the
  * frame, so the live line says it.
  */
 export const feedCardSpeech = (item: FeedItem, place: FeedChainPlace | undefined): string =>
   [
-    `${item.seat.name}, ${FEED_KIND_LABEL[item.kind]}`,
-    feedItemWaits(item) ? "not ready, depends on another signal" : "",
+    // A card that depends on another is not waiting on the operator yet: it says that instead of its kind.
+    item.seat.name,
+    feedItemWaits(item) ? "not ready, depends on another signal" : FEED_KIND_LABEL[item.kind],
     place ? `${String(place.index)} of ${String(place.size)}` : "",
   ]
     .filter((part) => part !== "")

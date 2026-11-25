@@ -387,7 +387,7 @@ export function FeedCardView({
         aria-current={selected ? "true" : undefined}
         // Named by who, what and its own sentence, so two cards from one seat
         // are told apart on entry.
-        aria-labelledby={`${labelId}-name ${labelId}-kind ${labelId}-state ${labelId}-text`}
+        aria-labelledby={`${labelId}-name ${feedItemWaits(item) ? "" : `${labelId}-kind `}${labelId}-state ${labelId}-text`}
         onClick={onSelect}
       >
         <FeedPortraitWell item={item} face={face} />
