@@ -116,7 +116,7 @@ import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
 import { Button, Dropdown, Kbd } from "../ui";
 import { FeedExchange } from "./FeedExchange";
-import { crossedClosing, crossedLiveWords, crossedWords, withdrawnLiveWords, withdrawnPlain, withdrawnWords } from "@shared/signal-crossing";
+import { crossedClosing, crossedLiveWords, crossedWords, draftNotSent, withdrawnLiveWords, withdrawnPlain, withdrawnWords } from "@shared/signal-crossing";
 import { FeedRegionStrip } from "./FeedRegionStrip";
 import { FeedEmpty, FeedSeatChosen, FeedSeatsRow, FeedSeatsToggle } from "./FeedFilterParts";
 import { feedTasksByNumber, type FeedTaskRef } from "./feed-text";
@@ -798,7 +798,7 @@ const feed = useOperatorFeed();
         setHeldPlain(plain);
         setCrossed(before);
         const said = plain ? withdrawnLiveWords(before.seat.name, before.text) : crossedLiveWords(before.seat.name, before.text);
-        setAnnounceNote(`${said}${drafting ? ". Your draft was not sent." : ""}`);
+        setAnnounceNote(drafting ? draftNotSent(said) : said);
       }
     }
     lastSelected.current = selectedItem;

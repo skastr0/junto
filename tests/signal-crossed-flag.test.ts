@@ -10,7 +10,7 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentSignal } from "../src/shared/wire/agent-signals";
-import { crossedClosing } from "../src/shared/signal-crossing";
+import { crossedClosing, draftNotSent } from "../src/shared/signal-crossing";
 import { makeStateEngineLive } from "../src/core/state/engine";
 import { AgentSignalRepository, AgentSignalRepositoryLive } from "../src/core/signals/repository";
 
@@ -106,4 +106,11 @@ describe("crossed on the signal", () => {
     const held = await read(signal.signalId);
     expect(Schema.encodeUnknownSync(AgentSignal)(held, { onExcessProperty: "error" })).toMatchObject({ crossed: true });
   });
+});
+
+it("adds no period after a headline that ends its own sentence", () => {
+  expect(draftNotSent("Bea withdrew a signal: Topic 4 needs your call")).toBe("Bea withdrew a signal: Topic 4 needs your call. Your draft was not sent.");
+  for (const end of ["?", "!", "."]) {
+    expect(draftNotSent(`Bea withdrew a signal: ship it${end}`)).toBe(`Bea withdrew a signal: ship it${end} Your draft was not sent.`);
+  }
 });

@@ -303,6 +303,32 @@ it("keeps a half-typed reply, shown and locked, when the seat plainly withdraws 
   );
 });
 
+it("says a withdrawn card's question headline as it is, with no period added, under a kept draft", async () => {
+  const open4 = signal(4, { text: "Atlas asks: ship it?" });
+  live.set(twoOpen(open4));
+  operatorModal$.open.set("feed");
+  await act(async () =>
+    root.render(
+      <WindowRuntimeContext.Provider value={feedRuntime as never}>
+        <OperatorFeed />
+      </WindowRuntimeContext.Provider>,
+    ),
+  );
+  await act(async () => {
+    q(".operator-modal__frame")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  const field = q('[data-testid="signal-reply"] textarea') as HTMLTextAreaElement;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, "Half");
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    agentSignals$.s4.set({ ...open4, state: "withdrawn" });
+    live.set(twoOpen(undefined));
+  });
+  expect(q(".operator-feed__announce")?.textContent).toBe("atlas withdrew a signal: Atlas asks: ship it? Your draft was not sent.");
+});
+
 it("keeps a reply that holds only an attached file when the seat plainly withdraws its card", async () => {
   const open4 = signal(4);
   live.set(twoOpen(open4));

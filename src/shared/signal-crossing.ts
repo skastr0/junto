@@ -30,3 +30,9 @@ export const withdrawnLiveWords = (seat: string, headline: string): string => `$
 
 /** Closed by its own seat with no answer held: only a reply being written under it asks the pane to keep it. */
 export const withdrawnPlain = (signal: AgentSignal): boolean => signal.state === "withdrawn" && !crossedClosing(signal);
+
+/**
+ * The live line's tail for a reply that was being written: a sentence after a headline. A headline that
+ * ends its own sentence (a question, an exclamation, a full stop) takes no added period.
+ */
+export const draftNotSent = (said: string): string => `${said}${/[.?!]$/u.test(said.trimEnd()) ? "" : "."} Your draft was not sent.`;
