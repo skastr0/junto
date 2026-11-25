@@ -95,6 +95,84 @@ ready.` and the footer.
   Right: `Update all`, `Button variant="primary" size="sm"`, only when two
   or more idle machines need an update.
 
+## 2b. The words on each row
+
+The row's status sentence, for each state. remote-window builds these into
+`classifyBarEntry` (`src/window/lib/machines-view.ts`), and
+`tests/machines-bar.test.tsx` holds them word for word.
+
+Four rules, then the table:
+
+1. **The label is already on line one, so the sentence never names the
+   machine.** It says `there` or `it`, as the recovery card does.
+2. **The sentence says what is wrong; the button says the fix.** No
+   sentence ends in "Press Update" or "Send Junto to set it up".
+3. **No words from the machine or the harness in a row.** A failed send's
+   `copy.message`, a check's `read.message`, a peer's `status.detail` are
+   mechanics ("Command failed: tar"). They stay on the Machines window card
+   (its `reason(...)` advice), which the label opens. The row always shows
+   the fixed sentence below.
+4. **It fits two lines.** The text column is about 210px at
+   `--text-body` 11px, near 36 characters a line, so a sentence with its
+   seats clause stays under 64 characters. The whole sentence is the row's
+   `title`.
+
+Each row's first sentence is the Machines window headline for that state,
+so the popover and the window say the same thing.
+
+| State | Severity | Sentence | Button |
+|---|---|---|---|
+| `boat-failed` | broken | `Boat says it failed.` | `Delete on Boat`, arms `Delete Mac mini on Boat` |
+| `gone` | broken | `No longer on Boat.` | `Remove`, arms `Remove Mac mini` |
+| `update-stopped` | broken | `The update failed, and nothing runs there now.` | `Reinstall Junto` |
+| `update-failed` | broken | `Junto could not be updated. The old build still runs.` | `Try update again` |
+| `update-unconfirmed` | broken | `Could not confirm Junto was updated.` | `Check again` |
+| `updated-not-ready` | broken | `Junto was updated, but it is not ready.` | `Check again` |
+| `send-failed` | broken | `Junto could not be sent.` | `Send Junto` |
+| `send-unconfirmed` | broken | `Could not confirm Junto was sent.` | `Check again` |
+| `sent-not-ready` | broken | `Junto is on it, but it is not ready.` | `Check again` |
+| `add-failed` | broken | `Could not finish adding it on Boat.` | `Check again` |
+| `unreachable`, seats on it | broken | `Cannot be reached.` + seats clause | `Check again` |
+| `check-failed`, seats on it | broken | `Could not be checked.` + seats clause | `Check again` |
+| `unreachable`, no seats | needs you | `Cannot be reached. Check that it is on.` | `Check again` |
+| `check-failed`, no seats | needs you | `Could not be checked.` | `Check again` |
+| `needs-update` | needs you | `Runs a different build of Junto.` + seats clause | `Update Junto` |
+| `peer-newer` | needs you | `Runs a newer build of Junto. Update this Mac to connect.` | `Check for updates` |
+| `not-set-up` | needs you | `Junto is not on it yet.` | `Send Junto` |
+| `installed-not-linked` | needs you | `Junto is installed there, but not connected.` | `Reconnect` |
+| `boat-unfinished` | needs you | `Made on Boat, not added yet.` | `Finish adding` |
+| harness or secret missing | needs you | the missing line below | `Check again` |
+| keychain sign-in blocked | needs you | `Sign-in is blocked. Sign in at its screen, then restart Junto.` | `Check again` |
+| `adding`, no step yet | working | `Making it on Boat` | none |
+| `sending`, `updating` | working | `Sending Junto, step 2 of 5` (`Updating Junto, copying 120 of 340 MB`), as today | none |
+| `waking` | working | `Waking` | none |
+
+**The seats clause.** Only where the table says so, and only when
+`runningSeats` is above zero. It says when the count was read, since a
+machine out of reach cannot say what runs there now:
+
+- `Had 3 seats running at 09:12.`
+- `Had 1 seat running at 09:12.`
+- With no `runningSeatsAt`: `Had 3 seats running.`
+
+It replaces `runningSeatsLine` in the row only (that line names the machine
+and puts the time in brackets); the Machines window keeps its own.
+
+**The missing line.** Harnesses by name up to two, past two by count.
+Secrets always by count, never by name in a row: their names are on the
+Machines window card.
+
+- `Claude Code is missing there.`
+- `Claude Code and Codex are missing there.`
+- `3 harnesses are missing there.`
+- `1 secret is missing there.`, `2 secrets are missing there.`
+- `Claude Code and 2 secrets are missing there.`
+
+Longest rows, counted against the 64 limit with a two-digit count:
+`needs-update` with its clause (63), the keychain line (62), `peer-newer`
+(56). `peer-newer` is the one sentence that names a fix, because the fix
+is on this Mac, not on the machine in the row.
+
 ## 3. The recovery card in a terminal
 
 Replaces the card at `TerminalSurface.tsx:2638` when a remote seat ended
