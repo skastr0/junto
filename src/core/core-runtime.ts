@@ -6,7 +6,9 @@ import {
   type MachineOwnStatus,
 } from "@shared/machine-control";
 import { MachineRepository } from "./machines/repository";
-import { InstallOpsService } from "./install-ops/service";
+import { InstallOpsService, type MachineSetupRefusal } from "./install-ops/service";
+import type { InstallationId } from "@shared/installation-id";
+import type { RemoteHost } from "@shared/remote-hosts";
 import { AutomationRepository } from "./automation/repository";
 import { countTakeoverPlacement } from "@shared/machine-takeover";
 import { HostsService } from "./hosts/service";
@@ -15,6 +17,7 @@ import { detectMachineKeychain } from "./hosts/machine-keychain";
 import { machineHarnessSignIn } from "@shared/machine-harness-status";
 import { makeMachineCopy, type MachineCopyOptions } from "./hosts/machine-copy";
 import { MachineOwnerControl, makeMachineOwnerActions } from "./hosts/machine-owner";
+import { machineRouteFingerprint } from "./hosts/machine-route";
 import { join } from "node:path";
 import { makeMachineLinkSetup } from "./hosts/machine-link";
 import { homedir } from "node:os";
@@ -490,12 +493,19 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
       const bin = machinePackageCliDir();
       return bin === undefined ? undefined : join(bin, "junto");
     } });
+    const installOps = yield* Effect.serviceOption(InstallOpsService);
+    const setupRefusal = Option.isSome(installOps) ? {
+      read: (name: string) => installOps.value.setupRefusal(name),
+      record: (refusal: MachineSetupRefusal) => installOps.value.recordSetupRefusal(refusal),
+      clear: (name: string) => installOps.value.clearSetupRefusal(name),
+    } : undefined;
     const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
       connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect,
       // The far's own status, asked over the link: it answers only once it has let this machine in.
       linkAnswers: (host) => status.Machine(host.id),
-      settleRemovedLink: (name, route, installationId) => linkSetup.settleRemoved({ machineName: name, route, installationId }), linkKeyState: linkSetup.linkKeyState, clearStaleLink: linkSetup.clearEvery });
-    const installOps = yield* Effect.serviceOption(InstallOpsService);
+      settleRemovedLink: (name, route, installationId) => linkSetup.settleRemoved({ machineName: name, route, installationId }), linkKeyState: linkSetup.linkKeyState, clearStaleLink: linkSetup.clearEvery,
+      ...(Option.isSome(installOps) ? { onPinnedElsewhere: (name: string, route: RemoteHost, installationId: InstallationId) =>
+        installOps.value.recordSetupRefusal({ machineName: name, installationId, route: machineRouteFingerprint(route), at: new Date().toISOString() }) } : {}) });
     const automations = yield* Effect.serviceOption(AutomationRepository);
     const model = yield* ModelService;
     // Off in the ship build: no vault token is placed, recorded or listed.
@@ -505,6 +515,8 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const actions = yield* makeMachineOwnerActions({
       autoUpdate: { downloadsBundles: options.acquireBundle !== undefined, signedRelease: false },
       ...(Option.isSome(installOps) ? { installOps: installOps.value } : {}),
+      ...(setupRefusal === undefined ? {} : { setupRefusal }),
+      ...(link.peerInstallation === undefined ? {} : { peerInstallation: link.peerInstallation }),
       takeoverCounts: (name) => Effect.gen(function* () {
         const sources = [];
         for (const canvasName of yield* model.listCanvases()) {

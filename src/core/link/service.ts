@@ -35,6 +35,8 @@ export class MachineLink extends Context.Service<MachineLink, {
   /** Closes the link to a machine; a cause is logged at both ends and sent to the peer. */
   readonly disconnect: (name: string, cause?: unknown) => Effect.Effect<void, MachineLinkError>;
   readonly peerBuild: (name: string) => Effect.Effect<string | undefined>;
+  /** The installation of the peer's admitted link right now, when one is open. */
+  readonly peerInstallation?: (name: string) => Effect.Effect<InstallationId | undefined>;
   readonly request: (name: string, channel: LinkChannel, payload: unknown, options?: LinkRequestOptions) => Effect.Effect<unknown, MachineLinkError>;
   readonly sendEvent: (name: string, channel: LinkChannel, payload: unknown) => Effect.Effect<void, MachineLinkError>;
 }>()("@junto/MachineLink") {}

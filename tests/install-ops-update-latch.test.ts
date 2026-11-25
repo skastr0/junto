@@ -10,7 +10,7 @@ import {
   InstallOpsService,
   makeInstallOpsLive,
 } from "../src/core/install-ops/engine";
-import { INSTALL_OPS_V1_SCHEMA_SQL, INSTALL_OPS_V2_SCHEMA_SQL } from "../src/core/install-ops/schema";
+import { INSTALL_OPS_V1_SCHEMA_SQL, INSTALL_OPS_V2_SCHEMA_SQL, INSTALL_OPS_V3_SCHEMA_SQL } from "../src/core/install-ops/schema";
 
 const homes: string[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<any, unknown>> = [];
@@ -29,16 +29,16 @@ afterEach(async () => {
   while (homes.length > 0) await rm(homes.pop()!, { recursive: true, force: true });
 });
 
-const seed = async (path: string, version: 1 | 2): Promise<void> => {
+const seed = async (path: string, version: 1 | 2 | 3): Promise<void> => {
   const database = new DatabaseSync(path);
   try {
-    database.exec(version === 1 ? INSTALL_OPS_V1_SCHEMA_SQL : INSTALL_OPS_V2_SCHEMA_SQL);
+    database.exec(version === 1 ? INSTALL_OPS_V1_SCHEMA_SQL : version === 2 ? INSTALL_OPS_V2_SCHEMA_SQL : INSTALL_OPS_V3_SCHEMA_SQL);
     database.exec("PRAGMA application_id = 0");
     database.exec(`PRAGMA user_version = ${version}`);
     database.exec(
       "INSERT INTO backfill_markers(id, status, objects_ingested, completed_at) VALUES ('kept.v1', 'complete', 7, '2026-01-01T00:00:00.000Z')",
     );
-    if (version === 2) {
+    if (version >= 2) {
       database.exec(
         `INSERT INTO machine_update_latches(machine_name, target_build, outcome, at) VALUES ('mini', '${"b".repeat(64)}', 'activated', '2026-01-01T00:00:00.000Z')`,
       );
@@ -67,9 +67,9 @@ describe("install-ops update latch", () => {
     const database = new DatabaseSync(path);
     try {
       const version = database.prepare("PRAGMA user_version").get() as { readonly user_version: number };
-      expect(version.user_version).toBe(3);
+      expect(version.user_version).toBe(4);
       const tables = database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name").all() as Array<{ readonly name: string }>;
-      expect(tables.map(row => row.name)).toEqual(["backfill_markers", "machine_update_attempts", "machine_update_latches"]);
+      expect(tables.map(row => row.name)).toEqual(["backfill_markers", "machine_setup_refusals", "machine_update_attempts", "machine_update_latches"]);
     } finally {
       database.close();
     }
@@ -87,12 +87,45 @@ describe("install-ops update latch", () => {
 
     const database = new DatabaseSync(path);
     try {
-      expect((database.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version).toBe(3);
+      expect((database.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version).toBe(4);
       expect(database.prepare("SELECT machine_name, outcome FROM machine_update_latches").all()).toEqual([{ machine_name: "mini", outcome: "activated" }]);
       expect(database.prepare("SELECT count(*) AS count FROM machine_update_attempts").get()).toEqual({ count: 0 });
     } finally {
       database.close();
     }
+  });
+
+  it("keeps a version 3 ledger's rows while adding the setup-refusal table", async () => {
+    const path = await makePath();
+    await seed(path, 3);
+    const runtime = ManagedRuntime.make(makeInstallOpsLive(path));
+    runtimes.push(runtime);
+    const service = await runtime.runPromise(InstallOpsService);
+
+    expect(await Effect.runPromise(service.getBackfill("kept.v1"))).toMatchObject({ status: "complete", objectsIngested: 7 });
+    expect(await Effect.runPromise(service.updateLatch("mini-install"))).toBeUndefined();
+
+    const database = new DatabaseSync(path);
+    try {
+      expect((database.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version).toBe(4);
+      expect(database.prepare("SELECT machine_name, outcome FROM machine_update_latches").all()).toEqual([{ machine_name: "mini", outcome: "activated" }]);
+      expect(database.prepare("SELECT count(*) AS count FROM machine_setup_refusals").get()).toEqual({ count: 0 });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("records, reads and clears one S4 refusal by machine name", async () => {
+    const path = await makePath();
+    const runtime = ManagedRuntime.make(makeInstallOpsLive(path));
+    runtimes.push(runtime);
+    const service = await runtime.runPromise(InstallOpsService);
+    const refusal = { machineName: "mini", installationId: "mini-install", route: '["mac-mini",null]', at: "2026-11-25T11:00:00.000Z" };
+
+    await Effect.runPromise(service.recordSetupRefusal(refusal));
+    expect(await Effect.runPromise(service.setupRefusal("mini"))).toEqual(refusal);
+    await Effect.runPromise(service.clearSetupRefusal("mini"));
+    expect(await Effect.runPromise(service.setupRefusal("mini"))).toBeUndefined();
   });
 
   it("latches an attempt by installation id and clears it", async () => {

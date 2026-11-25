@@ -11,6 +11,8 @@ import { MachineConfigurationRepository, MachineRefused, type StoredMachineConfi
 import { KnownInstallations } from "./known-installations";
 
 const Timestamp = Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64)));
+/** A peer's live time moves at most this often while its build stays the same. */
+const PEER_LIVE_RESOLUTION_MS = 60_000;
 const PeerIdentity = Schema.Struct({ machineName: MachineName, installationId: InstallationId });
 export type MachinePeerIdentity = typeof PeerIdentity.Type;
 /**
@@ -21,7 +23,8 @@ export type MachinePeerIdentity = typeof PeerIdentity.Type;
 export type MachinePeer = MachinePeerIdentity & { readonly boundAt: string; readonly binding?: "key" };
 /**
  * What an active peer last said of itself in a hello this machine admitted:
- * its build, and the release and build time it claims. Display only.
+ * its build, the release and build time it claims, and the last time it was
+ * live here. Display, and the take-over's live window.
  */
 export type MachinePeerSeen = MachinePeerIdentity & {
   readonly build: string; readonly version?: string; readonly builtAt?: string; readonly seenAt: string;
@@ -46,7 +49,9 @@ export class MachineRepository extends Context.Service<MachineRepository, {
   /**
    * Keeps what an admitted hello said, for an active peer under the
    * installation it was pinned to; any other hello writes nothing. A release
-   * or build time its schema refuses is left out.
+   * or build time its schema refuses is left out. The seen time is the
+   * peer's last live time: every hello may move it, throttled to one write
+   * per minute unless the build changed.
    */
   readonly notePeerHello: (hello: MachinePeerIdentity & { readonly build: string; readonly version?: string; readonly builtAt?: string }) => Effect.Effect<void, MachinePersistenceError>;
   /** What each active peer last said, under the installation it is pinned to. */
@@ -160,13 +165,17 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
     const version = hello.version !== undefined && Schema.is(MachineVersion)(hello.version) ? hello.version : null;
     const builtAt = hello.builtAt !== undefined && Schema.is(MachineBuiltAt)(hello.builtAt) ? hello.builtAt : null;
     const at = yield* Schema.decodeUnknownEffect(Timestamp)(now());
+    // A live time moves at most once a minute unless the build changed: an
+    // unchanged build inside that minute leaves the row and its time alone.
+    const cutoff = new Date(Date.parse(at) - PEER_LIVE_RESOLUTION_MS).toISOString();
     yield* sql.withTransaction(sql`
       INSERT INTO machine_peer_seen(installation_id, build, version, built_at, seen_at)
       SELECT ${identity.installationId}, ${build}, ${version}, ${builtAt}, ${at}
       WHERE EXISTS (SELECT 1 FROM machine_peers WHERE machine_name = ${identity.machineName}
         AND installation_id = ${identity.installationId} AND retired_at IS NULL)
       ON CONFLICT(installation_id) DO UPDATE SET build = excluded.build,
-        version = excluded.version, built_at = excluded.built_at, seen_at = excluded.seen_at`).pipe(
+        version = excluded.version, built_at = excluded.built_at, seen_at = excluded.seen_at
+      WHERE machine_peer_seen.build <> excluded.build OR machine_peer_seen.seen_at <= ${cutoff}`).pipe(
       Effect.provideService(StateTransactionOperation, "machine.note-peer-hello"));
   }, Effect.asVoid, Effect.mapError(failure("note-peer-hello")));
   const peersSeen = withSqlRead(sql, SqlSchema.findAll({ Request: Schema.Void, Result: SeenRow,

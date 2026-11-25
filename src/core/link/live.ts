@@ -53,16 +53,17 @@ export const makeMachineLink = (options: { readonly build: string; readonly rele
   const sessions = new Map<string, LinkSession>();
   const allSessions = new Set<LinkSession>();
   const builds = new Map<string, string>();
-  // Only a build this machine had not heard is a change: a refused hello that
-  // repeats one, as every redial of a mismatched peer does, notes nothing.
-  // What it said is kept, so the list still says who is behind after a
-  // restart; a write that fails is logged and never refuses the link.
-  const learnBuild = (hello: LinkHello): void => {
-    if (builds.get(hello.machineName) === hello.build) return;
-    builds.set(hello.machineName, hello.build);
+  // Every admitted hello is a live time, and a close is one too; the store
+  // throttles an unchanged build to a minute. A build this machine had not
+  // heard is the only change the window shows. What it said is kept, so the
+  // list still says who is behind after a restart; a write that fails is
+  // logged and never refuses the link.
+  const noteHello = (hello: LinkHello): void => {
+    const changed = builds.get(hello.machineName) !== hello.build;
+    if (changed) builds.set(hello.machineName, hello.build);
     fork(machines.notePeerHello(hello).pipe(
       Effect.catch((cause) => linkLog("Warning", "peer hello not kept", { machine: hello.machineName, failure: encodeError(cause, { machine: hello.machineName }) })),
-      Effect.ensuring(Effect.sync(noteMachinesChanged))));
+      Effect.ensuring(Effect.sync(() => { if (changed) noteMachinesChanged(); }))));
   };
   const dials = new Map<string, Promise<MachinePeer>>();
   let channels: LinkChannels = {};
@@ -103,17 +104,19 @@ export const makeMachineLink = (options: { readonly build: string; readonly rele
         }
       }
       // Only a checked existing binding can contribute a build warning.
-      if (setupId === undefined || setupCommitted) learnBuild(hello);
+      if (setupId === undefined || setupCommitted) noteHello(hello);
       if (hello.build !== own.build) throw LinkBuildMismatch.of(hello, own);
       if (setupId !== undefined && !setupCommitted) {
         await run(machines.pinPeer({ machineName: hello.machineName, installationId: hello.installationId }));
         setupCommitted = true;
-        learnBuild(hello);
+        noteHello(hello);
       }
     };
   };
   /** The installation that dialed each admitted link. */
   const dialers = new WeakMap<LinkSession, InstallationId>();
+  /** What each admitted link said, so its close is a live time too. */
+  const peers = new WeakMap<LinkSession, LinkHello>();
   /**
    * Two links to one machine settle to one, the same one at both ends: the
    * link dialed by the lower installation id is kept and the other closes as
@@ -128,6 +131,7 @@ export const makeMachineLink = (options: { readonly build: string; readonly rele
       void existing.close(linkClosed({ machine: hello.machineName, by: "this-end", reason: "superseded" }));
     }
     dialers.set(session, dialer);
+    peers.set(session, hello);
     sessions.set(hello.machineName, session);
   };
   /** A session that settles with the others to its peer; `dialed` when this end opened it. */
@@ -142,6 +146,9 @@ export const makeMachineLink = (options: { readonly build: string; readonly rele
       allSessions.delete(session);
       let opened = false;
       for (const [name, held] of sessions) if (held === session) { sessions.delete(name); opened = true; }
+      // The close is this machine's last live time for that installation.
+      const hello = peers.get(session);
+      if (hello !== undefined) noteHello(hello);
       // A link that had opened and closes is a change the window shows; a dial
       // that never opened is not, so the read that follows, which dials, is silent when it fails.
       if (opened) noteMachinesChanged();
@@ -274,6 +281,13 @@ export const makeMachineLink = (options: { readonly build: string; readonly rele
     connectSetup: (host, expectedInstallationId) => connect(host, expectedInstallationId),
     disconnect,
     peerBuild: (name) => Effect.sync(() => builds.get(name)),
+    peerInstallation: (name) => Effect.tryPromise({
+      try: async () => {
+        const session = sessions.get(name);
+        return session === undefined ? undefined : (await session.ready).installationId;
+      },
+      catch: () => undefined,
+    }).pipe(Effect.orElseSucceed(() => undefined)),
     request: Effect.fn("MachineLink.request")(function* (name: string, channel: LinkChannel, payload: unknown, requestOptions?: { readonly operationId?: string; readonly tag?: string }) {
       // An interrupted caller aborts the signal, and the session tells the peer to interrupt the request.
       return yield* Effect.tryPromise({ try: (signal) => sessionFor(name).request(channel, payload, requestOptions?.operationId, requestOptions?.tag, signal), catch: (cause) => toLinkError(cause, name) });

@@ -4,7 +4,7 @@
  * and append forward steps only when this file evolves.
  */
 
-export const INSTALL_OPS_SCHEMA_VERSION = 3 as const;
+export const INSTALL_OPS_SCHEMA_VERSION = 4 as const;
 
 /** Stable backfill ids — never reuse a completed id for a different walk. */
 export const BACKFILL_INLINE_MEDIA_V1 = "content.inline-media.v1" as const;
@@ -64,5 +64,28 @@ export const MACHINE_UPDATE_ATTEMPTS_SQL = `
   ) STRICT;
 `;
 
-export const INSTALL_OPS_SCHEMA_SQL = `${INSTALL_OPS_V2_SCHEMA_SQL}
+/** The version 3 ledger, kept as shipped and never rewritten. */
+export const INSTALL_OPS_V3_SCHEMA_SQL = `${INSTALL_OPS_V2_SCHEMA_SQL}
 ${MACHINE_UPDATE_ATTEMPTS_SQL}`;
+
+/**
+ * A send whose setup the far refused with the S4 pin rule: this machine's
+ * last word about that name, with the far's installation id and the route it
+ * was reached over. Install-local bookkeeping only: it is dropped by the
+ * next send, a remove, or a route change, and never travels with junto.db.
+ */
+export const MACHINE_SETUP_REFUSALS_SQL = `
+  CREATE TABLE machine_setup_refusals (
+    machine_name TEXT PRIMARY KEY
+      CHECK (length(machine_name) BETWEEN 1 AND 64),
+    installation_id TEXT NOT NULL
+      CHECK (length(installation_id) BETWEEN 1 AND 128),
+    route TEXT NOT NULL
+      CHECK (length(route) BETWEEN 1 AND 4096),
+    recorded_at TEXT NOT NULL
+      CHECK (length(recorded_at) BETWEEN 1 AND 64)
+  ) STRICT;
+`;
+
+export const INSTALL_OPS_SCHEMA_SQL = `${INSTALL_OPS_V3_SCHEMA_SQL}
+${MACHINE_SETUP_REFUSALS_SQL}`;
