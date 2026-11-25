@@ -9,7 +9,7 @@
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactBody } from "../src/shared/artifact";
 import { formatNodeRef } from "../src/shared/node-ref";
 import { PreviewCard, type PreviewCardProps } from "../src/window/components/embeds/PreviewCard";
@@ -24,7 +24,8 @@ import { SeatUrgency } from "../src/shared/wire/urgency";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom has no 2D context; the ring's atlas falls back to drawing without one.
-vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+const getContextSpy = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+afterAll(() => getContextSpy.mockRestore());
 
 const S = SeatUrgency.group;
 const NODE = "agent-01M46TX8WR2Q4YGKZ6NFW4GTG8";

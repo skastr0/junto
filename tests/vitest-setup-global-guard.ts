@@ -16,7 +16,7 @@
  * repeats the inherited value, is removed without failing the file.
  */
 import { relative } from "node:path";
-import { afterAll, beforeAll, expect } from "vitest";
+import { afterAll, expect } from "vitest";
 
 type Descriptors = Map<PropertyKey, PropertyDescriptor>;
 type Target = { readonly label: string; readonly object: object };
@@ -87,6 +87,15 @@ const same = (a: PropertyDescriptor, b: PropertyDescriptor): boolean =>
   a.enumerable === b.enumerable &&
   a.configurable === b.configurable;
 
+/**
+ * Third-party imports that replace a global at import time and never put it
+ * back (oxlint/plugins-dev's RuleTester replaces globalThis.WeakMap, which
+ * tests/lint-change-notice and lint-program-imports import). The guard puts
+ * these back but does not fail the file: the test did not patch it, and the
+ * library offers no way to undo it.
+ */
+const RESTORED_QUIETLY = new Set(["globalThis.WeakMap"]);
+
 const name = (key: PropertyKey): string => (typeof key === "symbol" ? key.toString() : String(key));
 
 let before: ReadonlyArray<readonly [Target, Descriptors]> = [];
@@ -96,9 +105,11 @@ let before: ReadonlyArray<readonly [Target, Descriptors]> = [];
 // reaches no other file, and a targeted `vitest run` leaves it unset.
 const ACTIVE = process.env.JUNTO_GUARD_SHARED_GLOBALS === "1";
 
-if (ACTIVE) beforeAll(() => {
-  before = targets().map((target) => [target, record(target)] as const);
-});
+// Recorded when this setup file runs, which is before the test file's module
+// body: a file that patches at module level (Element.prototype.scrollIntoView
+// is installed that way in several) is then seen as changing the baseline, and
+// cleaned, instead of becoming the next file's baseline.
+if (ACTIVE) before = targets().map((target) => [target, record(target)] as const);
 
 if (ACTIVE) afterAll(() => {
   const path = expect.getState().testPath;
@@ -109,7 +120,9 @@ if (ACTIVE) afterAll(() => {
     for (const [key, descriptor] of original) {
       const current = now.has(key) ? Reflect.getOwnPropertyDescriptor(target.object, key) : undefined;
       if (current !== undefined && same(descriptor, current)) continue;
-      leaks.push(`${target.label}.${name(key)} was ${current === undefined ? "removed" : "changed"}`);
+      if (!RESTORED_QUIETLY.has(`${target.label}.${name(key)}`)) {
+        leaks.push(`${target.label}.${name(key)} was ${current === undefined ? "removed" : "changed"}`);
+      }
       try {
         Object.defineProperty(target.object, key, descriptor);
       } catch {
