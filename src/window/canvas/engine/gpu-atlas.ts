@@ -34,7 +34,9 @@
  * - A slot whose raster, placement or texture failed is queued again by the
  *   atlas itself when its back-off runs out, on one timer set for the
  *   earliest. A quad asks once and then holds its cell, so nothing else
- *   would try it again.
+ *   would try it again. The back-off doubles with each of the slot's
+ *   failures and a landing does not start it over: a device says a texture
+ *   is not there after the pixels have landed on it, not before.
  *
  * `ensureNow()` rasters synchronously before a frame submits, text is
  * true-ink coverage, and no ImageBitmap is retained.
@@ -299,7 +301,15 @@ interface SlotRecord {
   standIn?: SlotRecord;
   /** The name quads that show `standIn` find it by while it waits (`byShown`). */
   waitName?: string;
+  /**
+   * Its failures on this device: rasters and placements that failed, and
+   * textures found out of memory after it landed on them. A landing does not
+   * clear it, because the device answers for a texture only after the
+   * landing, and a slot whose pixels stay never fails again. A new device
+   * clears it.
+   */
   attempts: number;
+  /** While failed: when its back-off runs out, on `nowMs()`'s clock. */
   retryAfter: number;
   desc?: CellDesc;
   jobToken: number;
@@ -1391,22 +1401,25 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   };
 
   /**
-   * `rec` has no pixels of its own and no raster on the way: it is failed,
-   * and the timer queues it again `ms` from now. The one way a slot that
-   * stays is left failed.
+   * `rec` has no pixels of its own and no raster on the way: its raster or
+   * its placement failed, or the texture it landed on never came to be. It
+   * is failed, and the timer queues it again after a wait that doubles with
+   * each of its failures, from BASE_RETRY_MS to MAX_RETRY_MS. The one way a
+   * slot that stays is left failed. A landed slot has nothing to retry.
    */
-  const failFor = (rec: SlotRecord, ms: number): void => {
+  const backOff = (rec: SlotRecord): void => {
+    if (rec.state === "landed") return;
     rec.state = "failed";
+    rec.retryAfter = nowMs() + Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts));
     rec.attempts += 1;
-    rec.retryAfter = nowMs() + ms;
     retryBy(rec.retryAfter);
   };
 
   /**
    * The texture under these cells never came to be: an allocation found out
    * of memory after the cells had landed on it. They have no pixels, and
-   * neither have the slots that showed them. Each is rastered again after a
-   * short back-off if a quad still holds it, and is freed if not.
+   * neither have the slots that showed them. Each is rastered again when its
+   * back-off runs out if a quad still holds it, and is freed if not.
    */
   const pixelsLost = (lost: ReadonlyArray<SlotRecord>): void => {
     for (const rec of lost) {
@@ -1426,20 +1439,15 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
     for (const rec of lost) {
       if (rec.refCount > 0) {
-        // Soon: the memory may be back. If it is not, the raster's own failure backs off further.
-        failFor(rec, BASE_RETRY_MS);
+        // Soon the first time: the memory may be back. Later each time it is
+        // not, since the landing that came between left the count alone.
+        backOff(rec);
         writeRow(rec);
       } else {
         freeSlot(rec);
       }
     }
     markDirty();
-  };
-
-  /** A raster or a placement failed: try again later, later each time. A landed slot has nothing to retry. */
-  const backOff = (rec: SlotRecord): void => {
-    if (rec.state === "landed") return;
-    failFor(rec, Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts)));
   };
 
   /**
@@ -1500,7 +1508,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
 
     rec.state = "landed";
-    rec.attempts = 0;
+    // `attempts` stays: the device has not answered for a new texture yet,
+    // and if the answer is out of memory the pixels are taken back.
     rec.retryAfter = 0;
     landedCount += 1;
     addContentLanded(rec);
@@ -2308,6 +2317,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         unplace(rec);
         rec.standalone = undefined;
         rec.state = "queued";
+        // Nothing has failed on this device yet.
+        rec.attempts = 0;
+        rec.retryAfter = 0;
         if (rec.standIn !== undefined) {
           rec.standIn.refCount = Math.max(0, rec.standIn.refCount - 1);
           rec.standIn = undefined;

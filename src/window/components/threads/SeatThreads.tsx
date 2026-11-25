@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { parseMentionHref } from "@shared/mention";
 import type { SeatOpenView } from "@shared/settings";
@@ -558,7 +558,6 @@ export function ThreadChat({
   // what a reply will answer, and what stays open until work is handed in.
   // The signal at the thread's head is not among them: its answer is what
   // started the thread.
-  const answersId = useId();
   const openSignals = useMemo(
     () => messages.flatMap((message) => (!message.mine && message.signal?.state === "open" ? [message.signal] : [])),
     [messages],
@@ -633,7 +632,7 @@ export function ThreadChat({
               of its own. Its seat is the one this chat is with. */}
           {headSignal !== undefined && older === undefined ? (
             <article className="seat-threads__message" data-testid="seat-threads-head-signal" data-signal-id={headSignal.signalId}>
-              <SignalFrame signal={headSignal} author={name} known={thread.participants} onHandIn={openNeedsYouOn}>
+              <SignalFrame signal={headSignal} author={name} onHandIn={openNeedsYouOn}>
                 <div className="seat-threads__message-head">
                   <AgentPortrait identity={portraitOf(name)} size={20} frame="round" badge={false} outline={false} />
                   <strong>{name}</strong>{" "}
@@ -695,7 +694,7 @@ export function ThreadChat({
                 data-testid="seat-threads-message"
               >
                 {signal !== undefined ? (
-                  <SignalFrame signal={signal} author={message.author} known={thread.participants} onHandIn={openNeedsYouOn}>
+                  <SignalFrame signal={signal} author={message.author} onHandIn={openNeedsYouOn}>
                     {head}
                     {words}
                     {files}
@@ -726,9 +725,7 @@ export function ThreadChat({
           threadId={thread.threadId}
           inReplyTo={lastId}
           yields={yields}
-          above={<ReplyAnswers id={answersId} open={openSignals} known={thread.participants} onShow={showSignal} onHandIn={openNeedsYouOn} />}
-          // The block is there exactly while a signal is open: ReplyAnswers says nothing with none.
-          {...(openSignals.length > 0 ? { describedBy: answersId } : {})}
+          above={<ReplyAnswers open={openSignals} known={thread.participants} onShow={showSignal} onHandIn={openNeedsYouOn} />}
           onSent={(_threadId, mail) => {
             if (!mail.waiting) return;
             followed.current.add(mail.messageId);

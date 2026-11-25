@@ -1177,6 +1177,55 @@ describe("a failed slot is tried again by the atlas, with nobody asking", () => 
     expect(atlas.audit().counts).toEqual({});
   });
 
+  it.each([
+    ["a page", 20],
+    ["a texture of its own", 100],
+  ])("a late out-of-memory answer for %s backs off again after every landing", async (_what, width) => {
+    const fake = fakeDevice();
+    // The out-of-memory answer for each texture is the test's to give, in the order they were made.
+    const answers: Array<(error: { readonly message: string } | null) => void> = [];
+    (fake.device as unknown as { popErrorScope: () => Promise<{ readonly message: string } | null> }).popErrorScope = () =>
+      new Promise((resolve) => {
+        answers.push(resolve);
+      });
+    let rasters = 0;
+    // 64 px pages: a line of 20 px goes on a page, one of 100 px takes a texture of its own.
+    const { atlas } = atlasWith({
+      size: 64,
+      rasterizeText: async () => {
+        rasters += 1;
+        return pixels(width, 10);
+      },
+    });
+    atlas.attach(fake.device);
+    const cell = atlas.acquire(textQuad(), 1);
+    await turn();
+    expect(atlas.hasImage(cell)).toBe(true);
+    expect(rasters).toBe(1);
+
+    // The device keeps answering out of memory after the landing. Each wait
+    // doubles although a landing came between: 250, 500, 1000, and so on.
+    for (const [n, wait] of [250, 500, 1000, 2000, 4000, 8000, 8000].entries()) {
+      answers.at(-1)!({ message: "out of memory" });
+      await turn();
+      expect(atlas.hasImage(cell)).toBe(false);
+      expect(atlas.stats()).toMatchObject({ failedCells: 1, pending: 0 });
+
+      await pass(wait - 1);
+      expect(rasters).toBe(n + 1);
+      await pass(1);
+      expect(rasters).toBe(n + 2);
+      expect(atlas.hasImage(cell)).toBe(true);
+    }
+
+    // The last texture is there. Nothing is failed, and nothing is waited for.
+    answers.at(-1)!(null);
+    await turn();
+    expect(atlas.stats()).toMatchObject({ failedCells: 0, pending: 0 });
+    expect(vi.getTimerCount()).toBe(0);
+    expect(atlas.audit().counts).toEqual({});
+  });
+
   it("a failed cell that is let go is not tried again, and the timer goes with the device and with the atlas", async () => {
     const source = flaky(() => Number.POSITIVE_INFINITY);
     const { atlas } = atlasWith({ rasterizeSprite: source.rasterizeSprite });
@@ -1201,13 +1250,18 @@ describe("a failed slot is tried again by the atlas, with nobody asking", () => 
     expect(atlas.stats().failedCells).toBe(0);
     await turn();
     expect(source.rasters("held")).toBe(2);
-    // It failed on the new device too, and is waited for again.
+    // It failed on the new device too, and is waited for again. The count of
+    // failures was the old device's, so the first back-off is 250 ms again.
     expect(atlas.stats().failedCells).toBe(1);
     expect(vi.getTimerCount()).toBe(1);
+    await pass(249);
+    expect(source.rasters("held")).toBe(2);
+    await pass(1);
+    expect(source.rasters("held")).toBe(3);
 
     atlas.dispose();
     expect(vi.getTimerCount()).toBe(0);
     await pass(60_000);
-    expect(source.rasters("held")).toBe(2);
+    expect(source.rasters("held")).toBe(3);
   });
 });

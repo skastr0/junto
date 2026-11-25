@@ -55,8 +55,6 @@ type ToOneSeat = Shared & {
   readonly onSent?: (threadId: string, mail: SentMail) => void;
   /** Reply: drawn in the field's frame above the field, as what the reply will answer. */
   readonly above?: ReactNode;
-  /** Reply: the id of what `above` says, so the field is described by it. Pass it only while that block is in the document. */
-  readonly describedBy?: string;
 };
 
 /** New threads to the seats the operator chose, one each (Quick thread). */
@@ -289,7 +287,6 @@ export function ThreadComposer(props: ToOneSeat | ToRecipients) {
             return trigger === "@" ? `Seats connected to ${whose}, and pages in reach` : `Tasks and artifacts in reach of ${whose}`;
           }}
           aria-label={fieldLabel}
-          {...(several || props.describedBy === undefined ? {} : { "aria-describedby": props.describedBy })}
           placeholder={mode === "new" ? "Write the first line" : "Reply to the thread"}
           data-testid="thread-composer-input"
           onKeyDown={onKeyDown}

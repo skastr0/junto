@@ -28,6 +28,21 @@
  * Changed when the file landed, by canvas-services, and nothing else: the
  * wait is on a clock the test moves, not the real one (AGENTS.md, Testing:
  * no test waits on a real clock for product time to pass).
+ *
+ * canvas-nodes, read of P1's fix (0a390e1a3).
+ *
+ * P2  A texture the device refuses late was tried again 250 ms later, every
+ *     time, for as long as it kept refusing. The back-off never grew:
+ *     `landPixels` cleared `attempts` when the cell landed, which is before
+ *     the device has answered for the texture, and `pixelsLost` waited
+ *     BASE_RETRY_MS whatever came before. New with P1's timer: every cell
+ *     that was on the page was rastered again four times a second, and a
+ *     texture of its own was rastered and uploaded whole each time. Forty
+ *     rasters in ten seconds without memory, for a page and for a texture of
+ *     its own, where the back-off series allows six.
+ *
+ * Changed when these two landed, by canvas-services: they share this file's
+ * device and board, and print nothing.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asCanvasName } from "@shared/model";
@@ -74,7 +89,12 @@ const lateDevice = () => {
     scopes.find((scope) => scope.tex === tex)?.resolve({ message: "out of memory" });
     await settle();
   };
-  return { device, lose };
+  /** Every texture asked for and not answered yet gets its answer now: it is there, or there was no memory for it. */
+  const answer = async (memory: boolean): Promise<void> => {
+    for (const scope of scopes.splice(0)) scope.resolve(memory ? null : { message: "out of memory" });
+    await settle();
+  };
+  return { device, lose, answer };
 };
 
 const VIEW = { x: -100, y: -100, width: 800, height: 600 };
@@ -151,6 +171,15 @@ const board = (pageSize?: number) => {
     }
     await turn(0);
   };
+  /** The device answers every 50 ms, with memory or without, while frames go on. */
+  const run = async (ms: number, memory: boolean): Promise<void> => {
+    for (let t = 0; t < ms; t += 50) {
+      await gpu.answer(memory);
+      await turn(50);
+      frame();
+    }
+    await gpu.answer(memory);
+  };
   return {
     atlas,
     gpu,
@@ -159,6 +188,7 @@ const board = (pageSize?: number) => {
     held,
     drawnWidth,
     frames,
+    run,
     failNext,
     rasters,
     zoomTo: (next: number): void => {
@@ -224,5 +254,39 @@ describe("P1: a failed slot a quad still holds is tried again", () => {
     await frames();
     expect(rasters.filter((scale) => scale === 2).length).toBeGreaterThan(1);
     expect(drawnWidth()).toBeCloseTo(before * 2, 6);
+  });
+});
+
+describe("P2: a texture the device keeps refusing late is tried later each time, not every 250 ms", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("a page", async () => {
+    const { atlas, gpu, frame, held, run, rasters } = board();
+    // The two 1 px textures made on attach are fine.
+    await gpu.answer(true);
+    frame();
+    expect(atlas.hasImage(held())).toBe(true);
+    const first = rasters.length;
+
+    // Ten seconds without memory. Back-offs of 250, 500, 1000, 2000 and 4000 ms end inside them.
+    await run(10_000, false);
+    expect(rasters.length - first).toBeLessThanOrEqual(6);
+  });
+
+  it("a texture of its own", async () => {
+    // 64 px pages: the line is larger than a page and takes a texture of its own.
+    const { atlas, gpu, frame, held, run, rasters } = board(64);
+    await gpu.answer(true);
+    frame();
+    expect(atlas.binding.standalone?.get(held())).toBeDefined();
+    const first = rasters.length;
+
+    await run(10_000, false);
+    expect(rasters.length - first).toBeLessThanOrEqual(6);
   });
 });
