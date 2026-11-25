@@ -720,6 +720,12 @@
                 "enum": [
                   true
                 ]
+              },
+              "crossed": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
               }
             },
             "required": [

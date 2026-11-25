@@ -721,6 +721,12 @@
                   true
                 ]
               },
+              "crossed": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
               "level": {
                 "type": "string",
                 "enum": [
