@@ -830,3 +830,8 @@
 .rts-cmd__reseat-line.is-failed {
   color: var(--color-crimson-fg);
 }
+
+/* The status region stays mounted for the screen reader; empty, it takes no room. */
+.rts-cmd__reseat-line:empty {
+  margin-top: -1px;
+}

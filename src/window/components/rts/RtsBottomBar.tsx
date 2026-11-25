@@ -223,18 +223,21 @@ function MultiCommandCard({ nodes }: { readonly nodes: ReadonlyArray<Node> }) {
         <div className="rts-cmd-main">
           <div className="rts-cmd-head">
             <div className="rts-cmd__title">
-              {classified.mode === "homogeneous" ? "shared settings" : "shared settings only"}
+              {classified.mode === "homogeneous"
+                ? "shared settings"
+                : seats.length > 0
+                  ? "shared settings and agents"
+                  : "shared settings only"}
             </div>
             <div className="rts-cmd__live">{selectionLabelOf(classified)}</div>
-            {reseat.line ? (
-              <div
-                className={`rts-cmd__live rts-cmd__reseat-line${reseat.line.failed ? " is-failed" : ""}`}
-                role="status"
-                title={reseat.line.text}
-              >
-                {reseat.line.text}
-              </div>
-            ) : null}
+            {/* Always mounted: a status region added with its text is not read out. */}
+            <div
+              className={`rts-cmd__live rts-cmd__reseat-line${reseat.line?.failed ? " is-failed" : ""}`}
+              role="status"
+              title={reseat.line?.text}
+            >
+              {reseat.line?.text}
+            </div>
           </div>
           <AccentColorSwatches
             nodeIds={liveIds}

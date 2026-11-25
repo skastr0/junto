@@ -27,7 +27,7 @@ export function ReseatConfirmDialog({
   return (
     <ConfirmDialog
       title={many ? `Re-seat ${count} agents` : "Re-seat agent process"}
-      confirmLabel={many ? `Stop and re-seat ${count}` : "Stop and re-seat"}
+      confirmLabel={many ? `Stop and re-seat ${count} agents` : "Stop and re-seat"}
       onConfirm={() => onConfirm(dontShowAgain)}
       onCancel={onCancel}
     >
@@ -42,7 +42,7 @@ export function ReseatConfirmDialog({
         <span>
           Swapping from <strong className="text-ink">{fromLabel ?? "current seat"}</strong> to{" "}
           <strong className="text-ink">{toLabel}</strong> stops the
-          current agent process and starts a new one on a fresh seat. Unsaved
+          current agent process and starts a new one in this seat. Unsaved
           in-process work in the old harness will be lost. The workspace path
           on this seat is kept.
         </span>

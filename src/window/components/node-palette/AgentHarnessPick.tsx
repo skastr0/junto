@@ -308,7 +308,7 @@ export function AgentHarnessPick({
       ? "No agent harnesses enabled in this build."
       : installedTemplates.length === 0
         ? targetsKey.includes("\n")
-          ? "No agent CLI is installed on every one of these machines."
+          ? "No agent CLI is installed on all of these machines."
           : "No installed agent CLIs found on this machine."
         : eligibleTemplates.length === 0
           ? "All installed agents are hidden by Settings."
