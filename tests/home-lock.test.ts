@@ -127,7 +127,7 @@ describe.skipIf(process.platform !== "linux")("the home lock on Linux", () => {
     expect((await take(at)).held()).toBe(true);
   });
 
-  it("refuses a lock file whose id was never written, after its creator's wait", async () => {
+  it("refuses at once a lock file whose id is not whole", async () => {
     const at = await home();
     mkdirSync(stateOf(at), { recursive: true, mode: 0o700 });
     writeFileSync(join(stateOf(at), HOME_LOCK_FILE), "", { mode: 0o600 });
