@@ -488,6 +488,11 @@ phase, and attention/occupancy are separate planes.
     `scripts/vm.sh run $id 'bun run cli:build && JUNTO_FEATURE_PROFILE=all-on
     bun run build:bundles && scripts/run-e2e.sh <spec>'`: the native CLI is
     built first (`dist/junto`), or the specs refuse with a SETUP message.
+    `bun run build:bundles` is both builds, the window's and
+    `out/main/core-process.js`; `electron-vite build` alone leaves no core
+    process and the app opens no window. Do not pipe `run-e2e.sh` without
+    `set -o pipefail`: its refusals (a missing or stale build, no display) go
+    to stderr and exit 1, and a pipe into `grep` hides both.
   - The operator's database never leaves this machine, whole or in part, by
     any means: not to a VM and not to the mini. Both scripts refuse a SQLite
     file. A real board goes to the mini as its shapes only: the JSON that
