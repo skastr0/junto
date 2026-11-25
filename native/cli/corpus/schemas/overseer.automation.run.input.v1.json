@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "The Automations node: its id, its name, or a junto:// ref"
+    },
+    "automation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "The automation's id or its exact name"
+    }
+  },
+  "required": [
+    "target",
+    "automation"
+  ],
+  "additionalProperties": false
+}

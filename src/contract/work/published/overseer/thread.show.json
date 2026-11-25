@@ -1,0 +1,41 @@
+{
+  "operation": "thread.show",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "seat": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "threadId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "before": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "seat",
+        "threadId"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

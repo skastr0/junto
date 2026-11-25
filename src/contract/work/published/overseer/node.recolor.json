@@ -1,0 +1,44 @@
+{
+  "operation": "node.recolor",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "nodeIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "minItems": 1,
+          "maxItems": 100
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "nodeIds",
+        "color"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

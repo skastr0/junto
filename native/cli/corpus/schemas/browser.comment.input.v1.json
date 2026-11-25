@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string"
+    },
+    "tab": {
+      "type": "string"
+    },
+    "rect": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "w": {
+          "type": "number"
+        },
+        "h": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "additionalProperties": false
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "sessionId",
+    "rect",
+    "text"
+  ],
+  "additionalProperties": false
+}

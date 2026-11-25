@@ -1,0 +1,31 @@
+{
+  "operation": "git.log",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "nodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        }
+      },
+      "required": [
+        "nodeId"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

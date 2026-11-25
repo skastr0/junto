@@ -32,6 +32,11 @@ regex = "1"
 httparse = "1"
 rustix = { version = "1", features = ["fs", "process"] }
 
+[build-dependencies]
+# build.rs resolves the schemas corpus/schemas.json names to their published text.
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+
 [profile.release]
 lto = true
 codegen-units = 1

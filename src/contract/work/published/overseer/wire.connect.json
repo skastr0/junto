@@ -1,0 +1,88 @@
+{
+  "operation": "wire.connect",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "wire": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "to": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "mask": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "msg.list",
+                  "msg.send",
+                  "msg.prompt",
+                  "seat.wait",
+                  "terminal.read",
+                  "threads.read",
+                  "browser.automate"
+                ]
+              }
+            },
+            "fromSide": {
+              "type": "string",
+              "enum": [
+                "top",
+                "right",
+                "bottom",
+                "left"
+              ]
+            },
+            "toSide": {
+              "type": "string",
+              "enum": [
+                "top",
+                "right",
+                "bottom",
+                "left"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "verb": {
+              "type": "string",
+              "enum": [
+                "messages",
+                "navigates",
+                "flows",
+                "derives"
+              ]
+            }
+          },
+          "required": [
+            "from",
+            "to"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "wire"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

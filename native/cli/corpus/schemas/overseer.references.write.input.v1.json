@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "canvas": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "regionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "description": {
+      "type": "string"
+    },
+    "body": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false
+}

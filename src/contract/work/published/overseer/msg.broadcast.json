@@ -1,0 +1,67 @@
+{
+  "operation": "msg.broadcast",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "region": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "seat": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "doing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "working",
+              "idle",
+              "off"
+            ]
+          }
+        },
+        "needs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "escalate",
+              "blocked",
+              "feedback"
+            ]
+          }
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expect": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "set": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "expect"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "operation": "terminal.input",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "nodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "data": {
+          "type": "string"
+        },
+        "encoding": {
+          "type": "string",
+          "enum": [
+            "utf8",
+            "base64"
+          ]
+        }
+      },
+      "required": [
+        "nodeId",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string"
+    },
+    "code": {
+      "type": "string"
+    },
+    "tab": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "sessionId",
+    "code"
+  ],
+  "additionalProperties": false
+}

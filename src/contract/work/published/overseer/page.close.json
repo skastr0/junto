@@ -1,0 +1,21 @@
+{
+  "operation": "page.close",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

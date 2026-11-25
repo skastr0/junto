@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
+    schemas();
     let out =
         PathBuf::from(std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR")).join("corpus.json");
     println!("cargo::rerun-if-env-changed=JUNTO_NATIVE_CORPUS");
@@ -44,6 +45,88 @@ fn main() {
     args.push("scripts/native-cli-corpus.ts".into());
     args.push(out.display().to_string());
     bun(&root, &args.iter().map(String::as_str).collect::<Vec<_>>());
+}
+
+/// A schema corpus/schemas.json names: a work op's, an overseer operation's,
+/// or a file of this crate's.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Source {
+    Op(String),
+    Overseer(String),
+    File(String),
+}
+
+#[derive(serde::Deserialize)]
+struct Named {
+    schema: Source,
+}
+
+#[derive(serde::Deserialize)]
+struct Payload {
+    schema: Box<serde_json::value::RawValue>,
+}
+
+#[derive(serde::Deserialize)]
+struct WorkOp {
+    payload: Payload,
+}
+
+#[derive(serde::Deserialize)]
+struct OverseerOperation {
+    args: Payload,
+}
+
+/// Writes OUT_DIR/schemas.json: each schema corpus/schemas.json names, by
+/// `op:`, `overseer:` or `file:` and its name, read from where it is
+/// published. A name that resolves to nothing fails the build, naming it.
+fn schemas() {
+    let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let published = crate_dir.join("../../src/contract/work/published");
+    let catalog = crate_dir.join("corpus/schemas.json");
+    for watched in [
+        &catalog,
+        &published,
+        &published.join("overseer"),
+        &crate_dir.join("corpus/schemas"),
+    ] {
+        println!("cargo::rerun-if-changed={}", watched.display());
+    }
+    let read = |path: &Path| {
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    };
+    let named: Vec<Named> = serde_json::from_str(&read(&catalog))
+        .unwrap_or_else(|e| panic!("corpus/schemas.json: {e}"));
+    let mut sources = std::collections::BTreeMap::new();
+    for Named { schema } in named {
+        let (key, path) = match &schema {
+            Source::Op(op) => (format!("op:{op}"), published.join(format!("{op}.json"))),
+            Source::Overseer(operation) => (
+                format!("overseer:{operation}"),
+                published.join(format!("overseer/{operation}.json")),
+            ),
+            Source::File(name) => (
+                format!("file:{name}"),
+                crate_dir.join("corpus/schemas").join(name),
+            ),
+        };
+        if sources.contains_key(&key) {
+            continue;
+        }
+        let text = read(&path);
+        let parsed = match schema {
+            Source::Op(_) => serde_json::from_str::<WorkOp>(&text).map(|op| op.payload.schema),
+            Source::Overseer(_) => {
+                serde_json::from_str::<OverseerOperation>(&text).map(|op| op.args.schema)
+            }
+            Source::File(_) => serde_json::from_str(&text),
+        };
+        let schema = parsed.unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        sources.insert(key, schema);
+    }
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR"));
+    let text = serde_json::to_string(&sources).expect("raw schemas serialize");
+    std::fs::write(out.join("schemas.json"), text).expect("OUT_DIR is writable");
 }
 
 /// One profile define, overridden by this crate's variable of the same name.

@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "ref": {
+      "type": "string"
+    },
+    "tab": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "ref"
+  ],
+  "additionalProperties": false
+}

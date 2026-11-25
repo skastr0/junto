@@ -1,0 +1,38 @@
+{
+  "operation": "terminal.resize",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "nodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "cols": {
+          "type": "integer",
+          "maximum": 9007199254740991,
+          "exclusiveMinimum": 0
+        },
+        "rows": {
+          "type": "integer",
+          "maximum": 9007199254740991,
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "nodeId",
+        "cols",
+        "rows"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

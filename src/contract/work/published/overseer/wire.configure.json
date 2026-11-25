@@ -1,0 +1,96 @@
+{
+  "operation": "wire.configure",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "wireId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "change": {
+          "type": "object",
+          "properties": {
+            "verb": {
+              "type": "string",
+              "enum": [
+                "messages",
+                "navigates",
+                "flows",
+                "derives"
+              ]
+            },
+            "mask": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "msg.list",
+                      "msg.send",
+                      "msg.prompt",
+                      "seat.wait",
+                      "terminal.read",
+                      "threads.read",
+                      "browser.automate"
+                    ]
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "fromSide": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "top",
+                    "right",
+                    "bottom",
+                    "left"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "toSide": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "top",
+                    "right",
+                    "bottom",
+                    "left"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "wireId",
+        "change"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

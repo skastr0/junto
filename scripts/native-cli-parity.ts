@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 import { Effect, Schema } from "effect";
 import * as Arbitrary from "effect/Arbitrary";
 import type { Rpc } from "effect/rpc";
-import { allExamples } from "../src/cli/core/discovery";
+import { allExamples, allSchemas } from "../src/cli/core/discovery";
 import { WORK_RPC_GROUPS } from "../src/contract/work/publish";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -204,6 +204,23 @@ const helpCases: ReadonlyArray<Case> = [
   ...["bash", "zsh", "fish", "sh"].map((shell) => ({ name: `completions ${shell}`, argv: ["--completions", shell] })),
 ];
 
+// Every schema and examples lookup: each schema by its id (and, for an
+// overseer operation, under overseer by the operation), each command's
+// examples, a command named by its words, and a target nothing names.
+const overseerOp = (id: string) => (id.startsWith("overseer.") ? [id.slice("overseer.".length)] : []);
+const exampleIds = [...new Set(allExamples.map((example) => example.command_id))];
+const catalogCases: ReadonlyArray<Case> = [
+  ...["schema", "examples"].flatMap((family) => [[family, "list"], ["overseer", family, "list"]]).map((argv) => ({ name: argv.join(" "), argv })),
+  ...allSchemas.map((schema) => ({ name: `schema show ${schema.schema_id}`, argv: ["schema", "show", schema.schema_id] })),
+  ...allSchemas.flatMap((schema) => overseerOp(schema.command_id)).map((op) => ({ name: `overseer schema show ${op}`, argv: ["overseer", "schema", "show", op] })),
+  ...exampleIds.map((id) => ({ name: `examples show ${id}`, argv: ["examples", "show", id] })),
+  ...exampleIds.flatMap(overseerOp).map((op) => ({ name: `overseer examples show ${op}`, argv: ["overseer", "examples", "show", op] })),
+  { name: "schema show by command words", argv: ["schema", "show", "msg send --prompt"] },
+  { name: "examples show by command words", argv: ["examples", "show", "msg send"] },
+  { name: "schema show of nothing", argv: ["schema", "show", "nope"] },
+  { name: "examples show of nothing", argv: ["examples", "show", "nope"] },
+];
+
 // --cases <file>: argv arrays to run instead, such as calls agents made, each
 // answered as delivered.
 const casesFlag = process.argv.indexOf("--cases");
@@ -216,7 +233,7 @@ const given: ReadonlyArray<Case> | undefined =
         answer: staged,
       }));
 
-const cases = (given ?? [...handCases, ...exampleCases, ...helpCases]).filter((c) => only === undefined || c.argv.join(" ").startsWith(only));
+const cases = (given ?? [...handCases, ...exampleCases, ...helpCases, ...catalogCases]).filter((c) => only === undefined || c.argv.join(" ").startsWith(only));
 
 // --list prints each case's name and argv, for coverage reports, and runs none.
 if (process.argv.includes("--list")) {
@@ -279,6 +296,11 @@ const runOne = (command: ReadonlyArray<string>, c: Case) =>
 const ACCEPTED: ReadonlyMap<string, string> = new Map([
   // since=now is read on each side's own clock, so the two times differ by the gap between the runs.
   ["example logs: recent errors on this machine", "since=now timing"],
+  // The TypeScript overseer schema show names the JSON input modes for every
+  // operation; the native one names the command's own, as schema show does.
+  ...["msg.audience", "msg.broadcast", "thread.list", "thread.show", "secret.put"].map(
+    (op) => [`overseer schema show ${op}`, "the command's own input modes"] as const,
+  ),
 ]);
 
 let failed = 0;

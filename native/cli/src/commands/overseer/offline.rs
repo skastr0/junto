@@ -7,9 +7,8 @@
 use serde_json::{Map, Value, json};
 
 use super::catalog::{self, Operation};
-use crate::envelope::{self, Answer, Reply};
+use crate::envelope::{self, Answer};
 use crate::error::{Failure, Result};
-use crate::help::corpus::CORPUS;
 
 /// The skill an overseer agent reads, with `{{families}}` where this build's
 /// families go.
@@ -140,10 +139,8 @@ fn resolve(target: &str) -> Option<&'static Operation> {
 }
 
 /// The entries of a root catalog list that are this build's overseer operations.
-fn listed(list: &str, key: &str) -> Vec<Map<String, Value>> {
-    let entries = serde_json::from_str::<Value>(list)
-        .ok()
-        .and_then(|mut list| list.get_mut(key).map(Value::take));
+fn listed(mut list: Value, key: &str) -> Vec<Map<String, Value>> {
+    let entries = list.get_mut(key).map(Value::take);
     let Some(Value::Array(entries)) = entries else {
         return Vec::new();
     };
@@ -166,7 +163,7 @@ fn operation_of(entry: &Map<String, Value>) -> Option<&'static Operation> {
 }
 
 pub fn schema_list() -> Answer {
-    let schemas: Vec<Value> = listed(CORPUS.schema.list.get(), "schemas")
+    let schemas: Vec<Value> = listed(crate::catalog::schema_list(), "schemas")
         .into_iter()
         .map(|entry| {
             let field = |key: &str| entry.get(key).cloned().unwrap_or_default();
@@ -185,8 +182,7 @@ pub fn schema_list() -> Answer {
 
 /// One operation's input contract, as `junto schema show overseer.<op>` prints it.
 pub fn contract(op: &Operation) -> Option<Map<String, Value>> {
-    let shown = CORPUS.schema.show(&format!("overseer.{}", op.name))?;
-    match serde_json::from_str(shown.get()).ok()? {
+    match crate::catalog::schema_show(&format!("overseer.{}", op.name))? {
         Value::Object(contract) => Some(contract),
         _ => None,
     }
@@ -207,21 +203,19 @@ pub fn schema_show(target: &str) -> Answer {
 }
 
 pub fn examples_list() -> Answer {
-    envelope::ok(&json!({ "examples": listed(CORPUS.examples_catalog.list.get(), "examples") }))
+    envelope::ok(&json!({ "examples": listed(crate::catalog::examples_list(), "examples") }))
 }
 
 pub fn examples_show(target: &str) -> Answer {
-    resolve(target)
-        .and_then(|op| {
-            CORPUS
-                .examples_catalog
-                .show(&format!("overseer.{}", op.name))
-        })
-        .map(Reply::from)
-        .ok_or_else(|| {
+    match resolve(target)
+        .and_then(|op| crate::catalog::examples_show(&format!("overseer.{}", op.name)))
+    {
+        Some(shown) => envelope::ok(&shown),
+        None => Err(
             Failure::input(format!("No overseer examples found for {target}"), "target")
-                .and("hint", "junto overseer examples list")
-        })
+                .and("hint", "junto overseer examples list"),
+        ),
+    }
 }
 
 /// retiredOverseerInvocation (src/cli/commands/overseer-retired.ts):

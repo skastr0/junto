@@ -1,0 +1,21 @@
+{
+  "operation": "canvas.delete",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "canvas"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

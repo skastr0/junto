@@ -1,0 +1,34 @@
+{
+  "operation": "automation.disable",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "The Automations node: its id, its name, or a junto:// ref"
+        },
+        "automation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "The automation's id or its exact name"
+        },
+        "opId": {
+          "type": "string",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        }
+      },
+      "required": [
+        "target",
+        "automation",
+        "opId"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

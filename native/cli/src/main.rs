@@ -5,6 +5,7 @@
 
 mod attach;
 mod batch;
+mod catalog;
 mod commands;
 #[cfg(test)]
 mod contract;

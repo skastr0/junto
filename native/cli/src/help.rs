@@ -9,7 +9,7 @@
 mod completions;
 pub mod corpus;
 mod page;
-mod tree;
+pub mod tree;
 
 use std::io::{IsTerminal, Write};
 use std::process::ExitCode;

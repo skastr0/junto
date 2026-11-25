@@ -1,15 +1,13 @@
-//! The schema, examples and docs `junto` answers with nothing running, built
-//! by build.rs from the TypeScript that defines them today
-//! (scripts/native-cli-corpus.ts), each as the JSON its command's `data` is.
-//! Help and completions are this crate's own (src/help/tree.rs).
+//! The docs `junto` answers with nothing running, built by build.rs from the
+//! TypeScript that defines them today (scripts/native-cli-corpus.ts), each as
+//! the JSON its command's `data` is. Help, completions, schemas and examples
+//! are this crate's own (src/help/tree.rs, src/catalog.rs).
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
-
-use crate::wire::Data;
 
 static TEXT: &str = include_str!(concat!(env!("OUT_DIR"), "/corpus.json"));
 
@@ -23,31 +21,7 @@ pub struct Corpus {
     /// Every root command onboard can teach in this build.
     #[cfg(test)]
     pub taught_roots: Vec<String>,
-    pub schema: Catalog,
-    pub examples_catalog: Catalog,
     pub docs: Docs,
-}
-
-/// A list answer, and the show answer for each target a lookup accepts.
-#[derive(Deserialize)]
-pub struct Catalog {
-    pub list: Box<RawValue>,
-    show: Show,
-}
-
-#[derive(Deserialize)]
-struct Show {
-    /// Each answer once, as the JSON text of its `data`.
-    answers: Vec<String>,
-    keys: HashMap<String, usize>,
-}
-
-impl Catalog {
-    /// The show answer for a target, as the TypeScript lookup trims it.
-    pub fn show(&self, target: &str) -> Option<Data> {
-        let at = *self.show.keys.get(target.trim())?;
-        RawValue::from_string(self.show.answers.get(at)?.clone()).ok()
-    }
 }
 
 #[derive(Deserialize)]

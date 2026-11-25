@@ -1,0 +1,1866 @@
+[
+  {
+    "command_id": "onboard",
+    "command": "onboard",
+    "schema_id": "onboard.input/v1",
+    "description": "Load this seat's briefing. Takes no input.",
+    "schema": {
+      "file": "onboard.input.v1.json"
+    }
+  },
+  {
+    "command_id": "since",
+    "command": "since",
+    "schema_id": "since.input/v1",
+    "description": "Since your last session: replies owed and awaited, open signals, silent answers, unread mail. all: every line, uncapped. Usually run with no input.",
+    "schema": {
+      "op": "since"
+    }
+  },
+  {
+    "command_id": "offboard",
+    "command": "offboard",
+    "schema_id": "offboard.input/v1",
+    "description": "End this session: markdown notes on what happened, what is relevant, and why it matters; the first line is the one-line summary. Plain markdown, @file, or - for stdin also work. Offboard ends the session the moment it returns: run it last. Without continuation the seat rests until its next wake. With continuation (--continue on the command line), a note for the next session on what to pick up and why: Junto starts that session right away, and it reads the note first.",
+    "input_modes": [
+      "markdown",
+      "inline-json",
+      "@file",
+      "stdin"
+    ],
+    "schema": {
+      "op": "offboard"
+    }
+  },
+  {
+    "command_id": "task.wait",
+    "command": "task wait",
+    "schema_id": "task.wait.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Wait for a task on a task node in reach to become done, input-required, in-review or canceled. timeoutMs bounds the wait: 60000 ms by default, at most 600000 ms.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.wait"
+    }
+  },
+  {
+    "command_id": "task.rules",
+    "command": "task rules",
+    "schema_id": "task.rules.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "The rules in force on a task node, with provenance: name a task for the rules where it sits and which its finish leaves unanswered, or --node for a node's.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.rules"
+    }
+  },
+  {
+    "command_id": "rulings",
+    "command": "rulings",
+    "schema_id": "rulings.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Operator-pinned rulings across a region stack, outer to inner. No target: this seat's own stack.",
+    "schema": {
+      "op": "rulings"
+    }
+  },
+  {
+    "command_id": "msg.list",
+    "command": "msg list",
+    "schema_id": "msg.list.input/v1",
+    "description": "List this seat's inbox (no target) or a connected mailbox. Own-inbox list marks listed inbound mail read and includes sent mail with readAt; peek lists without marking anything read. Every item names its threadId (and inReplyTo when it answers one). Filters combine: threadId (one thread), from (a seat's name, node id or seat id), unread, since (an ISO 8601 time, or a message id to list what came after it) and text (contains, ignoring case). A mailbox lists one page at a time, newest first (a task's thread is read whole, in order): limit (default 50, at most 200) and more and remaining in the answer; before, the id of the last item listed, lists the next page; on the own inbox, sent mail pages alone with sentMore, sentRemaining and sentBefore. Only the mail listed is marked read, so unread mail past a page stays unread and unread: true still reaches it.",
+    "schema": {
+      "op": "msg.list"
+    }
+  },
+  {
+    "command_id": "msg.send",
+    "command": "msg send",
+    "schema_id": "msg.send.input/v1",
+    "description": "Mail a connected seat, named by its name or its node id. The mail is typed whole into its input, up to 2,500 characters, under a \"mail from\" header with its id and the reply command, and marked read; longer mail is cut with a pointer to msg read. Mail for one seat that arrives within 2 seconds of other mail is typed with it as one turn, at most 10 seconds after the first; past 6,000 characters in a turn, each further mail is one line with its id, and past 20 of those one line counts the rest. A seat that is not up gets it when it starts. threadId posts into an existing thread this seat can read.",
+    "accepts_batch": true,
+    "schema": {
+      "op": "msg.send"
+    }
+  },
+  {
+    "command_id": "msg.prompt",
+    "command": "msg send --prompt",
+    "schema_id": "msg.prompt.input/v1",
+    "description": "Mail a connected seat as a prompt, named by its name or its node id: the full text is typed into its input and submitted at once as steering, as its own turn: a prompt is never batched with other mail. While a turn is running, that harness's follow-up contract says how many Enters that takes. A seat that is not up gets it when it starts.",
+    "accepts_batch": true,
+    "schema": {
+      "op": "msg.prompt"
+    }
+  },
+  {
+    "command_id": "msg.sent",
+    "command": "msg sent",
+    "schema_id": "msg.sent.input/v1",
+    "description": "Read this sender's delivery and read receipts, optionally filtered by target. Does not mark the recipient's mailbox read.",
+    "schema": {
+      "op": "msg.sent"
+    }
+  },
+  {
+    "command_id": "msg.read",
+    "command": "msg read",
+    "schema_id": "msg.read.input/v1",
+    "description": "Mark one mailbox message read (own seat only). Own `msg list` already does this for every listed item.",
+    "accepts_batch": true,
+    "schema": {
+      "op": "msg.read"
+    }
+  },
+  {
+    "command_id": "msg.reply",
+    "command": "msg reply",
+    "schema_id": "msg.reply.input/v1",
+    "description": "Reply to mail: send text to target (a seat's name or its node id) and mark inReplyTo read on own mailbox. The reply joins the parent's thread. Target \"operator\" answers mail the operator sent this seat.",
+    "accepts_batch": true,
+    "schema": {
+      "op": "msg.reply"
+    }
+  },
+  {
+    "command_id": "msg.react",
+    "command": "msg react",
+    "schema_id": "msg.react.input/v1",
+    "description": "Acknowledge own-inbox mail without a reply (reaction defaults to ack).",
+    "accepts_batch": true,
+    "schema": {
+      "op": "msg.react"
+    }
+  },
+  {
+    "command_id": "seat.wait",
+    "command": "seat wait",
+    "schema_id": "seat.wait.input/v1",
+    "description": "Wait for one target seat or any currently authorized peer to reach until. Choose target or any: true; timeoutMs bounds the wait to at most 600000 ms. until: replied answers with the peer's newest mail to the caller after the after message id, or after the wait began; the caller's own mail never answers.",
+    "schema": {
+      "file": "seat.wait.input.v1.json"
+    }
+  },
+  {
+    "command_id": "seat.read",
+    "command": "seat read",
+    "schema_id": "seat.read.input/v1",
+    "description": "Read an authorized peer's settled terminal window through terminal.read. Reads are bounded to 2000 lines and 64 KiB; follow is bounded to 600 seconds. since requires sinceGeneration; replacements are explicit. Grants no input, resize, or signal authority. Names the peer (id, name, regions outermost first), since when it has been in its state, when its terminal last printed, its own live preamble, and the 5 newest mails between caller and peer both ways (with threadId), marking none read. brief: true with no target reads every connected peer the caller holds terminal.read on, without screens, and counts the rest as withheld.",
+    "schema": {
+      "file": "seat.read.input.v1.json"
+    }
+  },
+  {
+    "command_id": "preamble",
+    "command": "preamble",
+    "schema_id": "preamble.input/v1",
+    "description": "Show a short-lived thought bubble above this agent node.",
+    "schema": {
+      "op": "preamble"
+    }
+  },
+  {
+    "command_id": "signal.escalate",
+    "command": "escalate",
+    "schema_id": "signal.escalate.input/v1",
+    "description": "Needs the operator's attention; you keep working. Input is one sentence (or {\"text\",\"detail\"}); --detail adds markdown. kind is set by the command.",
+    "input_modes": [
+      "sentence",
+      "inline",
+      "file",
+      "stdin"
+    ],
+    "schema": {
+      "file": "signal.escalate.input.v1.json"
+    }
+  },
+  {
+    "command_id": "signal.blocked",
+    "command": "blocked",
+    "schema_id": "signal.blocked.input/v1",
+    "description": "Work is entirely blocked on the operator; stop and wait. The answer arrives as operator mail.",
+    "input_modes": [
+      "sentence",
+      "inline",
+      "file",
+      "stdin"
+    ],
+    "schema": {
+      "file": "signal.blocked.input.v1.json"
+    }
+  },
+  {
+    "command_id": "signal.feedback",
+    "command": "feedback",
+    "schema_id": "signal.feedback.input/v1",
+    "description": "Not blocked: the work is ready for the operator to review.",
+    "input_modes": [
+      "sentence",
+      "inline",
+      "file",
+      "stdin"
+    ],
+    "schema": {
+      "file": "signal.feedback.input.v1.json"
+    }
+  },
+  {
+    "command_id": "signal.list",
+    "command": "signal list",
+    "schema_id": "signal.list.input/v1",
+    "description": "This seat's signals with the operator's answers. Each carries its level on the urgency ladder and that level's rank (0 offline to 12 blocked, higher more urgent). Open signals come first, then the most urgent, then the oldest; open counts the open ones.",
+    "schema": {
+      "op": "signal.list"
+    }
+  },
+  {
+    "command_id": "signal.clear",
+    "command": "signal clear",
+    "schema_id": "signal.clear.input/v1",
+    "description": "Withdraw one open signal of this seat by id, or all of them when no id is given.",
+    "schema": {
+      "op": "signal.clear"
+    }
+  },
+  {
+    "command_id": "env.report",
+    "command": "env report",
+    "schema_id": "env.report.input/v1",
+    "description": "What this seat launches with: variable names, sources, regions and status, never a value. Exits non-zero when a required source is missing. Takes no input.",
+    "schema": {
+      "op": "env.report"
+    }
+  },
+  {
+    "command_id": "logs.read",
+    "command": "logs",
+    "schema_id": "logs.read.input/v1",
+    "description": "Read this machine's log: your own rows, rows of seats you may read, and rows naming no seat. Newest rows, oldest first. Flags lower to this query; since is epoch milliseconds on the wire.",
+    "schema": {
+      "op": "logs.read"
+    }
+  },
+  {
+    "command_id": "references.list",
+    "command": "references list",
+    "schema_id": "references.list.input/v1",
+    "description": "The references this seat can read: name, description, where each comes from, size and when it changed. Never a body. Takes no input.",
+    "schema": {
+      "file": "references.list.input.v1.json"
+    }
+  },
+  {
+    "command_id": "references.read",
+    "command": "references read",
+    "schema_id": "references.read.input/v1",
+    "description": "Read one reference by name. When a region and the app both have the name, the innermost region's is returned. The body is as written; beside it, mentions lists each junto:// link it makes, once, in order: {label, ref, kind (seat, task, artifact, page, node or missing), id, title?, reachable}. The name is typed as a plain argument: junto references read <name>.",
+    "schema": {
+      "op": "references.read"
+    }
+  },
+  {
+    "command_id": "thread.list",
+    "command": "thread list",
+    "schema_id": "thread.list.input/v1",
+    "description": "List a seat's threads, newest activity first: your own, or with --seat a connected seat's. Marks nothing read. Each thread carries no readAt and no unread: those are the operator's.",
+    "schema": {
+      "op": "thread.list"
+    }
+  },
+  {
+    "command_id": "thread.show",
+    "command": "thread show",
+    "schema_id": "thread.show.input/v1",
+    "description": "Read one thread's messages, oldest first in the page: the newest, or with --before the page above. Marks nothing read. The thread id is typed as a plain argument: junto thread show <threadId>.",
+    "schema": {
+      "op": "thread.show"
+    }
+  },
+  {
+    "command_id": "content.stage",
+    "command": "content.stage",
+    "schema_id": "content.stage.input/v1",
+    "description": "Work op, not a command: a seat puts a file of its own into the content store, in pieces, and gets a ContentRef to name it by. Agents normally reach it through --attach on escalate, blocked and feedback, not by calling it. First piece {bytesBase64} answers {stageId, byteLength}; each next piece {stageId, bytesBase64}; the last carries done {mediaType, displayName?, expected?} and answers {ref}. A small file is one call with bytesBase64 and done. A piece is at most 4 MiB of raw bytes. A path never crosses.",
+    "input_modes": [
+      "inline-json"
+    ],
+    "schema": {
+      "op": "content.stage"
+    }
+  },
+  {
+    "command_id": "overseer.status",
+    "command": "overseer status",
+    "schema_id": "overseer.status.input/v1",
+    "description": "Overseer status (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "status"
+    }
+  },
+  {
+    "command_id": "overseer.canvas.list",
+    "command": "overseer canvas list",
+    "schema_id": "overseer.canvas.list.input/v1",
+    "description": "List, read, create, delete, digest, render, or screenshot canvases. Overseer; edges not required.",
+    "schema": {
+      "overseer": "canvas.list"
+    }
+  },
+  {
+    "command_id": "overseer.canvas.read",
+    "command": "overseer canvas read",
+    "schema_id": "overseer.canvas.read.input/v1",
+    "description": "Overseer canvas.read (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "canvas.read"
+    }
+  },
+  {
+    "command_id": "overseer.canvas.create",
+    "command": "overseer canvas create",
+    "schema_id": "overseer.canvas.create.input/v1",
+    "description": "Overseer canvas.create (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "canvas.create"
+    }
+  },
+  {
+    "command_id": "overseer.canvas.batch",
+    "command": "overseer canvas batch",
+    "schema_id": "overseer.canvas.batch.input/v1",
+    "description": "Overseer canvas.batch (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "canvas.batch"
+    }
+  },
+  {
+    "command_id": "overseer.canvas.delete",
+    "command": "overseer canvas delete",
+    "schema_id": "overseer.canvas.delete.input/v1",
+    "description": "Overseer canvas.delete (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "canvas.delete"
+    }
+  },
+  {
+    "command_id": "overseer.canvas.digest",
+    "command": "overseer canvas digest",
+    "schema_id": "overseer.canvas.digest.input/v1",
+    "description": "Overseer canvas.digest (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "canvas.digest"
+    }
+  },
+  {
+    "command_id": "overseer.canvas.render",
+    "command": "overseer canvas render",
+    "schema_id": "overseer.canvas.render.input/v1",
+    "description": "Overseer canvas.render (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "canvas.render"
+    }
+  },
+  {
+    "command_id": "overseer.canvas.screenshot",
+    "command": "overseer canvas screenshot",
+    "schema_id": "overseer.canvas.screenshot.input/v1",
+    "description": "Overseer canvas.screenshot (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "canvas.screenshot"
+    }
+  },
+  {
+    "command_id": "overseer.node.list",
+    "command": "overseer node list",
+    "schema_id": "overseer.node.list.input/v1",
+    "description": "List, get, create, configure, move, resize, recolor, or delete nodes, each told by its kind. Overseer; edges not required.",
+    "schema": {
+      "overseer": "node.list"
+    }
+  },
+  {
+    "command_id": "overseer.node.get",
+    "command": "overseer node get",
+    "schema_id": "overseer.node.get.input/v1",
+    "description": "Overseer node.get (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "node.get"
+    }
+  },
+  {
+    "command_id": "overseer.node.create",
+    "command": "overseer node create",
+    "schema_id": "overseer.node.create.input/v1",
+    "description": "Overseer node.create (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "node.create"
+    }
+  },
+  {
+    "command_id": "overseer.node.configure",
+    "command": "overseer node configure",
+    "schema_id": "overseer.node.configure.input/v1",
+    "description": "Overseer node.configure (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "node.configure"
+    }
+  },
+  {
+    "command_id": "overseer.node.move",
+    "command": "overseer node move",
+    "schema_id": "overseer.node.move.input/v1",
+    "description": "Overseer node.move (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "node.move"
+    }
+  },
+  {
+    "command_id": "overseer.node.resize",
+    "command": "overseer node resize",
+    "schema_id": "overseer.node.resize.input/v1",
+    "description": "Overseer node.resize (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "node.resize"
+    }
+  },
+  {
+    "command_id": "overseer.node.recolor",
+    "command": "overseer node recolor",
+    "schema_id": "overseer.node.recolor.input/v1",
+    "description": "Overseer node.recolor (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "node.recolor"
+    }
+  },
+  {
+    "command_id": "overseer.node.delete",
+    "command": "overseer node delete",
+    "schema_id": "overseer.node.delete.input/v1",
+    "description": "Overseer node.delete (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "node.delete"
+    }
+  },
+  {
+    "command_id": "overseer.wire.list",
+    "command": "overseer wire list",
+    "schema_id": "overseer.wire.list.input/v1",
+    "description": "List, get, verb-table, connect, configure, or disconnect wires. Overseer; edges not required.",
+    "schema": {
+      "overseer": "wire.list"
+    }
+  },
+  {
+    "command_id": "overseer.wire.get",
+    "command": "overseer wire get",
+    "schema_id": "overseer.wire.get.input/v1",
+    "description": "Overseer wire.get (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "wire.get"
+    }
+  },
+  {
+    "command_id": "overseer.wire.verbs",
+    "command": "overseer wire verbs",
+    "schema_id": "overseer.wire.verbs.input/v1",
+    "description": "Overseer wire.verbs (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "wire.verbs"
+    }
+  },
+  {
+    "command_id": "overseer.wire.connect",
+    "command": "overseer wire connect",
+    "schema_id": "overseer.wire.connect.input/v1",
+    "description": "Overseer wire.connect (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "wire.connect"
+    }
+  },
+  {
+    "command_id": "overseer.wire.configure",
+    "command": "overseer wire configure",
+    "schema_id": "overseer.wire.configure.input/v1",
+    "description": "Overseer wire.configure (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "wire.configure"
+    }
+  },
+  {
+    "command_id": "overseer.wire.disconnect",
+    "command": "overseer wire disconnect",
+    "schema_id": "overseer.wire.disconnect.input/v1",
+    "description": "Overseer wire.disconnect (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "wire.disconnect"
+    }
+  },
+  {
+    "command_id": "overseer.msg.list",
+    "command": "overseer msg list",
+    "schema_id": "overseer.msg.list.input/v1",
+    "description": "Mailbox list, send, read, reply, react. Overseer; edges not required.",
+    "schema": {
+      "overseer": "msg.list"
+    }
+  },
+  {
+    "command_id": "overseer.msg.send",
+    "command": "overseer msg send",
+    "schema_id": "overseer.msg.send.input/v1",
+    "description": "Overseer msg.send (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "msg.send"
+    }
+  },
+  {
+    "command_id": "overseer.msg.read",
+    "command": "overseer msg read",
+    "schema_id": "overseer.msg.read.input/v1",
+    "description": "Overseer msg.read (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "msg.read"
+    }
+  },
+  {
+    "command_id": "overseer.msg.reply",
+    "command": "overseer msg reply",
+    "schema_id": "overseer.msg.reply.input/v1",
+    "description": "Overseer msg.reply (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "msg.reply"
+    }
+  },
+  {
+    "command_id": "overseer.msg.react",
+    "command": "overseer msg react",
+    "schema_id": "overseer.msg.react.input/v1",
+    "description": "Overseer msg.react (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "msg.react"
+    }
+  },
+  {
+    "command_id": "overseer.msg.audience",
+    "command": "overseer msg audience",
+    "schema_id": "overseer.msg.audience.input/v1",
+    "description": "Say who a broadcast would reach, and send nothing: every seat in each --region <name or id> and the regions inside it, narrowed by --doing working|idle|off and --needs blocked|escalate|feedback, and each --seat <seat>, never this seat. Each --region is one region, not a path. Answers the seats by name, the count and each pick's, how many are not running or on another machine, the seats with unread mail, and the set's digest. Overseer; edges not required.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "overseer": "msg.audience"
+    }
+  },
+  {
+    "command_id": "overseer.msg.broadcast",
+    "command": "overseer msg broadcast",
+    "schema_id": "overseer.msg.broadcast.input/v1",
+    "description": "One way: every seat in the set is told not to reply or acknowledge. Use it only when it is really needed. Sends one notice to each seat, in a new thread of its own, as this seat: <text>, the picks msg audience took, --expect <count> [--set <digest>] as it answered them. A set that differs is refused whole and nothing is sent. It never starts a seat that is not running. Overseer; edges not required.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "overseer": "msg.broadcast"
+    }
+  },
+  {
+    "command_id": "overseer.thread.list",
+    "command": "overseer thread list",
+    "schema_id": "overseer.thread.list.input/v1",
+    "description": "List threads, newest activity first: every thread on the canvas, between seats included, or with --seat <seat> that seat's. A page at a time: --limit, and --after <next> from the page before. --group with-you|between with --seat; --region <label> (repeat, outer to inner) and --search <words> without it. Reads mark nothing. Overseer; edges not required.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "overseer": "thread.list"
+    }
+  },
+  {
+    "command_id": "overseer.thread.show",
+    "command": "overseer thread show",
+    "schema_id": "overseer.thread.show.input/v1",
+    "description": "Read one thread of a seat, the newest messages first as a page, oldest first within it: <threadId> --seat <seat>, --limit, and --before <older> from the page after. Reads mark nothing. Overseer; edges not required.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "overseer": "thread.show"
+    }
+  },
+  {
+    "command_id": "overseer.content.ingest",
+    "command": "overseer content ingest",
+    "schema_id": "overseer.content.ingest.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Overseer content.ingest (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "content.ingest"
+    }
+  },
+  {
+    "command_id": "overseer.agent.list",
+    "command": "overseer agent list",
+    "schema_id": "overseer.agent.list.input/v1",
+    "description": "Agent list, get, reseat, start, wake, prompt, output, interrupt, stop, offboard, offboard-status, offboard-rules, offboard-configure. Overseer; edges not required.",
+    "schema": {
+      "overseer": "agent.list"
+    }
+  },
+  {
+    "command_id": "overseer.agent.get",
+    "command": "overseer agent get",
+    "schema_id": "overseer.agent.get.input/v1",
+    "description": "Overseer agent.get (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "agent.get"
+    }
+  },
+  {
+    "command_id": "overseer.agent.reseat",
+    "command": "overseer agent reseat",
+    "schema_id": "overseer.agent.reseat.input/v1",
+    "description": "Overseer agent.reseat (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "agent.reseat"
+    }
+  },
+  {
+    "command_id": "overseer.agent.start",
+    "command": "overseer agent start",
+    "schema_id": "overseer.agent.start.input/v1",
+    "description": "Overseer agent.start (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "agent.start"
+    }
+  },
+  {
+    "command_id": "overseer.agent.wake",
+    "command": "overseer agent wake",
+    "schema_id": "overseer.agent.wake.input/v1",
+    "description": "Overseer agent.wake (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "agent.wake"
+    }
+  },
+  {
+    "command_id": "overseer.agent.prompt",
+    "command": "overseer agent prompt",
+    "schema_id": "overseer.agent.prompt.input/v1",
+    "description": "Overseer agent.prompt (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "agent.prompt"
+    }
+  },
+  {
+    "command_id": "overseer.agent.output",
+    "command": "overseer agent output",
+    "schema_id": "overseer.agent.output.input/v1",
+    "description": "Overseer agent.output (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "agent.output"
+    }
+  },
+  {
+    "command_id": "overseer.agent.interrupt",
+    "command": "overseer agent interrupt",
+    "schema_id": "overseer.agent.interrupt.input/v1",
+    "description": "Overseer agent.interrupt (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "agent.interrupt"
+    }
+  },
+  {
+    "command_id": "overseer.agent.stop",
+    "command": "overseer agent stop",
+    "schema_id": "overseer.agent.stop.input/v1",
+    "description": "Overseer agent.stop (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "agent.stop"
+    }
+  },
+  {
+    "command_id": "overseer.terminal.list",
+    "command": "overseer terminal list",
+    "schema_id": "overseer.terminal.list.input/v1",
+    "description": "Terminal list, get, start, input, output, resize, interrupt, stop. Overseer; edges not required.",
+    "schema": {
+      "overseer": "terminal.list"
+    }
+  },
+  {
+    "command_id": "overseer.terminal.get",
+    "command": "overseer terminal get",
+    "schema_id": "overseer.terminal.get.input/v1",
+    "description": "Overseer terminal.get (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "terminal.get"
+    }
+  },
+  {
+    "command_id": "overseer.terminal.start",
+    "command": "overseer terminal start",
+    "schema_id": "overseer.terminal.start.input/v1",
+    "description": "Overseer terminal.start (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "terminal.start"
+    }
+  },
+  {
+    "command_id": "overseer.terminal.input",
+    "command": "overseer terminal input",
+    "schema_id": "overseer.terminal.input.input/v1",
+    "description": "Overseer terminal.input (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "terminal.input"
+    }
+  },
+  {
+    "command_id": "overseer.terminal.output",
+    "command": "overseer terminal output",
+    "schema_id": "overseer.terminal.output.input/v1",
+    "description": "Overseer terminal.output (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "terminal.output"
+    }
+  },
+  {
+    "command_id": "overseer.terminal.resize",
+    "command": "overseer terminal resize",
+    "schema_id": "overseer.terminal.resize.input/v1",
+    "description": "Overseer terminal.resize (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "terminal.resize"
+    }
+  },
+  {
+    "command_id": "overseer.terminal.interrupt",
+    "command": "overseer terminal interrupt",
+    "schema_id": "overseer.terminal.interrupt.input/v1",
+    "description": "Overseer terminal.interrupt (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "terminal.interrupt"
+    }
+  },
+  {
+    "command_id": "overseer.terminal.stop",
+    "command": "overseer terminal stop",
+    "schema_id": "overseer.terminal.stop.input/v1",
+    "description": "Overseer terminal.stop (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "terminal.stop"
+    }
+  },
+  {
+    "command_id": "overseer.page.list",
+    "command": "overseer page list",
+    "schema_id": "overseer.page.list.input/v1",
+    "when": [
+      "browser"
+    ],
+    "description": "Page list, get, open, goto, eval, screenshot, close, stop. Overseer; edges not required.",
+    "schema": {
+      "overseer": "page.list"
+    }
+  },
+  {
+    "command_id": "overseer.page.get",
+    "command": "overseer page get",
+    "schema_id": "overseer.page.get.input/v1",
+    "when": [
+      "browser"
+    ],
+    "description": "Overseer page.get (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "page.get"
+    }
+  },
+  {
+    "command_id": "overseer.page.open",
+    "command": "overseer page open",
+    "schema_id": "overseer.page.open.input/v1",
+    "when": [
+      "browser"
+    ],
+    "description": "Overseer page.open (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "page.open"
+    }
+  },
+  {
+    "command_id": "overseer.page.goto",
+    "command": "overseer page goto",
+    "schema_id": "overseer.page.goto.input/v1",
+    "when": [
+      "browser"
+    ],
+    "description": "Overseer page.goto (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "page.goto"
+    }
+  },
+  {
+    "command_id": "overseer.page.eval",
+    "command": "overseer page eval",
+    "schema_id": "overseer.page.eval.input/v1",
+    "when": [
+      "browser"
+    ],
+    "description": "Overseer page.eval (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "page.eval"
+    }
+  },
+  {
+    "command_id": "overseer.page.screenshot",
+    "command": "overseer page screenshot",
+    "schema_id": "overseer.page.screenshot.input/v1",
+    "when": [
+      "browser"
+    ],
+    "description": "Overseer page.screenshot (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "page.screenshot"
+    }
+  },
+  {
+    "command_id": "overseer.page.close",
+    "command": "overseer page close",
+    "schema_id": "overseer.page.close.input/v1",
+    "when": [
+      "browser"
+    ],
+    "description": "Overseer page.close (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "page.close"
+    }
+  },
+  {
+    "command_id": "overseer.page.stop",
+    "command": "overseer page stop",
+    "schema_id": "overseer.page.stop.input/v1",
+    "when": [
+      "browser"
+    ],
+    "description": "Overseer page.stop (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "page.stop"
+    }
+  },
+  {
+    "command_id": "overseer.git.status",
+    "command": "overseer git status",
+    "schema_id": "overseer.git.status.input/v1",
+    "description": "Overseer git.status (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "git.status"
+    }
+  },
+  {
+    "command_id": "overseer.git.log",
+    "command": "overseer git log",
+    "schema_id": "overseer.git.log.input/v1",
+    "description": "Overseer git.log (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "git.log"
+    }
+  },
+  {
+    "command_id": "overseer.git.show",
+    "command": "overseer git show",
+    "schema_id": "overseer.git.show.input/v1",
+    "description": "Overseer git.show (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "git.show"
+    }
+  },
+  {
+    "command_id": "overseer.env.show",
+    "command": "overseer env show",
+    "schema_id": "overseer.env.show.input/v1",
+    "description": "Overseer env.show (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "env.show"
+    }
+  },
+  {
+    "command_id": "overseer.env.source-add",
+    "command": "overseer env source-add",
+    "schema_id": "overseer.env.source-add.input/v1",
+    "description": "Overseer env.source-add (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "env.source-add"
+    }
+  },
+  {
+    "command_id": "overseer.env.source-edit",
+    "command": "overseer env source-edit",
+    "schema_id": "overseer.env.source-edit.input/v1",
+    "description": "Overseer env.source-edit (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "env.source-edit"
+    }
+  },
+  {
+    "command_id": "overseer.env.source-remove",
+    "command": "overseer env source-remove",
+    "schema_id": "overseer.env.source-remove.input/v1",
+    "description": "Overseer env.source-remove (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "env.source-remove"
+    }
+  },
+  {
+    "command_id": "overseer.env.source-reorder",
+    "command": "overseer env source-reorder",
+    "schema_id": "overseer.env.source-reorder.input/v1",
+    "description": "Overseer env.source-reorder (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "env.source-reorder"
+    }
+  },
+  {
+    "command_id": "overseer.env.seal",
+    "command": "overseer env seal",
+    "schema_id": "overseer.env.seal.input/v1",
+    "description": "Overseer env.seal (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "env.seal"
+    }
+  },
+  {
+    "command_id": "overseer.env.folders",
+    "command": "overseer env folders",
+    "schema_id": "overseer.env.folders.input/v1",
+    "description": "Overseer env.folders (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "env.folders"
+    }
+  },
+  {
+    "command_id": "overseer.env.doctor",
+    "command": "overseer env doctor",
+    "schema_id": "overseer.env.doctor.input/v1",
+    "description": "Overseer env.doctor (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "env.doctor"
+    }
+  },
+  {
+    "command_id": "overseer.secret.put",
+    "command": "overseer secret put",
+    "schema_id": "overseer.secret.put.input/v1",
+    "description": "Overseer secret.put (mutation). Overseer; edges not required.",
+    "input_modes": [
+      "inline-json",
+      "@file"
+    ],
+    "schema": {
+      "file": "overseer.secret.put.input.v1.json"
+    }
+  },
+  {
+    "command_id": "overseer.secret.delete",
+    "command": "overseer secret delete",
+    "schema_id": "overseer.secret.delete.input/v1",
+    "description": "Overseer secret.delete (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "secret.delete"
+    }
+  },
+  {
+    "command_id": "overseer.secret.list",
+    "command": "overseer secret list",
+    "schema_id": "overseer.secret.list.input/v1",
+    "description": "Junto's own secret store on this machine: put (value on stdin), delete, list. Overseer; edges not required.",
+    "schema": {
+      "overseer": "secret.list"
+    }
+  },
+  {
+    "command_id": "overseer.agent.offboard",
+    "command": "overseer agent offboard",
+    "schema_id": "overseer.agent.offboard.input/v1",
+    "description": "Overseer agent.offboard (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "agent.offboard"
+    }
+  },
+  {
+    "command_id": "overseer.agent.offboard-status",
+    "command": "overseer agent offboard-status",
+    "schema_id": "overseer.agent.offboard-status.input/v1",
+    "description": "Overseer agent.offboard-status (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "agent.offboard-status"
+    }
+  },
+  {
+    "command_id": "overseer.agent.offboard-rules",
+    "command": "overseer agent offboard-rules",
+    "schema_id": "overseer.agent.offboard-rules.input/v1",
+    "description": "Overseer agent.offboard-rules (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "agent.offboard-rules"
+    }
+  },
+  {
+    "command_id": "overseer.agent.offboard-configure",
+    "command": "overseer agent offboard-configure",
+    "schema_id": "overseer.agent.offboard-configure.input/v1",
+    "description": "Overseer agent.offboard-configure (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "agent.offboard-configure"
+    }
+  },
+  {
+    "command_id": "overseer.references.list",
+    "command": "overseer references list",
+    "schema_id": "overseer.references.list.input/v1",
+    "description": "The operator's named references, app-wide or one region's: list, read, write (body from --body), delete. Overseer; edges not required.",
+    "schema": {
+      "overseer": "references.list"
+    }
+  },
+  {
+    "command_id": "overseer.references.read",
+    "command": "overseer references read",
+    "schema_id": "overseer.references.read.input/v1",
+    "description": "Overseer references.read (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "references.read"
+    }
+  },
+  {
+    "command_id": "overseer.references.write",
+    "command": "overseer references write",
+    "schema_id": "overseer.references.write.input/v1",
+    "description": "Overseer references.write (mutation). Overseer; edges not required.",
+    "schema": {
+      "file": "overseer.references.write.input.v1.json"
+    }
+  },
+  {
+    "command_id": "overseer.references.delete",
+    "command": "overseer references delete",
+    "schema_id": "overseer.references.delete.input/v1",
+    "description": "Overseer references.delete (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "references.delete"
+    }
+  },
+  {
+    "command_id": "overseer.briefing.read",
+    "command": "overseer briefing read",
+    "schema_id": "overseer.briefing.read.input/v1",
+    "description": "Overseer briefing.read (read). Overseer; edges not required.",
+    "schema": {
+      "overseer": "briefing.read"
+    }
+  },
+  {
+    "command_id": "overseer.briefing.write",
+    "command": "overseer briefing write",
+    "schema_id": "overseer.briefing.write.input/v1",
+    "description": "Overseer briefing.write (mutation). Overseer; edges not required.",
+    "schema": {
+      "file": "overseer.briefing.write.input.v1.json"
+    }
+  },
+  {
+    "command_id": "overseer.automation.create",
+    "command": "overseer automation create",
+    "schema_id": "overseer.automation.create.input/v1",
+    "description": [
+      "Create an automation on an Automations node: a schedule, poll or change trigger, conditions in when, and actions in then. It is created off unless enabled is true, and runs on the machine named by machine, its short name, or else on the machine that rules the create. Targets are @name, #<task number> or a junto:// link, at or below the node and in your reach. A prompt action {kind: prompt, to: @seat, text} asks the seat to act, as junto msg send --prompt does; mail only tells it. An artifact watch {kind: artifact, artifact: <ref> or {node}, event: edited, commented or labelled, label?} fires on labelled when an artifact gains label (or a level under it), created with it included. Artifact actions: create-artifact {node, title, body?, labels?} makes a document from markdown; append-artifact {to, text} adds markdown at a document's end; label-artifact {to, add?, remove?} changes its labels, never one label in both. Their to is an artifact, or {fired: true}, the one that fired an artifact trigger. Labels fold to lowercase. A signal action {kind: signal, signal, title, detail?, show?, form?, id?, answerTo?} raises a signal in the operator's needs-you feed, from the automation, one per firing, never merged: escalate (a question, waiting on the operator), blocked, or feedback (asks for a review), each in the section a seat's would land in, or notice, only to read and clear. show names artifacts it opens. form, on escalate or blocked only, is what the operator answers in: {kind: text}, {kind: artifact, node, title?, labels?, minWords?} a document in that Artifacts node, titled from the signal unless named, of at least minWords, ",
+      {
+        "text": "{kind: secret, name} a region secret, ",
+        "when": [
+          "vault"
+        ]
+      },
+      "or {kind: proof}. answerTo, never on notice, is where the answer goes: {kind: seat, to: @seat} prompts the seat with the signal and the answer; {kind: document, node, title} makes a new document in that Artifacts node, its title naming the step's own values and, said when the answer comes, {{answer.text}}, {{answer.link}}, {{answer.by}}, {{answer.at}}, {{signal.title}}, {{signal.kind}}, {{signal.link}}; {kind: append, to: <artifact>} appends a dated section. id names the step, 1 to 32 lower-case letters, digits and dashes, unique in the automation; a step with answerTo and no id gets one at save. A change watch {kind: answered, automation: {node, automationId}, step?, signal?} fires when the operator answers a signal that automation raised, on the same Automations node; step narrows to one signal step by its id, as junto automation show prints it (a step without one is given an id with automation edit first), and signal to escalate, blocked or feedback. ",
+      {
+        "text": "A secret answer is never a value, only its name. ",
+        "when": [
+          "vault"
+        ]
+      },
+      {
+        "text": "A code step {kind: code, language: typescript or shell, file: ./step.ts, timeoutMs?} runs the program on the automation's machine: this command stages the file into the content store and sends its ref as source, so the code never rides the command line; only the operator and overseers write code. ",
+        "when": [
+          "code-steps"
+        ]
+      },
+      "Text in mail, prompt, comment and append-artifact actions, a new task's title, a new artifact's title and body, a signal's title, detail and artifact form title, and an answerTo document's title may name values of what fired it: {{fired.at}} on every trigger; {{task.title}}, {{task.state}}, {{task.link}}, {{task.assignee}}, {{board.title}} on a task change; {{artifact.title}}, {{artifact.link}}, {{artifact.labels}}, {{artifacts.title}} on an artifact change; {{seat.name}}, {{seat.state}} on a seat change; {{signal.kind}}, {{signal.from}}, {{signal.text}} on a signal; {{answer.text}}, {{answer.link}}, {{answer.by}}, {{answer.at}}, {{signal.title}}, {{signal.kind}}, {{signal.link}} on an answered signal, and {{raised.<name>}} for any value the firing that raised it carried, such as {{raised.task.title}}",
+      {
+        "text": "; and after a code step, {{code.<field>}} for each field its output names",
+        "when": [
+          "code-steps"
+        ]
+      },
+      ". A value may carry formats, applied left to right: {{fired.at|date:YYYY-MM-DD}} writes a time in a pattern of YYYY, YY, MM, M, DD, D, HH, H, mm, ss, and - _ / . : , T or spaces, in the automation's time zone (its schedule's, else its machine's); |slug, |lower, |upper and |trim, as in {{task.title|slug}}. A format outside date:<pattern>, slug, lower, upper, trim is refused at save, and so is a value the trigger does not carry, naming the ones it does. A value is inserted as text, never read again. Overseer; edges not required. Ruled on the machine that edits the canvas, and returns applied with the new version; on any other machine it is refused not_available, naming that machine."
+    ],
+    "schema": {
+      "file": "overseer.automation.create.input.v1.json"
+    }
+  },
+  {
+    "command_id": "overseer.automation.edit",
+    "command": "overseer automation edit",
+    "schema_id": "overseer.automation.edit.input/v1",
+    "description": [
+      "Change an automation. Each field in change replaces the stored one; when: [] clears the conditions. baseVersion is the version show printed; a stale one is refused. Values in text are checked against the trigger as stored after the change. Text in mail, prompt, comment and append-artifact actions, a new task's title, a new artifact's title and body, a signal's title, detail and artifact form title, and an answerTo document's title may name values of what fired it: {{fired.at}} on every trigger; {{task.title}}, {{task.state}}, {{task.link}}, {{task.assignee}}, {{board.title}} on a task change; {{artifact.title}}, {{artifact.link}}, {{artifact.labels}}, {{artifacts.title}} on an artifact change; {{seat.name}}, {{seat.state}} on a seat change; {{signal.kind}}, {{signal.from}}, {{signal.text}} on a signal; {{answer.text}}, {{answer.link}}, {{answer.by}}, {{answer.at}}, {{signal.title}}, {{signal.kind}}, {{signal.link}} on an answered signal, and {{raised.<name>}} for any value the firing that raised it carried, such as {{raised.task.title}}",
+      {
+        "text": "; and after a code step, {{code.<field>}} for each field its output names",
+        "when": [
+          "code-steps"
+        ]
+      },
+      ". A value may carry formats, applied left to right: {{fired.at|date:YYYY-MM-DD}} writes a time in a pattern of YYYY, YY, MM, M, DD, D, HH, H, mm, ss, and - _ / . : , T or spaces, in the automation's time zone (its schedule's, else its machine's); |slug, |lower, |upper and |trim, as in {{task.title|slug}}. A format outside date:<pattern>, slug, lower, upper, trim is refused at save, and so is a value the trigger does not carry, naming the ones it does. A value is inserted as text, never read again. Overseer; edges not required. Ruled on the machine that edits the canvas, and returns applied with the new version; on any other machine it is refused not_available, naming that machine."
+    ],
+    "schema": {
+      "file": "overseer.automation.edit.input.v1.json"
+    }
+  },
+  {
+    "command_id": "overseer.automation.enable",
+    "command": "overseer automation enable",
+    "schema_id": "overseer.automation.enable.input/v1",
+    "description": "Turn an automation on. Overseer; edges not required. Ruled on the machine that edits the canvas, and returns applied with the new version; on any other machine it is refused not_available, naming that machine.",
+    "schema": {
+      "file": "overseer.automation.enable.input.v1.json"
+    }
+  },
+  {
+    "command_id": "overseer.automation.disable",
+    "command": "overseer automation disable",
+    "schema_id": "overseer.automation.disable.input/v1",
+    "description": "Turn an automation off. Its history stays. Overseer; edges not required. Ruled on the machine that edits the canvas, and returns applied with the new version; on any other machine it is refused not_available, naming that machine.",
+    "schema": {
+      "file": "overseer.automation.disable.input.v1.json"
+    }
+  },
+  {
+    "command_id": "overseer.automation.move",
+    "command": "overseer automation move",
+    "schema_id": "overseer.automation.move.input/v1",
+    "description": "Run an automation on another machine, named by its short name: that machine fires its schedules, hears its changes and performs its actions from now on. No baseVersion: a move is never an edit, and never goes stale. Overseer; edges not required. Ruled on the machine that edits the canvas, and returns applied with the new version; on any other machine it is refused not_available, naming that machine.",
+    "schema": {
+      "file": "overseer.automation.move.input.v1.json"
+    }
+  },
+  {
+    "command_id": "overseer.automation.archive",
+    "command": "overseer automation archive",
+    "schema_id": "overseer.automation.archive.input/v1",
+    "description": "Archive an automation: it never fires again, and its history stays readable. Overseer; edges not required. Ruled on the machine that edits the canvas, and returns applied with the new version; on any other machine it is refused not_available, naming that machine.",
+    "schema": {
+      "file": "overseer.automation.archive.input.v1.json"
+    }
+  },
+  {
+    "command_id": "overseer.automation.run",
+    "command": "overseer automation run",
+    "schema_id": "overseer.automation.run.input/v1",
+    "description": "Fire an automation now, as its trigger would: its conditions are checked and its limits apply. Overseer; edges not required. Ruled on the machine that edits the canvas, and returns applied with the new version; on any other machine it is refused not_available, naming that machine.",
+    "schema": {
+      "file": "overseer.automation.run.input.v1.json"
+    }
+  },
+  {
+    "command_id": "overseer.artifact.move",
+    "command": "overseer artifact move",
+    "schema_id": "overseer.artifact.move.input/v1",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Overseer artifact.move (mutation). Overseer; edges not required.",
+    "schema": {
+      "overseer": "artifact.move"
+    }
+  },
+  {
+    "command_id": "automation.list",
+    "command": "automation list",
+    "schema_id": "automation.list.input/v1",
+    "description": "The automations on every Automations node in this seat's reach, or on the one named by target. Answered only on the machine that edits the canvas; elsewhere it is refused not_available, naming that machine.",
+    "schema": {
+      "op": "automation.list"
+    }
+  },
+  {
+    "command_id": "automation.show",
+    "command": "automation show",
+    "schema_id": "automation.show.input/v1",
+    "description": "One automation, with the version an edit names. Answered only on the machine that edits the canvas; elsewhere it is refused not_available, naming that machine.",
+    "schema": {
+      "op": "automation.show"
+    }
+  },
+  {
+    "command_id": "automation.history",
+    "command": "automation history",
+    "schema_id": "automation.history.input/v1",
+    "description": "Firings of one automation, or of every automation on the node, newest first: fired with each action's ruling, interrupted, or skipped and why. Answered only on the machine that edits the canvas; elsewhere it is refused not_available, naming that machine.",
+    "schema": {
+      "op": "automation.history"
+    }
+  },
+  {
+    "command_id": "task.list",
+    "command": "task list",
+    "schema_id": "task.list.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Tasks on every task node in this seat's reach, or on the one named by --node, newest change first. --reviewer lists the reviews a seat owes, longest waiting first.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.list"
+    }
+  },
+  {
+    "command_id": "task.show",
+    "command": "task show",
+    "schema_id": "task.show.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "One task with its layers: each shows its assignee, reviewers and stamps, and the evidence and handoff note its finish left.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.show"
+    }
+  },
+  {
+    "command_id": "task.create",
+    "command": "task create",
+    "schema_id": "task.create.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Create a task in backlog on the task node in reach, or the one --node names. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.create"
+    }
+  },
+  {
+    "command_id": "task.edit",
+    "command": "task edit",
+    "schema_id": "task.edit.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Change a task's title or body. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.edit"
+    }
+  },
+  {
+    "command_id": "task.assign",
+    "command": "task assign",
+    "schema_id": "task.assign.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Assign a task to a seat in its node's reach, or to this seat. The seat is mailed a notice in the task's thread. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.assign"
+    }
+  },
+  {
+    "command_id": "task.unassign",
+    "command": "task unassign",
+    "schema_id": "task.unassign.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Take a task back to backlog with no assignee. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.unassign"
+    }
+  },
+  {
+    "command_id": "task.start",
+    "command": "task start",
+    "schema_id": "task.start.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Start the task assigned to this seat: assigned becomes working. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.start"
+    }
+  },
+  {
+    "command_id": "task.pause",
+    "command": "task pause",
+    "schema_id": "task.pause.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Ask for input: working becomes input-required. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.pause"
+    }
+  },
+  {
+    "command_id": "task.resume",
+    "command": "task resume",
+    "schema_id": "task.resume.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Go back to work: input-required becomes working. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.resume"
+    }
+  },
+  {
+    "command_id": "task.finish",
+    "command": "task finish",
+    "schema_id": "task.finish.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Finish a task: in-review while it waits on stamps, then done, or sent on to the node --next names. --claim answers each rule in force on the node (task rules lists them); a rule left unanswered is refused rules-unmet, and a required check that is not green at this epoch is refused checks-unmet, naming the red and the not run. A task it depends on that is not done refuses it deps-unmet, naming each by number and state. --note leaves a handoff note for whoever picks the work up next: inline, @file or -, at most 4096 characters. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.finish"
+    }
+  },
+  {
+    "command_id": "task.check",
+    "command": "task check",
+    "schema_id": "task.check.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Report the checks you ran for this move, each with its exit code: Junto never runs one. task rules lists them with their side, command and status; --outgoing reports this node's, --incoming the next node's, or --results carries them as JSON with each output's tail. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.check"
+    }
+  },
+  {
+    "command_id": "task.cancel",
+    "command": "task cancel",
+    "schema_id": "task.cancel.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Cancel a task that is not done. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.cancel"
+    }
+  },
+  {
+    "command_id": "task.archive",
+    "command": "task archive",
+    "schema_id": "task.archive.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Archive a done or canceled task. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.archive"
+    }
+  },
+  {
+    "command_id": "task.depend",
+    "command": "task depend",
+    "schema_id": "task.depend.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Make a task wait on another: it cannot finish until --on is done, or archived after it was done. A dependency that would close a cycle is refused. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.depend"
+    }
+  },
+  {
+    "command_id": "task.undepend",
+    "command": "task undepend",
+    "schema_id": "task.undepend.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Drop a dependency. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.undepend"
+    }
+  },
+  {
+    "command_id": "task.reviewer-add",
+    "command": "task reviewer add",
+    "schema_id": "task.reviewer-add.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Name a reviewer: a seat in the node's reach, operator, or this seat. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.reviewer-add"
+    }
+  },
+  {
+    "command_id": "task.reviewer-remove",
+    "command": "task reviewer remove",
+    "schema_id": "task.reviewer-remove.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Drop a reviewer. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.reviewer-remove"
+    }
+  },
+  {
+    "command_id": "task.stamp-policy",
+    "command": "task stamp-policy",
+    "schema_id": "task.stamp-policy.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Set how many approvals finishing needs. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.stamp-policy"
+    }
+  },
+  {
+    "command_id": "task.stamp",
+    "command": "task stamp",
+    "schema_id": "task.stamp.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Stamp a task in review: approve, or changes with what to change in --text; changes without --text is refused before it is sent. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.stamp"
+    }
+  },
+  {
+    "command_id": "task.comment",
+    "command": "task comment",
+    "schema_id": "task.comment.input/v1",
+    "when": [
+      "tasks"
+    ],
+    "description": "Post in the task's thread. The CLI mints the opId (--op-id retries one). Returns applied with the task's number and state, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "task.comment"
+    }
+  },
+  {
+    "command_id": "artifact.list",
+    "command": "artifact list",
+    "schema_id": "artifact.list.input/v1",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Artifacts on every Artifacts node in this seat's reach, or on the one --node names, newest change first, each with its labels and labelColours, the colours its node gives the labels that have one. Archived ones only with --archived. --label keeps those holding every label named, a label also matching the levels under it (project/junto matches project/junto/release).",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "artifact.list"
+    }
+  },
+  {
+    "command_id": "artifact.show",
+    "command": "artifact show",
+    "schema_id": "artifact.show.input/v1",
+    "when": [
+      "artifacts"
+    ],
+    "description": "One artifact as text (a document's markdown, a pad's digest, a sheet as a table) and its body, at the head or at --version, with its labels and their labelColours, and linkedFrom: the artifacts in reach whose body links it, and the mail and comments you can read that link it.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "artifact.show"
+    }
+  },
+  {
+    "command_id": "artifact.history",
+    "command": "artifact history",
+    "schema_id": "artifact.history.input/v1",
+    "when": [
+      "artifacts"
+    ],
+    "description": "An artifact's versions, newest first: who made each and whether it replaced or patched the body.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "artifact.history"
+    }
+  },
+  {
+    "command_id": "artifact.create",
+    "command": "artifact create",
+    "schema_id": "artifact.create.input/v1",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Create an artifact on the Artifacts node in reach, or the one --node names. Documents, pads and sheets start empty; a link needs --url. [[Title]] in the body links the artifact of that title in reach, or [[<artifactId>]] when several share it. The CLI mints the opId (--op-id retries one). Returns applied with the new version, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "artifact.create"
+    }
+  },
+  {
+    "command_id": "artifact.edit",
+    "command": "artifact edit",
+    "schema_id": "artifact.edit.input/v1",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Edit an artifact written against --base: replace its body (--markdown, --url or --body), or patch a pad, sheet or document (--patch). [[Title]] links as in create. The CLI mints the opId (--op-id retries one). Returns applied with the new version, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "artifact.edit"
+    }
+  },
+  {
+    "command_id": "artifact.label",
+    "command": "artifact label",
+    "schema_id": "artifact.label.input/v1",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Set an artifact's labels whole with --set (an empty --set clears them), or change them with --add and --remove. A label is 1 to 40 characters of a-z 0-9 - _ / and space, folded to lowercase; an artifact holds at most 20. A label both added and removed ends removed. Labels are not versioned: the version stays. The CLI mints the opId (--op-id retries one). Returns applied with the new version, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "artifact.label"
+    }
+  },
+  {
+    "command_id": "artifact.colour",
+    "command": "artifact colour",
+    "schema_id": "artifact.colour.input/v1",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Give a label a colour in an Artifacts node, the one in reach or the one --node names: every artifact there that carries it draws in it. red, orange, yellow, green, teal, blue, purple, pink, or none to unset it. The label need not be carried yet, and project/junto and project/junto/release keep separate colours. The CLI mints the opId (--op-id retries one). Returns applied, or queued while the editing machine is away, with the node, the label and the colour.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "artifact.colour"
+    }
+  },
+  {
+    "command_id": "artifact.comment",
+    "command": "artifact comment",
+    "schema_id": "artifact.comment.input/v1",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Post in the artifact's thread, on the whole artifact or at --anchor: box for a pad, cells for a sheet, text for a document. The CLI mints the opId (--op-id retries one). Returns applied with the threadId, the messageId and the seats notified.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "artifact.comment"
+    }
+  },
+  {
+    "command_id": "artifact.archive",
+    "command": "artifact archive",
+    "schema_id": "artifact.archive.input/v1",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Archive an artifact. It takes no edits until restored. The CLI mints the opId (--op-id retries one). Returns applied with the new version, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "artifact.archive"
+    }
+  },
+  {
+    "command_id": "artifact.restore",
+    "command": "artifact restore",
+    "schema_id": "artifact.restore.input/v1",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Restore an archived artifact. The CLI mints the opId (--op-id retries one). Returns applied with the new version, or queued with the opId while the editing machine is away.",
+    "input_modes": [
+      "argv"
+    ],
+    "schema": {
+      "op": "artifact.restore"
+    }
+  },
+  {
+    "command_id": "op.show",
+    "command": "op show",
+    "schema_id": "op.show.input/v1",
+    "description": "What became of one of this seat's writes, by the opId it returned: queued until the editing machine rules it, then applied, or refused with its error.",
+    "schema": {
+      "op": "op.show"
+    }
+  },
+  {
+    "command_id": "op.list",
+    "command": "op list",
+    "schema_id": "op.list.input/v1",
+    "description": "This seat's writes, newest first, each with its opId and state. --state keeps the queued or the refused ones; --limit is 1 to 200, 50 when left out. When more is true, --before with the last opId listed reads the next page.",
+    "schema": {
+      "op": "op.list"
+    }
+  },
+  {
+    "command_id": "browser.doctor",
+    "command": "browser doctor",
+    "schema_id": "browser.doctor.input/v1",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "description": "Browser control plane health. Needs only the app running.",
+    "input_modes": [
+      "positional"
+    ],
+    "schema": {
+      "file": "browser.doctor.input.v1.json"
+    }
+  },
+  {
+    "command_id": "browser.profiles",
+    "command": "browser profiles",
+    "schema_id": "browser.profiles.input/v1",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "description": "List browser profiles.",
+    "input_modes": [
+      "positional"
+    ],
+    "schema": {
+      "file": "browser.profiles.input.v1.json"
+    }
+  },
+  {
+    "command_id": "browser.pages",
+    "command": "browser pages",
+    "schema_id": "browser.pages.input/v1",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "description": "List the page nodes this seat's navigates edges grant.",
+    "input_modes": [
+      "positional"
+    ],
+    "schema": {
+      "file": "browser.pages.input.v1.json"
+    }
+  },
+  {
+    "command_id": "browser.sessions",
+    "command": "browser sessions",
+    "schema_id": "browser.sessions.input/v1",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "description": "List this seat's live page sessions.",
+    "input_modes": [
+      "positional"
+    ],
+    "schema": {
+      "file": "browser.sessions.input.v1.json"
+    }
+  },
+  {
+    "command_id": "browser.open",
+    "command": "browser open <node-ref> [--tab <tab>]",
+    "schema_id": "browser.open.input/v1",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "description": "Open or reuse a session on a granted page. With --tab <tab> it joins that tab and returns its session; without, the active tab.",
+    "input_modes": [
+      "positional"
+    ],
+    "schema": {
+      "file": "browser.open.input.v1.json"
+    }
+  },
+  {
+    "command_id": "browser.goto",
+    "command": "browser goto <sessionId> <url> [--tab <tab>]",
+    "schema_id": "browser.goto.input/v1",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "description": "Navigate a page session. With --tab <tab> it acts on this seat's session of that tab, joined with open --tab; without, on the active tab.",
+    "input_modes": [
+      "positional"
+    ],
+    "schema": {
+      "file": "browser.goto.input.v1.json"
+    }
+  },
+  {
+    "command_id": "browser.eval",
+    "command": "browser eval <sessionId> <code> [--tab <tab>]",
+    "schema_id": "browser.eval.input/v1",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "description": "Run JavaScript in the page and return its JSON result. With --tab <tab> it acts on this seat's session of that tab, joined with open --tab; without, on the active tab.",
+    "input_modes": [
+      "positional"
+    ],
+    "schema": {
+      "file": "browser.eval.input.v1.json"
+    }
+  },
+  {
+    "command_id": "browser.shot",
+    "command": "browser shot <sessionId> [--tab <tab>]",
+    "schema_id": "browser.shot.input/v1",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "description": "Capture a screenshot to a PNG Junto owns, and return its path. With --tab <tab> it acts on this seat's session of that tab, joined with open --tab; without, on the active tab.",
+    "input_modes": [
+      "positional"
+    ],
+    "schema": {
+      "file": "browser.shot.input.v1.json"
+    }
+  },
+  {
+    "command_id": "browser.comment",
+    "command": "browser comment <sessionId> --box <x,y,w,h> --text <text> [--tab <tab>]",
+    "schema_id": "browser.comment.input/v1",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "description": "Comment on a box of the page as this seat, with a shot of the box, and return the message and thread ids. Only on the machine that edits the canvas; elsewhere control refuses it as forbidden. With --tab <tab> it acts on this seat's session of that tab, joined with open --tab; without, on the active tab.",
+    "input_modes": [
+      "positional"
+    ],
+    "schema": {
+      "file": "browser.comment.input.v1.json"
+    }
+  },
+  {
+    "command_id": "browser.close",
+    "command": "browser close <sessionId>",
+    "schema_id": "browser.close.input/v1",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "description": "Detach the page surface; the session stays warm.",
+    "input_modes": [
+      "positional"
+    ],
+    "schema": {
+      "file": "browser.close.input.v1.json"
+    }
+  },
+  {
+    "command_id": "browser.stop",
+    "command": "browser stop <sessionId>",
+    "schema_id": "browser.stop.input/v1",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "description": "Destroy the page runtime; the profile stays.",
+    "input_modes": [
+      "positional"
+    ],
+    "schema": {
+      "file": "browser.stop.input.v1.json"
+    }
+  }
+]

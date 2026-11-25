@@ -1,7 +1,10 @@
 /**
  * The work socket's contract as JSON Schema, one file per op: what its
  * arguments may be (`payload`) and what its answer is (`success`), from the
- * same Rpcs the core serves and the CLI calls. The native CLI reads these
+ * same Rpcs the core serves and the CLI calls. The `overseer` op carries one
+ * of many operations, each with its own `args`: those are published one file
+ * per operation under overseer/, from the registry the core dispatches with,
+ * and the native CLI embeds them for `junto schema show`. The native CLI reads these
  * files in its tests (native/cli/src/contract.rs), so a change to an op's
  * arguments fails the Rust gate until its Rust half follows, and a change not
  * republished fails `tests/work-contract-published.test.ts`.
@@ -21,6 +24,7 @@ import { SeatRpcs } from "./seat";
 import { SkillRpcs } from "./skill";
 import { TaskRpcs } from "./task";
 import { ThreadRpcs } from "./thread";
+import { OverseerArgsSchemas } from "../../shared/overseer-control";
 
 /** Every group the work socket serves, as `src/core/work-control/families.ts` merges them. */
 export const WORK_RPC_GROUPS = [
@@ -50,8 +54,18 @@ export const publishedWorkSchemas = (): ReadonlyMap<string, string> => {
       files.set(`${op}.json`, `${JSON.stringify(published, null, 2)}\n`);
     }
   }
+  for (const [operation, schema] of Object.entries(OverseerArgsSchemas)) {
+    const published = { operation, args: document(schema) };
+    files.set(`overseer/${operation}.json`, `${JSON.stringify(published, null, 2)}\n`);
+  }
   return files;
 };
+
+/** Every published file on disk, by its name under the published directory. */
+export const publishedOnDisk = (): ReadonlyArray<string> =>
+  existsSync(PUBLISHED_DIR)
+    ? readdirSync(PUBLISHED_DIR, { recursive: true, encoding: "utf8" }).filter((name) => name.endsWith(".json"))
+    : [];
 
 /**
  * Each published file that is not what the contract generates now, with why:
@@ -60,7 +74,7 @@ export const publishedWorkSchemas = (): ReadonlyMap<string, string> => {
  */
 export const stalePublishedWorkSchemas = (): ReadonlyArray<string> => {
   const files = publishedWorkSchemas();
-  const onDisk = existsSync(PUBLISHED_DIR) ? readdirSync(PUBLISHED_DIR).filter((name) => name.endsWith(".json")) : [];
+  const onDisk = publishedOnDisk();
   const faults: string[] = [];
   for (const [name, text] of files) {
     const path = join(PUBLISHED_DIR, name);
@@ -81,11 +95,9 @@ if (import.meta.main && process.argv.includes("--check")) {
   console.log("the published work schemas are current");
 } else if (import.meta.main) {
   const files = publishedWorkSchemas();
-  mkdirSync(PUBLISHED_DIR, { recursive: true });
+  mkdirSync(join(PUBLISHED_DIR, "overseer"), { recursive: true });
   // An op that left the contract leaves no file behind.
-  for (const name of readdirSync(PUBLISHED_DIR)) {
-    if (name.endsWith(".json") && !files.has(name)) rmSync(join(PUBLISHED_DIR, name));
-  }
+  for (const name of publishedOnDisk()) if (!files.has(name)) rmSync(join(PUBLISHED_DIR, name));
   for (const [name, text] of files) writeFileSync(join(PUBLISHED_DIR, name), text);
   console.log(`published ${files.size} ops to ${PUBLISHED_DIR}`);
 }

@@ -1,0 +1,1165 @@
+{
+  "operation": "node.configure",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "nodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "change": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "agent"
+                  ]
+                },
+                "label": {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                "host": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "harness": {
+                  "type": "string",
+                  "enum": [
+                    "claude",
+                    "codex",
+                    "grok",
+                    "hermes",
+                    "pi",
+                    "prime-agent",
+                    "kimi",
+                    "muse",
+                    "devin",
+                    "cursor",
+                    "agy",
+                    "amp",
+                    "fx",
+                    "omp",
+                    "junto-overseer"
+                  ]
+                },
+                "launch": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "shell",
+                            "command",
+                            "harness"
+                          ]
+                        },
+                        "argv": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "cwd": {
+                          "type": "string"
+                        },
+                        "env": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        "extraArgs": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "terminal"
+                  ]
+                },
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "host": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "launch": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "shell",
+                            "command",
+                            "harness"
+                          ]
+                        },
+                        "argv": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "cwd": {
+                          "type": "string"
+                        },
+                        "env": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        "extraArgs": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "page"
+                  ]
+                },
+                "url": {
+                  "type": "string"
+                },
+                "profile": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "host": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "onRemove": {
+                  "type": "string",
+                  "enum": [
+                    "detach",
+                    "kill-session"
+                  ]
+                },
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "task"
+                  ]
+                },
+                "name": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "contract": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "instructions": {
+                          "type": "string"
+                        },
+                        "rules": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "text": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "statement",
+                                  "requires-review"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "text"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "incoming": {
+                          "type": "object",
+                          "properties": {
+                            "handling": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "admission": {
+                              "type": "string",
+                              "enum": [
+                                "auto",
+                                "approval",
+                                "operator"
+                              ]
+                            },
+                            "waitMs": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "checks": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "label": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "command": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "label",
+                                  "command"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "outgoing": {
+                          "type": "object",
+                          "properties": {
+                            "handoff": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "checks": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "label": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "command": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "label",
+                                  "command"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "stampDefault": {
+                          "type": "object",
+                          "properties": {
+                            "required": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "required"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "artifacts"
+                  ]
+                },
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "automations"
+                  ]
+                },
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "note"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "label"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "file"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "subpath": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "link"
+                  ]
+                },
+                "url": {
+                  "type": "string"
+                },
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "git"
+                  ]
+                },
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cwd": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "files"
+                  ]
+                },
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "host": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "root": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "region"
+                  ]
+                },
+                "label": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "hold": {
+                  "type": "boolean"
+                },
+                "instruction": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "defaults": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "object",
+                          "properties": {
+                            "url": {
+                              "type": "string"
+                            },
+                            "profile": {
+                              "type": "string"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "paths": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "contract": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "rules": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "text": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "statement",
+                                  "requires-review"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "text"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "rulings": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "text": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "pinnedAt": {
+                                "type": "string"
+                              },
+                              "sourceRequestId": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "text",
+                              "pinnedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "environment": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "sealed": {
+                          "type": "boolean"
+                        },
+                        "sources": {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "required": {
+                                    "type": "boolean"
+                                  },
+                                  "host": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "value"
+                                    ]
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "value": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "kind",
+                                  "name",
+                                  "value"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "required": {
+                                    "type": "boolean"
+                                  },
+                                  "host": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "secret"
+                                    ]
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "secretId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "kind",
+                                  "name",
+                                  "secretId"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "required": {
+                                    "type": "boolean"
+                                  },
+                                  "host": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "keychain"
+                                    ]
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "service": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "account": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "kind",
+                                  "name",
+                                  "service"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "required": {
+                                    "type": "boolean"
+                                  },
+                                  "host": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "keyring"
+                                    ]
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "attributes": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "kind",
+                                  "name",
+                                  "attributes"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "required": {
+                                    "type": "boolean"
+                                  },
+                                  "host": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "onepassword"
+                                    ]
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "ref": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "tokenFrom": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "kind",
+                                  "name",
+                                  "ref"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "required": {
+                                    "type": "boolean"
+                                  },
+                                  "host": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "envFile"
+                                    ]
+                                  },
+                                  "path": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "kind",
+                                  "path"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "required": {
+                                    "type": "boolean"
+                                  },
+                                  "host": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "secretsDir"
+                                    ]
+                                  },
+                                  "path": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "prefix": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "kind",
+                                  "path"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "required": {
+                                    "type": "boolean"
+                                  },
+                                  "host": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "command"
+                                    ]
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "argv": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "minItems": 1
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "kind",
+                                  "name",
+                                  "argv"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          }
+                        },
+                        "folders": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "vault": {
+                          "type": "object",
+                          "properties": {
+                            "backend": {
+                              "type": "string",
+                              "enum": [
+                                "onepassword"
+                              ]
+                            },
+                            "vault": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s:,/\\u0000-\\u001f\\u007f](?:[^:,/\\u0000-\\u001f\\u007f]*[^\\s:,/\\u0000-\\u001f\\u007f])?$"
+                            }
+                          },
+                          "required": [
+                            "backend",
+                            "vault"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "background": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "backgroundStyle": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "cover",
+                        "ratio",
+                        "repeat"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "nodeId",
+        "change"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

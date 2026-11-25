@@ -1,0 +1,2908 @@
+{
+  "operation": "canvas.batch",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "expectedSeq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "node.create"
+                    ]
+                  },
+                  "node": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent"
+                            ]
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "width": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "height": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "label": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "harness": {
+                            "type": "string",
+                            "enum": [
+                              "claude",
+                              "codex",
+                              "grok",
+                              "hermes",
+                              "pi",
+                              "prime-agent",
+                              "kimi",
+                              "muse",
+                              "devin",
+                              "cursor",
+                              "agy",
+                              "amp",
+                              "fx",
+                              "omp",
+                              "junto-overseer"
+                            ]
+                          },
+                          "host": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "profile": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "model": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "effort": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "mode": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "permissionMode": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "cwd": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "x",
+                          "y",
+                          "width",
+                          "height",
+                          "harness"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "terminal"
+                            ]
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "width": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "height": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "label": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "host": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "launch": {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "shell",
+                                  "command",
+                                  "harness"
+                                ]
+                              },
+                              "argv": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "cwd": {
+                                "type": "string"
+                              },
+                              "env": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
+                              },
+                              "extraArgs": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          },
+                          "bindingId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "x",
+                          "y",
+                          "width",
+                          "height",
+                          "host"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page"
+                            ]
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "width": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "height": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "url": {
+                            "type": "string"
+                          },
+                          "profile": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "onRemove": {
+                            "type": "string",
+                            "enum": [
+                              "detach",
+                              "kill-session"
+                            ]
+                          },
+                          "label": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "x",
+                          "y",
+                          "width",
+                          "height",
+                          "url",
+                          "profile",
+                          "onRemove"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "task"
+                            ]
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "width": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "height": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "name": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "contract": {
+                            "type": "object",
+                            "properties": {
+                              "instructions": {
+                                "type": "string"
+                              },
+                              "rules": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": [
+                                        "statement",
+                                        "requires-review"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "text"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "incoming": {
+                                "type": "object",
+                                "properties": {
+                                  "handling": {
+                                    "type": "string"
+                                  },
+                                  "description": {
+                                    "type": "string"
+                                  },
+                                  "admission": {
+                                    "type": "string",
+                                    "enum": [
+                                      "auto",
+                                      "approval",
+                                      "operator"
+                                    ]
+                                  },
+                                  "waitMs": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "checks": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "command": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "label",
+                                        "command"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              "outgoing": {
+                                "type": "object",
+                                "properties": {
+                                  "handoff": {
+                                    "type": "string"
+                                  },
+                                  "description": {
+                                    "type": "string"
+                                  },
+                                  "checks": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "command": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "label",
+                                        "command"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              "stampDefault": {
+                                "type": "object",
+                                "properties": {
+                                  "required": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  }
+                                },
+                                "required": [
+                                  "required"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "x",
+                          "y",
+                          "width",
+                          "height"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "artifacts"
+                            ]
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "width": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "height": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "label": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "x",
+                          "y",
+                          "width",
+                          "height"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "automations"
+                            ]
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "width": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "height": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "label": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "x",
+                          "y",
+                          "width",
+                          "height"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "note"
+                            ]
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "width": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "height": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "x",
+                          "y",
+                          "width",
+                          "height",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "label"
+                            ]
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "width": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "height": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "x",
+                          "y",
+                          "width",
+                          "height",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "file"
+                            ]
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "width": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "height": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "subpath": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "x",
+                          "y",
+                          "width",
+                          "height",
+                          "path"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "link"
+                            ]
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "width": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "height": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "url": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "x",
+                          "y",
+                          "width",
+                          "height",
+                          "url"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "git"
+                            ]
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "width": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "height": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "label": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "cwd": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "x",
+                          "y",
+                          "width",
+                          "height",
+                          "cwd"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "files"
+                            ]
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "width": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "height": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "label": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "host": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "root": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "x",
+                          "y",
+                          "width",
+                          "height",
+                          "host",
+                          "root"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "region"
+                            ]
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "width": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "height": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "label": {
+                            "type": "string",
+                            "maxLength": 80
+                          },
+                          "hold": {
+                            "type": "boolean"
+                          },
+                          "instruction": {
+                            "type": "string"
+                          },
+                          "defaults": {
+                            "type": "object",
+                            "properties": {
+                              "page": {
+                                "type": "object",
+                                "properties": {
+                                  "url": {
+                                    "type": "string"
+                                  },
+                                  "profile": {
+                                    "type": "string"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              "paths": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64
+                                },
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "contract": {
+                            "type": "object",
+                            "properties": {
+                              "rules": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": [
+                                        "statement",
+                                        "requires-review"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "text"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "rulings": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "pinnedAt": {
+                                      "type": "string"
+                                    },
+                                    "sourceRequestId": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "text",
+                                    "pinnedAt"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "environment": {
+                            "type": "object",
+                            "properties": {
+                              "sealed": {
+                                "type": "boolean"
+                              },
+                              "sources": {
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "required": {
+                                          "type": "boolean"
+                                        },
+                                        "host": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64
+                                        },
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "value"
+                                          ]
+                                        },
+                                        "name": {
+                                          "type": "string"
+                                        },
+                                        "value": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "kind",
+                                        "name",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "required": {
+                                          "type": "boolean"
+                                        },
+                                        "host": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64
+                                        },
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "secret"
+                                          ]
+                                        },
+                                        "name": {
+                                          "type": "string"
+                                        },
+                                        "secretId": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "kind",
+                                        "name",
+                                        "secretId"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "required": {
+                                          "type": "boolean"
+                                        },
+                                        "host": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64
+                                        },
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "keychain"
+                                          ]
+                                        },
+                                        "name": {
+                                          "type": "string"
+                                        },
+                                        "service": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "account": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "kind",
+                                        "name",
+                                        "service"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "required": {
+                                          "type": "boolean"
+                                        },
+                                        "host": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64
+                                        },
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "keyring"
+                                          ]
+                                        },
+                                        "name": {
+                                          "type": "string"
+                                        },
+                                        "attributes": {
+                                          "type": "object",
+                                          "additionalProperties": {
+                                            "type": "string"
+                                          }
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "kind",
+                                        "name",
+                                        "attributes"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "required": {
+                                          "type": "boolean"
+                                        },
+                                        "host": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64
+                                        },
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "onepassword"
+                                          ]
+                                        },
+                                        "name": {
+                                          "type": "string"
+                                        },
+                                        "ref": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "tokenFrom": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "kind",
+                                        "name",
+                                        "ref"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "required": {
+                                          "type": "boolean"
+                                        },
+                                        "host": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64
+                                        },
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "envFile"
+                                          ]
+                                        },
+                                        "path": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "kind",
+                                        "path"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "required": {
+                                          "type": "boolean"
+                                        },
+                                        "host": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64
+                                        },
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "secretsDir"
+                                          ]
+                                        },
+                                        "path": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "prefix": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "kind",
+                                        "path"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "required": {
+                                          "type": "boolean"
+                                        },
+                                        "host": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64
+                                        },
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "command"
+                                          ]
+                                        },
+                                        "name": {
+                                          "type": "string"
+                                        },
+                                        "argv": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string"
+                                          },
+                                          "minItems": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "kind",
+                                        "name",
+                                        "argv"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                }
+                              },
+                              "folders": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              },
+                              "vault": {
+                                "type": "object",
+                                "properties": {
+                                  "backend": {
+                                    "type": "string",
+                                    "enum": [
+                                      "onepassword"
+                                    ]
+                                  },
+                                  "vault": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 128,
+                                    "pattern": "^[^\\s:,/\\u0000-\\u001f\\u007f](?:[^:,/\\u0000-\\u001f\\u007f]*[^\\s:,/\\u0000-\\u001f\\u007f])?$"
+                                  }
+                                },
+                                "required": [
+                                  "backend",
+                                  "vault"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "background": {
+                            "type": "string"
+                          },
+                          "backgroundStyle": {
+                            "type": "string",
+                            "enum": [
+                              "cover",
+                              "ratio",
+                              "repeat"
+                            ]
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "x",
+                          "y",
+                          "width",
+                          "height",
+                          "hold"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "operation",
+                  "node"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "node.configure"
+                    ]
+                  },
+                  "nodeId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "change": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent"
+                            ]
+                          },
+                          "label": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "host": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "harness": {
+                            "type": "string",
+                            "enum": [
+                              "claude",
+                              "codex",
+                              "grok",
+                              "hermes",
+                              "pi",
+                              "prime-agent",
+                              "kimi",
+                              "muse",
+                              "devin",
+                              "cursor",
+                              "agy",
+                              "amp",
+                              "fx",
+                              "omp",
+                              "junto-overseer"
+                            ]
+                          },
+                          "launch": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "shell",
+                                      "command",
+                                      "harness"
+                                    ]
+                                  },
+                                  "argv": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "cwd": {
+                                    "type": "string"
+                                  },
+                                  "env": {
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string"
+                                    },
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "extraArgs": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "kind"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "terminal"
+                            ]
+                          },
+                          "label": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "host": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "launch": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "shell",
+                                      "command",
+                                      "harness"
+                                    ]
+                                  },
+                                  "argv": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "cwd": {
+                                    "type": "string"
+                                  },
+                                  "env": {
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string"
+                                    },
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "extraArgs": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "kind"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page"
+                            ]
+                          },
+                          "url": {
+                            "type": "string"
+                          },
+                          "profile": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "host": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "onRemove": {
+                            "type": "string",
+                            "enum": [
+                              "detach",
+                              "kill-session"
+                            ]
+                          },
+                          "label": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "task"
+                            ]
+                          },
+                          "name": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "contract": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "instructions": {
+                                    "type": "string"
+                                  },
+                                  "rules": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "statement",
+                                            "requires-review"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "text"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "incoming": {
+                                    "type": "object",
+                                    "properties": {
+                                      "handling": {
+                                        "type": "string"
+                                      },
+                                      "description": {
+                                        "type": "string"
+                                      },
+                                      "admission": {
+                                        "type": "string",
+                                        "enum": [
+                                          "auto",
+                                          "approval",
+                                          "operator"
+                                        ]
+                                      },
+                                      "waitMs": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "checks": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "id": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "label": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "command": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            }
+                                          },
+                                          "required": [
+                                            "id",
+                                            "label",
+                                            "command"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      }
+                                    },
+                                    "additionalProperties": false
+                                  },
+                                  "outgoing": {
+                                    "type": "object",
+                                    "properties": {
+                                      "handoff": {
+                                        "type": "string"
+                                      },
+                                      "description": {
+                                        "type": "string"
+                                      },
+                                      "checks": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "id": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "label": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "command": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            }
+                                          },
+                                          "required": [
+                                            "id",
+                                            "label",
+                                            "command"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      }
+                                    },
+                                    "additionalProperties": false
+                                  },
+                                  "stampDefault": {
+                                    "type": "object",
+                                    "properties": {
+                                      "required": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      }
+                                    },
+                                    "required": [
+                                      "required"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "artifacts"
+                            ]
+                          },
+                          "label": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "automations"
+                            ]
+                          },
+                          "label": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "note"
+                            ]
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "label"
+                            ]
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "file"
+                            ]
+                          },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "subpath": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "label": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "link"
+                            ]
+                          },
+                          "url": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "git"
+                            ]
+                          },
+                          "label": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "cwd": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "files"
+                            ]
+                          },
+                          "label": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "host": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "root": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "region"
+                            ]
+                          },
+                          "label": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "hold": {
+                            "type": "boolean"
+                          },
+                          "instruction": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "defaults": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "page": {
+                                    "type": "object",
+                                    "properties": {
+                                      "url": {
+                                        "type": "string"
+                                      },
+                                      "profile": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "additionalProperties": false
+                                  },
+                                  "paths": {
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 64
+                                    },
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "contract": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "rules": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "statement",
+                                            "requires-review"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "text"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "rulings": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "pinnedAt": {
+                                          "type": "string"
+                                        },
+                                        "sourceRequestId": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "text",
+                                        "pinnedAt"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "environment": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "sealed": {
+                                    "type": "boolean"
+                                  },
+                                  "sources": {
+                                    "type": "array",
+                                    "items": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "id": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "required": {
+                                              "type": "boolean"
+                                            },
+                                            "host": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": [
+                                                "value"
+                                              ]
+                                            },
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "value": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "id",
+                                            "kind",
+                                            "name",
+                                            "value"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "id": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "required": {
+                                              "type": "boolean"
+                                            },
+                                            "host": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": [
+                                                "secret"
+                                              ]
+                                            },
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "secretId": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            }
+                                          },
+                                          "required": [
+                                            "id",
+                                            "kind",
+                                            "name",
+                                            "secretId"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "id": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "required": {
+                                              "type": "boolean"
+                                            },
+                                            "host": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": [
+                                                "keychain"
+                                              ]
+                                            },
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "service": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "account": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "id",
+                                            "kind",
+                                            "name",
+                                            "service"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "id": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "required": {
+                                              "type": "boolean"
+                                            },
+                                            "host": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": [
+                                                "keyring"
+                                              ]
+                                            },
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "attributes": {
+                                              "type": "object",
+                                              "additionalProperties": {
+                                                "type": "string"
+                                              }
+                                            }
+                                          },
+                                          "required": [
+                                            "id",
+                                            "kind",
+                                            "name",
+                                            "attributes"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "id": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "required": {
+                                              "type": "boolean"
+                                            },
+                                            "host": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": [
+                                                "onepassword"
+                                              ]
+                                            },
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "ref": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "tokenFrom": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            }
+                                          },
+                                          "required": [
+                                            "id",
+                                            "kind",
+                                            "name",
+                                            "ref"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "id": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "required": {
+                                              "type": "boolean"
+                                            },
+                                            "host": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": [
+                                                "envFile"
+                                              ]
+                                            },
+                                            "path": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            }
+                                          },
+                                          "required": [
+                                            "id",
+                                            "kind",
+                                            "path"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "id": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "required": {
+                                              "type": "boolean"
+                                            },
+                                            "host": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": [
+                                                "secretsDir"
+                                              ]
+                                            },
+                                            "path": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "prefix": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "id",
+                                            "kind",
+                                            "path"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "id": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "required": {
+                                              "type": "boolean"
+                                            },
+                                            "host": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            },
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": [
+                                                "command"
+                                              ]
+                                            },
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "argv": {
+                                              "type": "array",
+                                              "items": {
+                                                "type": "string"
+                                              },
+                                              "minItems": 1
+                                            }
+                                          },
+                                          "required": [
+                                            "id",
+                                            "kind",
+                                            "name",
+                                            "argv"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "folders": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    }
+                                  },
+                                  "vault": {
+                                    "type": "object",
+                                    "properties": {
+                                      "backend": {
+                                        "type": "string",
+                                        "enum": [
+                                          "onepassword"
+                                        ]
+                                      },
+                                      "vault": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 128,
+                                        "pattern": "^[^\\s:,/\\u0000-\\u001f\\u007f](?:[^:,/\\u0000-\\u001f\\u007f]*[^\\s:,/\\u0000-\\u001f\\u007f])?$"
+                                      }
+                                    },
+                                    "required": [
+                                      "backend",
+                                      "vault"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "background": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "backgroundStyle": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "cover",
+                                  "ratio",
+                                  "repeat"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "operation",
+                  "nodeId",
+                  "change"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "node.move"
+                    ]
+                  },
+                  "nodeId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "x": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "y": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "operation",
+                  "nodeId",
+                  "x",
+                  "y"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "node.resize"
+                    ]
+                  },
+                  "nodeId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "width": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "height": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "operation",
+                  "nodeId",
+                  "width",
+                  "height"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "node.recolor"
+                    ]
+                  },
+                  "nodeIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "color": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "operation",
+                  "nodeIds",
+                  "color"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "wire.connect"
+                    ]
+                  },
+                  "wire": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      "to": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      "mask": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "msg.list",
+                            "msg.send",
+                            "msg.prompt",
+                            "seat.wait",
+                            "terminal.read",
+                            "threads.read",
+                            "browser.automate"
+                          ]
+                        }
+                      },
+                      "fromSide": {
+                        "type": "string",
+                        "enum": [
+                          "top",
+                          "right",
+                          "bottom",
+                          "left"
+                        ]
+                      },
+                      "toSide": {
+                        "type": "string",
+                        "enum": [
+                          "top",
+                          "right",
+                          "bottom",
+                          "left"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      "verb": {
+                        "type": "string",
+                        "enum": [
+                          "messages",
+                          "navigates",
+                          "flows",
+                          "derives"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "to"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "operation",
+                  "wire"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "wire.configure"
+                    ]
+                  },
+                  "wireId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "change": {
+                    "type": "object",
+                    "properties": {
+                      "verb": {
+                        "type": "string",
+                        "enum": [
+                          "messages",
+                          "navigates",
+                          "flows",
+                          "derives"
+                        ]
+                      },
+                      "mask": {
+                        "anyOf": [
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "msg.list",
+                                "msg.send",
+                                "msg.prompt",
+                                "seat.wait",
+                                "terminal.read",
+                                "threads.read",
+                                "browser.automate"
+                              ]
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "fromSide": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "top",
+                              "right",
+                              "bottom",
+                              "left"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "toSide": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "top",
+                              "right",
+                              "bottom",
+                              "left"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "operation",
+                  "wireId",
+                  "change"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "wire.disconnect"
+                    ]
+                  },
+                  "wireId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "required": [
+                  "operation",
+                  "wireId"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

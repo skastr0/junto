@@ -1,0 +1,31 @@
+{
+  "operation": "msg.read",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "messageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "messageId"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

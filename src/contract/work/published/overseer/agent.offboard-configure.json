@@ -1,0 +1,51 @@
+{
+  "operation": "agent.offboard-configure",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "cacheWindowMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10080
+        },
+        "harness": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "cacheWindowMinutes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10080
+                  }
+                },
+                "required": [
+                  "cacheWindowMinutes"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "cacheMode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "manual",
+            "auto",
+            "hybrid"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

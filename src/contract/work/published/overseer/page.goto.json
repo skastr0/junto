@@ -1,0 +1,26 @@
+{
+  "operation": "page.goto",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "sessionId",
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

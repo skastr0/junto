@@ -1,0 +1,53 @@
+{
+  "operation": "content.ingest",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "bytesBase64": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mediaType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "expected": {
+          "type": "object",
+          "properties": {
+            "sha256": {
+              "type": "string"
+            },
+            "byteLength": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "sha256",
+            "byteLength"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "bytesBase64",
+        "mediaType"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

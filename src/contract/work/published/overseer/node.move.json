@@ -1,0 +1,58 @@
+{
+  "operation": "node.move",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "nodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "Infinity",
+                "-Infinity",
+                "NaN"
+              ]
+            }
+          ]
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "Infinity",
+                "-Infinity",
+                "NaN"
+              ]
+            }
+          ]
+        }
+      },
+      "required": [
+        "nodeId",
+        "x",
+        "y"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

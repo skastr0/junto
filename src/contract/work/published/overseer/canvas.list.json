@@ -1,0 +1,12 @@
+{
+  "operation": "canvas.list",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "not": {
+        "type": "null"
+      }
+    },
+    "definitions": {}
+  }
+}

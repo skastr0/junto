@@ -1,0 +1,26 @@
+{
+  "operation": "node.get",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "nodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "nodeId"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

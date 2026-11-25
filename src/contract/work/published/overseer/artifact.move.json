@@ -1,0 +1,36 @@
+{
+  "operation": "artifact.move",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "artifactIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "minItems": 1,
+          "maxItems": 100
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "artifactIds",
+        "to"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

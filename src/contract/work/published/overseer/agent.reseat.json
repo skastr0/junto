@@ -1,0 +1,72 @@
+{
+  "operation": "agent.reseat",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "nodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "harness": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "codex",
+            "grok",
+            "hermes",
+            "pi",
+            "prime-agent",
+            "kimi",
+            "muse",
+            "devin",
+            "cursor",
+            "agy",
+            "amp",
+            "fx",
+            "omp",
+            "junto-overseer"
+          ]
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "profile": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effort": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "permissionMode": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "nodeId",
+        "harness"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

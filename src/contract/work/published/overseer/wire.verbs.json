@@ -1,0 +1,28 @@
+{
+  "operation": "wire.verbs",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "canvas": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "from": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

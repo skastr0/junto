@@ -1,0 +1,19 @@
+{
+  "operation": "briefing.write",
+  "args": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "definitions": {}
+  }
+}

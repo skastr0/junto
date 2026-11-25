@@ -1,0 +1,2873 @@
+[
+  {
+    "command_id": "task.wait",
+    "command": "task wait",
+    "name": "wait for task completion",
+    "when": [
+      "tasks"
+    ],
+    "args": [
+      "task",
+      "wait",
+      "#42",
+      "--until",
+      "done",
+      "--timeout",
+      "30s"
+    ],
+    "input": {
+      "task": "#42",
+      "until": "done",
+      "timeoutMs": 30000
+    }
+  },
+  {
+    "command_id": "task.rules",
+    "command": "task rules",
+    "name": "rules in force",
+    "when": [
+      "tasks"
+    ],
+    "description": "The rules in force on a task node, with provenance.",
+    "args": [
+      "task",
+      "rules",
+      "--node",
+      "Review"
+    ],
+    "input": {
+      "node": "Review"
+    }
+  },
+  {
+    "command_id": "task.rules",
+    "command": "task rules",
+    "name": "readiness for a task",
+    "when": [
+      "tasks"
+    ],
+    "description": "The rules where the task sits, and which its finish leaves unanswered.",
+    "args": [
+      "task",
+      "rules",
+      "#42"
+    ],
+    "input": {
+      "task": "#42"
+    }
+  },
+  {
+    "command_id": "rulings",
+    "command": "rulings",
+    "name": "own region stack",
+    "when": [
+      "tasks"
+    ],
+    "args": [
+      "rulings"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "msg.send",
+    "command": "msg send",
+    "name": "note on task",
+    "args": [
+      "msg",
+      "send",
+      "{\"target\":\"n7\",\"text\":\"working\",\"taskId\":\"t1\"}"
+    ],
+    "input": {
+      "target": "n7",
+      "text": "working",
+      "taskId": "t1"
+    }
+  },
+  {
+    "command_id": "msg.send",
+    "command": "msg send",
+    "name": "post into a thread",
+    "args": [
+      "msg",
+      "send",
+      "{\"target\":\"seat-b\",\"text\":\"one more thing\",\"threadId\":\"01JB2C3D4E5F6G7H8J9K0M1N2P\"}"
+    ],
+    "input": {
+      "target": "seat-b",
+      "text": "one more thing",
+      "threadId": "01JB2C3D4E5F6G7H8J9K0M1N2P"
+    }
+  },
+  {
+    "command_id": "msg.prompt",
+    "command": "msg send --prompt",
+    "name": "prompt a connected seat",
+    "description": "Requires msg.prompt. The full text lands in the seat's input at once as steering, idle or mid-turn. A running turn uses that harness's follow-up contract.",
+    "args": [
+      "msg",
+      "send",
+      "--prompt",
+      "{\"target\":\"seat-b\",\"text\":\"Please review the API contract.\"}"
+    ],
+    "input": {
+      "target": "seat-b",
+      "text": "Please review the API contract."
+    }
+  },
+  {
+    "command_id": "msg.sent",
+    "command": "msg sent",
+    "name": "inspect own sent receipts",
+    "args": [
+      "msg",
+      "sent"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "msg.sent",
+    "command": "msg sent",
+    "name": "inspect receipts for a peer",
+    "args": [
+      "msg",
+      "sent",
+      "{\"target\":\"seat-b\"}"
+    ],
+    "input": {
+      "target": "seat-b"
+    }
+  },
+  {
+    "command_id": "seat.wait",
+    "command": "seat wait",
+    "name": "wait for an idle peer with JSON",
+    "args": [
+      "seat",
+      "wait",
+      "{\"target\":\"seat-b\",\"until\":\"idle\",\"timeoutMs\":30000}"
+    ],
+    "input": {
+      "target": "seat-b",
+      "until": "idle",
+      "timeoutMs": 30000
+    }
+  },
+  {
+    "command_id": "seat.wait",
+    "command": "seat wait",
+    "name": "wait for an idle peer with flags",
+    "args": [
+      "seat",
+      "wait",
+      "seat-b",
+      "--until",
+      "idle",
+      "--timeout",
+      "30s"
+    ],
+    "input": {
+      "target": "seat-b",
+      "until": "idle",
+      "timeoutMs": 30000
+    }
+  },
+  {
+    "command_id": "seat.wait",
+    "command": "seat wait",
+    "name": "wait for attention on any authorized peer",
+    "description": "--any watches only peers whose live edges grant seat.wait.",
+    "args": [
+      "seat",
+      "wait",
+      "--any",
+      "--until",
+      "attention",
+      "--timeout",
+      "30s"
+    ],
+    "input": {
+      "any": true,
+      "until": "attention",
+      "timeoutMs": 30000
+    }
+  },
+  {
+    "command_id": "seat.wait",
+    "command": "seat wait",
+    "name": "wait for a peer to reply to your mail",
+    "description": "after is the last mail id you saw from the peer; without it, only mail sent after the wait began answers.",
+    "args": [
+      "seat",
+      "wait",
+      "seat-b",
+      "--until",
+      "replied",
+      "--after",
+      "01M59CMKZRATKFG5E69JZM0BT0",
+      "--timeout",
+      "30s"
+    ],
+    "input": {
+      "target": "seat-b",
+      "until": "replied",
+      "after": "01M59CMKZRATKFG5E69JZM0BT0",
+      "timeoutMs": 30000
+    }
+  },
+  {
+    "command_id": "seat.read",
+    "command": "seat read",
+    "name": "read a settled peer window with JSON",
+    "args": [
+      "seat",
+      "read",
+      "{\"target\":\"seat-b\",\"lines\":40}"
+    ],
+    "input": {
+      "target": "seat-b",
+      "lines": 40
+    }
+  },
+  {
+    "command_id": "seat.read",
+    "command": "seat read",
+    "name": "read a settled peer window with flags",
+    "args": [
+      "seat",
+      "read",
+      "seat-b",
+      "--lines",
+      "40"
+    ],
+    "input": {
+      "target": "seat-b",
+      "lines": 40
+    }
+  },
+  {
+    "command_id": "seat.read",
+    "command": "seat read",
+    "name": "follow a peer for at most five seconds",
+    "args": [
+      "seat",
+      "read",
+      "seat-b",
+      "--follow",
+      "--max-seconds",
+      "5"
+    ],
+    "input": {
+      "target": "seat-b",
+      "follow": true,
+      "maxSeconds": 5
+    }
+  },
+  {
+    "command_id": "seat.read",
+    "command": "seat read",
+    "name": "read every peer at once without screens",
+    "description": "Each readable peer with its identity, state, preamble and recent mail; withheld counts connected seats you may not read.",
+    "args": [
+      "seat",
+      "read",
+      "--brief"
+    ],
+    "input": {
+      "brief": true
+    }
+  },
+  {
+    "command_id": "seat.read",
+    "command": "seat read",
+    "name": "follow from a generation-bound cursor",
+    "description": "Use seq and generation from the preceding read. A replaced generation is reported explicitly.",
+    "args": [
+      "seat",
+      "read",
+      "{\"target\":\"seat-b\",\"since\":12,\"sinceGeneration\":\"generation-1\",\"follow\":true,\"maxSeconds\":5}"
+    ],
+    "input": {
+      "target": "seat-b",
+      "since": 12,
+      "sinceGeneration": "generation-1",
+      "follow": true,
+      "maxSeconds": 5
+    }
+  },
+  {
+    "command_id": "msg.read",
+    "command": "msg read",
+    "name": "ack mailbox",
+    "args": [
+      "msg",
+      "read",
+      "{\"target\":\"seat-a\",\"messageId\":\"msg_01\"}"
+    ],
+    "input": {
+      "target": "seat-a",
+      "messageId": "msg_01"
+    }
+  },
+  {
+    "command_id": "msg.reply",
+    "command": "msg reply",
+    "name": "reply to mail",
+    "args": [
+      "msg",
+      "reply",
+      "{\"target\":\"seat-b\",\"text\":\"ack, starting\",\"inReplyTo\":\"01JB2C3D4E5F6G7H8J9K0M1N2P\"}"
+    ],
+    "input": {
+      "target": "seat-b",
+      "text": "ack, starting",
+      "inReplyTo": "01JB2C3D4E5F6G7H8J9K0M1N2P"
+    }
+  },
+  {
+    "command_id": "msg.reply",
+    "command": "msg reply",
+    "name": "answer the operator",
+    "args": [
+      "msg",
+      "reply",
+      "{\"target\":\"operator\",\"text\":\"done, see 1a2b3c4\",\"inReplyTo\":\"01JB2C3D4E5F6G7H8J9K0M1N2Q\"}"
+    ],
+    "input": {
+      "target": "operator",
+      "text": "done, see 1a2b3c4",
+      "inReplyTo": "01JB2C3D4E5F6G7H8J9K0M1N2Q"
+    }
+  },
+  {
+    "command_id": "msg.list",
+    "command": "msg list",
+    "name": "open own inbox",
+    "args": [
+      "msg",
+      "list"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "msg.list",
+    "command": "msg list",
+    "name": "read one thread",
+    "args": [
+      "msg",
+      "list",
+      "{\"threadId\":\"01JB2C3D4E5F6G7H8J9K0M1N2P\"}"
+    ],
+    "input": {
+      "threadId": "01JB2C3D4E5F6G7H8J9K0M1N2P"
+    }
+  },
+  {
+    "command_id": "msg.list",
+    "command": "msg list",
+    "name": "peek at unread mail from one seat",
+    "args": [
+      "msg",
+      "list",
+      "{\"from\":\"seat-b\",\"unread\":true,\"peek\":true}"
+    ],
+    "input": {
+      "from": "seat-b",
+      "unread": true,
+      "peek": true
+    }
+  },
+  {
+    "command_id": "msg.list",
+    "command": "msg list",
+    "name": "search recent mail",
+    "args": [
+      "msg",
+      "list",
+      "{\"since\":\"2026-10-19T09:00:00Z\",\"text\":\"release\"}"
+    ],
+    "input": {
+      "since": "2026-10-19T09:00:00Z",
+      "text": "release"
+    }
+  },
+  {
+    "command_id": "msg.react",
+    "command": "msg react",
+    "name": "ack without reply",
+    "args": [
+      "msg",
+      "react",
+      "{\"messageId\":\"msg_01\"}"
+    ],
+    "input": {
+      "messageId": "msg_01"
+    }
+  },
+  {
+    "command_id": "offboard",
+    "command": "offboard",
+    "name": "hand off at a stopping point",
+    "description": "Notes for the next session of this seat: what happened, what is relevant, why it matters. The seat rests until its next wake.",
+    "args": [
+      "offboard",
+      "Importer parses all three feeds; retry on 429 is next.\n\n- Parser lives in src/import/feed.ts, tests in tests/feed.test.ts.\n- Why it matters: the nightly sync fails without retries."
+    ],
+    "input": {
+      "notes": "Importer parses all three feeds; retry on 429 is next.\n\n- Parser lives in src/import/feed.ts, tests in tests/feed.test.ts.\n- Why it matters: the nightly sync fails without retries."
+    }
+  },
+  {
+    "command_id": "offboard",
+    "command": "offboard",
+    "name": "hand off mid-work and continue",
+    "description": "Notes on this session, plus a note for the fresh session Junto starts right away: what to pick up and why.",
+    "args": [
+      "offboard",
+      "Importer parses all three feeds; retry on 429 is half done.\n\n- Parser lives in src/import/feed.ts.",
+      "--continue",
+      "Finish the 429 retry in src/import/feed.ts (backoff is written, the test is not). Why: the nightly sync fails without it."
+    ],
+    "input": {
+      "notes": "Importer parses all three feeds; retry on 429 is half done.\n\n- Parser lives in src/import/feed.ts.",
+      "continuation": "Finish the 429 retry in src/import/feed.ts (backoff is written, the test is not). Why: the nightly sync fails without it."
+    }
+  },
+  {
+    "command_id": "preamble",
+    "command": "preamble",
+    "name": "share a brief thought",
+    "description": "Show a sentence above this agent node for about 30 seconds.",
+    "args": [
+      "preamble",
+      "{\"text\":\"Inspecting the task and choosing the smallest safe change.\"}"
+    ],
+    "input": {
+      "text": "Inspecting the task and choosing the smallest safe change."
+    }
+  },
+  {
+    "command_id": "signal.blocked",
+    "command": "blocked",
+    "name": "blocked on the operator",
+    "description": "Stop and wait: the operator's answer arrives as operator mail.",
+    "args": [
+      "blocked",
+      "Need the staging API key to run the deploy check.",
+      "--detail",
+      "Tried the vault path in the README; it is empty. Nothing else is left without it."
+    ],
+    "input": {
+      "text": "Need the staging API key to run the deploy check.",
+      "detail": "Tried the vault path in the README; it is empty. Nothing else is left without it."
+    }
+  },
+  {
+    "command_id": "signal.blocked",
+    "command": "blocked",
+    "name": "a question with its likely answers",
+    "description": "When the question has two likely answers, pre-bake them: they show ahead of the operator's quick replies, and whichever is picked sends as the answer.",
+    "args": [
+      "blocked",
+      "Which store for the run log?",
+      "--suggest",
+      "Use sqlite",
+      "--suggest",
+      "Keep JSON"
+    ],
+    "input": {
+      "text": "Which store for the run log?",
+      "suggest": [
+        "Use sqlite",
+        "Keep JSON"
+      ]
+    }
+  },
+  {
+    "command_id": "signal.escalate",
+    "command": "escalate",
+    "name": "needs attention, still working",
+    "args": [
+      "escalate",
+      "The migration touches billing tables; please confirm before I ship."
+    ],
+    "input": {
+      "text": "The migration touches billing tables; please confirm before I ship."
+    }
+  },
+  {
+    "command_id": "signal.feedback",
+    "command": "feedback",
+    "name": "ready for review",
+    "args": [
+      "feedback",
+      "The onboarding redesign is up on the branch for review."
+    ],
+    "input": {
+      "text": "The onboarding redesign is up on the branch for review."
+    }
+  },
+  {
+    "command_id": "signal.feedback",
+    "command": "feedback",
+    "name": "ready for review, with screenshots",
+    "description": "Attach the files the operator should look at: they show as pictures on the card, and Before and After captions set up a comparison.",
+    "args": [
+      "feedback",
+      "The agent rail redesign is ready to review.",
+      "--attach",
+      "Before=/abs/shots/before.png",
+      "--attach",
+      "After=/abs/shots/after.png"
+    ],
+    "input": {
+      "text": "The agent rail redesign is ready to review.",
+      "attach": [
+        {
+          "path": "/abs/shots/before.png",
+          "caption": "Before"
+        },
+        {
+          "path": "/abs/shots/after.png",
+          "caption": "After"
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "signal.feedback",
+    "command": "feedback",
+    "name": "ready for review, with a code block and a diff",
+    "description": "Text you type is attached as it is: a code block with its language, and any unified diff (no repository needed). Both show highlighted on the card. A diff can come from a pipe: git diff | junto feedback \"...\" --diff -",
+    "args": [
+      "feedback",
+      "The retry guard is in; here is the change.",
+      "--code",
+      "The guard=ts:if (attempt > MAX_RETRIES) throw new GiveUp();",
+      "--diff",
+      "The change=--- a/retry.ts\n+++ b/retry.ts\n@@ -1 +1 @@\n-const MAX_RETRIES = 3;\n+const MAX_RETRIES = 5;\n"
+    ],
+    "input": {
+      "text": "The retry guard is in; here is the change.",
+      "attach": [
+        {
+          "code": "if (attempt > MAX_RETRIES) throw new GiveUp();",
+          "language": "ts",
+          "caption": "The guard"
+        },
+        {
+          "diff": "--- a/retry.ts\n+++ b/retry.ts\n@@ -1 +1 @@\n-const MAX_RETRIES = 3;\n+const MAX_RETRIES = 5;\n",
+          "caption": "The change"
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "signal.escalate",
+    "command": "escalate",
+    "name": "two texts read as a change",
+    "description": "A before and an after, shown as a diff. From two files with --compare; two texts typed inline go in the JSON form.",
+    "args": [
+      "escalate",
+      "Which wording do you want on the empty state?",
+      "--compare",
+      "Empty state=/abs/before.txt,/abs/after.txt"
+    ],
+    "input": {
+      "text": "Which wording do you want on the empty state?",
+      "attach": [
+        {
+          "before": "Nothing here yet.",
+          "after": "No signals. You are all caught up.",
+          "language": "txt",
+          "caption": "Empty state"
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "signal.feedback",
+    "command": "feedback",
+    "name": "ready for review, with the commit",
+    "description": "A commit in your folder, by anything git resolves (HEAD, a branch, an id). The card shows the commit and its diff.",
+    "args": [
+      "feedback",
+      "The migration is committed and ready to review.",
+      "--commit",
+      "The migration=HEAD"
+    ],
+    "input": {
+      "text": "The migration is committed and ready to review.",
+      "attach": [
+        {
+          "commit": "HEAD",
+          "caption": "The migration"
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "signal.feedback",
+    "command": "feedback",
+    "name": "ready for review, with a video at a web address",
+    "description": "A video that lives somewhere else. The operator sees the whole address; nothing is fetched until they press play. A video file on disk is attached with --attach.",
+    "args": [
+      "feedback",
+      "The recorded run is up.",
+      "--video",
+      "The run=https://media.example.com/runs/onboarding.mp4"
+    ],
+    "input": {
+      "text": "The recorded run is up.",
+      "attach": [
+        {
+          "url": "https://media.example.com/runs/onboarding.mp4",
+          "caption": "The run"
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "signal.feedback",
+    "command": "feedback",
+    "name": "ready for review, with the task it finishes",
+    "description": "A task in your reach, by #42, its id, or its junto:// ref. Junto resolves it in your reach and the card links to it; an artifact goes the same way with --artifact.",
+    "args": [
+      "feedback",
+      "The import is ready for your stamp.",
+      "--task",
+      "Stamp this=#42"
+    ],
+    "input": {
+      "text": "The import is ready for your stamp.",
+      "attach": [
+        {
+          "task": "#42",
+          "caption": "Stamp this"
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "signal.escalate",
+    "command": "escalate",
+    "name": "a signal in a thread with the operator",
+    "description": "Answer the operator in their thread and raise a signal at once: it shows in the feed and is your next mail there, and it follows the signal before it in that thread. --thread takes the thread id or the id of any mail in it.",
+    "args": [
+      "escalate",
+      "Your answer opens a second question: keep the old export or drop it?",
+      "--thread",
+      "01M852PM9NWTBBVNYYPSPR0HNV"
+    ],
+    "input": {
+      "text": "Your answer opens a second question: keep the old export or drop it?"
+    }
+  },
+  {
+    "command_id": "signal.blocked",
+    "command": "blocked",
+    "name": "a signal that comes after another",
+    "description": "The operator meets the signal it comes after first; until that one closes, this one waits. Name your own signals by id, repeat --depends-on for each.",
+    "args": [
+      "blocked",
+      "Need the staging key once the schema question is settled.",
+      "--depends-on",
+      "01M855GV69YVAA8AM3PDJHCJXX"
+    ],
+    "input": {
+      "text": "Need the staging key once the schema question is settled."
+    }
+  },
+  {
+    "command_id": "signal.escalate",
+    "command": "escalate",
+    "name": "after the signal you raised last",
+    "description": "No id to carry: it comes after your last signal on this canvas, or after nothing when you raised none.",
+    "args": [
+      "escalate",
+      "Second topic: the retry budget.",
+      "--depends-on-last"
+    ],
+    "input": {
+      "text": "Second topic: the retry budget."
+    }
+  },
+  {
+    "command_id": "signal.batch",
+    "command": "signal batch",
+    "name": "several signals in the order to act",
+    "description": "Raised first to last, each after the one before it, all or none; the feed shows them in this order. dependsOn names earlier items by position from 1, [] none.",
+    "args": [
+      "signal",
+      "batch",
+      "[{\"kind\":\"escalate\",\"text\":\"Topic 1: which store for the run log?\",\"suggest\":[\"Use sqlite\",\"Keep JSON\"]},{\"kind\":\"escalate\",\"text\":\"Topic 2: the retry budget for the importer.\"},{\"kind\":\"feedback\",\"text\":\"Topic 3: the onboarding copy is ready to review.\",\"dependsOn\":[]}]"
+    ],
+    "input": [
+      {
+        "kind": "escalate",
+        "text": "Topic 1: which store for the run log?",
+        "suggest": [
+          "Use sqlite",
+          "Keep JSON"
+        ]
+      },
+      {
+        "kind": "escalate",
+        "text": "Topic 2: the retry budget for the importer."
+      },
+      {
+        "kind": "feedback",
+        "text": "Topic 3: the onboarding copy is ready to review.",
+        "dependsOn": []
+      }
+    ]
+  },
+  {
+    "command_id": "signal.list",
+    "command": "signal list",
+    "name": "read the operator's answers, most urgent open signal first",
+    "args": [
+      "signal",
+      "list"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "signal.clear",
+    "command": "signal clear",
+    "name": "withdraw a signal",
+    "args": [
+      "signal",
+      "clear",
+      "01J0000000000000000000000"
+    ],
+    "input": {
+      "signalId": "01J0000000000000000000000"
+    }
+  },
+  {
+    "command_id": "browser.pages",
+    "command": "browser pages",
+    "name": "list granted pages",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "args": [
+      "browser",
+      "pages"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "browser.open",
+    "command": "browser open <node-ref>",
+    "name": "open a granted page",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "args": [
+      "browser",
+      "open",
+      "junto://canvas/work?node=page-1"
+    ],
+    "input": {
+      "ref": "junto://canvas/work?node=page-1"
+    }
+  },
+  {
+    "command_id": "browser.shot",
+    "command": "browser shot <sessionId> --tab <tab>",
+    "name": "capture one tab",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "args": [
+      "browser",
+      "shot",
+      "session-1",
+      "--tab",
+      "tab-2"
+    ],
+    "input": {
+      "sessionId": "session-1",
+      "tab": "tab-2"
+    }
+  },
+  {
+    "command_id": "browser.comment",
+    "command": "browser comment <sessionId> --box <x,y,w,h> --text <text>",
+    "name": "comment on a box of the page",
+    "when": [
+      "browser",
+      "desktop"
+    ],
+    "args": [
+      "browser",
+      "comment",
+      "session-1",
+      "--box",
+      "40,120,320,80",
+      "--text",
+      "this button overlaps the title"
+    ],
+    "input": {
+      "sessionId": "session-1",
+      "rect": {
+        "x": 40,
+        "y": 120,
+        "w": 320,
+        "h": 80
+      },
+      "text": "this button overlaps the title"
+    }
+  },
+  {
+    "command_id": "env.report",
+    "command": "env report",
+    "name": "read this seat's environment report",
+    "description": "Run it when a variable you expect is not set. A source that changed since this seat started applies on restart.",
+    "args": [
+      "env",
+      "report"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "logs.read",
+    "command": "logs",
+    "name": "why did a seat fail to start",
+    "description": "The newest start row for one seat, with its encoded failure.",
+    "args": [
+      "logs",
+      "--area",
+      "seats",
+      "--seat",
+      "agent-01M4G8HNHWGG9BM2YF30KMTZYZ",
+      "--last",
+      "1"
+    ],
+    "input": {
+      "area": "seats",
+      "seat": "agent-01M4G8HNHWGG9BM2YF30KMTZYZ",
+      "limit": 1
+    }
+  },
+  {
+    "command_id": "logs.read",
+    "command": "logs",
+    "name": "recent errors on this machine",
+    "description": "Every error row from the last fifteen minutes.",
+    "args": [
+      "logs",
+      "--since",
+      "15m",
+      "--level",
+      "error"
+    ],
+    "input": {
+      "level": "error"
+    }
+  },
+  {
+    "command_id": "references.list",
+    "command": "references list",
+    "name": "list the references this seat can read",
+    "description": "Onboard names them too. Run this for sizes and for anything written since you onboarded.",
+    "args": [
+      "references",
+      "list"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "references.read",
+    "command": "references read",
+    "name": "read one reference",
+    "description": "Read a reference when the work in front of you calls for it, not before.",
+    "args": [
+      "references",
+      "read",
+      "style"
+    ],
+    "input": {
+      "name": "style"
+    }
+  },
+  {
+    "command_id": "thread.list",
+    "command": "thread list",
+    "name": "list your threads",
+    "description": "Your own threads, newest activity first. Page on with --after <next>.",
+    "args": [
+      "thread",
+      "list"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "thread.list",
+    "command": "thread list",
+    "name": "list a connected seat's threads",
+    "description": "A seat your edge grants threads.read, by name or node id.",
+    "args": [
+      "thread",
+      "list",
+      "--seat",
+      "planner",
+      "--group",
+      "with-you"
+    ],
+    "input": {
+      "seat": "planner",
+      "group": "with-you"
+    }
+  },
+  {
+    "command_id": "thread.show",
+    "command": "thread show",
+    "name": "read one thread",
+    "description": "The newest messages of one thread, oldest first. Page up with --before <older>.",
+    "args": [
+      "thread",
+      "show",
+      "01M852PM9NWTBBVNYYPSPR0HNV"
+    ],
+    "input": {
+      "threadId": "01M852PM9NWTBBVNYYPSPR0HNV"
+    }
+  },
+  {
+    "command_id": "overseer.canvas.batch",
+    "command": "overseer canvas batch",
+    "name": "create and connect in one commit",
+    "description": "Single-canvas structural edits, validated and committed together: the whole batch lands or none of it does. Each step is a write of the same name without its canvas. Give a new node an id when a later step names it. expectedSeq is the seq canvas read answered; a canvas that moved since is refused as Conflict.",
+    "args": [
+      "overseer",
+      "canvas",
+      "batch"
+    ],
+    "input": {
+      "expectedSeq": 42,
+      "steps": [
+        {
+          "operation": "node.create",
+          "node": {
+            "kind": "task",
+            "id": "backlog",
+            "name": "Backlog",
+            "x": 400,
+            "y": 0,
+            "width": 260,
+            "height": 120
+          }
+        },
+        {
+          "operation": "wire.connect",
+          "wire": {
+            "from": "intake",
+            "to": "backlog",
+            "verb": "flows"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.status",
+    "command": "overseer status",
+    "name": "read live grant",
+    "description": "Process-bound live grant and daemon surface. Requires the work socket.",
+    "args": [
+      "overseer",
+      "status"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "overseer.canvas.list",
+    "command": "overseer canvas list",
+    "name": "list canvases",
+    "description": "Answers one {name} per canvas, nothing else.",
+    "args": [
+      "overseer",
+      "canvas",
+      "list"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "overseer.canvas.create",
+    "command": "overseer canvas create",
+    "name": "create a canvas",
+    "args": [
+      "overseer",
+      "canvas",
+      "create"
+    ],
+    "input": {
+      "canvas": "work"
+    }
+  },
+  {
+    "command_id": "overseer.canvas.read",
+    "command": "overseer canvas read",
+    "name": "read caller canvas",
+    "description": "Answers {name, seq, nodes, wires}, nodes in paint order. Structure only: each node is told by its kind with that kind's own fields, and a wire by from, to and verb. Work is read with its own command (task list, request list, artifact list, msg list, board list).",
+    "args": [
+      "overseer",
+      "canvas",
+      "read"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "overseer.node.list",
+    "command": "overseer node list",
+    "name": "list the nodes of the caller canvas",
+    "description": "Returns structure only: the nodes, with no work on them. Work is read with its own command (task list, request list, artifact list, msg list, board list).",
+    "args": [
+      "overseer",
+      "node",
+      "list"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "overseer.node.get",
+    "command": "overseer node get",
+    "name": "read one node",
+    "description": "Returns structure only: the node, with no work on it. Work is read with its own command (task list, request list, artifact list, msg list, board list).",
+    "args": [
+      "overseer",
+      "node",
+      "get"
+    ],
+    "input": {
+      "nodeId": "backlog"
+    }
+  },
+  {
+    "command_id": "overseer.canvas.digest",
+    "command": "overseer canvas digest",
+    "name": "read the caller canvas as text",
+    "description": "The digest main also writes for the window and the CLI, with the work on each node, and without live adapter snapshot data.",
+    "args": [
+      "overseer",
+      "canvas",
+      "digest"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "overseer.node.create",
+    "command": "overseer node create",
+    "name": "create a note",
+    "description": "A node is told by its kind (agent, terminal, page, task, artifacts, automations, note, label, file, link, git, region) with that kind's own fields; a seat is drafted by harness and choices instead (see the seat example). Leave id out for main to mint it; the answer carries the node with its id. A new node goes on top.",
+    "args": [
+      "overseer",
+      "node",
+      "create"
+    ],
+    "input": {
+      "node": {
+        "kind": "note",
+        "text": "Ship on green.",
+        "x": 0,
+        "y": 0,
+        "width": 220,
+        "height": 84
+      }
+    }
+  },
+  {
+    "command_id": "overseer.node.create",
+    "command": "overseer node create",
+    "name": "create a seat",
+    "description": "Create a seat by naming what it runs: harness is the only required choice; profile, model, effort, mode, permissionMode, cwd, host, label and onRemove are optional. Never a command line: main builds the launch, the agent key and the session. A seat draft that carries any of these is refused: agentKey, bindingId, launch, sessionId, overseer.",
+    "args": [
+      "overseer",
+      "node",
+      "create"
+    ],
+    "input": {
+      "node": {
+        "kind": "agent",
+        "harness": "claude",
+        "model": "opus",
+        "effort": "high",
+        "label": "Reviewer",
+        "x": 0,
+        "y": 200,
+        "width": 260,
+        "height": 120
+      }
+    }
+  },
+  {
+    "command_id": "overseer.node.configure",
+    "command": "overseer node configure",
+    "name": "rename a region and clear its instruction",
+    "description": "change is the edit for the node's kind: say the kind, name a field to set it, give null to clear it. A kind that is not the node's is refused with the node's actual kind. It cannot change which agent a seat runs (agent reseat does) or the overseer grant (only the operator does).",
+    "args": [
+      "overseer",
+      "node",
+      "configure"
+    ],
+    "input": {
+      "nodeId": "region-1",
+      "change": {
+        "kind": "region",
+        "label": "CLI",
+        "instruction": null
+      }
+    }
+  },
+  {
+    "command_id": "overseer.node.recolor",
+    "command": "overseer node recolor",
+    "name": "give several nodes one color",
+    "description": "One color for many nodes; null clears it.",
+    "args": [
+      "overseer",
+      "node",
+      "recolor"
+    ],
+    "input": {
+      "nodeIds": [
+        "n1",
+        "n2"
+      ],
+      "color": "4"
+    }
+  },
+  {
+    "command_id": "overseer.node.delete",
+    "command": "overseer node delete",
+    "name": "delete nodes",
+    "description": "Takes nodeIds, one or many. Wires at either end go with them. For mixed steps use canvas batch.",
+    "args": [
+      "overseer",
+      "node",
+      "delete"
+    ],
+    "input": {
+      "nodeIds": [
+        "n1"
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.node.move",
+    "command": "overseer node move",
+    "name": "move a node",
+    "args": [
+      "overseer",
+      "node",
+      "move"
+    ],
+    "input": {
+      "nodeId": "n1",
+      "x": 40,
+      "y": 80
+    }
+  },
+  {
+    "command_id": "overseer.wire.connect",
+    "command": "overseer wire connect",
+    "name": "connect two agents",
+    "description": "from is the end that acts. Leave verb out for the default the two kinds allow (wire verbs lists them). The answer carries the wire with the id main minted.",
+    "args": [
+      "overseer",
+      "wire",
+      "connect"
+    ],
+    "input": {
+      "wire": {
+        "from": "a",
+        "to": "b",
+        "verb": "messages"
+      }
+    }
+  },
+  {
+    "command_id": "overseer.wire.configure",
+    "command": "overseer wire configure",
+    "name": "change a wire's verb and clear its mask",
+    "description": "change may set verb, and set or clear (null) mask, fromSide and toSide. A wire's two ends are fixed: disconnect and connect to move one.",
+    "args": [
+      "overseer",
+      "wire",
+      "configure"
+    ],
+    "input": {
+      "wireId": "wire-1",
+      "change": {
+        "verb": "messages",
+        "mask": null
+      }
+    }
+  },
+  {
+    "command_id": "overseer.wire.verbs",
+    "command": "overseer wire verbs",
+    "name": "which verbs two nodes allow",
+    "args": [
+      "overseer",
+      "wire",
+      "verbs"
+    ],
+    "input": {
+      "from": "a",
+      "to": "b"
+    }
+  },
+  {
+    "command_id": "overseer.agent.reseat",
+    "command": "overseer agent reseat",
+    "name": "put another agent on a seat",
+    "description": "Name what the seat now runs: harness, and optionally profile, model, effort, mode, permissionMode and host. Never a command line: main builds the launch. The seat keeps its wires, its mailbox and the directory it starts in, and gets a new session. Reseat does not inherit the overseer grant.",
+    "args": [
+      "overseer",
+      "agent",
+      "reseat"
+    ],
+    "input": {
+      "nodeId": "agent-1",
+      "harness": "codex",
+      "model": "gpt-5",
+      "effort": "high"
+    }
+  },
+  {
+    "command_id": "overseer.page.screenshot",
+    "command": "overseer page screenshot",
+    "name": "observe a page",
+    "when": [
+      "browser"
+    ],
+    "description": "Observes only. Does not move the operator viewport.",
+    "args": [
+      "overseer",
+      "page",
+      "screenshot"
+    ],
+    "input": {
+      "sessionId": "session-1"
+    }
+  },
+  {
+    "command_id": "overseer.git.status",
+    "command": "overseer git status",
+    "name": "git status on a git node",
+    "args": [
+      "overseer",
+      "git",
+      "status"
+    ],
+    "input": {
+      "nodeId": "git-1"
+    }
+  },
+  {
+    "command_id": "overseer.agent.offboard",
+    "command": "overseer agent offboard",
+    "name": "ask several seats to offboard and continue",
+    "description": "Each seat's agent is asked to offboard: it writes its own notes and a fresh session starts right away. Costs each seat one turn, so it is right while the seat's cache is still warm. One row per seat, in the order asked.",
+    "args": [
+      "overseer",
+      "agent",
+      "offboard"
+    ],
+    "input": {
+      "nodeIds": [
+        "agent-1",
+        "agent-2",
+        "agent-3"
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.agent.offboard",
+    "command": "overseer agent offboard",
+    "name": "ask a seat to offboard and rest",
+    "description": "The seat closes its session with its notes and rests until mail wakes it.",
+    "args": [
+      "overseer",
+      "agent",
+      "offboard"
+    ],
+    "input": {
+      "nodeIds": [
+        "agent-1"
+      ],
+      "action": "ask",
+      "mode": "rest"
+    }
+  },
+  {
+    "command_id": "overseer.agent.offboard",
+    "command": "overseer agent offboard",
+    "name": "end idle sessions now",
+    "description": "Junto ends the session itself: no turn, no notes. Only for a seat that is idle, not running or resting; any other seat is a refused row with its reason and the command exits non-zero.",
+    "args": [
+      "overseer",
+      "agent",
+      "offboard"
+    ],
+    "input": {
+      "nodeIds": [
+        "agent-1",
+        "agent-2"
+      ],
+      "action": "now"
+    }
+  },
+  {
+    "command_id": "overseer.agent.offboard-status",
+    "command": "overseer agent offboard-status",
+    "name": "see which action fits each seat before offboarding",
+    "description": "Whether ending now is allowed, how long the seat has sat still, whether it is past its cache window, the preferred action, and the session's work time and size.",
+    "args": [
+      "overseer",
+      "agent",
+      "offboard-status"
+    ],
+    "input": {
+      "nodeIds": [
+        "agent-1",
+        "agent-2"
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.agent.offboard-rules",
+    "command": "overseer agent offboard-rules",
+    "name": "read the cache windows",
+    "description": "The installation's cache window with any per-harness windows, and what each harness runs on.",
+    "args": [
+      "overseer",
+      "agent",
+      "offboard-rules"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "overseer.agent.offboard-configure",
+    "command": "overseer agent offboard-configure",
+    "name": "set the cache window to ninety minutes",
+    "description": "Changes only the fields given and returns the rules after the change.",
+    "args": [
+      "overseer",
+      "agent",
+      "offboard-configure"
+    ],
+    "input": {
+      "cacheWindowMinutes": 90
+    }
+  },
+  {
+    "command_id": "overseer.agent.offboard-configure",
+    "command": "overseer agent offboard-configure",
+    "name": "give one harness its own cache window, and remove another's",
+    "description": "A harness window applies to that harness only. null removes it, and the harness follows the installation's window again.",
+    "args": [
+      "overseer",
+      "agent",
+      "offboard-configure"
+    ],
+    "input": {
+      "harness": {
+        "claude": {
+          "cacheWindowMinutes": 300
+        },
+        "codex": null
+      }
+    }
+  },
+  {
+    "command_id": "overseer.env.show",
+    "command": "overseer env show",
+    "name": "read a region's environment",
+    "description": "The environment as stored on the region: names and references, never a secret value.",
+    "args": [
+      "overseer",
+      "env",
+      "show"
+    ],
+    "input": {
+      "nodeId": "region-1"
+    }
+  },
+  {
+    "command_id": "overseer.env.source-add",
+    "command": "overseer env source-add",
+    "name": "give every seat in a region an existing Keychain item",
+    "description": "Reads the item in place at each launch. The id is generated when omitted; the source is appended unless index is given.",
+    "args": [
+      "overseer",
+      "env",
+      "source-add"
+    ],
+    "input": {
+      "nodeId": "region-1",
+      "source": {
+        "kind": "keychain",
+        "name": "EXAMPLE_API_KEY",
+        "service": "example-api"
+      }
+    }
+  },
+  {
+    "command_id": "overseer.env.source-add",
+    "command": "overseer env source-add",
+    "name": "resolve a 1Password reference with a token from another source",
+    "description": "tokenFrom names the source in scope that yields the service account token.",
+    "args": [
+      "overseer",
+      "env",
+      "source-add"
+    ],
+    "input": {
+      "nodeId": "region-1",
+      "source": {
+        "id": "db-url",
+        "kind": "onepassword",
+        "name": "DATABASE_URL",
+        "ref": "op://Engineering/database/url",
+        "tokenFrom": "op-token",
+        "required": true
+      }
+    }
+  },
+  {
+    "command_id": "overseer.env.source-edit",
+    "command": "overseer env source-edit",
+    "name": "replace a source whole",
+    "description": "The source is replaced as given and keeps its id.",
+    "args": [
+      "overseer",
+      "env",
+      "source-edit"
+    ],
+    "input": {
+      "nodeId": "region-1",
+      "sourceId": "node-env",
+      "source": {
+        "kind": "value",
+        "name": "NODE_ENV",
+        "value": "production"
+      }
+    }
+  },
+  {
+    "command_id": "overseer.env.source-remove",
+    "command": "overseer env source-remove",
+    "name": "remove a source",
+    "args": [
+      "overseer",
+      "env",
+      "source-remove"
+    ],
+    "input": {
+      "nodeId": "region-1",
+      "sourceId": "node-env"
+    }
+  },
+  {
+    "command_id": "overseer.env.source-reorder",
+    "command": "overseer env source-reorder",
+    "name": "set the order sources apply in",
+    "description": "The complete new order. A later source overrides an earlier one by name.",
+    "args": [
+      "overseer",
+      "env",
+      "source-reorder"
+    ],
+    "input": {
+      "nodeId": "region-1",
+      "sourceIds": [
+        "op-token",
+        "db-url"
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.env.seal",
+    "command": "overseer env seal",
+    "name": "seal a region",
+    "description": "Seats inside a sealed region inherit nothing from regions outside it.",
+    "args": [
+      "overseer",
+      "env",
+      "seal"
+    ],
+    "input": {
+      "nodeId": "region-1",
+      "sealed": true
+    }
+  },
+  {
+    "command_id": "overseer.env.folders",
+    "command": "overseer env folders",
+    "name": "set the folders seats inside are given",
+    "description": "Sets the whole list. Absolute paths or ~/ paths.",
+    "args": [
+      "overseer",
+      "env",
+      "folders"
+    ],
+    "input": {
+      "nodeId": "region-1",
+      "folders": [
+        "~/.config/gh",
+        "/opt/shared/certs"
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.env.doctor",
+    "command": "overseer env doctor",
+    "name": "report the whole canvas",
+    "description": "What every seat would launch with: names, kinds, origins and status, never a value. Exits non-zero when a required source is missing.",
+    "args": [
+      "overseer",
+      "env",
+      "doctor"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "overseer.env.doctor",
+    "command": "overseer env doctor",
+    "name": "report one region or one seat",
+    "args": [
+      "overseer",
+      "env",
+      "doctor"
+    ],
+    "input": {
+      "nodeId": "region-1"
+    }
+  },
+  {
+    "command_id": "overseer.secret.put",
+    "command": "overseer secret put",
+    "name": "save a new secret",
+    "description": "The value is read from stdin only: pipe it in. The result carries the id to name in a secret source.",
+    "args": [
+      "overseer",
+      "secret",
+      "put"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "overseer.secret.put",
+    "command": "overseer secret put",
+    "name": "replace the value behind an id",
+    "description": "The value is read from stdin only: pipe it in.",
+    "args": [
+      "overseer",
+      "secret",
+      "put"
+    ],
+    "input": {
+      "secretId": "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70"
+    }
+  },
+  {
+    "command_id": "overseer.secret.delete",
+    "command": "overseer secret delete",
+    "name": "remove a secret from this machine",
+    "args": [
+      "overseer",
+      "secret",
+      "delete"
+    ],
+    "input": {
+      "secretId": "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70"
+    }
+  },
+  {
+    "command_id": "overseer.secret.list",
+    "command": "overseer secret list",
+    "name": "list the secret ids on this machine",
+    "description": "Ids only.",
+    "args": [
+      "overseer",
+      "secret",
+      "list"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "overseer.references.list",
+    "command": "overseer references list",
+    "name": "list the app-wide references",
+    "description": "Names, descriptions and sizes. Add regionId (and canvas) for one region's.",
+    "args": [
+      "overseer",
+      "references",
+      "list"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "overseer.references.read",
+    "command": "overseer references read",
+    "name": "read one region's reference",
+    "args": [
+      "overseer",
+      "references",
+      "read"
+    ],
+    "input": {
+      "name": "runbook",
+      "regionId": "region-1"
+    }
+  },
+  {
+    "command_id": "overseer.references.write",
+    "command": "overseer references write",
+    "name": "write a reference from a file",
+    "description": "Keep the argument small and give the prose with --body: junto overseer references write '{\"name\":\"style\",\"description\":\"How we write\"}' --body @style.md. --body also takes text or - for stdin. The body may instead be \"body\" in the argument, never both.",
+    "args": [
+      "overseer",
+      "references",
+      "write"
+    ],
+    "input": {
+      "name": "style",
+      "description": "How we write",
+      "body": "Plain words. Short sentences."
+    }
+  },
+  {
+    "command_id": "overseer.references.delete",
+    "command": "overseer references delete",
+    "name": "delete an app-wide reference",
+    "args": [
+      "overseer",
+      "references",
+      "delete"
+    ],
+    "input": {
+      "name": "style"
+    }
+  },
+  {
+    "command_id": "overseer.thread.list",
+    "command": "overseer thread list",
+    "name": "list every thread on the canvas",
+    "description": "Every thread of every seat, between seats included, newest activity first, one row per thread with its seat. --region and --search narrow it; --after <next> reads the page after. No edge needed; nothing is marked read.",
+    "args": [
+      "overseer",
+      "thread",
+      "list",
+      "--limit",
+      "20"
+    ],
+    "input": {
+      "limit": 20
+    }
+  },
+  {
+    "command_id": "overseer.thread.list",
+    "command": "overseer thread list",
+    "name": "list one seat's threads",
+    "description": "Any seat on the canvas, by name, node id or ref: the threads the operator is in and those between seats, or one of them with --group. Each summary has no read state: an overseer read is not the operator's.",
+    "args": [
+      "overseer",
+      "thread",
+      "list",
+      "--seat",
+      "cli-lead",
+      "--group",
+      "with-you"
+    ],
+    "input": {
+      "seat": "cli-lead",
+      "group": "with-you"
+    }
+  },
+  {
+    "command_id": "overseer.thread.show",
+    "command": "overseer thread show",
+    "name": "read one thread of a seat",
+    "description": "The newest messages of the thread, oldest first; --before <older> reads the page above. The thread id comes from thread list; the seat is the one whose list held it.",
+    "args": [
+      "overseer",
+      "thread",
+      "show",
+      "01M852PMBH4TE0XVAJJ82N70HA",
+      "--seat",
+      "cli-lead",
+      "--limit",
+      "50"
+    ],
+    "input": {
+      "threadId": "01M852PMBH4TE0XVAJJ82N70HA",
+      "seat": "cli-lead",
+      "limit": 50
+    }
+  },
+  {
+    "command_id": "overseer.msg.audience",
+    "command": "overseer msg audience",
+    "name": "say who a broadcast would reach",
+    "description": "The seats in the region Junto and the regions inside it that are working or idle, and cli-lead beside them, never this seat; nothing is sent. The answer's count and set go to msg broadcast as --expect and --set.",
+    "args": [
+      "overseer",
+      "msg",
+      "audience",
+      "--region",
+      "Junto",
+      "--doing",
+      "working",
+      "--doing",
+      "idle",
+      "--seat",
+      "cli-lead"
+    ],
+    "input": {
+      "region": [
+        "Junto"
+      ],
+      "doing": [
+        "working",
+        "idle"
+      ],
+      "seat": [
+        "cli-lead"
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.msg.broadcast",
+    "command": "overseer msg broadcast",
+    "name": "tell every seat in a region one thing, one way",
+    "description": "Only when it is really needed: one notice to each seat in the set, each told not to reply or acknowledge, written by this seat in a new thread of its own. When the set is no longer 12 seats with digest 3f9a0c21b7de4a65, nothing is sent and the refusal gives the set as it is now.",
+    "args": [
+      "overseer",
+      "msg",
+      "broadcast",
+      "Stop and commit what you have.",
+      "--region",
+      "Junto",
+      "--doing",
+      "working",
+      "--doing",
+      "idle",
+      "--seat",
+      "cli-lead",
+      "--expect",
+      "12",
+      "--set",
+      "3f9a0c21b7de4a65"
+    ],
+    "input": {
+      "region": [
+        "Junto"
+      ],
+      "doing": [
+        "working",
+        "idle"
+      ],
+      "seat": [
+        "cli-lead"
+      ],
+      "text": "Stop and commit what you have.",
+      "expect": 12,
+      "set": "3f9a0c21b7de4a65"
+    }
+  },
+  {
+    "command_id": "overseer.briefing.read",
+    "command": "overseer briefing read",
+    "name": "read the app briefing",
+    "args": [
+      "overseer",
+      "briefing",
+      "read"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "overseer.artifact.move",
+    "command": "overseer artifact move",
+    "name": "move artifacts to another Artifacts node",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Only the node changes: links and backlinks hold, and history says who moved each and from where. ids come from junto artifact list; to is the Artifacts node's id. One row per artifact in the order asked: moved; unchanged when it was already there; queued, with the opId junto op show reads it by on your own canvas, when another machine edits the canvas and has not ruled it yet; or refused with its reason: not-found (no such artifact, or one your seat does not reach), not-in-reach (you reach the artifact but not to), failed (anything else), and the command exits non-zero. A to that is not an Artifacts node fails the whole call and nothing moves. 1 to 100 ids, each once.",
+    "args": [
+      "overseer",
+      "artifact",
+      "move"
+    ],
+    "input": {
+      "artifactIds": [
+        "01M5ESMQ2ZT55QZ073EWPH10SG",
+        "01M5ESMQ2ZT55QZ073EWPH10SH"
+      ],
+      "to": "artifacts-01M5G0BJD8MBEJG2QVX5VM6DJ0"
+    }
+  },
+  {
+    "command_id": "overseer.briefing.write",
+    "command": "overseer briefing write",
+    "name": "replace the app briefing",
+    "description": "Every seat gets this text at onboard. Give it with --body: junto overseer briefing write --body @briefing.md.",
+    "args": [
+      "overseer",
+      "briefing",
+      "write"
+    ],
+    "input": {
+      "body": "Commit by explicit path. Ask before you delete."
+    }
+  },
+  {
+    "command_id": "overseer.automation.create",
+    "command": "overseer automation create",
+    "name": "mail a seat every weekday morning",
+    "description": "Created off; enable it once show reads right.",
+    "args": [
+      "overseer",
+      "automation",
+      "create",
+      "{\"target\":\"Automations\",\"name\":\"standup reminder\",\"trigger\":{\"kind\":\"schedule\",\"cron\":\"0 9 * * 1-5\",\"timezone\":\"America/Sao_Paulo\"},\"then\":[{\"kind\":\"mail\",\"to\":\"@cli-lead\",\"text\":\"Standup in ten minutes\"}]}"
+    ],
+    "input": {
+      "target": "Automations",
+      "name": "standup reminder",
+      "trigger": {
+        "kind": "schedule",
+        "cron": "0 9 * * 1-5",
+        "timezone": "America/Sao_Paulo"
+      },
+      "then": [
+        {
+          "kind": "mail",
+          "to": "@cli-lead",
+          "text": "Standup in ten minutes"
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.automation.create",
+    "command": "overseer automation create",
+    "name": "prompt a seat when a task on a board is done, naming the task",
+    "description": "{{task.title}} and {{task.link}} are the task that fired it; a prompt asks the seat to act.",
+    "args": [
+      "overseer",
+      "automation",
+      "create",
+      "{\"target\":\"Automations\",\"name\":\"verify what is done\",\"trigger\":{\"kind\":\"change\",\"on\":{\"kind\":\"task\",\"task\":{\"node\":\"Release\"},\"becomes\":\"done\"}},\"then\":[{\"kind\":\"prompt\",\"to\":\"@product-verify\",\"text\":\"{{task.title}} is done ({{task.link}}), check it in the real app.\"}]}"
+    ],
+    "input": {
+      "target": "Automations",
+      "name": "verify what is done",
+      "trigger": {
+        "kind": "change",
+        "on": {
+          "kind": "task",
+          "task": {
+            "node": "Release"
+          },
+          "becomes": "done"
+        }
+      },
+      "then": [
+        {
+          "kind": "prompt",
+          "to": "@product-verify",
+          "text": "{{task.title}} is done ({{task.link}}), check it in the real app."
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.automation.create",
+    "command": "overseer automation create",
+    "name": "check a service every ten minutes in code, and mail what it found",
+    "when": [
+      "code-steps"
+    ],
+    "description": "The file is staged into the content store and sent as source; {{code.status}} is a field of its output.",
+    "args": [
+      "overseer",
+      "automation",
+      "create",
+      "{\"target\":\"Automations\",\"name\":\"service check\",\"trigger\":{\"kind\":\"poll\",\"everyMs\":600000},\"then\":[{\"kind\":\"code\",\"language\":\"typescript\",\"file\":\"./check-service.ts\",\"timeoutMs\":30000},{\"kind\":\"mail\",\"to\":\"@tech-lead\",\"text\":\"service check at {{fired.at}}: {{code.status}}\"}]}"
+    ],
+    "input": {
+      "target": "Automations",
+      "name": "service check",
+      "trigger": {
+        "kind": "poll",
+        "everyMs": 600000
+      },
+      "then": [
+        {
+          "kind": "code",
+          "language": "typescript",
+          "file": "./check-service.ts",
+          "timeoutMs": 30000
+        },
+        {
+          "kind": "mail",
+          "to": "@tech-lead",
+          "text": "service check at {{fired.at}}: {{code.status}}"
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.automation.create",
+    "command": "overseer automation create",
+    "name": "ask the operator for today's writing every morning",
+    "description": "An escalate waits in the needs-you feed until the operator answers it; the artifact form takes the answer as a document of at least minWords. show takes the brief's junto:// link, from junto artifact show; id names the step for an answered watch.",
+    "args": [
+      "overseer",
+      "automation",
+      "create",
+      "{\"target\":\"Automations\",\"name\":\"daily writing\",\"trigger\":{\"kind\":\"schedule\",\"cron\":\"0 8 * * *\",\"timezone\":\"America/Sao_Paulo\"},\"then\":[{\"kind\":\"signal\",\"id\":\"writing\",\"signal\":\"escalate\",\"title\":\"Write 500 words\",\"detail\":\"Today's writing, raised at {{fired.at}}. The brief opens from the signal.\",\"show\":[\"junto://canvas/factory?node=artifacts-01M5G0BJD8MBEJG2QVX5VM6DJ0&item=01M5ESMQ2ZT55QZ073EWPH10SG\"],\"form\":{\"kind\":\"artifact\",\"node\":\"Writing\",\"title\":\"Writing {{fired.at|date:YYYY-MM-DD}}\",\"minWords\":500}}]}"
+    ],
+    "input": {
+      "target": "Automations",
+      "name": "daily writing",
+      "trigger": {
+        "kind": "schedule",
+        "cron": "0 8 * * *",
+        "timezone": "America/Sao_Paulo"
+      },
+      "then": [
+        {
+          "kind": "signal",
+          "id": "writing",
+          "signal": "escalate",
+          "title": "Write 500 words",
+          "detail": "Today's writing, raised at {{fired.at}}. The brief opens from the signal.",
+          "show": [
+            "junto://canvas/factory?node=artifacts-01M5G0BJD8MBEJG2QVX5VM6DJ0&item=01M5ESMQ2ZT55QZ073EWPH10SG"
+          ],
+          "form": {
+            "kind": "artifact",
+            "node": "Writing",
+            "title": "Writing {{fired.at|date:YYYY-MM-DD}}",
+            "minWords": 500
+          }
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.automation.create",
+    "command": "overseer automation create",
+    "name": "ask the operator to review a task in review, and send the answer to a seat",
+    "description": "Each firing raises its own feedback signal; feedback takes no form. When the operator answers, the seat is prompted with the signal's title and the answer, as it would hear the answer to its own.",
+    "args": [
+      "overseer",
+      "automation",
+      "create",
+      "{\"target\":\"Automations\",\"name\":\"operator review\",\"trigger\":{\"kind\":\"change\",\"on\":{\"kind\":\"task\",\"task\":{\"node\":\"Release\"},\"becomes\":\"in-review\"}},\"then\":[{\"kind\":\"signal\",\"signal\":\"feedback\",\"title\":\"Review {{task.title}}\",\"detail\":\"{{task.assignee}} asks for a review: {{task.link}}\",\"answerTo\":{\"kind\":\"seat\",\"to\":\"@cli-lead\"}}]}"
+    ],
+    "input": {
+      "target": "Automations",
+      "name": "operator review",
+      "trigger": {
+        "kind": "change",
+        "on": {
+          "kind": "task",
+          "task": {
+            "node": "Release"
+          },
+          "becomes": "in-review"
+        }
+      },
+      "then": [
+        {
+          "kind": "signal",
+          "signal": "feedback",
+          "title": "Review {{task.title}}",
+          "detail": "{{task.assignee}} asks for a review: {{task.link}}",
+          "answerTo": {
+            "kind": "seat",
+            "to": "@cli-lead"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.automation.create",
+    "command": "overseer automation create",
+    "name": "when the morning writing is answered, file a review and prompt a seat",
+    "description": "An answered watch names the raising automation by its node and id (junto automation list), and step its signal step by id. The title is formatted at firing time; {{raised.fired.at}} is when the raising firing ran.",
+    "args": [
+      "overseer",
+      "automation",
+      "create",
+      "{\"target\":\"Automations\",\"name\":\"review the writing\",\"enabled\":true,\"trigger\":{\"kind\":\"change\",\"on\":{\"kind\":\"answered\",\"automation\":{\"node\":\"Automations\",\"automationId\":\"01M5ESM1XHCJ7JYJDBC37MREBZ\"},\"step\":\"writing\"}},\"then\":[{\"kind\":\"create-artifact\",\"node\":\"Reviews\",\"title\":\"Review {{fired.at|date:YYYY-MM-DD}}\",\"body\":\"{{answer.text}}\\n\\n{{answer.link}}\"},{\"kind\":\"prompt\",\"to\":\"@product-verify\",\"text\":\"{{signal.title}}, raised {{raised.fired.at}}, was answered: {{answer.link}}\"}]}"
+    ],
+    "input": {
+      "target": "Automations",
+      "name": "review the writing",
+      "enabled": true,
+      "trigger": {
+        "kind": "change",
+        "on": {
+          "kind": "answered",
+          "automation": {
+            "node": "Automations",
+            "automationId": "01M5ESM1XHCJ7JYJDBC37MREBZ"
+          },
+          "step": "writing"
+        }
+      },
+      "then": [
+        {
+          "kind": "create-artifact",
+          "node": "Reviews",
+          "title": "Review {{fired.at|date:YYYY-MM-DD}}",
+          "body": "{{answer.text}}\n\n{{answer.link}}"
+        },
+        {
+          "kind": "prompt",
+          "to": "@product-verify",
+          "text": "{{signal.title}}, raised {{raised.fired.at}}, was answered: {{answer.link}}"
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.automation.create",
+    "command": "overseer automation create",
+    "name": "when a document is labelled review, log it and move it on",
+    "description": "{fired: true} is the artifact that gained the label; labels fold to lowercase.",
+    "args": [
+      "overseer",
+      "automation",
+      "create",
+      "{\"target\":\"Automations\",\"name\":\"review intake\",\"trigger\":{\"kind\":\"change\",\"on\":{\"kind\":\"artifact\",\"artifact\":{\"node\":\"Shelf\"},\"event\":\"labelled\",\"label\":\"review\"}},\"then\":[{\"kind\":\"append-artifact\",\"to\":{\"fired\":true},\"text\":\"\\n\\nQueued for review at {{fired.at}}.\"},{\"kind\":\"label-artifact\",\"to\":{\"fired\":true},\"add\":[\"in-review\"],\"remove\":[\"review\"]},{\"kind\":\"prompt\",\"to\":\"@product-verify\",\"text\":\"{{artifact.title}} ({{artifact.link}}) is ready for review.\"}]}"
+    ],
+    "input": {
+      "target": "Automations",
+      "name": "review intake",
+      "trigger": {
+        "kind": "change",
+        "on": {
+          "kind": "artifact",
+          "artifact": {
+            "node": "Shelf"
+          },
+          "event": "labelled",
+          "label": "review"
+        }
+      },
+      "then": [
+        {
+          "kind": "append-artifact",
+          "to": {
+            "fired": true
+          },
+          "text": "\n\nQueued for review at {{fired.at}}."
+        },
+        {
+          "kind": "label-artifact",
+          "to": {
+            "fired": true
+          },
+          "add": [
+            "in-review"
+          ],
+          "remove": [
+            "review"
+          ]
+        },
+        {
+          "kind": "prompt",
+          "to": "@product-verify",
+          "text": "{{artifact.title}} ({{artifact.link}}) is ready for review."
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "overseer.automation.create",
+    "command": "overseer automation create",
+    "name": "open a review task when a seat goes idle",
+    "description": "A change trigger fires on the transition; when holds the states that must be true as it fires.",
+    "args": [
+      "overseer",
+      "automation",
+      "create",
+      "{\"target\":\"Automations\",\"name\":\"review after work\",\"enabled\":true,\"trigger\":{\"kind\":\"change\",\"on\":{\"kind\":\"seat\",\"seat\":\"@cli-external\",\"becomes\":\"idle\"}},\"when\":[{\"kind\":\"task\",\"task\":{\"node\":\"CLI tasks\"},\"becomes\":\"in-review\",\"holds\":true}],\"then\":[{\"kind\":\"create-task\",\"node\":\"CLI tasks\",\"title\":\"Review the latest commits\",\"assign\":\"@cli-overseer\"}],\"limits\":{\"minIntervalMs\":600000,\"maxPerHour\":4}}"
+    ],
+    "input": {
+      "target": "Automations",
+      "name": "review after work",
+      "enabled": true,
+      "trigger": {
+        "kind": "change",
+        "on": {
+          "kind": "seat",
+          "seat": "@cli-external",
+          "becomes": "idle"
+        }
+      },
+      "when": [
+        {
+          "kind": "task",
+          "task": {
+            "node": "CLI tasks"
+          },
+          "becomes": "in-review",
+          "holds": true
+        }
+      ],
+      "then": [
+        {
+          "kind": "create-task",
+          "node": "CLI tasks",
+          "title": "Review the latest commits",
+          "assign": "@cli-overseer"
+        }
+      ],
+      "limits": {
+        "minIntervalMs": 600000,
+        "maxPerHour": 4
+      }
+    }
+  },
+  {
+    "command_id": "overseer.automation.edit",
+    "command": "overseer automation edit",
+    "name": "change the schedule",
+    "description": "baseVersion is the version junto automation show printed.",
+    "args": [
+      "overseer",
+      "automation",
+      "edit",
+      "{\"target\":\"Automations\",\"automation\":\"standup reminder\",\"baseVersion\":3,\"change\":{\"trigger\":{\"kind\":\"schedule\",\"cron\":\"30 9 * * 1-5\",\"timezone\":\"America/Sao_Paulo\"}}}"
+    ],
+    "input": {
+      "target": "Automations",
+      "automation": "standup reminder",
+      "baseVersion": 3,
+      "change": {
+        "trigger": {
+          "kind": "schedule",
+          "cron": "30 9 * * 1-5",
+          "timezone": "America/Sao_Paulo"
+        }
+      }
+    }
+  },
+  {
+    "command_id": "overseer.automation.move",
+    "command": "overseer automation move",
+    "name": "run an automation on the mini",
+    "description": "The new machine starts from the move; no missed slot fires.",
+    "args": [
+      "overseer",
+      "automation",
+      "move",
+      "{\"target\":\"Automations\",\"automation\":\"standup reminder\",\"machine\":\"mini\"}"
+    ],
+    "input": {
+      "target": "Automations",
+      "automation": "standup reminder",
+      "machine": "mini"
+    }
+  },
+  {
+    "command_id": "overseer.automation.enable",
+    "command": "overseer automation enable",
+    "name": "turn an automation on",
+    "description": "Off and on keep the definition and its history.",
+    "args": [
+      "overseer",
+      "automation",
+      "enable",
+      "{\"target\":\"Automations\",\"automation\":\"standup reminder\"}"
+    ],
+    "input": {
+      "target": "Automations",
+      "automation": "standup reminder"
+    }
+  },
+  {
+    "command_id": "automation.list",
+    "command": "automation list",
+    "name": "list the automations in reach",
+    "description": "Names no node, so every Automations node in this seat's reach.",
+    "args": [
+      "automation",
+      "list",
+      "{}"
+    ],
+    "input": {}
+  },
+  {
+    "command_id": "automation.show",
+    "command": "automation show",
+    "name": "read one automation",
+    "description": "Its version is what an overseer's edit names.",
+    "args": [
+      "automation",
+      "show",
+      "{\"target\":\"Automations\",\"automation\":\"standup reminder\"}"
+    ],
+    "input": {
+      "target": "Automations",
+      "automation": "standup reminder"
+    }
+  },
+  {
+    "command_id": "automation.history",
+    "command": "automation history",
+    "name": "read the latest firings",
+    "description": "Skipped firings say why: a condition, a limit, or a target out of reach.",
+    "args": [
+      "automation",
+      "history",
+      "{\"target\":\"Automations\",\"automation\":\"standup reminder\",\"limit\":20}"
+    ],
+    "input": {
+      "target": "Automations",
+      "automation": "standup reminder",
+      "limit": 20
+    }
+  },
+  {
+    "command_id": "task.list",
+    "command": "task list",
+    "name": "my open tasks",
+    "when": [
+      "tasks"
+    ],
+    "description": "Every task node in reach, assigned to this seat.",
+    "args": [
+      "task",
+      "list",
+      "--assignee",
+      "me"
+    ],
+    "input": {
+      "assignee": "me"
+    }
+  },
+  {
+    "command_id": "task.list",
+    "command": "task list",
+    "name": "reviews I owe",
+    "when": [
+      "tasks"
+    ],
+    "description": "In review, naming this seat, with no stamp from it at the current epoch; longest waiting first.",
+    "args": [
+      "task",
+      "list",
+      "--reviewer",
+      "me"
+    ],
+    "input": {
+      "reviewer": "me"
+    }
+  },
+  {
+    "command_id": "task.create",
+    "command": "task create",
+    "name": "add a task",
+    "when": [
+      "tasks"
+    ],
+    "description": "Lands in backlog on the one task node in reach.",
+    "args": [
+      "task",
+      "create",
+      "Ship the task CLI",
+      "--stamps",
+      "1"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "taskId": "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "title": "Ship the task CLI",
+      "stamps": 1
+    }
+  },
+  {
+    "command_id": "task.assign",
+    "command": "task assign",
+    "name": "hand a task to a seat",
+    "when": [
+      "tasks"
+    ],
+    "description": "The seat is mailed in the task's thread.",
+    "args": [
+      "task",
+      "assign",
+      "#42",
+      "@cli-identity"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "task": "#42",
+      "seat": "@cli-identity"
+    }
+  },
+  {
+    "command_id": "task.start",
+    "command": "task start",
+    "name": "start my task",
+    "when": [
+      "tasks"
+    ],
+    "description": "assigned becomes working.",
+    "args": [
+      "task",
+      "start",
+      "#42"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "task": "#42"
+    }
+  },
+  {
+    "command_id": "task.finish",
+    "command": "task finish",
+    "name": "finish and send on",
+    "when": [
+      "tasks"
+    ],
+    "description": "--next names the downstream node when there are several.",
+    "args": [
+      "task",
+      "finish",
+      "#42",
+      "--next",
+      "Review"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "task": "#42",
+      "next": "Review"
+    }
+  },
+  {
+    "command_id": "task.finish",
+    "command": "task finish",
+    "name": "finish with evidence",
+    "when": [
+      "tasks"
+    ],
+    "description": "--claim answers a rule in force; --commit cites the work.",
+    "args": [
+      "task",
+      "finish",
+      "#42",
+      "--commit",
+      "2e219a5ca",
+      "--claim",
+      "tests=work-cli passes under all-on"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "task": "#42",
+      "evidence": {
+        "artifacts": [],
+        "git": {
+          "commits": [
+            "2e219a5ca"
+          ]
+        },
+        "claims": [
+          {
+            "ruleId": "tests",
+            "text": "work-cli passes under all-on"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "command_id": "task.finish",
+    "command": "task finish",
+    "name": "finish with a handoff note",
+    "when": [
+      "tasks"
+    ],
+    "description": "--note leaves a note on the layer for whoever picks the work up next; @file or - reads it.",
+    "args": [
+      "task",
+      "finish",
+      "#42",
+      "--next",
+      "Review",
+      "--note",
+      "@handoff.md"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "task": "#42",
+      "next": "Review",
+      "handoff": "The replay path is covered; the e2e still flakes on a cold start."
+    }
+  },
+  {
+    "command_id": "task.check",
+    "command": "task check",
+    "name": "report checks",
+    "when": [
+      "tasks"
+    ],
+    "description": "Each check you ran, with its exit code; a red one blocks the finish.",
+    "args": [
+      "task",
+      "check",
+      "#42",
+      "--outgoing",
+      "tests=0",
+      "--outgoing",
+      "lint=1"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "task": "#42",
+      "results": [
+        {
+          "checkId": "tests",
+          "side": "outgoing",
+          "exitCode": 0,
+          "outputTail": ""
+        },
+        {
+          "checkId": "lint",
+          "side": "outgoing",
+          "exitCode": 1,
+          "outputTail": ""
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "task.check",
+    "command": "task check",
+    "name": "report checks with output",
+    "when": [
+      "tasks"
+    ],
+    "description": "--results carries each output's tail; @file or - reads it.",
+    "args": [
+      "task",
+      "check",
+      "#42",
+      "--next",
+      "Review",
+      "--results",
+      "@checks.json"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "task": "#42",
+      "next": "Review",
+      "results": [
+        {
+          "checkId": "e2e",
+          "side": "incoming",
+          "exitCode": 1,
+          "outputTail": "1 failed: replay keeps the opId"
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "task.stamp",
+    "command": "task stamp",
+    "name": "ask for changes",
+    "when": [
+      "tasks"
+    ],
+    "description": "changes needs --text.",
+    "args": [
+      "task",
+      "stamp",
+      "#42",
+      "changes",
+      "--text",
+      "Cover the replay path"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "task": "#42",
+      "verdict": "changes",
+      "text": "Cover the replay path"
+    }
+  },
+  {
+    "command_id": "task.comment",
+    "command": "task comment",
+    "name": "post in the thread",
+    "when": [
+      "tasks"
+    ],
+    "description": "@name mentions a seat.",
+    "args": [
+      "task",
+      "comment",
+      "#42",
+      "@cli-lead the ruler landed"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "task": "#42",
+      "text": "@cli-lead the ruler landed"
+    }
+  },
+  {
+    "command_id": "artifact.list",
+    "command": "artifact list",
+    "name": "the sheets in reach",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Every Artifacts node in reach.",
+    "args": [
+      "artifact",
+      "list",
+      "--type",
+      "sheet"
+    ],
+    "input": {
+      "type": "sheet"
+    }
+  },
+  {
+    "command_id": "artifact.list",
+    "command": "artifact list",
+    "name": "one label's artifacts",
+    "when": [
+      "artifacts"
+    ],
+    "description": "project/junto also matches project/junto/release.",
+    "args": [
+      "artifact",
+      "list",
+      "--label",
+      "project/junto",
+      "--label",
+      "draft"
+    ],
+    "input": {
+      "labels": [
+        "project/junto",
+        "draft"
+      ]
+    }
+  },
+  {
+    "command_id": "artifact.create",
+    "command": "artifact create",
+    "name": "start a labelled document",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Labels fold to lowercase.",
+    "args": [
+      "artifact",
+      "create",
+      "Plan",
+      "--type",
+      "document",
+      "--label",
+      "project/junto"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "artifactId": "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "type": "document",
+      "title": "Plan",
+      "labels": [
+        "project/junto"
+      ]
+    }
+  },
+  {
+    "command_id": "artifact.label",
+    "command": "artifact label",
+    "name": "set the whole set",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Replaces every label the artifact held.",
+    "args": [
+      "artifact",
+      "label",
+      "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "--set",
+      "draft,project/junto"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "artifact": "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "set": [
+        "draft",
+        "project/junto"
+      ]
+    }
+  },
+  {
+    "command_id": "artifact.colour",
+    "command": "artifact colour",
+    "name": "colour a label",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Every artifact on the node carrying planning draws teal.",
+    "args": [
+      "artifact",
+      "colour",
+      "planning",
+      "teal"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "label": "planning",
+      "colour": "teal"
+    }
+  },
+  {
+    "command_id": "artifact.colour",
+    "command": "artifact colour",
+    "name": "unset a colour",
+    "when": [
+      "artifacts"
+    ],
+    "description": "none takes the colour away.",
+    "args": [
+      "artifact",
+      "colour",
+      "planning",
+      "none",
+      "--node",
+      "Shelf"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "label": "planning",
+      "colour": null,
+      "node": "Shelf"
+    }
+  },
+  {
+    "command_id": "artifact.label",
+    "command": "artifact label",
+    "name": "add one, remove one",
+    "when": [
+      "artifacts"
+    ],
+    "description": "The others stay.",
+    "args": [
+      "artifact",
+      "label",
+      "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "--add",
+      "shipped",
+      "--remove",
+      "draft"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "artifact": "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "add": [
+        "shipped"
+      ],
+      "remove": [
+        "draft"
+      ]
+    }
+  },
+  {
+    "command_id": "artifact.create",
+    "command": "artifact create",
+    "name": "start a document",
+    "when": [
+      "artifacts"
+    ],
+    "description": "It starts at version 1.",
+    "args": [
+      "artifact",
+      "create",
+      "Release notes",
+      "--type",
+      "document",
+      "--markdown",
+      "# 0.10"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "artifactId": "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "type": "document",
+      "title": "Release notes",
+      "body": {
+        "markdown": "# 0.10"
+      }
+    }
+  },
+  {
+    "command_id": "artifact.show",
+    "command": "artifact show",
+    "name": "read an artifact",
+    "when": [
+      "artifacts"
+    ],
+    "description": "A sheet reads as a table with A1 labels.",
+    "args": [
+      "artifact",
+      "show",
+      "01M5ESMQ2ZT55QZ073EWPH10SG"
+    ],
+    "input": {
+      "artifact": "01M5ESMQ2ZT55QZ073EWPH10SG"
+    }
+  },
+  {
+    "command_id": "artifact.edit",
+    "command": "artifact edit",
+    "name": "replace a document",
+    "when": [
+      "artifacts"
+    ],
+    "description": "--base is the version show printed.",
+    "args": [
+      "artifact",
+      "edit",
+      "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "--base",
+      "3",
+      "--markdown",
+      "# 0.10, final"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "artifact": "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "baseVersion": 3,
+      "body": {
+        "markdown": "# 0.10, final"
+      }
+    }
+  },
+  {
+    "command_id": "artifact.edit",
+    "command": "artifact edit",
+    "name": "set a sheet cell",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Patches to different cells both apply when the editing machine rebases them.",
+    "args": [
+      "artifact",
+      "edit",
+      "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "--base",
+      "3",
+      "--patch",
+      "[{\"op\":\"cell\",\"rowId\":\"r1\",\"columnId\":\"c2\",\"value\":\"42\"}]"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "artifact": "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "baseVersion": 3,
+      "patches": [
+        {
+          "op": "cell",
+          "rowId": "r1",
+          "columnId": "c2",
+          "value": "42"
+        }
+      ]
+    }
+  },
+  {
+    "command_id": "artifact.comment",
+    "command": "artifact comment",
+    "name": "comment on a cell range",
+    "when": [
+      "artifacts"
+    ],
+    "description": "The thread hangs on B2:C4.",
+    "args": [
+      "artifact",
+      "comment",
+      "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "these totals look off",
+      "--anchor",
+      "{\"kind\":\"cells\",\"range\":\"B2:C4\"}"
+    ],
+    "input": {
+      "opId": "01M5ESM1XHCJ7JYJDBC37MREBZ",
+      "artifact": "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "text": "these totals look off",
+      "anchor": {
+        "kind": "cells",
+        "range": "B2:C4"
+      }
+    }
+  },
+  {
+    "command_id": "artifact.history",
+    "command": "artifact history",
+    "name": "who changed it",
+    "when": [
+      "artifacts"
+    ],
+    "description": "Newest first; --before pages back.",
+    "args": [
+      "artifact",
+      "history",
+      "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "--limit",
+      "10"
+    ],
+    "input": {
+      "artifact": "01M5ESMQ2ZT55QZ073EWPH10SG",
+      "limit": 10
+    }
+  },
+  {
+    "command_id": "op.show",
+    "command": "op show",
+    "name": "read what became of a write",
+    "description": "The opId is the one the write returned, or the one a Timeout named.",
+    "args": [
+      "op",
+      "show",
+      "01M5EW2K9M5CN3Z3VP1J5EFB0Y"
+    ],
+    "input": {
+      "opId": "01M5EW2K9M5CN3Z3VP1J5EFB0Y"
+    }
+  },
+  {
+    "command_id": "op.list",
+    "command": "op list",
+    "name": "list the writes the editing machine refused",
+    "description": "Each refusal carries its error; resend a fixed write with a new opId.",
+    "args": [
+      "op",
+      "list",
+      "--state",
+      "refused"
+    ],
+    "input": {
+      "state": "refused"
+    }
+  }
+]
