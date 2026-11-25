@@ -272,6 +272,17 @@ describe("signals in a thread", () => {
     // In the field's frame, before the field: read before the operator writes.
     expect(line.parentElement?.className).toContain("thread-composer__field");
     expect(line.compareDocumentPosition(q("thread-composer-input")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The field is described by the whole block, so a reader hears it on arriving in the field.
+    expect(line.id).not.toBe("");
+    expect(q("thread-composer-input")?.getAttribute("aria-describedby")).toBe(line.id);
+  });
+
+  it("describes the reply field only while the block is there", async () => {
+    const fixture = fake();
+    fixture.state.messages.notes = [mine, raised({ ...ask, state: "dismissed" })];
+    await openOn(fixture);
+    expect(q("thread-composer-answers")).toBeNull();
+    expect(q("thread-composer-input")?.hasAttribute("aria-describedby")).toBe(false);
   });
 
   it("follows a signal that closes with no mail written: where it stands is said, and the reply answers nothing", async () => {

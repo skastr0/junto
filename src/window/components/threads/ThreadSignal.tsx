@@ -85,12 +85,15 @@ export function RowSignal({ kind }: { readonly kind: SeatRaiseKind }) {
 export function SignalFrame({
   signal,
   author,
+  known,
   onHandIn,
   children,
 }: {
   readonly signal: ThreadSignal;
   /** The seat that raised it, by name. */
   readonly author: string;
+  /** Who is in the thread, so Hand in is named by the signal's headline without a leading name. */
+  readonly known: ReadonlyArray<string>;
   /** Open Needs you on this signal, where the work is handed in. */
   readonly onHandIn: (signalId: string) => void;
   /** The message: its head, its words, its files. */
@@ -128,6 +131,7 @@ export function SignalFrame({
           variant="chrome"
           className="seat-threads__signal-hand-in"
           data-testid="seat-threads-signal-hand-in"
+          aria-label={`Hand in: ${threadHeadlineText(signal.text, known)}`}
           onClick={() => onHandIn(signal.signalId)}
         >
           Hand in
@@ -204,11 +208,14 @@ export function ThreadSaid({ said }: { readonly said: Said | undefined }) {
  * close, not when Send is pressed.
  */
 export function ReplyAnswers({
+  id,
   open,
   known,
   onShow,
   onHandIn,
 }: {
+  /** The block's id: the reply field is described by it, while it is there. */
+  readonly id?: string;
   /** The thread's open signals, earliest first. */
   readonly open: ReadonlyArray<ThreadSignal>;
   /** Who is in the thread. */
@@ -222,7 +229,7 @@ export function ReplyAnswers({
   const first = plain[0];
   if (first === undefined && asking.length === 0) return null;
   return (
-    <div className="thread-composer__answers" data-testid="thread-composer-answers">
+    <div id={id} className="thread-composer__answers" data-testid="thread-composer-answers">
       {first !== undefined ? (
         <button
           type="button"
@@ -259,6 +266,7 @@ export function ReplyAnswers({
               variant="chrome"
               className="thread-composer__answers-hand-in"
               data-testid="thread-composer-answers-hand-in"
+              aria-label={`Hand in: ${threadHeadlineText(signal.text, known)}`}
               onClick={() => onHandIn(signal.signalId)}
             >
               Hand in
