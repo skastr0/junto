@@ -9,7 +9,7 @@
  * (signalOrderOf over signalReadiness); the order to act is urgency.ts's.
  * Nothing here decides either: it only reads the fields a FeedItem carries.
  */
-import type { FeedItem } from "@shared/operator-feed";
+import { FEED_KIND_LABEL, type FeedItem } from "@shared/operator-feed";
 
 /** The feed's id for a signal's card. */
 export const signalItemId = (signalId: string): string => `signal:${signalId}`;
@@ -93,6 +93,20 @@ export const groupFeedChains = (items: ReadonlyArray<FeedItem>): FeedItem[] => {
 export type FeedRow =
   | { readonly kind: "card"; readonly item: FeedItem }
   | { readonly kind: "fold"; readonly chainId: string; readonly count: number; readonly firstId: string };
+
+/**
+ * What a card says when a key steps onto it: who, what kind, whether it waits,
+ * its place in a chain, then its sentence. The list keeps the keyboard on the
+ * frame, so the live line says it.
+ */
+export const feedCardSpeech = (item: FeedItem, place: FeedChainPlace | undefined): string =>
+  [
+    `${item.seat.name}, ${FEED_KIND_LABEL[item.kind]}`,
+    feedItemWaits(item) ? "waiting on another signal" : "",
+    place ? `${String(place.index)} of ${String(place.size)}` : "",
+  ]
+    .filter((part) => part !== "")
+    .join(", ") + `: ${item.text}`;
 
 /**
  * A fold's name for a screen reader: what it shows, in which chain (the card

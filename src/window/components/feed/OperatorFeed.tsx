@@ -41,13 +41,14 @@ import {
   feedDependsLineOf,
   feedItemWaits,
   foldFeedChains,
+  feedCardSpeech,
   foldName,
   foldedItemIds,
   waitsOnTarget,
   type FeedChainPlace,
   type FeedRow,
 } from "../../lib/feed-order";
-import { keyCaps, keyIs } from "../../lib/key-match";
+import { keyAria, keyCaps, keyIs } from "../../lib/key-match";
 import { titleOf, type Node, type Seat } from "@shared/model";
 import {
   FEED_KIND_LABEL,
@@ -746,11 +747,11 @@ const feed = useOperatorFeed();
         wentTo.current = false;
         // The press left the link or row it was on: the keyboard stays in the feed, and the move is said.
         claimFocus(scrollRef.current?.closest<HTMLElement>(".operator-modal__frame") ?? null, "gesture");
-        if (announcedClear.current) announcedClear.current = false;
-        else {
-          const place = chainPlaces.get(asked);
-          setAnnounceNote(`Went to: ${target.text}${place ? `, ${String(place.index)} of ${String(place.size)}` : ""}`);
-        }
+        const place = chainPlaces.get(asked);
+        const went = `Went to: ${target.text}${place ? `, ${String(place.index)} of ${String(place.size)}` : ""}`;
+        // After a clear it says both, so the operator hears where they landed.
+        setAnnounceNote(announcedClear.current ? `Filters cleared to show it. ${went}` : went);
+        announcedClear.current = false;
       }
       return;
     }
@@ -784,14 +785,16 @@ const feed = useOperatorFeed();
     feedAsked$.itemId.set(target.itemId);
   };
   const waitsOnKeys = keyCaps("inFeed.waitsOn");
+  const waitsOnShortcut = keyAria("inFeed.waitsOn");
   /** A card's place in its chain and its Depends on line. */
-  const cardOrderOf = (item: FeedItem): Pick<FeedCardViewProps, "chain" | "depends" | "dependsKeys"> => {
+  const cardOrderOf = (item: FeedItem): Pick<FeedCardViewProps, "chain" | "depends" | "dependsKeys" | "dependsShortcut"> => {
     const chain = chainPlaces.get(item.itemId);
     const depends = feedDependsLineOf(item, everyItem);
     return {
       ...(chain === undefined ? {} : { chain }),
       ...(depends === undefined ? {} : { depends }),
       ...(depends?.kind === "waiting" && waitsOnKeys !== undefined ? { dependsKeys: waitsOnKeys } : {}),
+      ...(depends?.kind === "waiting" && waitsOnShortcut !== undefined ? { dependsShortcut: waitsOnShortcut } : {}),
     };
   };
 
@@ -850,6 +853,9 @@ const feed = useOperatorFeed();
       );
       setSelected(next);
       setRevealId(next);
+      // The keyboard stays on the frame, so the card stepped onto is said by the live line.
+      const stepped = items.find((candidate) => candidate.itemId === next);
+      if (stepped !== undefined && next !== selected) setAnnounceNote(feedCardSpeech(stepped, chainPlaces.get(stepped.itemId)));
       return;
     }
     const item = items.find((candidate) => candidate.itemId === selected);

@@ -220,6 +220,15 @@ it("names a card with whether it waits and its place, a fold with its chain, and
   expect(q('[data-testid="feed-depends-link"]')?.getAttribute("aria-keyshortcuts")).toBeTruthy();
 });
 
+it("says the card a key steps onto in the live line", async () => {
+  await open(feedOf(10));
+  await key("j");
+  expect(selectedId()).toBe("s2");
+  expect(q(".operator-feed__announce")?.textContent).toBe(
+    "atlas, waiting on you, waiting on another signal, 2 of 10: Topic 2 needs your call",
+  );
+});
+
 it("unfolds the rest of a chain in place", async () => {
   await open(feedOf(10));
   await press(q('[data-testid="feed-chain-fold"]'));
@@ -240,7 +249,7 @@ it("keeps only what can be acted on under Ready, and clears a filter that hides 
   await press(q('[data-testid="feed-depends-link"]'));
   expect(feedView$.query.peek()).toBe("");
   expect(selectedId()).toBe("s1");
-  expect(q(".operator-feed__announce")?.textContent).toBe("Filters cleared to show it");
+  expect(q(".operator-feed__announce")?.textContent).toBe("Filters cleared to show it. Went to: Topic 1 needs your call, 1 of 10");
 });
 
 it("is Most urgent first, a chain kept in order, in the order menu's other choices", async () => {

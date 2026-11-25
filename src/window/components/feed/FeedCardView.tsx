@@ -126,7 +126,8 @@ export function FeedWords({
           </span>
         )}
         {chain ? (
-          <span className="operator-feed__chain-place" data-testid="feed-chain-place">
+          // The card's name already says its place.
+          <span className="operator-feed__chain-place" data-testid="feed-chain-place" aria-hidden>
             {`${String(chain.index)} of ${String(chain.size)}`}
           </span>
         ) : null}
@@ -173,6 +174,7 @@ export function FeedDependsOn({
   line,
   tabStop,
   keys,
+  shortcut,
   onGoTo,
 }: {
   readonly line: FeedDependsLine;
@@ -180,6 +182,8 @@ export function FeedDependsOn({
   readonly tabStop: boolean;
   /** The key that goes there too, drawn beside the line so it can be found. */
   readonly keys?: ReadonlyArray<string>;
+  /** The same key as an aria-keyshortcuts value ("W", "Meta+W"). */
+  readonly shortcut?: string;
   readonly onGoTo?: (target: FeedItem) => void;
 }) {
   if (line.kind === "not-here") {
@@ -205,7 +209,7 @@ export function FeedDependsOn({
           data-testid="feed-depends-link"
           tabIndex={tabStop ? 0 : -1}
           aria-label={`Depends on: ${first.text}`}
-          {...(keys && keys.length > 0 ? { "aria-keyshortcuts": keys.join("+") } : {})}
+          {...(keys && keys.length > 0 && shortcut !== undefined ? { "aria-keyshortcuts": shortcut } : {})}
           onClick={(event) => {
             // Its own press: the card under it is not picked by it.
             event.stopPropagation();
@@ -297,6 +301,8 @@ export type FeedCardViewProps = {
   readonly depends?: FeedDependsLine;
   /** The key that goes to what it waits on, drawn beside that line. */
   readonly dependsKeys?: ReadonlyArray<string>;
+  /** That key as an aria-keyshortcuts value. */
+  readonly dependsShortcut?: string;
   /** Go to a card: the Depends on link's press. */
   readonly onGoTo?: (target: FeedItem) => void;
   readonly onSelect: () => void;
@@ -327,6 +333,7 @@ export function FeedCardView({
   chain,
   depends,
   dependsKeys,
+  dependsShortcut,
   onGoTo,
   onSelect,
   onQuickReply,
@@ -371,6 +378,7 @@ export function FeedCardView({
               tabStop={selected}
               // W acts on the selected card, so the hint is drawn there only.
               {...(!selected || dependsKeys === undefined ? {} : { keys: dependsKeys })}
+              {...(!selected || dependsShortcut === undefined ? {} : { shortcut: dependsShortcut })}
               {...(onGoTo === undefined ? {} : { onGoTo })}
             />
           ) : null}
