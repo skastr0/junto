@@ -34,6 +34,10 @@
 # by two commands at most, and not at all when its lock is held: never waited
 # for. One line per step goes to <common git dir>/junto-follow.log.
 # JUNTO_FOLLOW=0 turns it off. Bash 3.2 and GNU/BSD tools only.
+#
+# The stub runs this file as it stands in the main checkout, so a half-saved edit
+# runs on the next landing: change it by writing a temp file and renaming it over
+# (mv), never in place.
 
 [ "${1:-}" = committed ] || exit 0
 

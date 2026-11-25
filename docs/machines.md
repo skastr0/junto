@@ -872,7 +872,10 @@ chmod +x .git/hooks/reference-transaction
 
   The stub runs the tracked hook for state `committed` only and ignores its
   status, so a missing or broken tracked file can never block a landing, and a
-  fix to the hook needs no reinstall. To remove it, delete
+  fix to the hook needs no reinstall. Because the stub runs the tracked file
+  as it stands in the main checkout, edit that file by writing a temp file and
+  renaming it over (`mv`), never in place: a half-saved edit runs on the next
+  landing. To remove it, delete
   `.git/hooks/reference-transaction`; `JUNTO_FOLLOW=0` turns the follow off for
   one landing. `scripts/test-reference-transaction.sh` proves it in throwaway
   repos; run it on a VM.

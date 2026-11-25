@@ -470,16 +470,24 @@ phase, and attention/occupancy are separate planes.
     `id=$(scripts/vm.sh pool <region>)`, then, with `VM_SEAT=<your seat>`
     set, `scripts/vm.sh sync $id <commit> [your uncommitted paths]` and
     `scripts/vm.sh run $id <command>`.
-  - GPU tests go to the Mac mini, their builds and their runs both
-    (operator, 2026-11-25: "For GPU tests please run builds and tests in the
-    mac mini"): every real-app, Electron, e2e and GPU proof run is built and
-    run there, never built on a VM or here and copied over. Unit tests on the
-    fake GPU device are not GPU tests and stay on the VM.
-    `dir=$(scripts/mini.sh at <seat> <commit>)` makes a checkout of that one
-    commit there with its bundles built, `scripts/mini.sh run $dir
+  - The Mac mini is for GPU checks only (operator, 2026-11-25). GPU checks go
+    there, their builds and their runs both (operator, 2026-11-25: "For GPU
+    tests please run builds and tests in the mac mini"): the GPU canvas
+    ladder, texel, atlas, frame and paint proofs, anything that needs the real
+    GPU, built and run there, never built on a VM or here and copied over. Unit
+    tests on the fake GPU device are not GPU tests and stay on the VM.
+    `dir=$(scripts/mini.sh --gpu at <seat> <commit>)` makes a checkout of that
+    one commit there with its bundles built, `scripts/mini.sh --gpu run $dir
     scripts/run-e2e.sh <spec>` runs it under the mini's own app-run lock, and
-    `scripts/mini.sh rm $dir` removes it when you are done. A run that
-    measures time takes the book first (`scripts/mini.sh book line`).
+    `scripts/mini.sh rm $dir` removes it when you are done. `at`, `put` and
+    `run` refuse a call that does not carry `--gpu` first (or `MINI_GPU=1`):
+    the refusal names this rule and the VM commands. A run that measures time
+    takes the book first (`scripts/mini.sh book line`).
+  - Every other real-app, Electron and e2e run goes to a VM, where the app
+    runs under the Linux display. With `VM_SEAT=<your seat>` set, sync, then
+    `scripts/vm.sh run $id 'bun run cli:build && JUNTO_FEATURE_PROFILE=all-on
+    bun run build:bundles && scripts/run-e2e.sh <spec>'`: the native CLI is
+    built first (`dist/junto`), or the specs refuse with a SETUP message.
   - The operator's database never leaves this machine, whole or in part, by
     any means: not to a VM and not to the mini. Both scripts refuse a SQLite
     file. A real board goes to the mini as its shapes only: the JSON that
