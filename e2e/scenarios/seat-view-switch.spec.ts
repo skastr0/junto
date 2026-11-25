@@ -472,6 +472,43 @@ test("[fake-tui] seat view switch: Terminal and Threads in one seat modal", asyn
       }
     await page.keyboard.press("Escape").catch(() => undefined);
 
+    // (a7f0aeacb) Other ways to ask for a seat that a grid shows: cmd+k, the bar's Open terminal, node activation. Each closes the grid and opens the seat; the other cells go.
+    const gridShown = page.locator("[data-testid='terminal-grid-focus']");
+    const clearLeft = async (): Promise<void> => {
+      for (let round = 0; round < 3; round += 1)
+        for (const leftover of ["Close grid", "Close view"]) {
+          const button = page.getByRole("button", { name: leftover });
+          if ((await button.count()) > 0) await button.first().click().catch(() => undefined);
+        }
+    };
+    const openGrid = async (both: boolean): Promise<void> => {
+      if (both) await selectBoth();
+      else await card(page, A).click();
+      await page.getByTestId("rts-open-grid").click();
+      await expect(gridShown).toBeVisible({ timeout: 15_000 });
+    };
+    await check("17-cmdk-on-grid-seat", async (frames) => {
+      await clearLeft();
+      await openGrid(true);
+      await page.keyboard.press(mod("K"));
+      const input = page.getByTestId("command-bar-input");
+      await expect(input).toBeVisible({ timeout: 10_000 });
+      await input.fill("Ada");
+      await settleMs(800);
+      frames.push(await shot("17a-command-bar-over-grid"));
+      await page.keyboard.press("Enter");
+      await expect(gridShown).toHaveCount(0, { timeout: 15_000 });
+      await expect(stageOf(page, A)).toBeVisible({ timeout: 15_000 });
+      const bea = await stageOf(page, B).count();
+      frames.push(await shot("17b-seat-open-grid-gone"));
+      await clearLeft();
+      if (bea > 0) throw new Error("Bea's cell stayed open after the grid closed");
+      return "cmd+k then Ada then Enter: the grid closed, Ada's seat modal is open, Bea's cell released";
+    });
+    // The bar's Open terminal key and a node's double-click or canvas.open (Ctrl+Enter, canvas context only) are not reachable with a grid up: the grid covers the bar and the canvas, the bar's key belongs to one selected seat while a grid needs two, and canvas.open does not answer under the grid. Those entry points are covered by tests/terminal-asked-open.test.ts.
+    await clearLeft();
+    await page.keyboard.press("Escape").catch(() => undefined);
+
     // (4, lead; 5, modals) Seat opens on Threads.
     await check("13-setting-threads-opens-on-threads", async (frames) => {
       await page.getByRole("button", { name: "Open settings" }).click();
