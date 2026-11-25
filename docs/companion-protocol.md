@@ -681,18 +681,16 @@ Desktop: Settings > Companion > Pair a phone.
    is the only op accepted while a device is in the pairing state, and it is
    refused afterwards.
 
-## 7. Development without a Mac
+## 7. Development
 
-`bun src/cli/main.ts companion-stdio --demo`, run from a checkout of the
-Junto repository, speaks the full protocol from stdin/stdout
-against a built-in, deterministic demo canvas (three regions, eight seats,
-every feed kind, mail history) and never touches the app or `~/.ssh`. Writes
-succeed and change the demo state for that process only. Its canvas has
-three wires, one routed round a card; a mail sent to a seat brings that
-card to the front, the demo's one `canvas.changed`. The mobile repo can
-drive it over a local pipe or `ssh localhost` for tests. The demo is a
-repository command: the shipped `junto` (the native CLI) refuses `--demo`
-with exit 64 and names this command.
+The native `junto` is the only end of this protocol on the Mac:
+`junto companion-stdio --device dev_<id>`, run by sshd as a paired key's
+forced command (section 1), relays every request to the running app over
+the operator control socket. It takes `--device` and nothing else; any other
+argument, `--demo` included, is refused with exit 64 and one `invalid`
+connection error frame on stdout. There is no demo canvas: the mobile repo
+tests against a Mac running Junto, with a phone or simulator paired through
+Settings > Companion (section 6).
 
 ## 8. Versioning
 
