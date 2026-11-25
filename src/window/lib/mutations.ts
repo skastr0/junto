@@ -4,7 +4,7 @@ import { batch, observe } from "@legendapp/state";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { TASKS_ENABLED } from "@shared/features";
-import { removalTasks, removalWarnings, signalRemovalWarnings } from "./deletion-impact";
+import { removalTasks, removalWarnings, signalRemovalWarnings, deleteSubjectName } from "./deletion-impact";
 import { agentSignals$ } from "./agent-signals-state";
 import { askConfirm } from "./confirm";
 import type { Color, Command, Node, NodeOf, RegionContract, RegionDefaults, RegionEnvironment } from "@shared/model";
@@ -403,7 +403,7 @@ const deleteNodesInternal = async (
     (wire) => removed.has(wire.from) || removed.has(wire.to),
   );
   const connectedEdges = removedWires.length;
-  const nodeLabel = existingNodes.length === 1 ? "this node" : `${existingNodes.length} nodes`;
+  const nodeLabel = existingNodes.length === 1 ? deleteSubjectName(existingNodes[0]!) : `${existingNodes.length} nodes`;
   const tasksOf = await removalTasks(canvasName, canvas, removed, removedWires);
   // The canvas changed while the tasks were read: the question would be about
   // a canvas the operator is no longer looking at.

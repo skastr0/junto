@@ -413,7 +413,7 @@ describe("renderer graph mutations", () => {
     await Promise.resolve();
     expect(docNow().nodes).toHaveLength(2);
     expect(docNow().edges).toHaveLength(1);
-    expect(nodeDeleteAsks[0]).toMatchObject({ title: "Delete this node?", confirmLabel: "Delete node", tone: "danger" });
+    expect(nodeDeleteAsks[0]).toMatchObject({ title: "Delete peer?", confirmLabel: "Delete node", tone: "danger" });
     expect(nodeDeleteAsks[0]!.body).toEqual(["Connected edges (1) will also be removed."]);
 
     nodeDeleteAnswer = true;
@@ -437,6 +437,18 @@ describe("renderer graph mutations", () => {
     deleteNode("target");
     await waitFor(() => expect(docNow().nodes.map((node) => node.id)).toEqual(["source"]));
     expect(nodeDeleteAsks[0]!.body).toEqual(["2 open signals close with it."]);
+  });
+
+  it("names a titled node in the delete question and leaves an untitled one as this node", async () => {
+    state$.canvasName.set("mutation-test");
+    load([...base(), fixtures.note("blank", "")]);
+    deleteNode("target");
+    await waitFor(() => expect(nodeDeleteAsks).toHaveLength(1));
+    await waitFor(() => expect(docNow().nodes.map((node) => node.id)).not.toContain("target"));
+    deleteNode("blank");
+    await waitFor(() => expect(nodeDeleteAsks).toHaveLength(2));
+    await waitFor(() => expect(docNow().nodes.map((node) => node.id)).not.toContain("blank"));
+    expect(nodeDeleteAsks.map((ask) => ask.title)).toEqual(["Delete peer?", "Delete this node?"]);
   });
 
   it("requires confirmation before deleting relations", () => {

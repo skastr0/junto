@@ -1,5 +1,5 @@
 import { flowDestinations } from "@shared/flow-graph";
-import { asNodeId, type Canvas, type Wire } from "@shared/model";
+import { asNodeId, type Canvas, type Node, type Wire } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { isClosedTaskState, type TaskView } from "@shared/task-model";
 import { taskName } from "@shared/task-notices";
@@ -165,4 +165,17 @@ export const signalRemovalWarnings = (
   for (const signal of signals) if (signal.state === "open" && removedNodeIds.has(signal.nodeId)) open += 1;
   const line = signalsCloseLine(open);
   return line === undefined ? [] : [line];
+};
+
+const QUESTION_NAME_LIMIT = 52;
+
+/**
+ * What a delete confirm calls its subject: one removed node by its title, as
+ * the canvas delete names its canvas, else "this node". A node whose title
+ * only repeats its kind, or a note with no text, is untitled and says nothing.
+ */
+export const deleteSubjectName = (node: Node): string => {
+  const title = titleOf(node);
+  if (title === "untitled" || title === node.kind) return "this node";
+  return title.length <= QUESTION_NAME_LIMIT ? title : `${title.slice(0, QUESTION_NAME_LIMIT).trimEnd()}…`;
 };
