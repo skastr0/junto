@@ -5,8 +5,9 @@
  * the draft kept between opens, and the open from the canvas.
  *
  * The list is every seat on the canvas, whichever machine it runs on, and
- * the regions that hold any. A region is never a recipient: picking one only
- * narrows the list to its seats.
+ * the regions that hold any. A region picked is a recipient (with limits,
+ * lib/quick-thread-broadcast); narrowing the list to its seats is a choice
+ * of its own.
  *
  * The text and files are kept per canvas until they are sent, so closing
  * Quick thread loses no words. The seats chosen are not: a close clears them

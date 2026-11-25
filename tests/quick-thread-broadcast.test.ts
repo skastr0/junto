@@ -66,9 +66,9 @@ describe("the confirm and the receipt", () => {
   it("reads a send as three counted lines", () => {
     const receipt = broadcastReceipt([seat("a"), seat("b"), seat("c"), seat("d")], {
       sent: [
-        { seatId: "a", arrival: "delivered" },
+        { seatId: "a", arrival: "arrived" },
         { seatId: "b", arrival: "waiting" },
-        { seatId: "c", arrival: "delivered" },
+        { seatId: "c", arrival: "arrived" },
       ],
       failed: [{ seatId: "d" }],
     });

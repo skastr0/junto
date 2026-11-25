@@ -13,6 +13,7 @@
  */
 import { SEAT_DOING, SEAT_NEEDS, type BroadcastSeat, type SeatDoing, type SeatNeed } from "@shared/broadcast";
 import { FEED_KIND_LABEL } from "@shared/wire/operator-feed";
+import { fuzzyMatch } from "@shared/fuzzy-match";
 import type { QuickThreadRegion } from "./quick-thread";
 
 /** A region chosen as a recipient, with its limits. Empty is no limit. */
@@ -100,14 +101,24 @@ export const typedLimit = (query: string): { readonly limit: Limit; readonly res
   return undefined;
 };
 
-/** A region offered with a limit already on it: "Junto, working". */
-export type QuickThreadLimitedRegion = QuickThreadRegion & { readonly limit: Limit };
-
-export const isLimitedRegion = (option: { readonly kind: string }): option is QuickThreadLimitedRegion => "limit" in option;
-
-/** The option's key in the list: a region and the same region with a limit never share one. */
-export const limitedOptionKey = (region: QuickThreadRegion, limit?: Limit): string =>
-  limit === undefined ? `region:${region.id}` : `region:${region.id}:${limit.group}:${limit.value}`;
+/**
+ * The regions a typed limit offers, each with that limit on it and the count
+ * it alone would reach ("Junto, working", 12 seats), for the list to rank
+ * first. `countOf` is the set's: this file decides no one's reach.
+ */
+export const limitedRegionOptions = (
+  regions: ReadonlyArray<QuickThreadRegion>,
+  query: string,
+  countOf: (regionId: string, limit: Limit) => number,
+): ReadonlyArray<QuickThreadRegion> => {
+  const typed = typedLimit(query);
+  if (typed === undefined) return [];
+  const matched =
+    typed.rest === ""
+      ? regions
+      : regions.filter((region) => fuzzyMatch(typed.rest, { identity: [region.name] }) !== null);
+  return matched.map((region) => ({ ...region, limit: typed.limit, seats: countOf(region.id, typed.limit) }));
+};
 
 // ---- What a pick says ----
 
@@ -164,7 +175,7 @@ export type BroadcastReceipt = {
 export const broadcastReceipt = (
   seats: ReadonlyArray<BroadcastSeat>,
   outcome: {
-    readonly sent: ReadonlyArray<{ readonly seatId: string; readonly arrival: "delivered" | "waiting" }>;
+    readonly sent: ReadonlyArray<{ readonly seatId: string; readonly arrival: "arrived" | "waiting" }>;
     readonly failed: ReadonlyArray<{ readonly seatId: string }>;
   },
 ): BroadcastReceipt => {
@@ -172,7 +183,7 @@ export const broadcastReceipt = (
   const failed = new Set(outcome.failed.map((entry) => entry.seatId));
   return {
     notSent: seats.filter((seat) => failed.has(seat.nodeId)),
-    have: seats.filter((seat) => arrival.get(seat.nodeId) === "delivered"),
+    have: seats.filter((seat) => arrival.get(seat.nodeId) === "arrived"),
     later: seats.filter((seat) => arrival.get(seat.nodeId) === "waiting"),
   };
 };
