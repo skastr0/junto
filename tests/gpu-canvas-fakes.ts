@@ -84,10 +84,10 @@ const fakeDevice = (): FakeDevice => {
 };
 
 /** A device that records texture copies: the shape the GPU atlas attaches to. */
-export const fakeAtlasDevice = () => {
+export const fakeAtlasDevice = (limits: Partial<GPUSupportedLimits> = {}) => {
   const copies: Array<{ readonly width: number; readonly height: number; readonly layer: number; readonly x: number; readonly y: number }> = [];
   const device = {
-    limits: { maxTextureDimension2D: 8192, maxTextureArrayLayers: 256, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
+    limits: { maxTextureDimension2D: 8192, maxTextureArrayLayers: 256, maxStorageBufferBindingSize: 128 * 1024 * 1024, ...limits },
     createTexture: (desc: GPUTextureDescriptor) => {
       const size = desc.size as GPUExtent3DDict;
       return {

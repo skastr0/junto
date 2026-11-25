@@ -191,6 +191,69 @@ describe("a burst of seat reports", () => {
     expect(atlas.stats().rerasters).toBe(0);
   });
 
+  it("holds a mounted ring's portrait through churn, and finds it cached after a release", async () => {
+    // Rule 5: a picture on screen is held by reference until its replacement
+    // lands, and a landed by-key cell is still cached when the reference is
+    // given up. The fault this locks against is a quad losing its own pixels at
+    // an unchanged raster scale, so the churn below asks for other content and
+    // lets it go while this ring stays up: the held cell may not be what pays
+    // for it. The fake grows pages rather than wipe a held plot, which is why
+    // this case asserts the rule and never a count of evictions.
+    const node = seatNode() as Seat;
+    stop = holdModelCanvas("factory", [node]);
+    const { device } = fakeAtlasDevice();
+    const atlas = createGpuAtlas({
+      size: 64,
+      rasterizeText: async () => ({ width: 8, height: 8, close: () => undefined }) as never,
+      rasterizeSprite: async () => ({ width: 40, height: 40, close: () => undefined }) as never,
+      onDirty: () => undefined,
+      onFailure: () => undefined,
+    });
+    atlas.attach(device);
+
+    root = createRoot(host);
+    await act(async () => { root!.render(<Ring node={node} />); });
+    await settle();
+    applyAgentSeatStateEvent(report("working", T0));
+    await settle();
+    const glance = glimpses[glimpses.length - 1]!;
+    const portrait = spriteQuad(portraitOf(glance, "lead", 40));
+    const held = atlas.acquire(portrait, 1);
+    await settle();
+    expect(atlas.hasImage(held)).toBe(true);
+    const ownKey = atlas.recordOf(held)?.contentKey;
+    expect(ownKey).toBeDefined();
+
+    // Churn while the ring is up: a gesture asks for a batch of other content,
+    // the batch lands and takes plots, then lets go. The held portrait keeps
+    // its cell and its own pixels throughout. Nothing here asserts an eviction
+    // count: the atlas grows pages rather than wipe a held plot, so what this
+    // asserts is the rule, not a number.
+    const batch = Array.from({ length: 12 }, (_, i) =>
+      atlas.acquire(spriteQuad(portraitSprite(`churn-${String(i)}`, "dark", 40, "resting") as ImageSprite), 1));
+    await settle();
+    for (const cell of batch) atlas.release(cell);
+    await settle();
+    expect(atlas.hasImage(held)).toBe(true);
+    expect(atlas.recordOf(held)?.contentKey).toBe(ownKey);
+
+    // Released and asked again with no report in between. No previous is
+    // passed: a released cell is not one this caller still holds, and the
+    // engine asks afresh when the quad comes back. A landed by-key cell stays
+    // cached at release, so this is the cache hit: the same cell, its own
+    // pixels, and no raster. The branch where the cell was gone instead would
+    // need an eviction this fake cannot force (the atlas grows pages), and a
+    // test that cannot reach a branch should not pretend to.
+    atlas.release(held);
+    const requestsBefore = atlas.stats().requests;
+    const again = atlas.acquire(portrait, 1);
+    await settle();
+    expect(again).toBe(held);
+    expect(atlas.stats().requests).toBe(requestsBefore);
+    expect(atlas.recordOf(again)?.contentKey).toBe(ownKey);
+    expect(atlas.recordOf(again)?.shows).toBe("own");
+  });
+
   it("renders the terminal card once for a burst, and again when the seat's state moves", async () => {
     const node = terminalNode();
     stop = holdModelCanvas("factory", [node]);
