@@ -395,13 +395,15 @@ html[data-theme="bright"] .seat-threads__block {
   border-radius: var(--radius-xl);
 }
 
-/* The reply line's button takes the keyboard to the signal: its frame shows it. */
+/* The reply line's button takes the keyboard to the signal: its frame shows it.
+   The ring is inset: the stream has no padding above or below, so a frame at
+   its first or last edge would have an outer ring clipped by the scroll. */
 .seat-threads__message[data-signal-id]:focus-visible {
   outline: none;
 }
 
 .seat-threads__message[data-signal-id]:focus-visible > .seat-threads__signal {
-  box-shadow: 0 0 0 2px var(--color-cyan);
+  box-shadow: inset 0 0 0 2px var(--color-cyan);
 }
 
 .seat-threads__signal[data-state="open"] {

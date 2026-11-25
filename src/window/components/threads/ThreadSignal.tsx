@@ -47,6 +47,13 @@ const STATE: Readonly<Record<AgentSignalState, { readonly word: string; readonly
   withdrawn: { word: "Withdrawn", icon: Undo2 },
 };
 
+/**
+ * What a signal's message is called when the keyboard lands on it: its kind
+ * and where it stands, then its headline, as the feed names a card.
+ */
+export const signalName = (signal: ThreadSignal, known: ReadonlyArray<string>): string =>
+  `${signalKindWord(signal.kind)}, ${STATE[signal.state].word.toLowerCase()}: ${threadHeadlineText(signal.text, known)}`;
+
 const ASKS_WORD: Readonly<Record<SignalAsks, string>> = {
   document: "a document",
   proof: "proof",

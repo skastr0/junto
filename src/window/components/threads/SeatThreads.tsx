@@ -41,6 +41,7 @@ import {
   sentArrived,
   sentWaiting,
   SignalFrame,
+  signalName,
   ThreadSaid,
   WaitingMark,
   type Said,
@@ -540,7 +541,8 @@ export function ThreadChat({
   // A signal that changes under the operator is said once: only while the
   // thread is on screen, and never for history. The first sight of a signal
   // only records where it stands. Answered is the operator's own act and is
-  // not said; several changes at once are one saying.
+  // not said (nothing in a thread dismisses a signal: Hand in opens Needs you,
+  // which says its own); several changes at once are one saying.
   const signalStates = useRef(new Map<string, string>());
   useEffect(() => {
     const states = signalStates.current;
@@ -561,7 +563,9 @@ export function ThreadChat({
       if (signal.state === "withdrawn") changed.push(`${author} withdrew: ${headline}`);
       else if (signal.state === "dismissed") changed.push(`Dismissed: ${headline}`);
     }
-    if (changed.length > 0) say(changed.join(" "));
+    // Each saying ends on a headline, so the next starts after a full stop
+    // unless the headline brought its own.
+    if (changed.length > 0) say(changed.reduce((all, one) => `${all}${/[.!?]$/.test(all) ? " " : ". "}${one}`));
   }, [messages, headSignal, shown, name, thread.participants, say]);
   // A thread just started from here whose first mail came back with its seat
   // away. The region is said reliably only when it is in the document before
@@ -662,7 +666,7 @@ export function ThreadChat({
               starts: it was raised before any mail here, so it has no message
               of its own. Its seat is the one this chat is with. */}
           {headSignal !== undefined && older === undefined ? (
-            <article className="seat-threads__message" data-testid="seat-threads-head-signal" data-signal-id={headSignal.signalId} tabIndex={-1}>
+            <article className="seat-threads__message" data-testid="seat-threads-head-signal" data-signal-id={headSignal.signalId} tabIndex={-1} aria-label={signalName(headSignal, thread.participants)}>
               <SignalFrame signal={headSignal} author={name} known={thread.participants} onHandIn={openNeedsYouOn}>
                 <div className="seat-threads__message-head">
                   <AgentPortrait identity={portraitOf(name)} size={20} frame="round" badge={false} outline={false} />
@@ -724,6 +728,7 @@ export function ThreadChat({
                 data-signal-id={signal?.signalId}
                 // A signal is where the reply line's button takes the keyboard.
                 tabIndex={signal === undefined ? undefined : -1}
+                aria-label={signal === undefined ? undefined : signalName(signal, thread.participants)}
                 data-testid="seat-threads-message"
               >
                 {signal !== undefined ? (

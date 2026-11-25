@@ -330,6 +330,22 @@ describe("signals in a thread", () => {
     expect(q("seat-threads-said")!.textContent).toBe("pty-lead withdrew: Which store holds the notes?");
   });
 
+  it("says several changes at once as one saying, each ending before the next begins", async () => {
+    const fixture = fake();
+    const second: ThreadSignal = { signalId: "s2", kind: "blocked", state: "open", text: "The migration is stuck" };
+    fixture.state.messages.notes = [mine, raised(ask), raised(second, { messageId: "m3", at: at(1, 6) })];
+    await openOn(fixture);
+    fixture.state.messages.notes = [
+      mine,
+      raised({ ...ask, state: "withdrawn" }),
+      raised({ ...second, state: "dismissed" }, { messageId: "m3", at: at(1, 6) }),
+    ];
+    fixture.signalChange();
+    await flush();
+    // The first headline brought its own mark; the second did not and the join adds a stop only where needed.
+    expect(q("seat-threads-said")!.textContent).toBe("pty-lead withdrew: Which store holds the notes? Dismissed: The migration is stuck");
+  });
+
   it("does not say an answered signal", async () => {
     const fixture = fake();
     fixture.state.messages.notes = [mine, raised(ask)];
@@ -360,6 +376,9 @@ describe("signals in a thread", () => {
     await openOn(fixture);
     const article = all("seat-threads-message")[1]!;
     expect(article.getAttribute("tabindex")).toBe("-1");
+    // Named, so the landing says what it is: kind and state, then the headline.
+    const kind = article.querySelector(".seat-threads__signal-kind")!.textContent;
+    expect(article.getAttribute("aria-label")).toBe(`${kind}, open: Which store holds the notes?`);
     // A message that is not a signal is not a stop.
     expect(all("seat-threads-message")[0]!.hasAttribute("tabindex")).toBe(false);
     // Pressed as the app hears it: the press puts the keyboard on the button first.
