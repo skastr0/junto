@@ -868,6 +868,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
           textureGeneration += 1;
           mutable.textureGeneration = textureGeneration;
         }
+        dropMipRectsFor(deadTex);
         deadTex.destroy();
         markDirty();
       },
@@ -1413,6 +1414,13 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     rec.retryAfter = nowMs() + Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.min(6, rec.attempts));
     rec.attempts += 1;
     retryBy(rec.retryAfter);
+  };
+
+  /** A page texture that is gone takes its pending mip passes with it: no pass may begin on it after destroy. */
+  const dropMipRectsFor = (texture: GPUTexture): void => {
+    for (let i = dirtyMipRects.length - 1; i >= 0; i -= 1) {
+      if (dirtyMipRects[i]!.texture === texture) dirtyMipRects.splice(i, 1);
+    }
   };
 
   /**
@@ -2403,7 +2411,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   const dropPages = (): void => {
     for (const pool of [rgbaPool, coveragePool]) {
       for (const page of pool.pages) {
-        if (!page.dead) page.texture.destroy();
+        if (!page.dead) {
+          dropMipRectsFor(page.texture);
+          page.texture.destroy();
+        }
         page.dead = true;
       }
       pool.pages.length = 0;
