@@ -7,6 +7,11 @@
   older copy cannot bring the canvas back. The removal is sent again on each
   link until that machine answers. A hold that 0.12.0 or an earlier build
   left on a far seat clears once both machines run this version.
+- A machine that was removed and then installed again can be taken over under
+  its old name. A send refused because work is still placed on that name
+  prints the `junto machine takeover <name> <id>` to run. The preview names the
+  seats, automations and Files nodes that move, and a confirm older than the
+  preview is refused.
 
 Known: a canvas deleted by 0.12.0 or an earlier build, whose name was then
 used again for a new canvas here, is not removed from the other machines.
