@@ -239,7 +239,7 @@ it("keeps a half-typed reply, shown and locked, when its card closes crossed, an
   await act(async () => {
     frame.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   });
-  const field = q(".operator-feed__reply-lock textarea") as HTMLTextAreaElement;
+  const field = q('[data-testid="signal-reply"] textarea') as HTMLTextAreaElement;
   expect(field).not.toBeNull();
   await act(async () => {
     const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
@@ -250,10 +250,18 @@ it("keeps a half-typed reply, shown and locked, when its card closes crossed, an
     agentSignals$.s4.set({ ...open4, state: "withdrawn", response: { text: "Yes", at: NOW } });
     live.set(twoOpen(undefined));
   });
-  const kept = q(".operator-feed__reply-lock textarea") as HTMLTextAreaElement;
+  const kept = q('[data-testid="signal-reply"] textarea') as HTMLTextAreaElement;
   expect(kept).toBe(field);
   expect(kept.value).toBe("Half a thought");
-  expect((q(".operator-feed__reply-lock") as HTMLFieldSetElement).disabled).toBe(true);
+  // Locked the way the sending is, not the field: it can be read, selected and copied, and nothing sends.
+  expect(kept.readOnly).toBe(true);
+  expect(kept.disabled).toBe(false);
+  expect(all('[data-testid="signal-reply"] button').filter((button) => /Send|Dismiss/u.test(button.textContent ?? "")).every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
+  // The keyboard is not left on a locked field: it is on the note, which says what happened.
+  expect(document.activeElement).toBe(q('[data-testid="feed-crossed"]'));
+  expect(q(".operator-feed__announce")?.textContent).toBe(
+    "atlas withdrew a signal before your answer reached it: Topic 4 needs your call. Your draft was not sent.",
+  );
   expect(q('[data-testid="feed-crossed"]')?.textContent).toBe("atlas withdrew this before your answer reached it. Your draft was not sent.");
 });
 

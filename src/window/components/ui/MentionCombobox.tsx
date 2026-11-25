@@ -165,6 +165,7 @@ export function MentionCombobox({
   rows,
   placeholder,
   disabled,
+  readOnly,
   "aria-label": ariaLabel,
   "aria-describedby": ariaDescribedBy,
   "aria-keyshortcuts": ariaKeyShortcuts,
@@ -204,6 +205,8 @@ export function MentionCombobox({
   readonly rows?: number;
   readonly placeholder?: string;
   readonly disabled?: boolean;
+  /** Read, selected and copied, never edited: the field keeps its focus, unlike a disabled one. */
+  readonly readOnly?: boolean;
   readonly "aria-label": string;
   /** The ids of what describes the field, space separated and in reading order; pass only ids that are in the document. */
   readonly "aria-describedby"?: string;
@@ -467,6 +470,7 @@ export function MentionCombobox({
         data-testid={testId}
         placeholder={placeholder}
         disabled={disabled}
+        readOnly={readOnly}
         spellCheck
         value={shown}
         onChange={(event) => {

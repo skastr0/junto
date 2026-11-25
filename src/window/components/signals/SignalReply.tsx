@@ -74,6 +74,7 @@ export function SignalReply({
   dismiss,
   onDone,
   className = "seat-signal-popover__reply",
+  locked = false,
 }: {
   readonly signalId: string;
   /** The signal's canvas: attached files are uploaded for a mail on it. */
@@ -95,6 +96,12 @@ export function SignalReply({
   /** Called after a successful send or dismiss. */
   readonly onDone: () => void;
   readonly className?: string;
+  /**
+   * The signal closed under the draft: the text stays to be read, selected and
+   * copied, and nothing can be sent, dismissed or attached. Locked the way the
+   * sending is, not the field, so the keyboard can still reach the words.
+   */
+  readonly locked?: boolean;
 }) {
   const [reply, setReply] = useState("");
   const quickReplies = useQuickReplies();
@@ -117,13 +124,13 @@ export function SignalReply({
     silent || carried.length > 0 ? { ...(silent ? { silent } : {}), ...(carried.length > 0 ? { attachments: carried } : {}) } : undefined;
   // Past its bound the answer goes as a file; its mentions then copy no one, as words in a file do not.
   const answer = (label: string, text: string, silent: boolean): void => {
-    if (pending !== null || !filesIn || long.blocked) return;
+    if (locked || pending !== null || !filesIn || long.blocked) return;
     void act(label, async () => {
       const carried = await carryText(content, canvasName, text, files, ANSWER_BOUND);
       return respond(signalId, carried.text, withFiles(silent, carried.files));
     });
   };
-  const canSend = pending === null && filesIn && !long.blocked && (reply.trim().length > 0 || files.length > 0);
+  const canSend = !locked && pending === null && filesIn && !long.blocked && (reply.trim().length > 0 || files.length > 0);
   const send = (): void => {
     if (canSend) answer("", reply.trim(), false);
   };
@@ -137,17 +144,17 @@ export function SignalReply({
       : "Waiting for the files to attach";
 
   return (
-    <div ref={claimReplyFocus} className={className} data-testid="signal-reply" {...attachments.dropTarget}>
+    <div ref={claimReplyFocus} className={className} data-testid="signal-reply" data-locked={locked || undefined} {...(locked ? {} : attachments.dropTarget)}>
       <QuickReplies
         replies={quickReplies}
         suggested={suggested}
-        pending={filesIn ? pending : UPLOADING}
+        pending={filesIn && !locked ? pending : UPLOADING}
         onPick={(text) => answer(text, text, false)}
       />
       <QuickReplies
         replies={quietNotes}
         quiet
-        pending={filesIn ? pending : UPLOADING}
+        pending={filesIn && !locked ? pending : UPLOADING}
         onPick={(text) => answer(answerLabel({ kind: "quiet", text }), text, true)}
       />
       <AttachmentTray attachments={attachments} />
@@ -168,6 +175,7 @@ export function SignalReply({
         }}
         placeholder="Or write a reply, or paste or drop files…"
         rows={3}
+        readOnly={locked}
         aria-label="Your reply"
         aria-keyshortcuts={[keyAria("message.send"), keyAria("message.sendQuietly")].filter(Boolean).join(" ")}
       />
@@ -179,12 +187,12 @@ export function SignalReply({
       {error ? <p className="seat-signal-popover__error" role="alert">{error}</p> : null}
       <div className="seat-signal-popover__actions">
         <span className="mr-auto flex">
-          <AttachButton attachments={attachments} disabled={pending !== null} />
+          <AttachButton attachments={attachments} disabled={locked || pending !== null} />
         </span>
         <Button
           size="xs"
           variant="subtle"
-          disabled={pending !== null}
+          disabled={locked || pending !== null}
           title="Dismiss: closes it, the seat is not told"
           onClick={() => void act("", () => dismiss(signalId))}
         >
@@ -193,7 +201,7 @@ export function SignalReply({
         <Button
           size="xs"
           variant="subtle"
-          disabled={pending !== null || !filesIn}
+          disabled={locked || pending !== null || !filesIn}
           title={waiting ?? `Send quietly: answered, the seat is not woken (⇧${mod}↵)`}
           onClick={sendQuietly}
         >

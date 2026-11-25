@@ -379,7 +379,7 @@ function FeedDetail({
       <div className="operator-feed__answer">
         {crossed && !(replying && item.signalId) ? (
           // Nothing failed for the operator to fix, so it is said in ink, not as an error.
-          <p className="operator-feed__crossed" data-testid="feed-crossed">
+          <p className="operator-feed__crossed" data-testid="feed-crossed" tabIndex={-1}>
             {crossedWords(item.seat.name)}
           </p>
         ) : item.signalId &&
@@ -436,23 +436,22 @@ function FeedDetail({
         ) : replying && item.signalId ? (
           <>
             {crossed ? (
-              <p className="operator-feed__crossed" data-testid="feed-crossed">
+              <p className="operator-feed__crossed" data-testid="feed-crossed" tabIndex={-1}>
                 {crossedWords(item.seat.name)} Your draft was not sent.
               </p>
             ) : null}
-            {/* Always in a fieldset, so the draft stays mounted when the card closes under it: kept, shown, and no longer answerable. */}
-            <fieldset className="operator-feed__reply-lock" disabled={crossed}>
-              <SignalReply
-                signalId={item.signalId}
-                canvasName={item.canvasName}
-                seatNodeId={item.seat.nodeId}
-                suggested={item.suggestions}
-                respond={actions.respond}
-                dismiss={actions.dismiss}
-                onDone={() => onReply(false)}
-                className="operator-feed__reply"
-              />
-            </fieldset>
+            {/* Locked when the card closes under it: the draft stays mounted to be read and copied, and nothing sends. */}
+            <SignalReply
+              signalId={item.signalId}
+              canvasName={item.canvasName}
+              seatNodeId={item.seat.nodeId}
+              suggested={item.suggestions}
+              respond={actions.respond}
+              dismiss={actions.dismiss}
+              onDone={() => onReply(false)}
+              className="operator-feed__reply"
+              locked={crossed}
+            />
           </>
         ) : (
           <>
@@ -767,17 +766,24 @@ const feed = useOperatorFeed();
   useEffect(() => {
     if (crossed === null) return;
     const active = document.activeElement;
-    if (active === null || active === document.body) {
-      claimFocus(scrollRef.current?.closest<HTMLElement>(".operator-modal__frame") ?? null, "gesture");
+    const frame = scrollRef.current?.closest<HTMLElement>(".operator-modal__frame") ?? null;
+    const answerArea = frame?.querySelector(".operator-feed__answer") ?? null;
+    // Body, or the reply the operator was typing in (locked now): the keyboard goes to the note, so it is heard and keys are heard.
+    if (active === null || active === document.body || answerArea?.contains(active) === true) {
+      claimFocus(frame?.querySelector<HTMLElement>('[data-testid="feed-crossed"]') ?? frame, "gesture");
     }
   }, [crossed]);
+  const replyForRef = useRef(replyFor);
+  replyForRef.current = replyFor;
   useEffect(() => {
     const before = lastSelected.current;
     if (before?.signalId !== undefined && !items.some((item) => item.itemId === before.itemId)) {
       const closed = agentSignals$[before.signalId].peek();
       if (closed !== undefined && crossedClosing(closed)) {
         setCrossed(before);
-        setAnnounceNote(crossedLiveWords(before.seat.name, before.text));
+        setAnnounceNote(
+          `${crossedLiveWords(before.seat.name, before.text)}${replyForRef.current === before.itemId ? ". Your draft was not sent." : ""}`,
+        );
       }
     }
     lastSelected.current = selectedItem;
