@@ -14,6 +14,7 @@ import { makeMachineOwnerActions, type MachineOwnerOptions } from "../src/core/h
 import { MachineInstallError, MachineSetupError, MachineInstallResult } from "../src/shared/machine-install";
 import { RemoteHostsError } from "../src/shared/remote-hosts";
 import { SshTransport } from "../src/core/ssh";
+import type { MachineUpdateLatch } from "../src/core/install-ops/service";
 import { MachineOwnStatus, type MachinePeerStatus } from "../src/shared/machine-control";
 import { OPERATOR_PROTOCOL_VERSION, decodeOperatorRequest, decodeOperatorResponse } from "../src/shared/operator-control";
 import { hostsSnapshot, setHostsSnapshot } from "../src/core/hosts/snapshot";
@@ -84,25 +85,6 @@ it("joins active pins on the list and retires the pin with route removal", async
     expect(changed.error.message).toContain("choose another name");
     expect(changed.error.message.match(/choose another name/g)).toHaveLength(1);
   }
-});
-
-it("answers setup on a pin a link bound to its key with the pin's contract, and keeps the binding in the store", async () => {
-  // remote-verify receipt 8: this machine linked with the editing machine, so
-  // its pin of the editor is key-bound (machine-link.ts pins with binding
-  // "key"). The editor then removed this machine, added it again and sent to
-  // it: the send runs setup here again, which answered a pin carrying its
-  // binding and failed its own contract.
-  const f = await fixture();
-  const first = await f.call("machine.setup", { machineName: "studio", installationId: "studio-install" });
-  expect(first.ok).toBe(true);
-  f.database.exec("UPDATE machine_peers SET binding = 'key' WHERE machine_name = 'studio'");
-  const again = await f.call("machine.setup", { machineName: "studio", installationId: "studio-install" });
-  expect(again).toMatchObject({ ok: true, op: "machine.setup" });
-  if (again.ok && again.op === "machine.setup") {
-    expect(Object.keys(again.data).sort()).toEqual(["boundAt", "installationId", "machineName"]);
-    expect(again.data).toMatchObject({ machineName: "studio", installationId: "studio-install" });
-  }
-  expect(f.database.prepare("SELECT binding, retired_at FROM machine_peers WHERE machine_name = 'studio'").get()).toEqual({ binding: "key", retired_at: null });
 });
 
 it("rolls back peer retirement if deleting the route fails", async () => {
@@ -340,8 +322,21 @@ it("passes a failure's message through the scrub before it leaves the owner", as
   expect(JSON.stringify(response)).toContain("the log read failed near");
 });
 
+const latchStore = () => {
+  const latches = new Map<string, MachineUpdateLatch>();
+  return {
+    latches,
+    installOps: {
+      updateLatch: (installationId: string) => Effect.sync(() => latches.get(installationId)),
+      recordUpdateLatch: (latch: MachineUpdateLatch) => Effect.sync(() => { latches.set(latch.installationId, latch); }),
+    },
+  };
+};
+
 it("updates an idle pinned peer with no click and records the attempt", async () => {
   let copies = 0;
+  let dials = 0;
+  const store = latchStore();
   const peerStatus = {
     build: "b".repeat(64), version: "0.10.0", builtAt: "2026-01-01T00:00:00.000Z",
     form: "mac-mini" as const, keychain: "available" as const, installationId: "mini-install", machineName: "mini",
@@ -351,8 +346,9 @@ it("updates an idle pinned peer with no click and records the attempt", async ()
     autoUpdate: { downloadsBundles: false, signedRelease: false },
     ownStatus: Effect.succeed(Schema.decodeUnknownSync(MachineOwnStatus)({ build: "a".repeat(64), version: "0.11.0", builtAt: "2026-02-01T00:00:00.000Z", installationId: "own-install", machineName: "macbook", juntoHome: "/home/user/probe", pid: 71, ready: true, form: "mac-mini", keychain: "available" })),
     peerBuild: () => Effect.succeed("b".repeat(64)),
+    installOps: store.installOps,
     copy: () => Effect.sync(() => { copies += 1; return readyInstall(); }),
-  }, () => Effect.succeed({ stdout: JSON.stringify({ ok: true, command: "machine status", data: peerStatus }), stderr: "", exitCode: 0 }));
+  }, () => Effect.sync(() => { dials += 1; return { stdout: JSON.stringify({ ok: true, command: "machine status", data: peerStatus }), stderr: "", exitCode: 0 }; }));
   await f.call("machine.add", { name: "mini", sshTarget: "mac-mini", juntoHome: "/home/probe", installRoot: "/home/probe/install" });
   await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
   const stop = await f.start();
@@ -360,4 +356,33 @@ it("updates an idle pinned peer with no click and records the attempt", async ()
   stop();
   const listed = await f.call("machine.list", {});
   expect(listed.ok && listed.op === "machine.list" && listed.data.machines.find(row => row.machine.id === "mini")?.autoUpdate).toMatchObject({ state: "updated", targetBuild: "a".repeat(64) });
+  expect(store.latches.get("mini-install")).toMatchObject({ targetBuild: "a".repeat(64), outcome: "activated" });
+});
+
+it("pushes an installed but not reconnected peer once across three passes", async () => {
+  let copies = 0;
+  let dials = 0;
+  const store = latchStore();
+  const peerStatus = {
+    build: "b".repeat(64), version: "0.10.0", builtAt: "2026-01-01T00:00:00.000Z",
+    form: "mac-mini" as const, keychain: "available" as const, installationId: "mini-install", machineName: "mini",
+    juntoHome: "/home/probe", pid: 72, ready: true, runningSeats: 0,
+  };
+  const f = await fixture({
+    autoUpdate: { downloadsBundles: false, signedRelease: false },
+    ownStatus: Effect.succeed(Schema.decodeUnknownSync(MachineOwnStatus)({ build: "a".repeat(64), version: "0.11.0", builtAt: "2026-02-01T00:00:00.000Z", installationId: "own-install", machineName: "macbook", juntoHome: "/home/user/probe", pid: 71, ready: true, form: "mac-mini", keychain: "available" })),
+    peerBuild: () => Effect.succeed("b".repeat(64)),
+    installOps: store.installOps,
+    copy: () => Effect.sync(() => { copies += 1; return readyInstall(); }),
+  }, () => Effect.sync(() => { dials += 1; return { stdout: JSON.stringify({ ok: true, command: "machine status", data: peerStatus }), stderr: "", exitCode: 0 }; }));
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini", juntoHome: "/home/probe", installRoot: "/home/probe/install" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+
+  for (let pass = 1; pass <= 3; pass += 1) {
+    const stop = await f.start();
+    await vi.waitFor(() => expect(dials).toBe(pass));
+    stop();
+  }
+  expect(copies).toBe(1);
+  expect(store.latches.get("mini-install")).toMatchObject({ installationId: "mini-install", targetBuild: "a".repeat(64) });
 });

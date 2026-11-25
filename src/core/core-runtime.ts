@@ -6,6 +6,7 @@ import {
   type MachineOwnStatus,
 } from "@shared/machine-control";
 import { MachineRepository } from "./machines/repository";
+import { InstallOpsService } from "./install-ops/service";
 import { HostsService } from "./hosts/service";
 import { detectMachineForm } from "./hosts/machine-form";
 import { detectMachineKeychain } from "./hosts/machine-keychain";
@@ -482,6 +483,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const seatServices = yield* Effect.context<ModelService | ActorSeatOccupy | BoatWake>();
     const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
       connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect });
+    const installOps = yield* Effect.serviceOption(InstallOpsService);
     const linkSetup = yield* makeMachineLinkSetup({ home: options.home, juntoPath: () => {
       const bin = machinePackageCliDir();
       return bin === undefined ? undefined : join(bin, "junto");
@@ -492,6 +494,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     }) : undefined;
     const actions = yield* makeMachineOwnerActions({
       autoUpdate: { downloadsBundles: options.acquireBundle !== undefined, signedRelease: false },
+      ...(Option.isSome(installOps) ? { installOps: installOps.value } : {}),
       linkSetup,
       ...(vaultSetup === undefined ? {} : { vaultSetup }),
       ownStatus: machineStatus.own,

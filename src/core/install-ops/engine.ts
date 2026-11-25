@@ -8,6 +8,8 @@ import {
   INSTALL_OPS_SCHEMA_SQL,
   INSTALL_OPS_SCHEMA_VERSION,
   INSTALL_OPS_V1_SCHEMA_SQL,
+  INSTALL_OPS_V2_SCHEMA_SQL,
+  MACHINE_UPDATE_ATTEMPTS_SQL,
   MACHINE_UPDATE_LATCHES_SQL,
 } from "./schema";
 import {
@@ -70,16 +72,26 @@ const storedSchemaSql = (sql: string): string =>
 
 const expectedSchemaSql = storedSchemaSql(INSTALL_OPS_SCHEMA_SQL);
 const expectedV1SchemaSql = storedSchemaSql(INSTALL_OPS_V1_SCHEMA_SQL);
+const expectedV2SchemaSql = storedSchemaSql(INSTALL_OPS_V2_SCHEMA_SQL);
 
 const EXPECTED_V1_SCHEMA_OBJECTS = [
   { type: "index", name: "sqlite_autoindex_backfill_markers_1", tbl_name: "backfill_markers", sql: null },
   { type: "table", name: "backfill_markers", tbl_name: "backfill_markers", sql: expectedV1SchemaSql },
 ] as const;
 
-const EXPECTED_SCHEMA_OBJECTS = [
+const EXPECTED_V2_SCHEMA_OBJECTS = [
   { type: "index", name: "sqlite_autoindex_backfill_markers_1", tbl_name: "backfill_markers", sql: null },
   { type: "index", name: "sqlite_autoindex_machine_update_latches_1", tbl_name: "machine_update_latches", sql: null },
   { type: "table", name: "backfill_markers", tbl_name: "backfill_markers", sql: expectedV1SchemaSql },
+  { type: "table", name: "machine_update_latches", tbl_name: "machine_update_latches", sql: storedSchemaSql(MACHINE_UPDATE_LATCHES_SQL) },
+] as const;
+
+const EXPECTED_SCHEMA_OBJECTS = [
+  { type: "index", name: "sqlite_autoindex_backfill_markers_1", tbl_name: "backfill_markers", sql: null },
+  { type: "index", name: "sqlite_autoindex_machine_update_attempts_1", tbl_name: "machine_update_attempts", sql: null },
+  { type: "index", name: "sqlite_autoindex_machine_update_latches_1", tbl_name: "machine_update_latches", sql: null },
+  { type: "table", name: "backfill_markers", tbl_name: "backfill_markers", sql: expectedV1SchemaSql },
+  { type: "table", name: "machine_update_attempts", tbl_name: "machine_update_attempts", sql: storedSchemaSql(MACHINE_UPDATE_ATTEMPTS_SQL) },
   { type: "table", name: "machine_update_latches", tbl_name: "machine_update_latches", sql: storedSchemaSql(MACHINE_UPDATE_LATCHES_SQL) },
 ] as const;
 
@@ -97,7 +109,7 @@ type DatabaseFingerprint = {
   readonly schema: ReadonlyArray<SchemaObjectRow>;
 };
 
-type AdmittedDatabaseKind = "fresh" | "current" | "previous";
+type AdmittedDatabaseKind = "fresh" | "current" | "previous-v2" | "previous-v1";
 
 const integerPragma = (
   database: DatabaseSync,
@@ -189,7 +201,7 @@ const inspectDatabase = (database: DatabaseSync): DatabaseFingerprint => {
   return fingerprint;
 };
 
-const schemaIsExact = (schema: ReadonlyArray<SchemaObjectRow>, expectedObjects: typeof EXPECTED_SCHEMA_OBJECTS | typeof EXPECTED_V1_SCHEMA_OBJECTS): boolean =>
+const schemaIsExact = (schema: ReadonlyArray<SchemaObjectRow>, expectedObjects: typeof EXPECTED_SCHEMA_OBJECTS | typeof EXPECTED_V2_SCHEMA_OBJECTS | typeof EXPECTED_V1_SCHEMA_OBJECTS): boolean =>
   schema.length === expectedObjects.length &&
   schema.every((row, index) => {
     const expected = expectedObjects[index];
@@ -218,10 +230,18 @@ const admitFingerprint = (
 
   if (
     fingerprint.applicationId === INSTALL_OPS_APPLICATION_ID &&
+    fingerprint.userVersion === 2 &&
+    schemaIsExact(fingerprint.schema, EXPECTED_V2_SCHEMA_OBJECTS)
+  ) {
+    return "previous-v2";
+  }
+
+  if (
+    fingerprint.applicationId === INSTALL_OPS_APPLICATION_ID &&
     fingerprint.userVersion === 1 &&
     schemaIsExact(fingerprint.schema, EXPECTED_V1_SCHEMA_OBJECTS)
   ) {
-    return "previous";
+    return "previous-v1";
   }
 
   if (
@@ -246,12 +266,13 @@ const assertCurrentSchema = (database: DatabaseSync): void => {
   }
 };
 
-const migratePreviousSchema = (database: DatabaseSync): void => {
+const migratePreviousSchema = (database: DatabaseSync, kind: "previous-v1" | "previous-v2"): void => {
   let open = false;
   try {
     database.exec("BEGIN IMMEDIATE");
     open = true;
-    database.exec(MACHINE_UPDATE_LATCHES_SQL);
+    if (kind === "previous-v1") database.exec(MACHINE_UPDATE_LATCHES_SQL);
+    database.exec(MACHINE_UPDATE_ATTEMPTS_SQL);
     database.exec(`PRAGMA user_version = ${INSTALL_OPS_SCHEMA_VERSION}`);
     database.exec("COMMIT");
     open = false;
@@ -478,7 +499,7 @@ const openInstallOps = (configuredPath: string): Effect.Effect<
             "install-ops database identity changed between inspection and writable open",
           );
         }
-        if (writableKind === "previous") migratePreviousSchema(database);
+        if (writableKind === "previous-v1" || writableKind === "previous-v2") migratePreviousSchema(database, writableKind);
         fileGuard.verifyFamily();
 
         if (inspectionDatabase !== undefined) {
@@ -568,17 +589,17 @@ const openInstallOps = (configuredPath: string): Effect.Effect<
           `,
         );
         const readUpdateLatch = database.prepare(
-          "SELECT machine_name, target_build, outcome, at FROM machine_update_latches WHERE machine_name = ?",
+          "SELECT installation_id, target_build, outcome, at FROM machine_update_attempts WHERE installation_id = ?",
         );
         const writeUpdateLatch = database.prepare(
-          `INSERT INTO machine_update_latches(machine_name, target_build, outcome, at)
+          `INSERT INTO machine_update_attempts(installation_id, target_build, outcome, at)
            VALUES (?, ?, ?, ?)
-           ON CONFLICT(machine_name) DO UPDATE SET
+           ON CONFLICT(installation_id) DO UPDATE SET
              target_build = excluded.target_build,
              outcome = excluded.outcome,
              at = excluded.at`,
         );
-        const deleteUpdateLatch = database.prepare("DELETE FROM machine_update_latches WHERE machine_name = ?");
+        const deleteUpdateLatch = database.prepare("DELETE FROM machine_update_attempts WHERE installation_id = ?");
         fileGuard.verifyQuiescent();
 
         let closed = false;
@@ -723,26 +744,26 @@ const openInstallOps = (configuredPath: string): Effect.Effect<
                 }),
               catch: (cause) => serviceError("markComplete", cause),
             }),
-          updateLatch: (machineName) =>
+          updateLatch: (installationId) =>
             Effect.try({
               try: () => guardedOperation("updateLatch", () => {
-                const row = readUpdateLatch.get(machineName) as { readonly machine_name: string; readonly target_build: string; readonly outcome: string; readonly at: string } | undefined;
+                const row = readUpdateLatch.get(installationId) as { readonly installation_id: string; readonly target_build: string; readonly outcome: string; readonly at: string } | undefined;
                 if (row === undefined) return undefined;
-                return { machineName: row.machine_name, targetBuild: row.target_build, outcome: row.outcome, at: row.at } as MachineUpdateLatch;
+                return { installationId: row.installation_id, targetBuild: row.target_build, outcome: row.outcome, at: row.at } as MachineUpdateLatch;
               }),
               catch: (cause) => serviceError("updateLatch", cause),
             }),
           recordUpdateLatch: (latch) =>
             Effect.try({
               try: () => guardedOperation("recordUpdateLatch", () => {
-                writeUpdateLatch.run(latch.machineName, latch.targetBuild, latch.outcome, latch.at);
+                writeUpdateLatch.run(latch.installationId, latch.targetBuild, latch.outcome, latch.at);
               }),
               catch: (cause) => serviceError("recordUpdateLatch", cause),
             }),
-          clearUpdateLatch: (machineName) =>
+          clearUpdateLatch: (installationId) =>
             Effect.try({
               try: () => guardedOperation("clearUpdateLatch", () => {
-                deleteUpdateLatch.run(machineName);
+                deleteUpdateLatch.run(installationId);
               }),
               catch: (cause) => serviceError("clearUpdateLatch", cause),
             }),

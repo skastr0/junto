@@ -4,7 +4,7 @@
  * and append forward steps only when this file evolves.
  */
 
-export const INSTALL_OPS_SCHEMA_VERSION = 2 as const;
+export const INSTALL_OPS_SCHEMA_VERSION = 3 as const;
 
 /** Stable backfill ids — never reuse a completed id for a different walk. */
 export const BACKFILL_INLINE_MEDIA_V1 = "content.inline-media.v1" as const;
@@ -46,5 +46,23 @@ export const MACHINE_UPDATE_LATCHES_SQL = `
   ) STRICT;
 `;
 
-export const INSTALL_OPS_SCHEMA_SQL = `${INSTALL_OPS_V1_SCHEMA_SQL}
+/** The version 2 ledger, kept as shipped and never rewritten. */
+export const INSTALL_OPS_V2_SCHEMA_SQL = `${INSTALL_OPS_V1_SCHEMA_SQL}
 ${MACHINE_UPDATE_LATCHES_SQL}`;
+
+/** Version 3 keys every automatic attempt by the pin's installation id. */
+export const MACHINE_UPDATE_ATTEMPTS_SQL = `
+  CREATE TABLE machine_update_attempts (
+    installation_id TEXT PRIMARY KEY
+      CHECK (length(installation_id) BETWEEN 1 AND 128),
+    target_build TEXT NOT NULL
+      CHECK (length(target_build) = 64),
+    outcome TEXT NOT NULL
+      CHECK (outcome IN ('attempting', 'rolled-back', 'start-failed', 'stop-unconfirmed', 'uncertain', 'activated', 'failed', 'needs-signed-release')),
+    at TEXT NOT NULL
+      CHECK (length(at) BETWEEN 1 AND 64)
+  ) STRICT;
+`;
+
+export const INSTALL_OPS_SCHEMA_SQL = `${INSTALL_OPS_V2_SCHEMA_SQL}
+${MACHINE_UPDATE_ATTEMPTS_SQL}`;

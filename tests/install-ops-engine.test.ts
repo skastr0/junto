@@ -29,6 +29,7 @@ vi.mock("node:sqlite", () => ({
     readonly readOnly: boolean;
     private backfillSql: string | undefined;
     private latchesSql: string | undefined;
+    private attemptsSql: string | undefined;
     private userVersion = 0;
 
     constructor(path: string | URL, options?: { readonly readOnly?: boolean }) {
@@ -46,6 +47,8 @@ vi.mock("node:sqlite", () => ({
       if (backfill !== null) this.backfillSql = backfill[0].replace(/;$/u, "");
       const latches = sql.match(/CREATE TABLE machine_update_latches[\s\S]*?\) STRICT;/u);
       if (latches !== null) this.latchesSql = latches[0].replace(/;$/u, "");
+      const attempts = sql.match(/CREATE TABLE machine_update_attempts[\s\S]*?\) STRICT;/u);
+      if (attempts !== null) this.attemptsSql = attempts[0].replace(/;$/u, "");
       const version = sql.match(/PRAGMA user_version = (\d+)/u);
       if (version?.[1] !== undefined) this.userVersion = Number(version[1]);
     }
@@ -83,6 +86,12 @@ vi.mock("node:sqlite", () => ({
               tbl_name: "backfill_markers",
               sql: null,
             },
+            ...(this.attemptsSql === undefined ? [] : [{
+              type: "index",
+              name: "sqlite_autoindex_machine_update_attempts_1",
+              tbl_name: "machine_update_attempts",
+              sql: null,
+            }]),
             ...(this.latchesSql === undefined ? [] : [{
               type: "index",
               name: "sqlite_autoindex_machine_update_latches_1",
@@ -95,6 +104,12 @@ vi.mock("node:sqlite", () => ({
               tbl_name: "backfill_markers",
               sql: this.backfillSql,
             },
+            ...(this.attemptsSql === undefined ? [] : [{
+              type: "table",
+              name: "machine_update_attempts",
+              tbl_name: "machine_update_attempts",
+              sql: this.attemptsSql,
+            }]),
             ...(this.latchesSql === undefined ? [] : [{
               type: "table",
               name: "machine_update_latches",
