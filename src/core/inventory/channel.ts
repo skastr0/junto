@@ -1,22 +1,21 @@
 /**
- * The answering end of the link's inventory channel. The peer names a canvas
- * and nothing else; this machine admits it as it admits Stop (the peer is
- * pinned, edits that canvas, and the canvas has a seat here), then answers
- * from its own cache. A request never runs a probe: a stale or missing list
- * answers with `refreshing` and is scanned behind the answer, so the 30 s
- * request bound is never at stake.
+ * The answering end of the link's inventory channel. The peer's pin and the
+ * open link are the whole admission: the request names nothing, and this
+ * machine answers from its own cache. Asks coalesce per machine: one snapshot
+ * in flight, none while the cache is fresh, whoever asks and however often. A
+ * request never runs a probe it waits on: a stale or missing list answers
+ * with `refreshing` and is scanned behind the answer, so the 30 s request
+ * bound is never at stake.
  */
-import { Effect, Schema } from "effect";
+import { Deferred, Effect, Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/rpc";
 import { bindLinkChannel, linkContract, type LinkContractChannel } from "../link/contract";
 import type { LinkChannelContext } from "../link/types";
 import { LogService } from "../../node/observability/logger";
 import { MachineRepository } from "../machines/repository";
-import { ModelRecords } from "../model/records";
-import { ModelService } from "../model/service";
-import { InventoryUnavailableError } from "@shared/harness-domain/inventory";
+import { InventoryUnavailableError, type MachineInventory } from "@shared/harness-domain/inventory";
 import { HarnessInventory } from "../term/templates/harness-inventory";
-import { admitCanvasEditor, tagOf } from "./admission";
+import { admitPinnedPeer, tagOf } from "./admission";
 import {
   InventoryLinkFailure,
   LinkInventoryRequest,
@@ -26,7 +25,7 @@ import {
 } from "./wire";
 
 /**
- * The inventory channel's contract: one request, the canvas only, answered
+ * The inventory channel's contract: one request that names nothing, answered
  * with the machine's bounded snapshot or one of the channel's closed
  * refusals. It carries no events.
  */
@@ -47,13 +46,29 @@ const asLinkFailure = (machine: string, cause: unknown): InventoryLinkFailureTyp
 
 export const makeInventoryChannel = Effect.fn("InventoryLink.make")(function* () {
   const log = yield* LogService;
-  const services = yield* Effect.context<ModelService | ModelRecords | MachineRepository>();
+  const services = yield* Effect.context<MachineRepository>();
   const machines = yield* MachineRepository;
   const inventory = yield* HarnessInventory;
 
-  const snapshot = (request: LinkInventoryRequest, context: LinkChannelContext) => Effect.gen(function* () {
-    yield* admitCanvasEditor(context, request.canvas, yield* machines.machineName).pipe(Effect.provideContext(services));
-    const { snapshot, omittedModels, omittedProfiles } = wireSnapshot(yield* inventory.machine, Date.now());
+  // One machine snapshot in flight, shared by every asker: while a peer waits
+  // on it no second one starts, and a fresh cache starts no scan at all.
+  let answering: Deferred.Deferred<MachineInventory, InventoryUnavailableError> | undefined;
+  const machineSnapshot = Effect.gen(function* () {
+    const running = answering;
+    if (running !== undefined) return yield* Deferred.await(running);
+    const done = Deferred.makeUnsafe<MachineInventory, InventoryUnavailableError>();
+    answering = done;
+    return yield* inventory.machine.pipe(
+      Effect.onExit((exit) => {
+        if (answering === done) answering = undefined;
+        return Deferred.done(done, exit);
+      }),
+    );
+  });
+
+  const snapshot = (_request: LinkInventoryRequest, context: LinkChannelContext) => Effect.gen(function* () {
+    yield* admitPinnedPeer(context, yield* machines.machineName).pipe(Effect.provideContext(services));
+    const { snapshot, omittedModels, omittedProfiles } = wireSnapshot(yield* machineSnapshot, Date.now());
     if (omittedModels > 0 || omittedProfiles > 0) yield* Effect.logInfo("inventory entries left out", { omittedModels, omittedProfiles });
     return snapshot;
   }).pipe(

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Deferred, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeError } from "../src/node/failure-encode";
 import { HostsService } from "../src/core/hosts/service";
@@ -14,6 +14,7 @@ import {
   InventoryLinkFailure,
   InventoryNoSeatHere,
   InventoryNotFromItsMachine,
+  InventoryPeerNotPinned,
   wireSnapshot,
 } from "../src/core/inventory/wire";
 import { bindLinkChannel, linkClient, type LinkContractChannel } from "../src/core/link/contract";
@@ -21,7 +22,6 @@ import type { LinkFrame } from "../src/core/link/protocol";
 import { MachineLink } from "../src/core/link/service";
 import type { LinkChannelContext, LinkHello, LinkSession } from "../src/core/link/types";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
-import { ModelService } from "../src/core/model/service";
 import { makeStateEngineLive } from "../src/core/state/engine";
 import { facingRaw as linkFacingRaw, hello, machineLinkOver, makeSessions, pair as linkPair, type Run } from "./support/link-pair";
 import { makeTestLog } from "./support/test-log";
@@ -78,14 +78,15 @@ afterEach(async () => {
   clearMachines();
 });
 
-const runtimeWith = async (nodes: ReadonlyArray<Node>, canvasEditor: "editor" | "self", inventory?: MachineInventory) => {
+const runtimeWith = async (nodes: ReadonlyArray<Node>, inventory?: MachineInventory, gate?: Deferred.Deferred<void>) => {
   const root = await mkdtemp(join(tmpdir(), "junto-inventory-link-"));
   const scans = vi.fn();
   const inventoryLayer = Layer.succeed(HarnessInventory, HarnessInventory.of({
     harnesses: () => Effect.die("the channel reads the machine snapshot only"),
     models: () => Effect.die("the channel never scans"),
-    machine: Effect.sync(() => {
+    machine: Effect.gen(function* () {
       scans();
+      if (gate !== undefined) yield* Deferred.await(gate);
       return inventory ?? local(THIS_MACHINE);
     }),
   }));
@@ -102,8 +103,7 @@ const runtimeWith = async (nodes: ReadonlyArray<Node>, canvasEditor: "editor" | 
     const machines = yield* MachineRepository;
     yield* machines.pinPeer({ machineName: "macbook", installationId: editor });
     yield* machines.pinPeer({ machineName: PEER, installationId: installation("mini-installation") });
-    if (canvasEditor === "self") return yield* seedCanvas(canvas, nodes);
-    yield* (yield* ModelService).installCopy({ canvas, canvasId: "copied-canvas", seq: 1, editor, nodes, wires: [] });
+    yield* seedCanvas(canvas, nodes);
   }));
   return { root, runtime, scans };
 };
@@ -193,31 +193,37 @@ describe("inventory wire", () => {
 describe("inventory channel answer, over a real session pair", () => {
   const here = seat("mini-seat", { host: THIS_MACHINE, agentKey: `${THIS_MACHINE}:mini-seat` });
 
-  /** The editing machine asks this machine's real channel with the typed client. */
-  const answering = async (nodes: ReadonlyArray<Node>, editorOf: "editor" | "self", asker: LinkHello = EDITOR_HELLO) => {
-    const f = await runtimeWith(nodes, editorOf);
+  /** A pinned peer asks this machine's real channel with the typed client. */
+  const answering = async (nodes: ReadonlyArray<Node>, asker: LinkHello = EDITOR_HELLO) => {
+    const f = await runtimeWith(nodes);
     const channel = await f.runtime.runPromise(makeInventoryChannel());
     const run: Run = (effect) => f.runtime.runPromise(effect);
     const { left } = pair({ left: asker, right: helloOf(THIS_MACHINE, "studio-installation"), leftChannel: asking(), rightChannel: channel, run });
     await left.ready;
     const snapshot = (operationId: string) => Effect.flatMap(linkClient(InventoryLink), (client) =>
-      client.Snapshot(THIS_MACHINE, { canvas }, { operationId })).pipe(Effect.provideService(MachineLink, linkOver(() => left)));
+      client.Snapshot(THIS_MACHINE, {}, { operationId })).pipe(Effect.provideService(MachineLink, linkOver(() => left)));
     const ask = (operationId: string) => f.runtime.runPromise(snapshot(operationId));
     const refused = (operationId: string) => f.runtime.runPromise(Effect.flip(snapshot(operationId)));
     return { ...f, ask, refused, left };
   };
 
-  it("answers the canvas editor from the cache, with this machine's name", async () => {
-    const f = await answering([here], "editor");
+  it("answers a pinned peer on an open link from the cache, naming nothing", async () => {
+    const f = await answering([here]);
     const snapshot = await f.ask("op-inventory-1");
     expect(snapshot.machine).toBe(THIS_MACHINE);
     expect(snapshot.harnesses.map((row) => row.harness)).toEqual(["claude", "codex"]);
     expect(f.scans).toHaveBeenCalledTimes(1);
   });
 
+  it("answers a pinned peer when no canvas has a seat on this machine", async () => {
+    const f = await answering([]);
+    expect((await f.ask("op-no-seat")).machine).toBe(THIS_MACHINE);
+    expect(f.scans).toHaveBeenCalledTimes(1);
+  });
+
   // One runtime (a state database and a session pair) per case, each in its own test and time budget.
-  const refusal = async (nodes: ReadonlyArray<Node>, editorOf: "editor" | "self", asker?: LinkHello) => {
-    const f = await answering(nodes, editorOf, asker);
+  const refusal = async (asker: LinkHello) => {
+    const f = await answering([here], asker);
     const failure = await f.refused("op-inventory-1");
     expect(f.scans).not.toHaveBeenCalled();
     // The refusal arrives as the channel's own typed failure, decoded by the contract.
@@ -226,22 +232,50 @@ describe("inventory channel answer, over a real session pair", () => {
   };
 
   it("refuses an unpinned peer as a typed failure", async () => {
-    expect(await refusal([here], "editor", helloOf("macbook", "stranger-installation")))
+    expect(await refusal(helloOf("macbook", "stranger-installation")))
       .toMatchObject({ _tag: "InventoryPeerNotPinned", operationId: "op-inventory-1" });
   });
 
-  it("refuses a peer that does not edit the canvas as a typed failure", async () => {
-    expect(await refusal([here], "self")).toMatchObject({ _tag: "InventoryCanvasEditorMismatch" });
+  it("refuses a retired peer as unpinned, before any scan", async () => {
+    const f = await answering([here], PEER_HELLO);
+    await f.runtime.runPromise(Effect.flatMap(MachineRepository, (machines) => machines.retirePeer(PEER)));
+    expect(await f.refused("op-retired")).toMatchObject({ _tag: "InventoryPeerNotPinned" });
+    expect(f.scans).not.toHaveBeenCalled();
   });
 
-  it("refuses a canvas with no seat here as a typed failure", async () => {
-    expect(await refusal([seat("elsewhere", { host: "macbook", agentKey: "macbook:elsewhere" })], "editor"))
-      .toMatchObject({ _tag: "InventoryNoSeatHere" });
+  it("coalesces asks from two pinned peers into one scan", async () => {
+    const gate = Deferred.makeUnsafe<void>();
+    const f = await runtimeWith([here], undefined, gate);
+    const channel = await f.runtime.runPromise(makeInventoryChannel());
+    const run: Run = (effect) => f.runtime.runPromise(effect);
+    const entered = vi.fn();
+    const counted: LinkContractChannel = {
+      ...channel,
+      handleRequest: (tag, context, payload) => {
+        entered();
+        return channel.handleRequest(tag, context, payload);
+      },
+    };
+    const one = pair({ left: EDITOR_HELLO, right: helloOf(THIS_MACHINE, "studio-installation"), leftChannel: asking(), rightChannel: counted, run });
+    const two = pair({ left: PEER_HELLO, right: helloOf(THIS_MACHINE, "studio-installation"), leftChannel: asking(), rightChannel: counted, run });
+    await Promise.all([one.left.ready, two.left.ready]);
+    const askOver = (left: LinkSession, operationId: string) => f.runtime.runPromise(
+      Effect.flatMap(linkClient(InventoryLink), (client) => client.Snapshot(THIS_MACHINE, {}, { operationId }))
+        .pipe(Effect.provideService(MachineLink, linkOver(() => left))),
+    );
+    const first = askOver(one.left, "op-both-1");
+    const second = askOver(two.left, "op-both-2");
+    // Both requests are in the handler, waiting on the one snapshot, before it is allowed to finish.
+    await vi.waitFor(() => expect(entered).toHaveBeenCalledTimes(2));
+    expect(f.scans).toHaveBeenCalledTimes(1);
+    await f.runtime.runPromise(Deferred.succeed(gate, undefined));
+    expect((await Promise.all([first, second])).map((answer) => answer.machine)).toEqual([THIS_MACHINE, THIS_MACHINE]);
+    expect(f.scans).toHaveBeenCalledTimes(1);
   });
 
-  it("names the canvas only: a request with any other key closes the link before admission", async () => {
-    for (const payload of [{ canvas, harness: "claude" }, { canvas, command: ["claude", "--version"] }]) {
-      const f = await runtimeWith([here], "editor");
+  it("names nothing: a request that still names a canvas closes the link before admission", async () => {
+    for (const payload of [{ canvas }, { canvas, harness: "claude" }, { harness: "claude" }]) {
+      const f = await runtimeWith([here]);
       const channel = await f.runtime.runPromise(makeInventoryChannel());
       const raw = facingRaw({ self: helloOf(THIS_MACHINE, "studio-installation"), peer: EDITOR_HELLO, channel, run: (effect) => f.runtime.runPromise(effect) });
       await raw.session.ready;
@@ -252,7 +286,7 @@ describe("inventory channel answer, over a real session pair", () => {
   });
 
   it("refuses an event frame: the channel carries none", async () => {
-    const f = await runtimeWith([], "editor");
+    const f = await runtimeWith([]);
     const channel = await f.runtime.runPromise(makeInventoryChannel());
     const raw = facingRaw({ self: helloOf(THIS_MACHINE, "studio-installation"), peer: EDITOR_HELLO, channel, run: (effect) => f.runtime.runPromise(effect) });
     await raw.session.ready;
@@ -264,11 +298,9 @@ describe("inventory channel answer, over a real session pair", () => {
 });
 
 describe("inventory channel request, over a real session pair", () => {
-  const remote = seat("on-mini", { host: PEER, agentKey: `${PEER}:on-mini` });
-
-  /** This machine edits the canvas and asks `mini`, whose end is a real session or one written by hand. */
+  /** This machine asks `mini` over a pin and an open link; the end is a real session or one written by hand. */
   const client = async () => {
-    const f = await runtimeWith([remote], "self");
+    const f = await runtimeWith([]);
     const dir = join(f.root, "peer-inventory");
     const host = Schema.decodeUnknownSync(RemoteHost)({
       id: PEER, label: "Mini", isThisMachine: false, sshEndpoint: "mini", capabilities: ["terminal"],
@@ -281,7 +313,7 @@ describe("inventory channel request, over a real session pair", () => {
     const self = helloOf(THIS_MACHINE, "studio-installation");
     let session: LinkSession | undefined;
     /** `mini` answers with the real session typed by the contract. */
-    const typedPeer = (respond: (request: { readonly canvas: string }, context: LinkChannelContext) => ReturnType<NonNullable<LinkContractChannel["handleRequest"]>>) => {
+    const typedPeer = (respond: (request: Record<string, never>, context: LinkChannelContext) => ReturnType<NonNullable<LinkContractChannel["handleRequest"]>>) => {
       const seen: Array<{ readonly payload: unknown; readonly operationId?: string }> = [];
       const peer = bindLinkChannel(InventoryLink, { requests: { Snapshot: (request, context) => {
         seen.push({ payload: request, ...(context.operationId === undefined ? {} : { operationId: context.operationId }) });
@@ -303,12 +335,12 @@ describe("inventory channel request, over a real session pair", () => {
     return { ask, dir, typedPeer, rawPeer, unlink };
   };
 
-  it("sends the canvas and the operation id, keeps the snapshot 0600 in a 0700 directory", async () => {
+  it("sends an empty request and the operation id, and keeps the snapshot 0600 in a 0700 directory", async () => {
     const good = wireSnapshot(local(PEER), 1_792_000_100_000).snapshot;
     const c = await client();
     const seen = c.typedPeer(() => Effect.succeed(good));
     const answer = await c.ask("op-ask-1");
-    expect(seen).toEqual([{ payload: { canvas }, operationId: "op-ask-1" }]);
+    expect(seen).toEqual([{ payload: {}, operationId: "op-ask-1" }]);
     expect(answer.ok && answer.inventory.harnesses[0]!.models.map((model) => model.id))
       .toEqual(["opus[1m]", "openrouter/~anthropic/claude-opus-latest", "grok-4.7"]);
     expect((await stat(c.dir)).mode & 0o777).toBe(0o700);
@@ -354,9 +386,9 @@ describe("inventory channel request, over a real session pair", () => {
 
   it("carries the answering machine's typed refusal through the link", async () => {
     const c = await client();
-    c.typedPeer(() => Effect.fail(new InventoryNoSeatHere({ machine: PEER, message: "This canvas has no seat on this machine." })));
+    c.typedPeer(() => Effect.fail(new InventoryPeerNotPinned({ machine: PEER, message: "The asking machine is no longer pinned." })));
     const answer = await c.ask("op-refused");
-    expect(!answer.ok && answer.error).toMatchObject({ failure: "InventoryNoSeatHere", reason: "failed" });
+    expect(!answer.ok && answer.error).toMatchObject({ failure: "InventoryPeerNotPinned", reason: "failed" });
   });
 
   it("never shows a stored file that fails the closed decode", async () => {
@@ -375,7 +407,7 @@ describe("inventory channel request, over a real session pair", () => {
     const secret = "SECRETVALUE7f3k2";
 
     // The answering end refuses a request it cannot decode, and closes.
-    const f = await runtimeWith([seat("here", { host: THIS_MACHINE, agentKey: `${THIS_MACHINE}:here` })], "editor");
+    const f = await runtimeWith([seat("here", { host: THIS_MACHINE, agentKey: `${THIS_MACHINE}:here` })]);
     const channel = await f.runtime.runPromise(makeInventoryChannel());
     const raw = facingRaw({ self: helloOf(THIS_MACHINE, "studio-installation"), peer: EDITOR_HELLO, channel, run: (effect) => f.runtime.runPromise(effect) });
     await raw.session.ready;
@@ -395,7 +427,7 @@ describe("inventory channel request, over a real session pair", () => {
     expect(log).toContain("link closed");
     expect(log).toContain("link response refused");
     expect(log).toContain("peer inventory failed");
-    expect(log).toContain("canvas");
+    expect(log).toContain("inventory request does not match its schema");
     expect(log).not.toContain(secret);
   });
 

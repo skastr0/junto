@@ -2,9 +2,10 @@
  * The link's inventory channel: what crosses, and nothing else
  * (docs/machines.md, Harness inventory).
  *
- * The request is the canvas only. The answer is its own closed struct, not
- * `HarnessInventory`: the executable path, failure text and model
- * descriptions stay on the scanned machine. Every harness-output string has a
+ * The request names nothing: the pin and the open link are the whole ask, so
+ * a machine with no seat on any canvas can still answer Add item. The answer
+ * is its own closed struct, not `HarnessInventory`: the executable path,
+ * failure text and model descriptions stay on the scanned machine. Every harness-output string has a
  * pattern as well as a bound, so a snapshot has a fixed maximum size and no
  * control, bidi, zero-width, quote or angle-bracket character. The sender
  * builds it field by field and leaves out what does not fit; the receiver
@@ -20,7 +21,6 @@ import {
 import { OperationId } from "@shared/failure";
 import { MachineName } from "@shared/machine-control";
 import { HARNESS_IDS, HarnessId, templateFor } from "@shared/managed-terminal-templates";
-import { CanvasName } from "@shared/model";
 import { MODEL_ID_PATTERN, MODEL_LABEL_PATTERN } from "@shared/model-id";
 import { MAX_PROFILES, PROFILE_NAME_PATTERN } from "@shared/profile-name";
 import { fittingProfiles } from "../term/templates/harness-inventory";
@@ -87,7 +87,9 @@ export const LinkInventorySnapshot = Schema.Struct({
   new Set(snapshot.harnesses.map((row) => row.harness)).size === snapshot.harnesses.length || "a harness is named twice")));
 export type LinkInventorySnapshot = typeof LinkInventorySnapshot.Type;
 
-export const LinkInventoryRequest = Schema.Struct({ canvas: CanvasName });
+/** No field is admitted: an older asker that names a canvas is refused, not ignored. */
+export const LinkInventoryRequest = Schema.Struct({}).pipe(Schema.check(Schema.makeFilter((request: {}) =>
+  Object.keys(request).length === 0 || "an inventory request names nothing")));
 export type LinkInventoryRequest = typeof LinkInventoryRequest.Type;
 
 // ── Failures ───────────────────────────────────────────────────────────────

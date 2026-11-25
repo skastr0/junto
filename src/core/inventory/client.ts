@@ -1,11 +1,11 @@
 /**
- * The asking end of the link's inventory channel. The machine that edits a
- * canvas asks a seat's machine for its snapshot, naming the canvas only, with
- * the channel's typed client. The session decodes the answer closed with the
- * contract's schema, and a bad snapshot fails only that request, so it is one
- * typed refusal with the link still open. A good one is kept on disk; when
- * the machine cannot be asked, the last one it sent answers with its age and
- * the typed reason.
+ * The asking end of the link's inventory channel. A machine asks a pinned peer
+ * over an open link for its snapshot; the request names nothing, so a peer
+ * with no seat on any canvas can still answer Add item. The session decodes
+ * the answer closed with the contract's schema, and a bad snapshot fails only
+ * that request, so it is one typed refusal with the link still open. A good
+ * one is kept on disk; when the machine cannot be asked, the last one it sent
+ * answers with its age and the typed reason.
  */
 import { randomUUID } from "node:crypto";
 import { Context, Effect, Layer } from "effect";
@@ -15,10 +15,7 @@ import { describeCause } from "../../node/failure-encode";
 import { HostsService } from "../hosts/service";
 import { linkClient } from "../link/contract";
 import { isMachineLinkError, MachineLink } from "../link/service";
-import { MachineRepository } from "../machines/repository";
-import { ModelRecords } from "../model/records";
-import { ModelService } from "../model/service";
-import { canvasWithSeatOn, tagOf } from "./admission";
+import { tagOf } from "./admission";
 import { InventoryLink } from "./channel";
 import { makePeerInventoryCache, type PeerInventoryCache, type StoredPeerInventory } from "./peer-cache";
 import { InventoryNotFromItsMachine, InventorySnapshotRefused, inventoryOfSnapshot } from "./wire";
@@ -41,21 +38,13 @@ export const makePeerInventory = Effect.fn("PeerInventory.make")(function* (cach
   const inventory = yield* linkClient(InventoryLink);
   const link = yield* MachineLink;
   const hosts = yield* HostsService;
-  const lookups = yield* Effect.context<ModelService | ModelRecords | MachineRepository>();
 
   const ask = (machine: string, operationId: string) => Effect.gen(function* () {
-    const canvas = yield* canvasWithSeatOn(machine).pipe(Effect.provideContext(lookups));
-    if (canvas === undefined)
-      return yield* new InventoryUnavailableError({
-        machine,
-        reason: "unreachable",
-        message: `No canvas this machine edits has a seat on ${machine}, so it cannot ask ${machine} for its harnesses.`,
-      });
     const host = yield* hosts.get(machine);
     if (host === undefined)
       return yield* new InventoryUnavailableError({ machine, reason: "unreachable", message: `${machine} is not a registered machine.` });
     yield* link.connect(host);
-    const snapshot = yield* inventory.Snapshot(machine, { canvas }, { operationId }).pipe(
+    const snapshot = yield* inventory.Snapshot(machine, {}, { operationId }).pipe(
       Effect.catchTag("LinkFrameInvalid", (refused) => Effect.fail(refused.problem !== "response" ? refused : new InventorySnapshotRefused({
         machine,
         operationId,

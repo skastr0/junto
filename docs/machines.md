@@ -376,9 +376,10 @@ The one interface three seats build against.
   - `status`: reachable or not, harness CLIs present, the names of missing
     secrets. Never a value, a path or anything a caller chose to probe.
   - `inventory`: the machine's own harness snapshot, each harness with its
-    version, model ids and permission mode names, and its harness settings
-    read and written by closed key (Harness inventory, below). Nothing else,
-    and nothing a caller chose to probe.
+    version, model ids and permission mode names, read by any pinned peer on
+    an open link. Nothing else, and nothing a caller chose to probe. Harness
+    settings are the native-config channel's, read and written by closed key
+    (Harness inventory, below).
   - `consensus`: Raft messages between the machines on a canvas's
     authority list (plan 0.11/06), batched per machine pair
     (`remote-core`). No handler is bound yet.
@@ -580,9 +581,16 @@ machine that runs it.
   No paths, no command output, no environment, no argv. It is decoded with a
   closed decoder on arrival, and `remote-security` checks each field against
   the redaction rule (`docs/security-doctrine.md`) before it lands.
-- **The `inventory` channel carries it.** The machine that edits the canvas
-  asks a linked machine for its snapshot, and that machine answers from its
-  cache, probing again only when the cache has expired. `status` is unchanged
+- **Any pinned peer on an open link may ask.** The inventory channel admits a
+  pinned, active peer by the installation id its hello carried, and refuses an
+  unpinned, departed or removed one as unpinned; the asker need not edit the
+  canvas. The request names nothing, so a machine with no seat on any canvas
+  can still answer the Add item picker. A request that names a canvas is
+  refused, not ignored: both ends of a link are one build (rule 8), so an
+  older asker failing this way is a version fault, not a broken inventory. A
+  machine answers from its cache, probing again only when the cache has
+  expired; asks coalesce per machine, one snapshot in flight and none while
+  the cache is fresh, whoever asks and however often. `status` is unchanged
   and stays probe-free.
 - **Unreachable is a state, never a wait.** The editing machine keeps the last
   snapshot each machine sent, on disk, so it survives a restart. A machine it cannot reach shows that snapshot,
