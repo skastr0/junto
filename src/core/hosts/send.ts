@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { Clock, Effect, Schema } from "effect";
 import * as NodeStream from "@effect/platform-node/NodeStream";
-import { MachineInstallError, MachineInstallResult, MachineInstallEvent, type MachineSendInput } from "@shared/machine-install";
+import { MACHINE_INSTALL_CHECKS, MachineInstallError, MachineInstallResult, MachineInstallEvent, type MachineInstallCheck, type MachineSendInput } from "@shared/machine-install";
+import { installCheckWords } from "./install-check-words";
 import { SshTransport, type SshTarget } from "../ssh";
 import { SshTransferExitError } from "../ssh/service";
 import { SshExitError, SshTimeoutError } from "../ssh/domain";
@@ -59,8 +60,16 @@ const Failure = Schema.Struct({ ok: Schema.Literal(false), command: Schema.Liter
     transitions: MachineInstallError.fields.transitions,
     runningSeats: MachineInstallError.fields.runningSeats,
     runningSeatsUnknown: MachineInstallError.fields.runningSeatsUnknown,
+    // Checked by admitCheck, not here: a code this side does not know is dropped and the rest still decodes.
+    check: Schema.optionalKey(Schema.Unknown),
   }),
 }) });
+/** A far code, admitted only when it is one of this side's own: anything else is dropped. */
+const admitCheck = (value: unknown): MachineInstallCheck | undefined =>
+  typeof value === "string" && value.length <= 64 && /^[a-z][a-z-]*$/.test(value)
+    && (MACHINE_INSTALL_CHECKS as ReadonlyArray<string>).includes(value) ? value as MachineInstallCheck : undefined;
+/** The far machine's text as one log line: scrubbed, no control characters or line breaks, at most 2 KB. */
+export const farLogLine = (text: string): string => scrubText(text).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").slice(0, 2048);
 
 export const sendMachine = (
   target:SshTarget,
@@ -134,21 +143,35 @@ export const sendMachine = (
       pending = ""; dropped = false;
     }
   };
-  const transferError = (cause: unknown): MachineInstallError => {
+  const transferError = (cause: unknown): { readonly error: MachineInstallError; readonly check?: MachineInstallCheck; readonly said?: string } => {
     if (cause instanceof SshTransferExitError) {
       const decoded = Schema.decodeUnknownResult(Schema.fromJsonString(Failure), { onExcessProperty: "error" })(cause.stderr.trim().split("\n").at(-1));
-      // The remote's words are data: scrubbed again on receipt.
-      if (decoded._tag === "Success") return new MachineInstallError({ message: scrubText(decoded.success.error.message),
-        disposition: decoded.success.error.details.disposition, retryable: false, ...failureHere(cause, machine),
-        ...(decoded.success.error.details.transitions === undefined ? {} : { transitions: decoded.success.error.details.transitions }),
-        ...(decoded.success.error.details.runningSeats === undefined ? {} : { runningSeats: decoded.success.error.details.runningSeats }),
-        ...(decoded.success.error.details.runningSeatsUnknown === undefined ? {} : { runningSeatsUnknown: decoded.success.error.details.runningSeatsUnknown }),
-      });
+      if (decoded._tag === "Success") {
+        const { message: said, details } = decoded.success.error;
+        // Every field but the words is decided as before: the code picks a sentence and nothing else.
+        const decided = {
+          disposition: details.disposition, retryable: false,
+          ...(details.transitions === undefined ? {} : { transitions: details.transitions }),
+          ...(details.runningSeats === undefined ? {} : { runningSeats: details.runningSeats }),
+          ...(details.runningSeatsUnknown === undefined ? {} : { runningSeatsUnknown: details.runningSeatsUnknown }),
+        };
+        const check = admitCheck(details.check);
+        const words = check === undefined ? undefined : installCheckWords(check, details.disposition);
+        // The far text goes to the log only: the chain behind it would carry it to the companion, so it is left off.
+        if (check !== undefined && words !== undefined) return { error: new MachineInstallError({ message: words, ownWords: true, ...decided }), check, said };
+        // The remote's words are data: scrubbed again on receipt.
+        return { error: new MachineInstallError({ message: scrubText(said), ...decided, ...failureHere(cause, machine) }) };
+      }
     }
-    return new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), retryable: false, disposition: "uncertain", transitions, ...failureHere(cause, machine) });
+    return { error: new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), retryable: false, disposition: "uncertain", transitions, ...failureHere(cause, machine) }) };
+  };
+  const transferFailed = (cause: unknown) => {
+    const { error, check, said } = transferError(cause);
+    return said === undefined ? Effect.fail(error)
+      : Effect.logWarning("the far install refused", { check, said: farLogLine(said) }).pipe(Effect.andThen(Effect.fail(error)));
   };
   const result=yield* ssh.transfer(program,NodeStream.fromReadable({evaluate:()=>createReadStream(archive),onError:installError}),MACHINE_TRANSFER_TIMEOUT_MS,observe,
-    bytes => copy.advance(bytes, clock.currentTimeMillisUnsafe())).pipe(Effect.mapError(transferError));
-  const response=yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Success))(result.stdout.trim(), { onExcessProperty: "error" }).pipe(Effect.mapError(transferError));
+    bytes => copy.advance(bytes, clock.currentTimeMillisUnsafe())).pipe(Effect.catch(transferFailed));
+  const response=yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Success))(result.stdout.trim(), { onExcessProperty: "error" }).pipe(Effect.mapError(cause => transferError(cause).error));
   return response.data;
 }));

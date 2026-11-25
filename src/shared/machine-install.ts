@@ -86,6 +86,43 @@ export const MachineUninstallResult = Schema.Struct({
 });
 export type MachineUninstallResult = typeof MachineUninstallResult.Type;
 
+/**
+ * The closed list of refusals the far install names by code
+ * (src/contract/core/machine-install-checks.json, which the native install
+ * reads too). The code chooses the near side's words and nothing else.
+ */
+export const MACHINE_INSTALL_CHECKS = [
+  "boat-key-not-placed",
+  "bundle-manifest-invalid",
+  "bundle-mismatch",
+  "bundle-not-directory",
+  "bundle-special-file",
+  "bundle-writable-by-others",
+  "core-mismatch",
+  "database-copy-failed",
+  "database-not-private",
+  "home-lock-refused",
+  "install-folder-not-ours",
+  "install-lease-unavailable",
+  "installed-not-started",
+  "machine-path-unsafe",
+  "restore-finish-blocked",
+  "restore-interrupted",
+  "restore-owed",
+  "running-seats-unreported",
+  "seats-did-not-stop",
+  "send-in-progress",
+  "service-not-ours",
+  "service-not-quiescent",
+  "service-platform-unsupported",
+  "start-and-restore-failed",
+  "start-failed",
+  "start-rolled-back",
+  "status-unreadable",
+] as const;
+export const MachineInstallCheck = Schema.Literals(MACHINE_INSTALL_CHECKS);
+export type MachineInstallCheck = typeof MachineInstallCheck.Type;
+
 export class MachineInstallError extends Schema.TaggedError<MachineInstallError>()("MachineInstallError", {
   message: Schema.String,
   retryable: Schema.Boolean,
