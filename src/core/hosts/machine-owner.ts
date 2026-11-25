@@ -119,7 +119,13 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         yield* hosts.list;
         return { machineName: yield* machines.machineName, installationId: yield* machines.installationId };
       }
-      case "machine.setup": return yield* machines.pinPeer(request.args);
+      case "machine.setup": {
+        // The answer is the pin's public projection (MachinePeerPin): a pin a
+        // link bound to its key keeps that binding in the store, and the
+        // binding never leaves in this answer.
+        const pin = yield* machines.pinPeer(request.args);
+        return { machineName: pin.machineName, installationId: pin.installationId, boundAt: pin.boundAt };
+      }
       case "machine.status": {
         const name = request.args.name;
         if (name === undefined || name === (yield* machines.machineName)) return yield* options.ownStatus;

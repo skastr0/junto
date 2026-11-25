@@ -86,6 +86,25 @@ it("joins active pins on the list and retires the pin with route removal", async
   }
 });
 
+it("answers setup on a pin a link bound to its key with the pin's contract, and keeps the binding in the store", async () => {
+  // remote-verify receipt 8: this machine linked with the editing machine, so
+  // its pin of the editor is key-bound (machine-link.ts pins with binding
+  // "key"). The editor then removed this machine, added it again and sent to
+  // it: the send runs setup here again, which answered a pin carrying its
+  // binding and failed its own contract.
+  const f = await fixture();
+  const first = await f.call("machine.setup", { machineName: "studio", installationId: "studio-install" });
+  expect(first.ok).toBe(true);
+  f.database.exec("UPDATE machine_peers SET binding = 'key' WHERE machine_name = 'studio'");
+  const again = await f.call("machine.setup", { machineName: "studio", installationId: "studio-install" });
+  expect(again).toMatchObject({ ok: true, op: "machine.setup" });
+  if (again.ok && again.op === "machine.setup") {
+    expect(Object.keys(again.data).sort()).toEqual(["boundAt", "installationId", "machineName"]);
+    expect(again.data).toMatchObject({ machineName: "studio", installationId: "studio-install" });
+  }
+  expect(f.database.prepare("SELECT binding, retired_at FROM machine_peers WHERE machine_name = 'studio'").get()).toEqual({ binding: "key", retired_at: null });
+});
+
 it("rolls back peer retirement if deleting the route fails", async () => {
   const f = await fixture();
   await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
