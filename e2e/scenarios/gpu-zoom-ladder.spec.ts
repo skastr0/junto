@@ -491,6 +491,19 @@ const seatChurn = (board: ProofBoard) => {
 // --- pictures ------------------------------------------------------------------
 
 const shot = async (page: Page, clip?: Rect): Promise<PngImage> => PNG.sync.read(await page.screenshot(clip === undefined ? {} : { clip }));
+/** The pane's part of a full-page shot, in device pixels, so a pane-clipped frame and it are the same space. */
+const paneOf = (image: PngImage, pane: Rect, dpr: number): PngImage => {
+  const x = Math.round(pane.x * dpr);
+  const y = Math.round(pane.y * dpr);
+  const width = Math.min(image.width - x, Math.round(pane.width * dpr));
+  const height = Math.min(image.height - y, Math.round(pane.height * dpr));
+  const out = new PNG({ width, height });
+  for (let row = 0; row < height; row += 1) {
+    const from = ((y + row) * image.width + x) * 4;
+    image.data.copy(out.data, row * width * 4, from, from + width * 4);
+  }
+  return out;
+};
 
 const delta = (a: PngImage, i: number, b: PngImage, j: number): number =>
   Math.max(Math.abs(a.data[i]! - b.data[j]!), Math.abs(a.data[i + 1]! - b.data[j + 1]!), Math.abs(a.data[i + 2]! - b.data[j + 2]!));
@@ -909,7 +922,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
       await parkPointer(freshPage, freshPane);
       await settleAtlas(freshPage);
       const release = await holdForShot(freshPage);
-      const image = await shot(freshPage);
+      const image = paneOf(await shot(freshPage), freshPane, dpr);
       await release();
       const state = await readProofState(freshPage);
       const mask = new Uint8Array(image.width * image.height);
