@@ -124,8 +124,9 @@ export type AtlasAudit = {
   readonly samples: ReadonlyArray<AtlasAuditViolation>;
 };
 
-/** One landed cell whose texels differ from a fresh raster of its own quad. */
+/** One landed cell whose texels differ from a fresh raster of its own quad, or one fixed texel or gutter that is not what the atlas contract keeps it. */
 export type AtlasTexelMismatch = {
+  readonly kind: "texels" | "box" | "gutter" | "reserved-texel";
   readonly cell: number;
   readonly key: string;
   readonly meanDiff: number;
@@ -138,10 +139,19 @@ export type AtlasTexelMismatch = {
   readonly h: number;
 };
 
-/** The atlas's texel readback check over referenced, landed sprite cells. */
+/**
+ * The atlas's texel readback check over referenced, landed cells.
+ *
+ * `skipped` counts only cells a quad can draw now that the audit did not
+ * compare; a proof gate treats every one as a failure. `undrawn` counts the
+ * cells no quad can draw now, by why, and is information only. `truncated` is
+ * true when the audit stopped at its limit with comparable cells left.
+ */
 export type AtlasTexelAudit = {
   readonly checked: number;
+  readonly truncated: boolean;
   readonly skipped: Readonly<Record<string, number>>;
+  readonly undrawn: Readonly<Record<string, number>>;
   readonly mismatches: ReadonlyArray<AtlasTexelMismatch>;
   readonly worst: number;
 };

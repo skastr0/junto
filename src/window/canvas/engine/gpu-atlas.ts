@@ -2071,30 +2071,169 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   };
 
   const auditTexels = async (limit = 400): Promise<AtlasTexelAudit> => {
-    const result: { checked: number; skipped: Record<string, number>; mismatches: AtlasTexelMismatch[]; worst: number } = {
-      checked: 0,
-      skipped: {},
-      mismatches: [],
-      worst: 0,
+    const result: {
+      checked: number;
+      truncated: boolean;
+      skipped: Record<string, number>;
+      undrawn: Record<string, number>;
+      mismatches: AtlasTexelMismatch[];
+      worst: number;
+    } = { checked: 0, truncated: false, skipped: {}, undrawn: {}, mismatches: [], worst: 0 };
+    const count = (bag: Record<string, number>, why: string): void => {
+      bag[why] = (bag[why] ?? 0) + 1;
     };
-    const skip = (why: string): void => {
-      result.skipped[why] = (result.skipped[why] ?? 0) + 1;
+    const skip = (why: string): void => count(result.skipped, why);
+    const undrawn = (why: string): void => count(result.undrawn, why);
+
+    type Piece = {
+      readonly cell: number;
+      readonly key: string;
+      readonly kind: "texels" | "gutter" | "reserved-texel";
+      readonly page: number;
+      readonly textureX: number;
+      readonly textureY: number;
+      readonly x: number;
+      readonly y: number;
+      readonly w: number;
+      readonly h: number;
+      readonly sourceX: number;
+      readonly sourceY: number;
+      readonly layer: number;
+      readonly bpp: number;
+      readonly want?: Uint8Array | Uint8ClampedArray;
+      readonly wantWidth: number;
+      readonly detail: string;
+      buffer: GPUBuffer;
+      stride: number;
     };
-    if (device === undefined || typeof document === "undefined" || typeof device.createBuffer !== "function") {
-      skip("no-device");
-      return result;
+
+    const pieces: Piece[] = [];
+    let acceptedCells = 0;
+    let encoder: GPUCommandEncoder | undefined;
+
+    const copyRect = (piece: Omit<Piece, "buffer" | "stride">, texture: GPUTexture): void => {
+      if (encoder === undefined || device === undefined) return;
+      const stride = Math.ceil((piece.w * piece.bpp) / 256) * 256;
+      const buffer = device.createBuffer({ size: Math.max(256, stride * piece.h), usage: 0x0001 | 0x0008 }); // MAP_READ | COPY_DST
+      encoder.copyTextureToBuffer(
+        { texture, mipLevel: 0, origin: { x: piece.textureX, y: piece.textureY, z: piece.layer } },
+        { buffer, bytesPerRow: stride, rowsPerImage: piece.h },
+        { width: piece.w, height: piece.h, depthOrArrayLayers: 1 },
+      );
+      pieces.push({ ...piece, buffer, stride });
+    };
+
+    const zeroRect = (
+      texture: GPUTexture,
+      textureX: number,
+      textureY: number,
+      w: number,
+      h: number,
+      bpp: number,
+      cell: number,
+      key: string,
+      kind: "gutter" | "reserved-texel",
+      page: number,
+      detail: string,
+    ): void => {
+      if (w <= 0 || h <= 0) return;
+      copyRect(
+        { cell, key, kind, page, textureX, textureY, x: textureX, y: textureY, w, h, sourceX: 0, sourceY: 0, layer: 0, bpp, wantWidth: 0, detail },
+        texture,
+      );
+    };
+
+    /** The largest row bands of a cell at full width that stay near the audit's texel budget. */
+    const bands = (w: number, h: number): ReadonlyArray<{ readonly y: number; readonly h: number }> => {
+      const cap = 4_000_000;
+      if (w * h <= cap) return [{ y: 0, h }];
+      const count = 16;
+      const bandH = Math.max(1, Math.floor(cap / Math.max(1, w * count)));
+      if (bandH >= h) return [{ y: 0, h }];
+      const out: Array<{ y: number; h: number }> = [];
+      for (let i = 0; i < count; i += 1) {
+        const y = Math.round((i * (h - bandH)) / (count - 1));
+        const last = out[out.length - 1];
+        if (last !== undefined && y < last.y + last.h) continue;
+        out.push({ y, h: Math.min(bandH, h - y) });
+      }
+      return out;
+    };
+
+    const freshBytes = (pixels: AtlasPixels, w: number, h: number, bpp: number): Uint8Array | Uint8ClampedArray | undefined => {
+      const carried = (pixels as { readonly data?: Uint8Array }).data;
+      if (carried !== undefined) {
+        if (bpp === 1 && carried.length >= w * h) return carried;
+        if (bpp === 4 && carried.length >= w * h * 4) return carried;
+      }
+      const src = ("source" in pixels ? pixels.source : pixels) as CanvasImageSource;
+      let ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
+      if (typeof (src as HTMLCanvasElement).getContext === "function" && (src as HTMLCanvasElement).width === w && (src as HTMLCanvasElement).height === h) {
+        ctx = (src as HTMLCanvasElement).getContext("2d", { willReadFrequently: true }) as CanvasRenderingContext2D | null;
+      } else {
+        let canvas: HTMLCanvasElement | OffscreenCanvas | undefined;
+        if (typeof OffscreenCanvas === "function") canvas = new OffscreenCanvas(w, h);
+        else if (typeof document !== "undefined") {
+          const own = document.createElement("canvas");
+          own.width = w;
+          own.height = h;
+          canvas = own;
+        }
+        if (canvas === undefined) return undefined;
+        ctx = canvas.getContext("2d", { willReadFrequently: true }) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+        if (ctx === null) return undefined;
+        ctx.drawImage(src, 0, 0, w, h, 0, 0, w, h);
+      }
+      if (ctx === null || typeof ctx.getImageData !== "function") return undefined;
+      const rgba = ctx.getImageData(0, 0, w, h).data;
+      if (bpp === 4) return rgba;
+      const alpha = new Uint8Array(w * h);
+      for (let i = 0; i < alpha.length; i += 1) alpha[i] = rgba[i * 4 + 3]!;
+      return alpha;
+    };
+
+    // Pending level-0 writes are already in the texture, but their mip levels
+    // may still be queued. Draw them before any readback so the texture the
+    // audit reads is the one a frame can sample.
+    generateDirtyMipmaps();
+
+    const canRead =
+      device !== undefined &&
+      typeof device.createBuffer === "function" &&
+      typeof device.createCommandEncoder === "function";
+    if (canRead) {
+      encoder = device!.createCommandEncoder();
+      if (typeof encoder.copyTextureToBuffer !== "function") encoder = undefined;
     }
-    const dev = device;
-    type Job = { rec: SlotRecord; at: Placed; want: Uint8ClampedArray; buffer: GPUBuffer; stride: number; key: string };
-    const jobs: Job[] = [];
-    const encoder = dev.createCommandEncoder();
-    for (let i = 0; i < highWaterCells && jobs.length < limit; i += 1) {
+
+    for (let i = 0; i < highWaterCells; i += 1) {
       const rec = slots[i];
-      if (rec === undefined || rec.refCount <= 0) continue;
-      if (rec.state !== "landed" || rec.standalone !== undefined) continue;
+      if (rec === undefined) continue;
+      if (rec.refCount <= 0) {
+        undrawn("cached");
+        continue;
+      }
+      if (rec.state !== "landed") {
+        undrawn("not-landed");
+        continue;
+      }
       const at = rec.placed;
-      if (at === undefined || at.pool !== "rgba" || at.page.dead) continue;
-      if (rec.desc === undefined || rec.desc.kind !== "sprite") {
+      const own = rec.standalone;
+      if ((at !== undefined && at.page.dead) || (at === undefined && own === undefined)) {
+        if (at !== undefined && at.page.dead) undrawn("dead-page");
+        else skip("no-rect");
+        continue;
+      }
+      if (!canRead || encoder === undefined) {
+        skip("no-device");
+        continue;
+      }
+      if (acceptedCells >= limit) {
+        result.truncated = true;
+        skip("past-limit");
+        continue;
+      }
+      if (rec.desc === undefined) {
         skip("no-desc");
         continue;
       }
@@ -2108,67 +2247,151 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
         skip("no-sync-raster");
         continue;
       }
-      if (px.width !== at.w || px.height !== at.h) {
-        result.mismatches.push({ cell: i, key: rec.key, meanDiff: 255, badFraction: 1, detail: `box ${at.w}x${at.h}, fresh raster ${px.width}x${px.height}`, page: at.page.pageIndex, x: at.x, y: at.y, w: at.w, h: at.h });
+      const bpp = rec.pool === "coverage" ? 1 : 4;
+      const boxW = own?.w ?? at?.w ?? 0;
+      const boxH = own?.h ?? at?.h ?? 0;
+      const page = own === undefined ? at!.page.pageIndex : -1;
+      if (px.width !== boxW || px.height !== boxH) {
+        result.mismatches.push({
+          kind: "box",
+          cell: i,
+          key: rec.key,
+          meanDiff: 255,
+          badFraction: 1,
+          detail: `box ${boxW}x${boxH}, fresh raster ${px.width}x${px.height}`,
+          page,
+          x: at?.x ?? 0,
+          y: at?.y ?? 0,
+          w: boxW,
+          h: boxH,
+        });
+        closePixels(px);
         continue;
       }
-      // Take the fresh raster now: a sync raster may be a view of the shared scratch.
-      const own = document.createElement("canvas");
-      own.width = at.w;
-      own.height = at.h;
-      const octx = own.getContext("2d", { willReadFrequently: true });
-      if (octx === null) {
+      const want = freshBytes(px, boxW, boxH, bpp);
+      closePixels(px);
+      if (want === undefined) {
         skip("no-2d");
         continue;
       }
-      const src = ("source" in px ? px.source : px) as CanvasImageSource;
-      octx.drawImage(src, 0, 0, at.w, at.h, 0, 0, at.w, at.h);
-      const want = octx.getImageData(0, 0, at.w, at.h).data;
-      const stride = Math.ceil((at.w * 4) / 256) * 256;
-      const buffer = dev.createBuffer({ size: stride * at.h, usage: 0x0001 | 0x0008 }); // MAP_READ | COPY_DST
-      encoder.copyTextureToBuffer(
-        { texture: at.page.texture, mipLevel: 0, origin: { x: at.x, y: at.y, z: 0 } },
-        { buffer, bytesPerRow: stride, rowsPerImage: at.h },
-        { width: at.w, height: at.h, depthOrArrayLayers: 1 },
-      );
-      jobs.push({ rec, at, want, buffer, stride, key: rec.key });
+
+      acceptedCells += 1;
+      const geom = own === undefined
+        ? { texture: at!.page.texture, baseX: at!.x, baseY: at!.y, tileW: boxW, tileH: boxH, tilesX: 1, tilesY: 1 }
+        : { texture: own.texture, baseX: 0, baseY: 0, tileW: own.tileW, tileH: own.tileH, tilesX: own.tilesX, tilesY: own.tilesY };
+      for (const band of bands(boxW, boxH)) {
+        for (let ty = 0; ty < geom.tilesY; ty += 1) {
+          const tileTop = ty * geom.tileH;
+          const y0 = Math.max(band.y, tileTop);
+          const y1 = Math.min(band.y + band.h, tileTop + geom.tileH, boxH);
+          if (y1 <= y0) continue;
+          for (let tx = 0; tx < geom.tilesX; tx += 1) {
+            const tileLeft = tx * geom.tileW;
+            const x0 = tileLeft;
+            const x1 = Math.min(tileLeft + geom.tileW, boxW);
+            if (x1 <= x0) continue;
+            const layer = ty * geom.tilesX + tx;
+            copyRect(
+              {
+                cell: i,
+                key: rec.key,
+                kind: "texels",
+                page,
+                textureX: geom.baseX + x0 - tileLeft,
+                textureY: geom.baseY + y0 - tileTop,
+                x: x0,
+                y: y0,
+                w: x1 - x0,
+                h: y1 - y0,
+                sourceX: x0,
+                sourceY: y0,
+                layer,
+                bpp,
+                want,
+                wantWidth: boxW,
+                detail: own === undefined ? `state ${rec.state}` : `standalone layer ${layer}`,
+              },
+              geom.texture,
+            );
+          }
+        }
+      }
+
+      // A paged cell owns the clear gutter written with it. The audit reads
+      // the level-0 right and bottom bands; mip levels are a separate check.
+      if (at !== undefined) {
+        const gutter = gutterFor(at.pool);
+        const right = Math.min(gutter, at.page.size - (at.x + at.w));
+        const bottom = Math.min(gutter, at.page.size - (at.y + at.h));
+        zeroRect(at.page.texture, at.x + at.w, at.y, right, at.h, bpp, i, rec.key, "gutter", at.page.pageIndex, "right gutter");
+        zeroRect(at.page.texture, at.x, at.y + at.h, at.w + right, bottom, bpp, i, rec.key, "gutter", at.page.pageIndex, "bottom gutter");
+      }
     }
-    dev.queue.submit([encoder.finish()]);
-    for (const job of jobs) {
+
+    // Texel (0,0) of page 0 of each pool is what every empty row samples. It
+    // is no cell's and stays clear.
+    for (const pool of [rgbaPool, coveragePool]) {
+      const page = pool.pages[0];
+      if (page !== undefined && !page.dead && canRead && encoder !== undefined) {
+        zeroRect(page.texture, 0, 0, 1, 1, pool.bytesPerPixel, -1, `${pool.kind}-reserved-texel`, "reserved-texel", 0, "texel (0,0) of page 0");
+      }
+    }
+
+    if (encoder !== undefined && pieces.length > 0) device!.queue.submit([encoder.finish()]);
+    const comparedCells = new Set<number>();
+    for (const piece of pieces) {
       try {
-        await job.buffer.mapAsync(0x0001);
+        await piece.buffer.mapAsync(0x0001);
       } catch {
-        skip("map-failed");
-        job.buffer.destroy();
+        if (piece.kind === "texels") skip("map-failed");
+        piece.buffer.destroy();
         continue;
       }
-      const got = new Uint8Array(job.buffer.getMappedRange().slice(0));
-      job.buffer.unmap();
-      job.buffer.destroy();
-      const { w, h } = job.at;
+      const got = new Uint8Array(piece.buffer.getMappedRange().slice(0));
+      piece.buffer.unmap();
+      piece.buffer.destroy();
       let sum = 0;
       let bad = 0;
-      for (let y = 0; y < h; y += 1) {
-        for (let x = 0; x < w; x += 1) {
-          const g = y * job.stride + x * 4;
-          const s = (y * w + x) * 4;
-          // Compare premultiplied, so a colour under zero alpha never counts.
-          const ga = got[g + 3]! / 255;
-          const sa = job.want[s + 3]! / 255;
-          let d = Math.abs(got[g + 3]! - job.want[s + 3]!);
-          for (let c = 0; c < 3; c += 1) d = Math.max(d, Math.abs(got[g + c]! * ga - job.want[s + c]! * sa));
+      for (let y = 0; y < piece.h; y += 1) {
+        for (let x = 0; x < piece.w; x += 1) {
+          let d = 0;
+          for (let c = 0; c < piece.bpp; c += 1) {
+            const g = got[y * piece.stride + x * piece.bpp + c]!;
+            const s = piece.want === undefined ? 0 : piece.want[(piece.sourceY + y) * piece.wantWidth * piece.bpp + (piece.sourceX + x) * piece.bpp + c]!;
+            if (piece.bpp === 4 && c < 3) {
+              const ga = got[y * piece.stride + x * 4 + 3]! / 255;
+              const sa = piece.want === undefined ? 0 : piece.want[(piece.sourceY + y) * piece.wantWidth * 4 + (piece.sourceX + x) * 4 + 3]! / 255;
+              d = Math.max(d, Math.abs(g * ga - s * sa));
+            } else {
+              d = Math.max(d, Math.abs(g - s));
+            }
+          }
           sum += d;
           if (d > 64) bad += 1;
         }
       }
-      result.checked += 1;
-      const meanDiff = sum / Math.max(1, w * h);
-      const badFraction = bad / Math.max(1, w * h);
+      if (piece.kind === "texels") comparedCells.add(piece.cell);
+      const meanDiff = sum / Math.max(1, piece.w * piece.h);
+      const badFraction = bad / Math.max(1, piece.w * piece.h);
       result.worst = Math.max(result.worst, meanDiff);
-      if (meanDiff > 12 && badFraction > 0.02) {
-        result.mismatches.push({ cell: job.rec.index, key: job.key, meanDiff, badFraction, detail: `state ${job.rec.state}`, page: job.at.page.pageIndex, x: job.at.x, y: job.at.y, w, h });
+      const wrong = piece.kind === "texels" ? meanDiff > 12 && badFraction > 0.02 : meanDiff > 0 || badFraction > 0;
+      if (wrong) {
+        result.mismatches.push({
+          kind: piece.kind,
+          cell: piece.cell,
+          key: piece.key,
+          meanDiff,
+          badFraction,
+          detail: piece.detail,
+          page: piece.page,
+          x: piece.x,
+          y: piece.y,
+          w: piece.w,
+          h: piece.h,
+        });
       }
     }
+    result.checked = comparedCells.size;
     return result;
   };
 

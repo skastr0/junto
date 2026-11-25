@@ -17,6 +17,7 @@
 
 const COPY_SRC = 0x01;
 const COPY_DST = 0x02;
+const COPY_DST_BUFFER = 0x08;
 const RENDER_ATTACHMENT = 0x10;
 
 /** The stamp of a write whose source carried none. */
@@ -243,6 +244,15 @@ export const strictDevice = (options: { readonly limits?: Partial<GPUSupportedLi
     return texture;
   };
 
+  type StrictBuffer = {
+    readonly size: number;
+    readonly usage: number;
+    readonly data: Uint8Array;
+    destroyed: boolean;
+    mapped: boolean;
+  };
+  const bufferStates = new Map<object, StrictBuffer>();
+
   type Command = { readonly run: () => void };
   type CommandBuffer = { readonly valid: boolean; readonly commands: ReadonlyArray<Command> };
 
@@ -299,6 +309,56 @@ export const strictDevice = (options: { readonly limits?: Partial<GPUSupportedLi
               to.set(from.subarray(s, s + width), (dso.y + row) * dst.texture.width + dso.x);
             }
             touch(dst, dso.z, dso.x, dso.y, width, height);
+          },
+        });
+      },
+      copyTextureToBuffer: (source: GPUTexelCopyTextureInfo, destination: GPUTexelCopyBufferInfo, copySize: GPUExtent3DDict): void => {
+        const what = "copyTextureToBuffer";
+        const src = stateOf(source.texture, what);
+        const buffer = bufferStates.get(destination.buffer as unknown as object);
+        if (src === undefined || buffer === undefined) {
+          valid = false;
+          if (buffer === undefined) errors.push(`${what}: not a buffer of this device`);
+          return;
+        }
+        const so = originOf(source.origin);
+        const level = source.mipLevel ?? 0;
+        const width = copySize.width;
+        const height = copySize.height ?? 1;
+        const layers = copySize.depthOrArrayLayers ?? 1;
+        const bytesPerTexel = src.texture.format === "rgba8unorm" ? 4 : 1;
+        const rowBytes = width * bytesPerTexel;
+        const bytesPerRow = destination.bytesPerRow ?? rowBytes;
+        const rowsPerImage = destination.rowsPerImage ?? height;
+        const offset = destination.offset ?? 0;
+        const found = rectErrors(src, so, width, height, what, level);
+        if ((src.texture.usage & COPY_SRC) === 0) found.push(`${what}: ${name(src.texture)} has no COPY_SRC usage`);
+        if ((buffer.usage & COPY_DST_BUFFER) === 0) found.push(`${what}: destination buffer has no COPY_DST usage`);
+        if (bytesPerRow < rowBytes) found.push(`${what}: bytesPerRow ${bytesPerRow} is less than a row of ${width} texels (${rowBytes} bytes)`);
+        if (bytesPerRow % 256 !== 0) found.push(`${what}: bytesPerRow ${bytesPerRow} is not a multiple of 256`);
+        if (offset + bytesPerRow * (rowsPerImage - 1) + rowBytes + bytesPerRow * (height - 1) * 0 > buffer.size) {
+          found.push(`${what}: ${buffer.size} buffer bytes is too few for ${width}x${height}`);
+        }
+        if (layers !== 1) found.push(`${what}: this strict device reads one layer at a time, got ${layers}`);
+        if (found.length > 0) {
+          for (const reason of found) fail(reason);
+          return;
+        }
+        commands.push({
+          run: () => {
+            if (src.destroyed || buffer.destroyed) {
+              errors.push(`${what}: a destroyed texture or buffer in a submitted copy`);
+              return;
+            }
+            if (level !== 0) return;
+            const from = layerOf(src, so.z);
+            for (let row = 0; row < height; row += 1) {
+              for (let col = 0; col < width; col += 1) {
+                const stamp = from[(so.y + row) * src.texture.width + so.x + col] ?? 0;
+                const at = offset + row * bytesPerRow + col * bytesPerTexel;
+                for (let c = 0; c < bytesPerTexel; c += 1) buffer.data[at + c] = Math.max(0, Math.min(255, stamp));
+              }
+            }
           },
         });
       },
@@ -365,6 +425,31 @@ export const strictDevice = (options: { readonly limits?: Partial<GPUSupportedLi
   const device = {
     limits,
     createTexture,
+    createBuffer: (desc: GPUBufferDescriptor): GPUBuffer => {
+      const buffer: StrictBuffer = { size: desc.size, usage: desc.usage, data: new Uint8Array(desc.size), destroyed: false, mapped: false };
+      const api = {
+        size: desc.size,
+        usage: desc.usage,
+        mapAsync: () => {
+          if (buffer.destroyed) return Promise.reject(new Error("buffer is destroyed"));
+          buffer.mapped = true;
+          return Promise.resolve();
+        },
+        getMappedRange: (offset = 0, size?: number) => {
+          if (!buffer.mapped) errors.push("getMappedRange: buffer is not mapped");
+          const end = size === undefined ? buffer.size : offset + size;
+          return buffer.data.buffer.slice(offset, end);
+        },
+        unmap: () => {
+          buffer.mapped = false;
+        },
+        destroy: () => {
+          buffer.destroyed = true;
+        },
+      } as unknown as GPUBuffer;
+      bufferStates.set(api as unknown as object, buffer);
+      return api;
+    },
     createSampler: () => ({}),
     createCommandEncoder,
     pushErrorScope: (filter: string) => {
