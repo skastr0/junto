@@ -127,9 +127,9 @@ export function SignalFrame({
       </p>
       {children}
       {signal.state === "withdrawn" && signal.crossed ? (
-        // The answer and the withdrawal crossed. Nothing failed, so it is said plainly, here on the signal.
+        // The answer and the withdrawal crossed. Nothing failed, so it is said plainly, here on the signal, as the seat's own statement (it is not fact the operator's machine can check).
         <p className="seat-threads__signal-note" data-testid="seat-threads-signal-crossed">
-          {author} withdrew this before your answer reached it.
+          {author} says it withdrew this before your answer reached it.
         </p>
       ) : null}
       {signal.state === "open" && signal.asks !== undefined ? (

@@ -129,7 +129,7 @@ describe("a signal withdrawn as the answer was on its way", () => {
       </SignalFrame>,
     );
     expect(words(q("seat-threads-signal-state"))).toBe("Withdrawn");
-    expect(words(q("seat-threads-signal-crossed"))).toBe("pty-lead withdrew this before your answer reached it.");
+    expect(words(q("seat-threads-signal-crossed"))).toBe("pty-lead says it withdrew this before your answer reached it.");
 
     // Withdrawn with no answer on its way: the state word is the whole of it.
     await render(

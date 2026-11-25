@@ -411,7 +411,7 @@ describe("signals in a thread", () => {
     expect(line.nextElementSibling?.className).toContain("seat-threads__block");
     expect(first!.querySelector('[data-testid="seat-threads-answer-to"]')).toBeNull();
     expect(q("seat-threads-signal-state")?.textContent).toBe("Withdrawn");
-    expect(q("seat-threads-signal-crossed")?.textContent).toBe("pty-lead withdrew this before your answer reached it.");
+    expect(q("seat-threads-signal-crossed")?.textContent).toBe("pty-lead says it withdrew this before your answer reached it.");
     expect(q("thread-composer-answers")).toBeNull();
   });
 
