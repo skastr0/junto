@@ -389,7 +389,7 @@ Rules, from remote-security's term 5 and this doc:
 
 - No path, no host name, no far text. The far machine is `it` or `there`,
   as rule 1 says, never a name and never `this machine`, which means the
-  operator's Mac.
+  operator's own machine, a Mac or Linux.
 - Never an instruction to delete, edit or move a file by hand.
 - Each ends in one next step, a Junto action: `Send Junto again`, `Check it
   again` (the row's `Check again`, `junto machine status` in the CLI), or
@@ -399,9 +399,9 @@ Rules, from remote-security's term 5 and this doc:
 | Code | Sentence |
 |---|---|
 | `bundle-not-directory` | `What arrived there was not a Junto package. Send Junto again.` |
-| `bundle-special-file` | `The package from this Mac holds a link or a special file. Update Junto on this Mac, then send again.` |
-| `bundle-manifest-invalid` | `The package from this Mac has a list of files that cannot be read. Update Junto on this Mac, then send again.` |
-| `bundle-writable-by-others` | `The package from this Mac has files others can change. Update Junto on this Mac, then send again.` |
+| `bundle-special-file` | `The package from this machine holds a link or a special file. Update Junto on this machine, then send again.` |
+| `bundle-manifest-invalid` | `The package from this machine has a list of files that cannot be read. Update Junto on this machine, then send again.` |
+| `bundle-writable-by-others` | `The package from this machine has files others can change. Update Junto on this machine, then send again.` |
 | `bundle-mismatch` | `The files that arrived did not match the package. Send Junto again.` |
 | `install-folder-not-ours` | `Its install folder belongs to another Junto. Remove it, then add it again with another install folder.` |
 | `send-in-progress` | `Junto is already being sent there. Send again when that send ends.` |
@@ -417,7 +417,7 @@ Rules, from remote-security's term 5 and this doc:
 | `restore-interrupted` | `An earlier restore of its data did not finish. Check it again before you send Junto.` |
 | `start-failed` | `Junto did not start there, and it is not confirmed stopped. Check it again before you send.` |
 | `start-rolled-back` | `The new build did not start there, so the old build and its data are back. Check it again before you update.` |
-| `installed-not-started` | `The new build is installed there but did not start, and nothing runs there now. Update Junto on this Mac, then send again.` |
+| `installed-not-started` | `The new build is installed there but did not start, and nothing runs there now. Update Junto on this machine, then send again.` |
 | `start-and-restore-failed` | `The new build did not start, and its data was not restored. Check it again.` |
 | `home-lock-refused` | `Its Junto home is held by another Junto or another account. Check it again.` |
 | `status-unreadable` | `Junto there did not report its status. Check it again.` |
@@ -435,12 +435,13 @@ raises it after a clean rollback, that site gets its own code rather than
 these words.
 
 **Which fix a bundle code gets.** A send packs a fresh archive, but from
-the same package folder on this Mac (`send.ts:83`). So only
+the same package folder on this machine (`send.ts:83`). So only
 `bundle-not-directory` and `bundle-mismatch`, transfer faults, say `Send
 Junto again`. The other three are defects of the package here, and only a
-new package fixes them: `Update Junto on this Mac`, as `peer-newer` names
-its fix on this Mac. `this Mac` is the operator's machine and names no
-host. `install-folder-not-ours` points to `machine add` with its
+new package fixes them: `Update Junto on this machine`, as `peer-newer` names
+its fix on this machine. `this machine` is the near machine, the one the operator
+sits at, which may be a Mac or Linux; it names no host, so term 5 holds
+without a name from the core. `install-folder-not-ours` points to `machine add` with its
 `installRoot` (`machine-control.ts:161`); the window's add form has no
 install folder field today, so in the window this step runs from the CLI.
 
@@ -450,6 +451,6 @@ disposition it comes with; `start-failed` is only the uncertain site
 
 Changed from remote-core's draft: no machine name (term 5); `Check this
 machine` is `Check it again`, since `this machine` is the operator's Mac;
-`Rebuild` is `Update Junto on this Mac`, the Junto action that makes a new
+`Rebuild` is `Update Junto on this machine`, the Junto action that makes a new
 package; `Start the installed Junto on it` is gone, because it
 is not a Junto action; `database` is `data`.
