@@ -1,8 +1,9 @@
 /**
  * [fake-tui] Operator action paint cost on the factory shape: answer a signal,
  * create a thread, and reply in the real window while the seat is busy. The
- * measurement is click/key press to two rAFs after the result is in the DOM,
- * with renderer long tasks/frames and every ipcMain.handle call metered.
+ * measurement is click/key press to the paint-complete rAF pair stamped when
+ * the result mutation enters the DOM, with renderer long tasks/frames and
+ * every ipcMain.handle call metered.
  *   scripts/run-e2e.sh e2e/scenarios/zz-operator-action-paint.spec.ts
  */
 import { readdirSync, readFileSync } from "node:fs";
@@ -77,6 +78,17 @@ const installPaintProbe = (page: Page) =>
       __paintProbe?: { frames: number[]; longtasks: Array<{ start: number; duration: number }>; raf?: number };
       __paintReset?: () => void;
       __paintRead?: () => unknown;
+      __mutationLog?: Array<{
+        t: number;
+        testid?: string;
+        attr?: string;
+        value?: string;
+        className?: string;
+        text?: string;
+        raf1?: number;
+        raf2?: number;
+      }>;
+      __mutationReset?: () => void;
     };
     if (w.__paintProbe !== undefined) return;
     const probe: { frames: number[]; longtasks: Array<{ start: number; duration: number }>; raf?: number } = { frames: [], longtasks: [] };
@@ -108,6 +120,48 @@ const installPaintProbe = (page: Page) =>
       longtasks: [...probe.longtasks].sort((a, b) => b.duration - a.duration),
       longtaskMs: probe.longtasks.reduce((sum, entry) => sum + entry.duration, 0),
     });
+    const mutationLog: NonNullable<typeof w.__mutationLog> = [];
+    w.__mutationLog = mutationLog;
+    const markMutation = (target: Element, attr?: string): void => {
+      const item: (typeof mutationLog)[number] = {
+        t: Date.now(),
+        ...(target.getAttribute("data-testid") === null ? {} : { testid: target.getAttribute("data-testid")! }),
+        ...(attr === undefined ? {} : { attr, value: target.getAttribute(attr) ?? "" }),
+        ...(typeof target.className === "string" ? { className: target.className } : {}),
+        text: (target.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 180),
+      };
+      mutationLog.push(item);
+      requestAnimationFrame(() => {
+        item.raf1 = Date.now();
+        requestAnimationFrame(() => {
+          item.raf2 = Date.now();
+        });
+      });
+    };
+    new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "attributes" && record.target instanceof Element) {
+          markMutation(record.target, record.attributeName ?? undefined);
+          continue;
+        }
+        if (record.type !== "childList") continue;
+        for (const node of record.addedNodes) {
+          if (!(node instanceof Element)) continue;
+          if (node.hasAttribute("data-testid")) markMutation(node);
+          for (const child of node.querySelectorAll('[data-testid="seat-threads-message"], [data-testid="operator-feed-card"]')) {
+            markMutation(child);
+          }
+        }
+      }
+    }).observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["class", "aria-current"],
+    });
+    w.__mutationReset = () => {
+      mutationLog.length = 0;
+    };
   });
 
 const installEars = (page: Page) =>
@@ -132,6 +186,44 @@ const installEars = (page: Page) =>
 
 const twoFramesAfterVisible = async (page: Page): Promise<number> =>
   page.evaluate(() => new Promise<number>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(Date.now())))));
+
+type MutationMark = {
+  readonly t: number;
+  readonly testid?: string;
+  readonly attr?: string;
+  readonly value?: string;
+  readonly className?: string;
+  readonly text?: string;
+  readonly raf1?: number;
+  readonly raf2?: number;
+};
+
+type ResultEndpoint =
+  | { readonly kind: "class"; readonly text: string; readonly className: string }
+  | { readonly kind: "attr"; readonly text: string; readonly attr: string; readonly value: string }
+  | { readonly kind: "message"; readonly text: string };
+
+const endpointMatches = (mark: MutationMark, endpoint: ResultEndpoint): boolean => {
+  if (endpoint.kind === "class") {
+    return mark.attr === "class" && (mark.className ?? "").includes(endpoint.className) && (mark.text ?? "").includes(endpoint.text);
+  }
+  if (endpoint.kind === "attr") {
+    return mark.attr === endpoint.attr && mark.value === endpoint.value && (mark.text ?? "").includes(endpoint.text);
+  }
+  return mark.testid === "seat-threads-message" && (mark.text ?? "").includes(endpoint.text);
+};
+
+const mutationEndpoint = async (page: Page, endpoint: ResultEndpoint): Promise<MutationMark> => {
+  // The visible wait has already proved the endpoint. Two frames here only let
+  // the mutation's own rAF stamps land; the stamps themselves are the times.
+  await twoFramesAfterVisible(page);
+  const mutations = await page.evaluate(() => [
+    ...((window as unknown as { __mutationLog?: unknown[] }).__mutationLog ?? []),
+  ] as MutationMark[]);
+  const mark = mutations.find((one) => endpointMatches(one, endpoint));
+  if (mark?.raf2 === undefined) throw new Error(`no painted mutation matched ${JSON.stringify(endpoint)} in ${JSON.stringify(mutations)}`);
+  return mark;
+};
 
 type StageEvent = {
   readonly t: number;
@@ -170,6 +262,8 @@ const stageTable = (name: string, click: number, painted: number, events: Readon
       return (
         event.op === "seatThreadSend" ||
         event.op === "ThreadsWrite" ||
+        event.op === "ThreadsInput" ||
+        event.op === "ThreadWriteRow" ||
         event.op === "ThreadsDeliver" ||
         event.op === "WorkMailChanged" ||
         event.op === "ThreadsMessages" ||
@@ -178,7 +272,7 @@ const stageTable = (name: string, click: number, painted: number, events: Readon
     }
     return false;
   };
-  const inWindow = events.filter((event) => event.t >= click - 5 && event.t <= painted + 500);
+  const inWindow = events.filter((event) => event.t >= click - 5 && event.t <= painted);
   const requestIds = new Set(
     inWindow
       .filter((event) => wanted(event) && event.id !== undefined)
@@ -216,12 +310,14 @@ const measureAction = async (
   name: string,
   act: () => Promise<void>,
   visible: () => Promise<void>,
+  endpoint: ResultEndpoint,
 ) => {
   await resetMeter(app);
   await page.evaluate(() => {
     (window as unknown as { __paintReset: () => void }).__paintReset();
     (window as unknown as { __juntoPerfStages: unknown[] }).__juntoPerfStages = [];
     (window as unknown as { __lastClickAt: number }).__lastClickAt = 0;
+    (window as unknown as { __mutationReset?: () => void }).__mutationReset?.();
   });
   const fallbackClick = await page.evaluate(() => Date.now());
   await act();
@@ -231,7 +327,8 @@ const measureAction = async (
   });
   const click = started || fallbackClick;
   await visible();
-  const painted = await twoFramesAfterVisible(page);
+  const resultMutation = await mutationEndpoint(page, endpoint);
+  const painted = resultMutation.raf2!;
   await page.waitForTimeout(150);
   const renderer = await page.evaluate(() => (window as unknown as { __paintRead: () => any }).__paintRead());
   const ipcRaw = await readMeter(app);
@@ -242,6 +339,8 @@ const measureAction = async (
   return {
     name,
     clickToPaintMs: Math.round((painted - click) * 100) / 100,
+    clickToResultDomMs: Math.round((resultMutation.t - click) * 100) / 100,
+    paintAfterResultDomMs: Math.round((painted - resultMutation.t) * 100) / 100,
     ...stageTable(name, click, painted, stages),
     renderer: {
       worstFrameMs: Math.round((renderer.worstFrame ?? 0) * 100) / 100,
@@ -290,7 +389,7 @@ test("[fake-tui] operator signal and thread actions paint on the factory shape",
       await card.click();
     }, async () => {
       await expect(card).toHaveAttribute("aria-current", "true", { timeout: 5_000 });
-    }));
+    }, { kind: "attr", text: "PERF signal answer target", attr: "aria-current", value: "true" }));
     await page.getByRole("button", { name: `Write reply to ${TARGET_LABEL}` }).click();
     await page.getByLabel("Your reply").fill("PERF signal answer: go ahead");
     results.push(await measureAction(app, page, "signal-answer", async () => {
@@ -299,7 +398,7 @@ test("[fake-tui] operator signal and thread actions paint on the factory shape",
       // The visible result is the card starting its leave, not the end of the
       // feed's intentional 280 ms fade.
       await expect(card.locator("xpath=..")).toHaveClass(/operator-feed__slot--leaving/, { timeout: 15_000 });
-    }));
+    }, { kind: "class", text: "PERF signal answer target", className: "operator-feed__slot--leaving" }));
     await page.keyboard.press("Escape");
 
     // Thread create from the global Threads modal's real composer.
@@ -317,7 +416,7 @@ test("[fake-tui] operator signal and thread actions paint on the factory shape",
       await quick.getByTestId("thread-composer-send").click();
     }, async () => {
       await expect(pane.getByTestId("seat-threads-message").filter({ hasText: createText })).toBeVisible({ timeout: 15_000 });
-    }));
+    }, { kind: "message", text: createText }));
 
     // Thread reply in the thread that create opened.
     const replyText = "PERF thread reply body";
@@ -326,11 +425,13 @@ test("[fake-tui] operator signal and thread actions paint on the factory shape",
       await pane.getByTestId("thread-composer-send").click();
     }, async () => {
       await expect(pane.getByTestId("seat-threads-message").filter({ hasText: replyText })).toBeVisible({ timeout: 15_000 });
-    }));
+    }, { kind: "message", text: replyText }));
 
-    // Waiting-mark lifecycle: hold delivery behind a real composer draft, let the
-    // mark appear, then free the seat and prove the same mark leaves when delivery lands.
-    await seat.control({ screen: { mode: "draft", text: "a draft already in the composer" } });
+    // Waiting-mark lifecycle: hold delivery behind a real attention dialog, let
+    // the mark appear, then free the seat and prove the same mark leaves when
+    // delivery lands. A control-painted draft is not the operator's draft, so
+    // production correctly does not hold mail for it.
+    await seat.control({ screen: { mode: "attention", text: "Allow command? [y/n]" } });
     await page.waitForTimeout(1800);
     const heldText = "PERF held reply body";
     await page.evaluate(() => {

@@ -46,8 +46,11 @@ export const windowServer = (link: RpcPort, handlers: WindowHandlers, sender: Wi
 const linkOf = (port: MessagePortMain): RpcPort => ({
   post: (message) => {
     if (message.kind === "rpcReply") {
-      const data = message.data as { readonly requestId?: unknown };
-      perfStage("main", "main-reply", { id: typeof data.requestId === "string" || typeof data.requestId === "number" ? data.requestId : undefined });
+      const data = message.data as { readonly requestId?: unknown; readonly _tag?: unknown };
+      perfStage("main", "main-reply", {
+        id: typeof data.requestId === "string" || typeof data.requestId === "number" ? data.requestId : undefined,
+        op: typeof data._tag === "string" ? data._tag : undefined,
+      });
     }
     port.postMessage(message);
   },

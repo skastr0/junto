@@ -45,6 +45,7 @@ import type { MailThreadMessage, MailThreadSummary } from "@shared/wire/mail-thr
 import { headSignalOf, openSignalOf, settled, signalIdsOf, threadSignalsOf, withSignals, type RowOf, type ThreadSignals } from "./thread-signals";
 import type { Message } from "@shared/work-model";
 import { operatorActorRef } from "@shared/work-reference";
+import { perfStage } from "@shared/perf-stages";
 import { ModelService } from "../model/service";
 import type { ContentOwner } from "../content/manifest";
 import type { ContentRef } from "@shared/wire/content-ref";
@@ -489,7 +490,9 @@ const refused = (reason: Refused["reason"], message: string): Refused => ({ ok: 
 export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
   Effect.gen(function* (): Effect.fn.Return<Refused | OperatorThreadWritten, unknown, ModelService | WorkService | WorkRepository | SqlClient.SqlClient> {
     const { canvasName, nodeId } = send;
+    perfStage("core", "core-step-start", { op: "ThreadsInput" });
     const { canvas, input } = yield* threadsInput(canvasName);
+    perfStage("core", "core-step-end", { op: "ThreadsInput" });
     const seat = canvas.nodes.get(asNodeId(nodeId));
     if (seat?.kind !== "agent") return refused("not-found", "No such seat.");
     const text = send.text.trim();
@@ -636,7 +639,9 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
       }),
     );
     // A row main will not write goes again with the text as a file.
+    perfStage("core", "core-step-start", { op: "ThreadWriteRow" });
     const mailed = yield* writeMailCarryingText(write(nodeId, messageId, threadId), { text, attachments: claimedFiles, owner, filesText: THREAD_TEXT_FILE_NOTE });
+    perfStage("core", "core-step-end", { op: "ThreadWriteRow" });
     const result = mailed.written;
     // The store's message is not passed on: it is not the operator's to read,
     // and nothing may carry the mail's text out of the mailbox.

@@ -496,6 +496,7 @@ const refreshThread = (key: string): Promise<void> =>
     const [canvasName = "", seatId = "", threadId = ""] = key.split("\u0000");
     if (!read || !openThreads.has(key)) return;
     try {
+      perfStage("renderer", "reread-started", { op: "ThreadsMessages" });
       const page = await read.messages({ canvasName, seatId, threadId });
       perfStage("renderer", "reread-returned", { op: "ThreadsMessages" });
       if (activeSource() !== read || !openThreads.has(key)) return;

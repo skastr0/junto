@@ -17,8 +17,11 @@ export const pageLink = (bridge: LinkBridge, page: Window): RpcPort => {
   const handlers = new Set<(message: PortMessage) => void>();
   const deliver = (message: PortMessage): void => {
     if (message.kind === "rpcReply") {
-      const data = message.data as { readonly requestId?: unknown };
-      perfStage("renderer", "rpc-reply-arrived", { id: typeof data.requestId === "string" || typeof data.requestId === "number" ? data.requestId : undefined });
+      const data = message.data as { readonly requestId?: unknown; readonly _tag?: unknown };
+      perfStage("renderer", "rpc-reply-arrived", {
+        id: typeof data.requestId === "string" || typeof data.requestId === "number" ? data.requestId : undefined,
+        op: typeof data._tag === "string" ? data._tag : undefined,
+      });
     }
     for (const handler of handlers) handler(message);
   };
