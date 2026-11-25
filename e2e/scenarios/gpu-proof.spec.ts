@@ -1109,7 +1109,38 @@ test.describe("#913 GPU canvas proof", () => {
             await settleAtlas(page);
             return PNG.sync.read(await page.screenshot({ path: join(dir, name) }));
           };
+          // The shipped frame's own arm: the cullFrames delta across the one
+          // screenshot taken with the shipped cull mode set.
+          const shippedBefore = (await readProofState(page)).cullFrames;
           const shippedFull = await forceFull((at.cull ?? "cpu") as "cpu" | "gpu", `${tier.name}-full.png`);
+          const shippedAfter = (await readProofState(page)).cullFrames;
+          const shippedGpuFrames = Math.max(0, (shippedAfter?.gpu ?? 0) - (shippedBefore?.gpu ?? 0));
+          const shippedStandaloneFrames = Math.max(0, (shippedAfter?.standalone ?? 0) - (shippedBefore?.standalone ?? 0));
+          const shippedFrameArm: "cpu" | "gpu" | "standalone" | "gpu and standalone" | "none" | null =
+            at.cull === null
+              ? null
+              : at.cull === "cpu"
+                ? "cpu"
+                : shippedGpuFrames > 0 && shippedStandaloneFrames > 0
+                  ? "gpu and standalone"
+                  : shippedGpuFrames > 0
+                    ? "gpu"
+                    : shippedStandaloneFrames > 0
+                      ? "standalone"
+                      : "none";
+          if (at.cull === "gpu" && process.env["JUNTO_GPU_PROOF_CULL_PARITY"] !== "0") {
+            // A shipped gpu arm is its own cull to check: the parity pass below
+            // runs the cpu arm against it, so without this a scale whose
+            // shipped arm is gpu never saw the GPU cull run at all.
+            cullArmChecked = true;
+            if (shippedGpuFrames > 0) gpuCulledTiers.push(tier.name);
+            console.log(
+              `${String(scale)}x ${tier.name}: the shipped GPU cull arm drew its frame as ${String(shippedFrameArm)} (gpu ${String(shippedGpuFrames)}, standalone ${String(shippedStandaloneFrames)} frames)`,
+            );
+            if (shippedFrameArm === "none") {
+              fail(`${String(scale)}x ${tier.name}: the shipped GPU cull arm drew a forced full frame with no cull frame counted, neither gpu nor standalone`);
+            }
+          }
           const fullRedrawDelta = mismatch(image, shippedFull);
           if (fullRedrawDelta > 0.02) {
             fail(`${String(scale)}x ${tier.name}: the damaged frame differs from a full redraw on ${(fullRedrawDelta * 100).toFixed(2)}% of pixels`);
@@ -1367,6 +1398,7 @@ test.describe("#913 GPU canvas proof", () => {
             gpuCullFrames,
             standaloneCullFrames,
             cullArm,
+            shippedFrameArm,
             parityFrameArm,
             clusterPicks,
             chromeClicks,
