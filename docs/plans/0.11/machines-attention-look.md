@@ -499,9 +499,12 @@ its own.
   is the other way round, a stale pin held here. The CLI prints the ready
   preview command on its own line, with the name from this machine's list,
   under the same conditions as the take-over line above.
-- A first send has no pin here, so there is nothing for takeover-remote
-  to preview: that send keeps today's `could not finish setup` line, with
-  no take-over line.
+- A first send gets the same sentence and the same takeover-remote line
+  (remote-verify's receipt 24): it is the common case, after this machine
+  is reinstalled, and the sentence reads true there, since the far
+  machine trusts this machine's earlier install under its name. The old
+  `could not finish setup` advice to choose another name is wrong there
+  and goes.
 
 **The send's own `pinned` step.** It shows, on a send only, as a sixth
 step after `Junto answers`, so a refused pin shows where it stopped
