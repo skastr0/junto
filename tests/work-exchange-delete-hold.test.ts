@@ -180,6 +180,16 @@ const movePeer = (on: Machine, x: number, y: number): Promise<unknown> =>
       model.command(command({ _tag: "Move", canvas: "factory", moves: [{ id: "peer", x, y }] }), "operator")),
   );
 
+const reseatPeer = (on: Machine, host: string): Promise<unknown> =>
+  on.runtime.runPromise(
+    Effect.flatMap(ModelService, (model) =>
+      model.command(
+        command({ _tag: "Edit", canvas: "factory", id: "peer", change: { kind: "agent", host } }),
+        "operator",
+      ),
+    ),
+  );
+
 const removePeer = (on: Machine): Promise<unknown> =>
   on.runtime.runPromise(
     Effect.flatMap(ModelService, (model) =>
@@ -280,6 +290,62 @@ describe("the copy janitor decides a held delete", () => {
     expect(teardown).toHaveBeenCalledWith("binding-peer");
     expect(await headerSeq(mini)).toBe(await headerSeq(macbook));
     expect([...await departing(macbook)]).not.toContain(MINI);
+  });
+
+
+  it("a copy that moves the seat away finishes it here exactly as a drop does", async () => {
+    memoryStore();
+    const teardown = vi.spyOn(termPlane.router, "deleteBinding").mockResolvedValue({ kind: "clean" });
+    const { macbook, mini } = await pair();
+    const atBegin = (await headerSeq(macbook))!;
+    await holdPeer(atBegin);
+
+    // The seat is not gone from the canvas: it moved to the editor. On mini
+    // it is every bit as dropped, and the finish is the same one.
+    await reseatPeer(macbook, "macbook");
+    await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+    await settle();
+
+    expect(teardown).toHaveBeenCalledWith("binding-peer");
+    expect(termPlane.nodeDelete.heldDeletesFor("factory")).toHaveLength(0);
+    expect(await headerSeq(mini)).toBe(await headerSeq(macbook));
+  });
+
+  it("a finish whose teardown is not clean keeps the hold for the next copy", async () => {
+    memoryStore();
+    const teardown = vi.spyOn(termPlane.router, "deleteBinding").mockResolvedValue({ kind: "unproven", reason: "unreachable" });
+    const { macbook, mini } = await pair();
+    const atBegin = (await headerSeq(macbook))!;
+    await holdPeer(atBegin);
+
+    await removePeer(macbook);
+    await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+    await settle();
+
+    // The teardown was tried and could not prove itself: nothing released,
+    // the seat session stays open, and the copy still installed.
+    expect(teardown).toHaveBeenCalledWith("binding-peer");
+    expect(termPlane.nodeDelete.heldDeletesFor("factory")).toHaveLength(1);
+    expect(await headerSeq(mini)).toBe(await headerSeq(macbook));
+  });
+
+  it("a finish that errors releases nothing, and the copy still installs", async () => {
+    memoryStore();
+    const teardown = vi.spyOn(termPlane.router, "deleteBinding").mockRejectedValue(new Error("router down"));
+    const { macbook, mini } = await pair();
+    const atBegin = (await headerSeq(macbook))!;
+    await holdPeer(atBegin);
+
+    await removePeer(macbook);
+    await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+    await settle();
+
+    // The error is contained in the finish: the hold survives for the next
+    // copy, and the copy itself was never refused — the machine stands at
+    // the delete's count.
+    expect(teardown).toHaveBeenCalledWith("binding-peer");
+    expect(termPlane.nodeDelete.heldDeletesFor("factory")).toHaveLength(1);
+    expect(await headerSeq(mini)).toBe(await headerSeq(macbook));
   });
 
   it("a machine that keeps one seat and loses another finishes only the lost one", async () => {

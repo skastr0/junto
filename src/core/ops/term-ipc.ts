@@ -161,6 +161,13 @@ export const TermPlaneHandlers = TermRpcs.toLayer(
         hostId !== undefined && !plane.router.isLocalHostId(hostId)
           ? Effect.flatMap(remoteSeats(hostId), (seats) => routed(() => seats.get(bindingId)))
           : routed(() => plane.router.get(bindingId, hostId)),
+      // TermBeginNodeDelete mounts on exactly one transport: the operator's
+      // window, decoded in Electron main behind assertTrusted and carried
+      // once on this link. The CLI never reaches it — the native CLI has no
+      // node-delete surface, and the overseer's in-process delete builds its
+      // begin field by field — and the seats channel types only its stops
+      // and releases, never a begin. confirmedUnreachable is therefore the
+      // window's alone, which tests/confirmed-unreachable-lock.test.ts keeps.
       TermBeginNodeDelete: ({ resources }) => routed(() => plane.nodeDelete.beginNodeDelete(resources)),
       TermFinishNodeDelete: ({ leaseId, outcome }) =>
         routed(() => plane.nodeDelete.finishNodeDelete(leaseId, outcome)),
