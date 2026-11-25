@@ -3,7 +3,8 @@ import { chmod, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Effect, Stream } from "effect";
+import { Effect, Schema, Stream } from "effect";
+import { InstallationId } from "../src/shared/installation-id";
 import { beforeEach, describe, expect, it } from "vitest";
 import { MACHINE_INSTALL_CHECKS, type MachineInstallError } from "../src/shared/machine-install";
 import { installCheckWords } from "../src/core/hosts/install-check-words";
@@ -28,18 +29,19 @@ beforeEach(async () => {
 });
 
 /** One send whose far install refuses with these details. */
-const refusedWith = async (details: Record<string, unknown>, message = FAR_TEXT): Promise<MachineInstallError> => {
+const refusedWith = async (details: Record<string, unknown>, message = FAR_TEXT, pinned?: { readonly name: string; readonly installationId: string }): Promise<MachineInstallError> => {
   const target = await Effect.runPromise(parseSshRoute({ endpoint: "user@target" }));
   const endpoint = await Effect.runPromise(parseSshEndpoint("user@target"));
   const envelope = JSON.stringify({ ok: false, command: "machine install-local", error: { type: "MachineInstallError", message, details: { retryable: false, ...details } } });
   const transport = SshTransport.of({ run: () => Effect.succeed({ stdout: "ready\n", stderr: "" }), connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
     transfer: (_program, input) => Stream.runDrain(input).pipe(Effect.andThen(Effect.fail(SshTransferExitError.of(endpoint, 1, "", envelope)))),
   });
-  return Effect.runPromise(sendMachine(target, { bundle: root }).pipe(Effect.provideService(SshTransport, transport), Effect.provideService(LogService, log), Effect.flip));
+  const input = pinned === undefined ? { bundle: root } : { bundle: root, expectedInstallationId: Schema.decodeUnknownSync(InstallationId)(pinned.installationId) };
+  return Effect.runPromise(sendMachine(target, input, undefined, pinned?.name).pipe(Effect.provideService(SshTransport, transport), Effect.provideService(LogService, log), Effect.flip));
 };
 
 const fields = (error: MachineInstallError) => {
-  const { message: _message, ownWords: _ownWords, failure: _failure, ...rest } = error;
+  const { message: _message, ownWords: _ownWords, failure: _failure, takeover: _takeover, ...rest } = error;
   return { ...rest };
 };
 
@@ -78,6 +80,49 @@ describe("the far install's refusal codes", () => {
     expect(coded.ownWords).toBe(true);
     expect(plain.ownWords).toBeUndefined();
     expect(fields(coded)).toEqual(fields(plain));
+    // A third: installation-changed with the started id. The id fills only the take-over hint.
+    const pinned = { name: "mini", installationId: "pin-install" };
+    const started = await refusedWith({ ...details, check: "installation-changed", startedInstallationId: "new-install" }, FAR_TEXT, pinned);
+    expect(started.ownWords).toBe(true);
+    expect(fields(started)).toEqual(fields(plain));
+    expect(started.takeover).toEqual({ machineName: "mini", installationId: "new-install", previousInstallationId: "pin-install" });
+  });
+
+  it.each([
+    ["activated", "The new build is installed there but answers as a different install of Junto, so Junto stopped it. Preview a take-over with junto machine takeover to see which seats and automations move."],
+    ["rolled-back", "It answers as a different install of Junto, so Junto put its old build and data back, but the old build may not be running. Preview a take-over with junto machine takeover to see which seats and automations move."],
+    ["uncertain", "The new build is installed there but answers as a different install of Junto, and it may still be running. Preview a take-over with junto machine takeover to see which seats and automations move."],
+  ] as const)("installation-changed on %s says what that disposition holds", async (disposition, words) => {
+    const error = await refusedWith({ disposition, check: "installation-changed", startedInstallationId: "new-install" }, FAR_TEXT, { name: "mini", installationId: "pin-install" });
+    expect(error.message).toBe(words);
+    expect(error.ownWords).toBe(true);
+    expect(error.message).not.toContain("nothing changed");
+    expect(error.takeover?.installationId).toBe("new-install");
+  });
+
+  it("installation-changed on any other disposition has no words and keeps the far text unmarked", async () => {
+    expect(installCheckWords("installation-changed", "staged")).toBeUndefined();
+    const error = await refusedWith({ disposition: "staged", check: "installation-changed", startedInstallationId: "new-install" }, FAR_TEXT, { name: "mini", installationId: "pin-install" });
+    expect(error.ownWords).toBeUndefined();
+    expect(error.takeover).toBeUndefined();
+    expect(error.message).toContain("bundle must be a directory");
+  });
+
+  it.each([
+    ["not an InstallationId", "-starts-with-a-dash"],
+    ["with a space", "new install"],
+    ["over 128 characters", "a".repeat(129)],
+    ["not a string", 7],
+  ])("a started id %s is dropped: the words stand, with no take-over hint", async (_label, startedInstallationId) => {
+    const error = await refusedWith({ disposition: "activated", check: "installation-changed", startedInstallationId }, FAR_TEXT, { name: "mini", installationId: "pin-install" });
+    expect(error.ownWords).toBe(true);
+    expect(error.takeover).toBeUndefined();
+  });
+
+  it("a started id under any other code is dropped", async () => {
+    const error = await refusedWith({ disposition: "activated", check: "core-mismatch", startedInstallationId: "new-install" }, FAR_TEXT, { name: "mini", installationId: "pin-install" });
+    expect(error.takeover).toBeUndefined();
+    expect(JSON.stringify(error)).not.toContain("new-install");
   });
 
   it.each([

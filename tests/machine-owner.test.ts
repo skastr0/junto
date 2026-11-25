@@ -456,6 +456,37 @@ it("pushes an installed but not reconnected peer once across three passes", asyn
   expect(store.latches.get("mini-install")).toMatchObject({ installationId: "mini-install", targetBuild: "a".repeat(64) });
 });
 
+it("latches an update the far refuses installation-changed, so a second automatic pass does not install", async () => {
+  let copies = 0;
+  let dials = 0;
+  const store = latchStore();
+  const peerStatus = {
+    build: "b".repeat(64), version: "0.10.0", builtAt: "2026-01-01T00:00:00.000Z",
+    form: "mac-mini" as const, keychain: "available" as const, installationId: "mini-install", machineName: "mini",
+    juntoHome: "/home/probe", pid: 72, ready: true, runningSeats: 0,
+  };
+  const refused = new MachineInstallError({
+    message: "It answers as a different install of Junto, so Junto put its old build and data back, but the old build may not be running. Preview a take-over with junto machine takeover to see which seats and automations move.",
+    disposition: "rolled-back", retryable: false, ownWords: true,
+  });
+  const f = await fixture({
+    autoUpdate: { downloadsBundles: false, signedRelease: false },
+    ownStatus: Effect.succeed(Schema.decodeUnknownSync(MachineOwnStatus)({ build: "a".repeat(64), version: "0.11.0", builtAt: "2026-02-01T00:00:00.000Z", installationId: "own-install", machineName: "macbook", juntoHome: "/home/user/probe", pid: 71, ready: true, form: "mac-mini", keychain: "available" })),
+    peerBuild: () => Effect.succeed("b".repeat(64)),
+    installOps: store.installOps,
+    copy: () => Effect.suspend(() => { copies += 1; return Effect.fail(refused); }),
+  }, () => Effect.sync(() => { dials += 1; return { stdout: JSON.stringify({ ok: true, command: "machine status", data: peerStatus }), stderr: "", exitCode: 0 }; }));
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini", juntoHome: "/home/probe", installRoot: "/home/probe/install" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  for (let pass = 1; pass <= 2; pass += 1) {
+    const stop = await f.start();
+    await vi.waitFor(() => expect(dials).toBe(pass));
+    stop();
+  }
+  expect(copies).toBe(1);
+  expect(store.latches.get("mini-install")).toMatchObject({ targetBuild: "a".repeat(64), outcome: "rolled-back" });
+});
+
 it.each([[true, undefined], [false, "mini is removed, but Junto could not delete the link key macbook holds for it. Add mini again, then remove it."]] as const)("a remove with no pin still deletes this machine's link key by name, and says so when it could not (%s)", async (dropped, words) => {
   const calls: string[] = [];
   const linkSetup = {

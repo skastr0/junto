@@ -298,6 +298,8 @@ export const OperatorErrorBody = Schema.Struct({
     runningSeatsUnknown: MachineInstallError.fields.runningSeatsUnknown,
     /** The message is the core's own fixed words (MachineInstallError.ownWords); a failed-copy row may show it. */
     ownWords: MachineInstallError.fields.ownWords,
+    /** A pinned machine answers as another installation: the CLI prints its take-over preview from these, after the message. */
+    takeover: MachineInstallError.fields.takeover,
     /** The typed failure behind the message, encoded and scrubbed by the one encoder. */
     failure: Schema.optionalKey(EncodedFailure),
   })),

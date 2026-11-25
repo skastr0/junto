@@ -25,14 +25,14 @@ const testLog = makeTestLog();
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
-const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<boolean>; readonly keyState?: "held" | "none" | "unreadable"; readonly cleared?: boolean; platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer; status?: { readonly runningSeats?: number } } = {}) => {
+const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<boolean>; readonly keyState?: "held" | "none" | "unreadable"; readonly cleared?: boolean; platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer; status?: { readonly runningSeats?: number; readonly installationId?: string }; receiptName?: string } = {}) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "junto-copy-")));
   await mkdir(join(root, "bin")); await mkdir(join(root, "core"));
   for (const name of ["bin/node", "bin/junto", "core/junto.cjs"]) await writeFile(join(root, name), "fixture\n");
   await chmod(join(root, "bin/node"), 0o755); await chmod(join(root, "bin/junto"), 0o755);
   const build = "a".repeat(64);
   await writeFile(join(root, "manifest.json"), JSON.stringify({ build: options.bundleBuild ?? build, target: "darwin-arm64", node: "26.10.0", appVersion: "1", files: await machineBundleFiles(root) }));
-  const receipt = Schema.decodeUnknownSync(MachineInstallResult)({ build, juntoHome: "/home/probe", installRoot: "/home/probe/install", directory: "/home/probe/install/builds/" + build, serviceLabel: "test-service", provider: "launchd", updated: false, disposition: "ready", installationId: "mini-install", machineName: "mini", pid: 71, transitions: [{ step: "ready", build, pid: 71 }] });
+  const receipt = Schema.decodeUnknownSync(MachineInstallResult)({ build, juntoHome: "/home/probe", installRoot: "/home/probe/install", directory: "/home/probe/install/builds/" + build, serviceLabel: "test-service", provider: "launchd", updated: false, disposition: "ready", installationId: "mini-install", machineName: options.receiptName ?? "mini", pid: 71, transitions: [{ step: "ready", build, pid: 71 }] });
   const calls: string[] = [];
   const database = new DatabaseSync(":memory:"); database.exec(MACHINE_STATE_SCHEMA_SQL);
   const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
@@ -52,7 +52,7 @@ const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<bo
       if (wordsText(command.args).at(-1)!.includes("'status'")) {
         calls.push("status");
         return { stdout: JSON.stringify({ ok: true, command: "machine status", data: {
-          build, form: "mac-mini", installationId: receipt.installationId, machineName: "mini", juntoHome: receipt.juntoHome,
+          build, form: "mac-mini", installationId: options.status?.installationId ?? receipt.installationId, machineName: "mini", juntoHome: receipt.juntoHome,
           pid: 71, ...(options.status?.runningSeats === undefined ? {} : { runningSeats: options.status.runningSeats }), ready: true,
         } }), stderr: "" };
       }
@@ -227,4 +227,47 @@ it("leaves the link and service untouched when release download admission fails,
   const error = await f.error("send");
   expect(error.message).toContain("download failed its check");
   expect(f.calls).toEqual(["platform"]);
+});
+
+const CHANGED = "It now answers as a different install of Junto, so nothing changed. Preview a take-over with junto machine takeover to see which seats and automations move.";
+
+it.each(["send", "update"] as const)("refuses a %s to a pinned machine that answers as another install before anything is copied, with the take-over fields", async (mode) => {
+  const f = await fixture({ status: { runningSeats: 0, installationId: "fresh-install" } });
+  await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
+  const error = await f.error(mode);
+  expect(error).toBeInstanceOf(MachineInstallError);
+  if (error instanceof MachineInstallError) {
+    expect(error.message).toBe(CHANGED);
+    expect(error.ownWords).toBe(true);
+    expect(error.disposition).toBe("staged");
+    // The command is never in the words: the CLI builds it from these.
+    expect(error.message).not.toContain("fresh-install");
+    expect(error.takeover).toEqual({ machineName: "mini", installationId: "fresh-install", previousInstallationId: f.receipt.installationId });
+  }
+  expect(f.calls).toEqual(["platform", "status"]);
+  expect((await f.runtime.runPromise(f.repository.peer("mini")))?.installationId).toBe(f.receipt.installationId);
+});
+
+it("sends to a pinned machine whose core does not answer: the installer checks the started core itself", async () => {
+  const f = await fixture();
+  await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
+  await f.copy("send");
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "location", "connect"]);
+});
+
+it("names a pinned install it never linked with, as a take-over leaves it, then connects", async () => {
+  const f = await fixture({ receiptName: "box-node-f10f4a0d6fe5c4ab" });
+  await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
+  await f.copy("send");
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "location", "connect"]);
+});
+
+it("still refuses a pinned machine that linked and then took another name there", async () => {
+  const f = await fixture({ receiptName: "renamed" });
+  await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
+  await f.runtime.runPromise(f.repository.notePeerHello({ machineName: "mini", installationId: f.receipt.installationId, build: "a".repeat(64) }));
+  const error = await f.error("send");
+  expect(error).toBeInstanceOf(MachineSetupError);
+  expect(error.message).toContain("calls itself another name");
+  expect(f.calls).not.toContain("configure");
 });

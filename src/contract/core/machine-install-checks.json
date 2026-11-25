@@ -11,6 +11,7 @@
   "home-lock-refused",
   "install-folder-not-ours",
   "install-lease-unavailable",
+  "installation-changed",
   "installed-not-started",
   "machine-path-unsafe",
   "restore-finish-blocked",

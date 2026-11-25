@@ -1,4 +1,4 @@
-import { Effect, Schema, Stream } from "effect";
+import { Effect, Option, Schema, Stream } from "effect";
 import { MachineBuild, MachineConfigured, MachinePeerPin, type MachineCopyInput } from "@shared/machine-control";
 import { MachineInstallError, MachineInstallResult, MachineSetupError } from "@shared/machine-install";
 import type { MachineSendEvent } from "@shared/machine-progress";
@@ -40,6 +40,14 @@ export const STALE_LINK_WORDS = "That machine still accepts an old link from thi
 /** The words for a link key here that cannot be read: a remove deletes it unread, and the next send clears the stale link. */
 export const UNREADABLE_LINK_KEY_WORDS = "This machine's link key for that machine cannot be read. Remove that machine, then add it again and send Junto to it.";
 
+/**
+ * The pinned machine answers as another installation and nothing changed there
+ * (remote-design, 209adfb83): the send stops before it copies anything, and the
+ * operator previews a take-over. The command itself is the CLI's to print, from
+ * the refusal's typed `takeover` fields; it is never part of these words.
+ */
+export const INSTALLATION_CHANGED_WORDS = "It now answers as a different install of Junto, so nothing changed. Preview a take-over with junto machine takeover to see which seats and automations move.";
+
 /** A machine still holds the link this one made before it was removed, and this one no longer holds the key. */
 class LinkOutlivedRemove extends Schema.TaggedError<LinkOutlivedRemove>()("LinkOutlivedRemove", { message: Schema.String }) {}
 /** Which check refused a copy, setup or update; the remote's own refusal arrives scrubbed. */
@@ -49,6 +57,12 @@ export class MachineCopyRefused extends Schema.TaggedError<MachineCopyRefused>()
   check: MachineCopyCheck,
   message: Schema.String,
 }) {}
+/** Staged, in the core's own words, with the typed fields the CLI builds its take-over line from. */
+const installationChanged = (machineName: string, previousInstallationId: InstallationId, installationId: InstallationId) =>
+  new MachineInstallError({
+    message: INSTALLATION_CHANGED_WORDS, disposition: "staged", retryable: false, ownWords: true,
+    takeover: { machineName, installationId, previousInstallationId },
+  });
 const refused = (check: typeof MachineCopyCheck.Type, message: string) =>
   new MachineCopyRefused({ check, message: check === "remote-refused" ? scrubMessage(message) : message });
 const ConfigureResponse = Schema.Struct({ ok: Schema.Literal(true), command: Schema.Literal("machine configure"), data: MachineConfigured });
@@ -81,6 +95,20 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
     const reported = platform.stdout.trim();
     const targetPlatform: Target | undefined = reported === "Darwin arm64" ? "darwin-arm64" : reported === "Linux x86_64" ? "linux-x64" : undefined;
     if (targetPlatform === undefined) return yield* Effect.fail(staged(refused("platform-unsupported", "This machine's platform is not supported by Junto")));
+    // A pinned machine that answers as another installation is refused before
+    // anything is copied: an install would start a core under the wrong pin.
+    // No answer is not a refusal: a pinned machine whose core is down is what a
+    // send repairs, and the installer checks the started core's id itself.
+    if (mode === "send" && pin !== undefined && host.juntoHome !== undefined && host.installRoot !== undefined) {
+      const answered = yield* machineStatusProgram(target, { juntoHome: host.juntoHome, installRoot: host.installRoot }).pipe(
+        Effect.flatMap(program => ssh.run(program)),
+        Effect.flatMap(answer => decodeMachineOwnStatus(answer.stdout)),
+        Effect.option,
+      );
+      if (Option.isSome(answered) && answered.value.installationId !== pin.installationId) {
+        return yield* Effect.fail(installationChanged(host.id, pin.installationId, answered.value.installationId));
+      }
+    }
     // The whole-machine count over the operator's SSH route, before the
     // transfer. The maintenance lease inside the install is the gate; this
     // check only saves the download and the copy.
@@ -88,6 +116,9 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
       const statusProgram = yield* machineStatusProgram(target, { juntoHome: host.juntoHome, installRoot: host.installRoot }).pipe(Effect.mapError(staged));
       const statusAnswer = yield* ssh.run(statusProgram).pipe(Effect.mapError(staged));
       const status = yield* decodeMachineOwnStatus(statusAnswer.stdout).pipe(Effect.mapError(staged));
+      if (pin !== undefined && status.machineName === host.id && status.installationId !== pin.installationId) {
+        return yield* Effect.fail(installationChanged(host.id, pin.installationId, status.installationId));
+      }
       if (status.machineName !== host.id || (pin !== undefined && status.installationId !== pin.installationId)) {
         return yield* Effect.fail(staged(refused("identity-mismatch", "The machine that answered is not the machine this update was for")));
       }
@@ -113,7 +144,7 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
       ...(host.installRoot === undefined ? {} : { installRoot: host.installRoot }),
       ...(pin === undefined ? {} : { expectedInstallationId: pin.installationId }),
       ...(input.stopRunningSeats === true ? { stopRunningSeats: true } : {}),
-    }, onTransition).pipe(Effect.provideService(SshTransport, ssh), Effect.provideService(LogService, log));
+    }, onTransition, host.id).pipe(Effect.provideService(SshTransport, ssh), Effect.provideService(LogService, log));
     const receipt = yield* Schema.decodeUnknownEffect(MachineInstallResult)(installed, { onExcessProperty: "error" });
     return yield* Effect.gen(function* () {
       if (receipt.build !== build || (pin !== undefined && receipt.installationId !== pin.installationId)) return yield* Effect.fail(refused("identity-mismatch", "The installed Junto identity does not match the selected machine"));
@@ -147,7 +178,16 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
           if (keyState === "unreadable") return yield* failed(UNREADABLE_LINK_KEY_WORDS);
           if (!cleared || (yield* setUp).data.keyBound === true) return yield* failed(STALE_LINK_WORDS);
         }
-      } else if (receipt.machineName !== host.id) return yield* Effect.fail(refused("name-changed", "The machine calls itself another name; keep its setup binding and choose the correct machine"));
+      } else if (receipt.machineName !== host.id) {
+        // A pin this machine never linked with (a take-over leaves one) names an install that was never told its
+        // name: it is told now. One that linked and then took another name was renamed there, and is refused.
+        const linked = (yield* machines.peersSeen).some(row => row.installationId === pin.installationId);
+        if (linked) return yield* Effect.fail(refused("name-changed", "The machine calls itself another name; keep its setup binding and choose the correct machine"));
+        const configuredProgram = yield* configureMachine(target, receipt, host.id);
+        const configuredOutput = yield* ownerTransfer(configuredProgram, "machine configure");
+        const configured = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ConfigureResponse))(configuredOutput.stdout.trim(), { onExcessProperty: "error" });
+        if (configured.data.machineName !== host.id || configured.data.installationId !== receipt.installationId) return yield* Effect.fail(refused("name-not-kept", "The machine did not keep its selected name and installation identity"));
+      }
       const configuredHost = { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot };
       yield* hosts.upsert(configuredHost);
       if (pin === undefined) yield* options.connectSetup(configuredHost, receipt.installationId);

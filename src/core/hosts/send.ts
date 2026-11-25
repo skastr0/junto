@@ -9,6 +9,7 @@ import { Clock, Effect, Schema } from "effect";
 import * as NodeStream from "@effect/platform-node/NodeStream";
 import { MACHINE_INSTALL_CHECKS, MachineInstallError, MachineInstallResult, MachineInstallEvent, type MachineInstallCheck, type MachineSendInput } from "@shared/machine-install";
 import { installCheckWords } from "./install-check-words";
+import { InstallationId } from "@shared/installation-id";
 import { SshTransport, type SshTarget } from "../ssh";
 import { SshTransferExitError } from "../ssh/service";
 import { SshExitError, SshTimeoutError } from "../ssh/domain";
@@ -62,9 +63,17 @@ const Failure = Schema.Struct({ ok: Schema.Literal(false), command: Schema.Liter
     runningSeatsUnknown: MachineInstallError.fields.runningSeatsUnknown,
     // Checked by admitCheck, not here: a code this side does not know is dropped and the rest still decodes.
     check: Schema.optionalKey(Schema.Unknown),
+    // Checked by admitStarted, not here: kept only as an InstallationId under installation-changed.
+    startedInstallationId: Schema.optionalKey(Schema.Unknown),
   }),
 }) });
 /** A far code, admitted only when it is one of this side's own: anything else is dropped. */
+/** The started core's id on installation-changed, only as an InstallationId: anything else is dropped. Display only. */
+const admitStarted = (check: MachineInstallCheck | undefined, value: unknown): InstallationId | undefined => {
+  if (check !== "installation-changed") return undefined;
+  const decoded = Schema.decodeUnknownResult(InstallationId)(value);
+  return decoded._tag === "Success" ? decoded.success : undefined;
+};
 const admitCheck = (value: unknown): MachineInstallCheck | undefined =>
   typeof value === "string" && value.length <= 64 && /^[a-z][a-z-]*$/.test(value)
     && (MACHINE_INSTALL_CHECKS as ReadonlyArray<string>).includes(value) ? value as MachineInstallCheck : undefined;
@@ -75,6 +84,8 @@ export const sendMachine = (
   target:SshTarget,
   input:Omit<MachineSendInput,"sshTarget">,
   onTransition?: (event: MachineSendEvent) => void,
+  /** This machine's own name for the target, from its list: the take-over line's name, never the far's. */
+  takeoverName?: string,
 ) => Effect.scoped(Effect.gen(function* () {
   const machine = (yield* LogService).machine();
   const installError = installErrorWith(machine);
@@ -158,7 +169,11 @@ export const sendMachine = (
         const check = admitCheck(details.check);
         const words = check === undefined ? undefined : installCheckWords(check, details.disposition);
         // The far text goes to the log only: the chain behind it would carry it to the companion, so it is left off.
-        if (check !== undefined && words !== undefined) return { error: new MachineInstallError({ message: words, ownWords: true, ...decided }), check, said };
+        const started = admitStarted(check, details.startedInstallationId);
+        // Display only: it fills the CLI's take-over line and decides nothing above.
+        const takeover = started === undefined || takeoverName === undefined || input.expectedInstallationId === undefined ? {}
+          : { takeover: { machineName: takeoverName, installationId: started, previousInstallationId: input.expectedInstallationId } };
+        if (check !== undefined && words !== undefined) return { error: new MachineInstallError({ message: words, ownWords: true, ...decided, ...takeover }), check, said };
         // The remote's words are data: scrubbed again on receipt.
         return { error: new MachineInstallError({ message: scrubText(said), ...decided, ...failureHere(cause, machine) }) };
       }

@@ -19,6 +19,7 @@ const WORDS: Readonly<Record<MachineInstallCheck, string>> = {
   "home-lock-refused": "Its Junto home is held by another Junto or another account. Check it again.",
   "install-folder-not-ours": "Its install folder belongs to another Junto. Remove it, then add it again with another install folder.",
   "install-lease-unavailable": "Junto could not take the install lock there. Check it again.",
+  "installation-changed": "The new build is installed there but answers as a different install of Junto, so Junto stopped it. Preview a take-over with junto machine takeover to see which seats and automations move.",
   "installed-not-started": "The new build is installed there but did not start, and nothing runs there now. Update Junto on this machine, then send again.",
   "machine-path-unsafe": "A Junto folder there is outside its home or not private. Check it again.",
   "restore-finish-blocked": "Junto could not finish restoring its data there. Its data is kept. Send Junto again.",
@@ -37,6 +38,10 @@ const WORDS: Readonly<Record<MachineInstallCheck, string>> = {
 };
 
 const NOTHING_CHANGED = ", so nothing changed";
+/** installation-changed after a rollback (remote-design, ce8e8756f). */
+const INSTALLATION_CHANGED_ROLLED_BACK = "It answers as a different install of Junto, so Junto put its old build and data back, but the old build may not be running. Preview a take-over with junto machine takeover to see which seats and automations move.";
+/** installation-changed when this side cannot confirm the stop (remote-design, 5562e0a78). */
+const INSTALLATION_CHANGED_UNSTOPPED = "The new build is installed there but answers as a different install of Junto, and it may still be running. Preview a take-over with junto machine takeover to see which seats and automations move.";
 
 /**
  * The words for a code, under the disposition this side decoded. A sentence
@@ -56,6 +61,13 @@ export const installCheckWords = (
       return disposition === "activated" ? words : "The new build did not start there. Update Junto on this machine, then send again.";
     case "start-rolled-back":
       return disposition === "rolled-back" ? words : undefined;
+    // By disposition (look doc section 5, ce8e8756f): activated is a confirmed stop of the new build, rolled-back
+    // put the old one back but its restart is best-effort, uncertain may still run. Anything else claims nothing.
+    case "installation-changed":
+      return disposition === "activated" ? words
+        : disposition === "rolled-back" ? INSTALLATION_CHANGED_ROLLED_BACK
+        : disposition === "uncertain" ? INSTALLATION_CHANGED_UNSTOPPED
+        : undefined;
     default:
       return words;
   }

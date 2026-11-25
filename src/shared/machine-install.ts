@@ -1,6 +1,20 @@
 import { Schema } from "effect";
 import { InstallationId } from "./installation-id";
 import { EncodedFailure } from "./failure";
+import { isValidMachineName } from "./machine-identity";
+
+/**
+ * What a take-over preview needs when a pinned machine answers as another
+ * installation: the name from this machine's own list, the id it answered
+ * with, and the id pinned here. Both ids are InstallationId, so the CLI's
+ * printed command is fixed argv parts, never a far string.
+ */
+export const MachineTakeoverHint = Schema.Struct({
+  machineName: Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName))),
+  installationId: InstallationId,
+  previousInstallationId: InstallationId,
+});
+export type MachineTakeoverHint = typeof MachineTakeoverHint.Type;
 
 export const MachineAbsolutePath = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),
@@ -104,6 +118,7 @@ export const MACHINE_INSTALL_CHECKS = [
   "home-lock-refused",
   "install-folder-not-ours",
   "install-lease-unavailable",
+  "installation-changed",
   "installed-not-started",
   "machine-path-unsafe",
   "restore-finish-blocked",
@@ -137,6 +152,12 @@ export class MachineInstallError extends Schema.TaggedError<MachineInstallError>
    * Set only where the core writes the whole sentence.
    */
   ownWords: Schema.optionalKey(Schema.Literal(true)),
+  /**
+   * The pinned machine answers as another installation: what the CLI prints
+   * its take-over preview from, after the words and never in them. Display
+   * only: it decides nothing, and the window never shows it.
+   */
+  takeover: Schema.optionalKey(MachineTakeoverHint),
   /**
    * The typed chain behind the message, from the one encoder, set where this
    * machine wraps a cause. The install-local CLI never sets it: the sender
