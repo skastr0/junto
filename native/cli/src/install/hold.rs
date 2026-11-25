@@ -44,6 +44,17 @@ pub struct Lease {
     reader: Option<BufReader<UnixStream>>,
 }
 
+#[cfg(test)]
+impl Lease {
+    /// A lease a test holds the far end of: dropping it is observable as EOF.
+    pub fn holding(stream: UnixStream) -> Lease {
+        Lease {
+            stream: Some(stream),
+            reader: None,
+        }
+    }
+}
+
 impl Drop for Lease {
     fn drop(&mut self) {
         // Closing the socket is the release: the server cleans up on close.

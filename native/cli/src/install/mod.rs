@@ -365,17 +365,41 @@ fn scrub(message: &str) -> String {
 fn install_flow(
     input: InstallInput,
 ) -> Result<InstallResult, (Refused, Disposition, Vec<Transition>)> {
-    install_flow_with(input, &service::machine_service)
+    install_flow_with(input, &product_machinery())
 }
 
-/// The machine's service, chosen by the caller of the flow.
+/// The machine's service, made for one install root, home and label.
 type ServiceFactory = dyn Fn(&Path, &Path, &str) -> Result<Box<dyn service::Service>, Refused>;
 
-/// The flow with its service chosen by the caller: the product passes the one
-/// this machine has, and a test passes a fake that answers without a system.
+/// What the flow reaches outside its own files, chosen by the caller: the
+/// machine's service, the core's own status, the running-seat lease, the
+/// process epoch behind a stop, and how long a candidate has to report ready.
+/// The product passes the real ones; a test passes fakes that answer without a
+/// system, a process, or a clock.
+struct Machinery<'a> {
+    service: &'a ServiceFactory,
+    status: &'a dyn Fn(&Path, &Path) -> Result<OwnStatus, Refused>,
+    hold: &'a dyn Fn(&Path, bool) -> hold::Hold,
+    epoch: &'a dyn Fn(u32) -> Option<Vec<quiesce::Epoch>>,
+    readiness: Duration,
+}
+
+fn product_machinery() -> Machinery<'static> {
+    Machinery {
+        service: &service::machine_service,
+        status: &status::read_installed_status,
+        hold: &|junto_home, stop_running_seats| {
+            hold::hold_incumbent_for_update(junto_home, stop_running_seats)
+        },
+        epoch: &quiesce::read_epoch,
+        readiness: Duration::from_secs(30),
+    }
+}
+
+/// The flow with everything outside it chosen by the caller.
 fn install_flow_with(
     input: InstallInput,
-    machine_service: &ServiceFactory,
+    machinery: &Machinery<'_>,
 ) -> Result<InstallResult, (Refused, Disposition, Vec<Transition>)> {
     let bundle_path = match absolute_path(&input.bundle) {
         Ok(path) => path,
@@ -483,7 +507,7 @@ fn install_flow_with(
         }
         verify_generation(&directory, &manifest)?;
         flow.record(Transition::step("verified", Some(manifest.build.clone())));
-        let mut service = machine_service(&install_root, &junto_home, &label)?;
+        let mut service = (machinery.service)(&install_root, &junto_home, &label)?;
         let mut notices = service.reconcile()?;
         notices.sort_unstable();
         notices.dedup();
@@ -495,8 +519,7 @@ fn install_flow_with(
                     "running service has no admitted build selection",
                 ));
             };
-            let incumbent =
-                status::read_installed_status(&install_root.join(&previous), &junto_home)?;
+            let incumbent = (machinery.status)(&install_root.join(&previous), &junto_home)?;
             if incumbent.pid != before.pid as i64
                 || incumbent.junto_home != junto_home.to_string_lossy()
             {
@@ -536,7 +559,7 @@ fn install_flow_with(
         // control socket. The lease closes create admission; hold it through the
         // quiesce so a seat cannot start between the count and the stop.
         let mut lease = if before.pid > 0 {
-            Some(hold::hold_incumbent_for_update(
+            Some((machinery.hold)(
                 &junto_home,
                 input.stop_running_seats == Some(true),
             ))
@@ -552,9 +575,14 @@ fn install_flow_with(
             None => {}
         }
         let quiesced = {
-            let outcome = quiesce::quiesce_machine_service(&mut *service, &before, || {
-                flow.disposition = Disposition::Uncertain;
-            });
+            let outcome = quiesce::quiesce_machine_service(
+                &mut *service,
+                &before,
+                || {
+                    flow.disposition = Disposition::Uncertain;
+                },
+                machinery.epoch,
+            );
             // The lease is released once the stop is proven, as the TypeScript does.
             lease.take();
             outcome?
@@ -602,10 +630,10 @@ fn install_flow_with(
         let started = (|| -> Result<OwnStatus, Refused> {
             service.start()?;
             flow.record(Transition::step("started", None));
-            let deadline = Instant::now() + Duration::from_secs(30);
+            let deadline = Instant::now() + machinery.readiness;
             let mut detail = "core has not reported ready".to_string();
             while Instant::now() < deadline {
-                match status::read_installed_status(&directory, &junto_home) {
+                match (machinery.status)(&directory, &junto_home) {
                     Ok(observed) => {
                         let _ = service.reconcile();
                         let seen = service.observe()?;
@@ -668,7 +696,7 @@ fn install_flow_with(
             Err(error) => {
                 flow.disposition = Disposition::Uncertain;
                 let diagnostics = service_error_tail(&install_root);
-                let stopped = stop_machine_service(&mut *service);
+                let stopped = stop_machine_service(&mut *service, machinery.epoch);
                 if let Err(stop) = stopped {
                     let kept = point
                         .as_ref()
@@ -699,7 +727,12 @@ fn install_flow_with(
                             let _ = fs::remove_file(&next);
                             linked?;
                         }
-                        restore_under_home_lock(point, &state_directory, &mut *service)
+                        restore_under_home_lock(
+                            point,
+                            &state_directory,
+                            &mut *service,
+                            machinery.epoch,
+                        )
                     })();
                     if let Err(restore_error) = restored {
                         let said: String =
@@ -921,11 +954,12 @@ fn restore_under_home_lock(
     point: &restore::RestorePoint,
     state_directory: &Path,
     service: &mut dyn service::Service,
+    epoch_of: &dyn Fn(u32) -> Option<Vec<quiesce::Epoch>>,
 ) -> Result<(), Refused> {
     restore::write_restore_marker(point)?;
     let mut lock = homelock::try_lock_home_database(state_directory)?;
     if lock.is_none() {
-        let _ = stop_machine_service(service);
+        let _ = stop_machine_service(service, epoch_of);
         lock = homelock::try_lock_home_database(state_directory)?;
     }
     let Some(_lock) = lock else {
@@ -939,16 +973,26 @@ fn restore_under_home_lock(
 
 /// Prove the service stopped, once: reconcile against the process table and
 /// quiesce what it reports.
-fn stop_machine_service(service: &mut dyn service::Service) -> Result<(), Refused> {
+fn stop_machine_service(
+    service: &mut dyn service::Service,
+    epoch_of: &dyn Fn(u32) -> Option<Vec<quiesce::Epoch>>,
+) -> Result<(), Refused> {
     service.reconcile()?;
     let seen = service.observe()?;
-    quiesce::quiesce_machine_service(service, &seen, || {}).map(|_| ())
+    quiesce::quiesce_machine_service(service, &seen, || {}, epoch_of).map(|_| ())
 }
 
 /// `machine uninstall-local`: retain package and product bytes, remove only the
 /// proven owned service.
 fn uninstall_flow(
     input: LocalPaths,
+) -> Result<UninstallResult, (Refused, Disposition, Vec<Transition>)> {
+    uninstall_flow_with(input, &product_machinery())
+}
+
+fn uninstall_flow_with(
+    input: LocalPaths,
+    machinery: &Machinery<'_>,
 ) -> Result<UninstallResult, (Refused, Disposition, Vec<Transition>)> {
     let junto_home_value = match input.junto_home.as_deref().map(absolute_path).transpose() {
         Ok(value) => value,
@@ -1000,21 +1044,26 @@ fn uninstall_flow(
             return Err(Refused::new("current selects an invalid build directory"));
         }
         paths::check_machine_tree(&install_root.join(&generation))?;
-        let mut service = service::machine_service(&install_root, &junto_home, &label)?;
+        let mut service = (machinery.service)(&install_root, &junto_home, &label)?;
         // Linux reconcile enables linger; uninstall leaves linger as it finds it.
         if service.provider() == Provider::Launchd {
             service.reconcile()?;
         }
         let before = service.observe()?;
         if before.pid > 0 {
-            let core = status::read_installed_status(&install_root.join(&generation), &junto_home)?;
+            let core = (machinery.status)(&install_root.join(&generation), &junto_home)?;
             if core.pid != before.pid as i64 || core.junto_home != junto_home.to_string_lossy() {
                 return Err(Refused::new("running core does not match this install"));
             }
         }
-        let quiesced = quiesce::quiesce_machine_service(&mut *service, &before, || {
-            *disposition = Disposition::Uncertain;
-        })?;
+        let quiesced = quiesce::quiesce_machine_service(
+            &mut *service,
+            &before,
+            || {
+                *disposition = Disposition::Uncertain;
+            },
+            machinery.epoch,
+        )?;
         transitions.push(Transition {
             build: Some(
                 generation
@@ -1182,14 +1231,14 @@ mod tests {
 
     /// A service that answers, and counts what it was asked, so a test can see
     /// that the flow started the stopped service again and stopped it once more.
-    struct FakeService {
+    struct RecordingService {
         starts: usize,
         stops: usize,
         running: bool,
         stop_guard: Option<crate::install::homelock::HomeDatabaseLock>,
     }
 
-    impl FakeService {
+    impl RecordingService {
         fn new() -> Self {
             Self {
                 starts: 0,
@@ -1200,7 +1249,7 @@ mod tests {
         }
     }
 
-    impl service::Service for FakeService {
+    impl service::Service for RecordingService {
         fn provider(&self) -> service::Provider {
             service::Provider::SystemdUser
         }
@@ -1288,7 +1337,7 @@ mod tests {
         let holder = homelock::try_lock_home_database(&state)
             .expect("readable")
             .expect("the holder");
-        let mut service = FakeService::new();
+        let mut service = RecordingService::new();
         let refused = match lock_for_copy(&state, &mut service) {
             Err(refused) => refused,
             Ok(_) => panic!("a held lock is not a lock this install holds"),
@@ -1316,9 +1365,10 @@ mod tests {
         let holder = homelock::try_lock_home_database(&state)
             .expect("readable")
             .expect("the holder");
-        let mut service = FakeService::new();
+        let mut service = RecordingService::new();
         service.running = true;
-        let refused = match restore_under_home_lock(&point, &state, &mut service) {
+        let epoch = |_pid: u32| Some(Vec::new());
+        let refused = match restore_under_home_lock(&point, &state, &mut service, &epoch) {
             Err(refused) => refused,
             Ok(_) => panic!("the family must not move under a held lock"),
         };
@@ -1369,10 +1419,11 @@ mod tests {
         let holder = homelock::try_lock_home_database(&state)
             .expect("readable")
             .expect("the holder");
-        let mut service = FakeService::new();
+        let mut service = RecordingService::new();
         service.running = true;
         service.stop_guard = Some(holder);
-        restore_under_home_lock(&point, &state, &mut service).expect("the retry restores");
+        restore_under_home_lock(&point, &state, &mut service, &|_pid: u32| Some(Vec::new()))
+            .expect("the retry restores");
         assert_eq!(service.stops, 1);
         assert!(!restore::restore_pending(&state).expect("readable"));
         assert_eq!(fs::read(state.join("junto.db")).expect("the db"), b"kept");
@@ -1409,14 +1460,6 @@ mod tests {
         manifest
     }
 
-    fn fake_copies(
-        _root: &Path,
-        _home: &Path,
-        _label: &str,
-    ) -> Result<Box<dyn service::Service>, Refused> {
-        Ok(Box::new(FakeService::new()))
-    }
-
     #[test]
     fn the_copy_lock_finishes_the_restore_that_was_owed_before_it() {
         let root = paths::home().join(format!(".junto-owed-copy-{}", std::process::id()));
@@ -1429,7 +1472,7 @@ mod tests {
         fs::write(state.join("junto.db"), b"candidate").expect("a candidate");
         restore::write_restore_marker(&point).expect("the marker");
         assert!(restore::restore_pending(&state).expect("readable"));
-        let mut service = FakeService::new();
+        let mut service = RecordingService::new();
         let lock = lock_for_copy(&state, &mut service).expect("the copy lock");
         assert!(
             !restore::restore_pending(&state).expect("readable"),
@@ -1468,7 +1511,10 @@ mod tests {
             "test",
         )
         .expect("the input");
-        let (refused, disposition, _) = install_flow_with(input, &fake_copies).err().expect("held");
+        let fixture = Fixture::new(&install_root, &junto_home);
+        let (refused, disposition, _) = install_flow_with(input, &machinery(fixture))
+            .err()
+            .expect("held");
         assert_eq!(refused.message, homelock::HELD_WORDS);
         assert_eq!(disposition, Disposition::Staged);
         assert_eq!(bytes(&state), before, "the family is byte-identical");
@@ -1479,7 +1525,787 @@ mod tests {
         let _ = manifest;
     }
 
-    // --- the boot step ---
+    // --- the flow, with everything outside it chosen by the test ---
+
+    use std::cell::RefCell;
+    use std::os::unix::net::UnixStream;
+    use std::rc::Rc;
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Seats {
+        Lease,
+        Refused,
+        Unknown,
+    }
+
+    #[derive(Clone)]
+    struct Fixture {
+        root: PathBuf,
+        home: PathBuf,
+        loaded: bool,
+        pid: u32,
+        stopped: bool,
+        matches: bool,
+        stop_failure: bool,
+        start_failure: bool,
+        starts: usize,
+        stops: usize,
+        definition_removed: bool,
+        stop_selections: Vec<String>,
+        seats: Seats,
+        running_seats: u32,
+        lease_calls: Vec<bool>,
+        status: Option<OwnStatus>,
+        status_error: Option<String>,
+        readiness: Duration,
+    }
+
+    impl Fixture {
+        fn new(install_root: &Path, junto_home: &Path) -> Rc<RefCell<Fixture>> {
+            Rc::new(RefCell::new(Fixture {
+                root: install_root.to_path_buf(),
+                home: junto_home.to_path_buf(),
+                loaded: false,
+                pid: 0,
+                stopped: false,
+                matches: true,
+                stop_failure: false,
+                start_failure: false,
+                starts: 0,
+                stops: 0,
+                definition_removed: false,
+                stop_selections: Vec::new(),
+                seats: Seats::Lease,
+                running_seats: 0,
+                lease_calls: Vec::new(),
+                status: None,
+                status_error: None,
+                readiness: Duration::from_secs(30),
+            }))
+        }
+
+        fn status_of(&self, build: &str, pid: u32) -> OwnStatus {
+            OwnStatus {
+                build: build.to_string(),
+                junto_home: self.home.to_string_lossy().into_owned(),
+                pid: i64::from(pid),
+                ready: true,
+                installation_id: "install-one".to_string(),
+                machine_name: "mini".to_string(),
+            }
+        }
+
+        fn ready(&mut self, build: &str) {
+            self.status = Some(self.status_of(build, 71));
+        }
+    }
+
+    struct FakeService {
+        fixture: Rc<RefCell<Fixture>>,
+    }
+
+    impl service::Service for FakeService {
+        fn provider(&self) -> service::Provider {
+            service::Provider::SystemdUser
+        }
+        fn reconcile(&mut self) -> Result<Vec<&'static str>, Refused> {
+            Ok(Vec::new())
+        }
+        fn observe(&mut self) -> Result<service::Observed, Refused> {
+            let fixture = self.fixture.borrow();
+            Ok(service::Observed {
+                loaded: fixture.loaded,
+                pid: fixture.pid,
+                matches_desired_placement: fixture.matches,
+            })
+        }
+        fn stop(&mut self) -> Result<(), Refused> {
+            let mut fixture = self.fixture.borrow_mut();
+            fixture.stops += 1;
+            let selection = fs::read_link(fixture.root.join("current"))
+                .map(|target| target.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            fixture.stop_selections.push(selection);
+            if fixture.stop_failure {
+                return Err(Refused::new("stop outcome unknown"));
+            }
+            fixture.stopped = true;
+            fixture.loaded = false;
+            fixture.pid = 0;
+            Ok(())
+        }
+        fn start(&mut self) -> Result<(), Refused> {
+            let root = self.fixture.borrow().root.clone();
+            let mut fixture = self.fixture.borrow_mut();
+            fixture.starts += 1;
+            if fixture.start_failure {
+                // A process that exists, whatever it then says: a start that
+                // failed still made an epoch to stop.
+                fixture.loaded = true;
+                fixture.pid = 72;
+                fixture.stopped = false;
+                return Err(Refused::new("start outcome unknown"));
+            }
+            // The candidate's own answer is its manifest's build, as the real
+            // one reports.
+            let manifest: Option<Manifest> = fs::read_to_string(root.join("current/manifest.json"))
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok());
+            fixture.loaded = true;
+            fixture.pid = 71;
+            fixture.matches = true;
+            fixture.stopped = false;
+            if let Some(manifest) = manifest {
+                fixture.status = Some(fixture.status_of(&manifest.build, 71));
+            }
+            Ok(())
+        }
+        fn remove_definition(&mut self) -> Result<(), Refused> {
+            self.fixture.borrow_mut().definition_removed = true;
+            Ok(())
+        }
+    }
+
+    /// The clamped readiness of an install with a fake service.
+    fn machinery(fixture: Rc<RefCell<Fixture>>) -> Machinery<'static> {
+        let service: &'static ServiceFactory = Box::leak(Box::new({
+            let fixture = fixture.clone();
+            move |_root: &Path, _home: &Path, _label: &str| {
+                Ok(Box::new(FakeService {
+                    fixture: fixture.clone(),
+                }) as Box<dyn service::Service>)
+            }
+        }));
+        let status: &'static dyn Fn(&Path, &Path) -> Result<OwnStatus, Refused> =
+            Box::leak(Box::new({
+                let fixture = fixture.clone();
+                move |_directory: &Path, _home: &Path| {
+                    let fixture = fixture.borrow();
+                    match (&fixture.status, &fixture.status_error) {
+                        (Some(status), _) => Ok(status.clone()),
+                        (None, Some(error)) => Err(Refused::new(error.clone())),
+                        (None, None) => Err(Refused::new("no status in the fixture")),
+                    }
+                }
+            }));
+        let hold: &'static dyn Fn(&Path, bool) -> hold::Hold = Box::leak(Box::new({
+            let fixture = fixture.clone();
+            move |_home: &Path, stop_running_seats: bool| {
+                let mut held = fixture.borrow_mut();
+                held.lease_calls.push(stop_running_seats);
+                match held.seats {
+                    Seats::Lease => {
+                        let (near, _far) = UnixStream::pair().expect("a socket pair");
+                        hold::Hold::Lease(hold::Lease::holding(near))
+                    }
+                    Seats::Refused => hold::Hold::Refused {
+                        running_seats: held.running_seats,
+                    },
+                    Seats::Unknown => hold::Hold::Unknown,
+                }
+            }
+        }));
+        let epoch: &'static dyn Fn(u32) -> Option<Vec<quiesce::Epoch>> = Box::leak(Box::new({
+            let fixture = fixture.clone();
+            move |pid: u32| {
+                let fixture = fixture.borrow();
+                Some(if fixture.stopped {
+                    Vec::new()
+                } else {
+                    vec![quiesce::Epoch {
+                        pid,
+                        start_key: "incumbent".to_string(),
+                    }]
+                })
+            }
+        }));
+        Machinery {
+            service,
+            status,
+            hold,
+            epoch,
+            readiness: fixture.borrow().readiness,
+        }
+    }
+
+    /// A test machine: a bundle to send, an install root that owns it, a home,
+    /// and a fixture behind the fakes.
+    struct Machine {
+        root: PathBuf,
+        bundle: PathBuf,
+        install_root: PathBuf,
+        junto_home: PathBuf,
+        fixture: Rc<RefCell<Fixture>>,
+    }
+
+    impl Machine {
+        fn new(name: &str, build: &str) -> Machine {
+            let root = paths::home().join(format!(".junto-flow-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&root);
+            private(&root);
+            let junto_home = root.join("home");
+            let install_root = root.join("machine");
+            let bundle = root.join(format!("bundle-{build}"));
+            let manifest = shipped_bundle(&bundle);
+            assert_eq!(manifest.build, "a".repeat(64));
+            let fixture = Fixture::new(&install_root, &junto_home);
+            let machine = Machine {
+                root: root.clone(),
+                bundle,
+                install_root,
+                junto_home,
+                fixture,
+            };
+            private(&machine.junto_home);
+            private(&machine.install_root);
+            let label = service::service_label(&machine.install_root, &machine.junto_home);
+            lock::write_owner_marker(
+                &machine.install_root,
+                &lock::owner_marker(&label, &machine.junto_home),
+            )
+            .expect("the owner marker");
+            machine
+        }
+
+        fn input(&self, stop_running_seats: Option<bool>) -> InstallInput {
+            input::decode_text(
+                &json!({
+                    "bundle": self.bundle.display().to_string(),
+                    "juntoHome": self.junto_home.display().to_string(),
+                    "installRoot": self.install_root.display().to_string(),
+                    "stopRunningSeats": stop_running_seats,
+                })
+                .to_string(),
+                "test",
+            )
+            .expect("the input")
+        }
+
+        fn install(
+            &self,
+            stop_running_seats: Option<bool>,
+        ) -> Result<InstallResult, (Refused, Disposition, Vec<Transition>)> {
+            install_flow_with(
+                self.input(stop_running_seats),
+                &machinery(self.fixture.clone()),
+            )
+        }
+
+        fn uninstall(&self) -> Result<UninstallResult, (Refused, Disposition, Vec<Transition>)> {
+            let input: LocalPaths = input::decode_text(
+                &json!({
+                    "juntoHome": self.junto_home.display().to_string(),
+                    "installRoot": self.install_root.display().to_string(),
+                })
+                .to_string(),
+                "test",
+            )
+            .expect("the input");
+            uninstall_flow_with(input, &machinery(self.fixture.clone()))
+        }
+
+        fn current(&self) -> String {
+            fs::read_link(self.install_root.join("current"))
+                .map(|target| target.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        }
+
+        fn builds(&self) -> Vec<String> {
+            let mut names: Vec<String> = fs::read_dir(self.install_root.join("builds"))
+                .map(|entries| {
+                    entries
+                        .map(|entry| {
+                            entry
+                                .expect("an entry")
+                                .file_name()
+                                .to_string_lossy()
+                                .into_owned()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            names
+        }
+
+        fn state(&self) -> PathBuf {
+            restore::machine_state_directory(&self.junto_home)
+        }
+    }
+
+    impl Drop for Machine {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn steps(transitions: &[Transition]) -> Vec<&str> {
+        transitions
+            .iter()
+            .map(|transition| transition.step.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn verifies_readiness_and_stops_the_incumbent_before_selecting_the_next_build() {
+        let machine = Machine::new("order", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        let first = machine.install(None).expect("the first install");
+        assert_eq!(first.disposition, "ready");
+        assert_eq!(first.build, "a".repeat(64));
+        let second_bundle = machine.root.join("bundle-b");
+        let mut manifest = shipped_bundle(&second_bundle);
+        manifest.build = "b".repeat(64);
+        fs::write(
+            second_bundle.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("json"),
+        )
+        .expect("the second manifest");
+        let mut input = machine.input(None);
+        input.bundle = second_bundle.display().to_string();
+        let second =
+            install_flow_with(input, &machinery(machine.fixture.clone())).expect("the update");
+        assert_eq!(second.installation_id, first.installation_id);
+        assert_eq!(second.build, "b".repeat(64));
+        assert_eq!(
+            steps(&second.transitions),
+            vec!["verified", "quiescent", "selected", "started", "ready"]
+        );
+        let quiescent = &second.transitions[1];
+        assert_eq!(quiescent.build.as_deref(), Some(first.build.as_str()));
+        assert_eq!(quiescent.pid, Some(71));
+        assert_eq!(quiescent.start_key.as_deref(), Some("incumbent"));
+        assert_eq!(quiescent.service, Some("inactive"));
+        let fixture = machine.fixture.borrow();
+        assert_eq!(
+            fixture.stop_selections,
+            vec![format!("builds/{}-{}", first.build, bundle::this_target())],
+            "the old build was current when the stop happened"
+        );
+        drop(fixture);
+        assert_eq!(
+            machine.current(),
+            format!("builds/{}-{}", "b".repeat(64), bundle::this_target())
+        );
+    }
+
+    #[test]
+    fn a_resend_verifies_the_bytes_before_it_accepts_the_running_core() {
+        let machine = Machine::new("resend", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        let first = machine.install(None).expect("the first install");
+        let again = machine.install(None).expect("the resend");
+        assert!(!again.updated);
+        assert_eq!(
+            machine.fixture.borrow().starts,
+            1,
+            "a resend starts nothing"
+        );
+        fs::write(first.directory.clone() + "/core/junto.cjs", "changed\n")
+            .expect("a changed byte");
+        let (refused, disposition, _) =
+            machine.install(None).err().expect("a changed byte refuses");
+        assert!(
+            refused.message.contains("do not match"),
+            "{}",
+            refused.message
+        );
+        assert_eq!(disposition, Disposition::Staged);
+        assert_eq!(machine.fixture.borrow().starts, 1);
+    }
+
+    #[test]
+    fn a_same_build_resend_moves_a_service_whose_session_is_wrong() {
+        let machine = Machine::new("session", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        machine.install(None).expect("the first install");
+        machine.fixture.borrow_mut().matches = false;
+        let again = machine.install(None).expect("the move");
+        assert!(!again.updated);
+        assert_eq!(
+            steps(&again.transitions),
+            vec!["verified", "quiescent", "selected", "started", "ready"]
+        );
+        assert_eq!(machine.fixture.borrow().starts, 2);
+    }
+
+    #[test]
+    fn an_uncertain_stop_keeps_the_old_selection_and_forbids_retry() {
+        let machine = Machine::new("stop", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        machine.install(None).expect("the first install");
+        machine.fixture.borrow_mut().stop_failure = true;
+        let bundle = machine.root.join("bundle-b");
+        let mut manifest = shipped_bundle(&bundle);
+        manifest.build = "b".repeat(64);
+        fs::write(
+            bundle.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("json"),
+        )
+        .expect("the manifest");
+        let mut input = machine.input(None);
+        input.bundle = bundle.display().to_string();
+        let (_, disposition, _) = install_flow_with(input, &machinery(machine.fixture.clone()))
+            .err()
+            .expect("uncertain");
+        assert_eq!(disposition, Disposition::Uncertain);
+        assert_ne!(disposition, Disposition::Staged, "never retryable");
+        assert!(machine.current().contains(&"a".repeat(64)));
+    }
+
+    #[test]
+    fn a_candidate_that_does_not_start_is_activated_and_never_retried() {
+        let machine = Machine::new("start", "a");
+        {
+            let mut fixture = machine.fixture.borrow_mut();
+            fixture.start_failure = true;
+        }
+        let (refused, disposition, _) = machine.install(None).err().expect("no start");
+        assert_eq!(disposition, Disposition::Activated);
+        assert_ne!(disposition, Disposition::Staged, "never retryable");
+        assert!(
+            refused
+                .message
+                .contains("Nothing is running there. Send a fixed build to recover"),
+            "{}",
+            refused.message
+        );
+        assert!(machine.fixture.borrow().definition_removed);
+        assert!(machine.current().contains(&"a".repeat(64)));
+    }
+
+    #[test]
+    fn a_timed_out_candidate_is_stopped_and_its_bounded_error_reported() {
+        let machine = Machine::new("timeout", "a");
+        let logs = machine.install_root.join("logs");
+        private(&logs);
+        fs::write(
+            logs.join("stderr.log"),
+            "Error: fixture core exited at start\n",
+        )
+        .expect("a tail");
+        fs::write(
+            machine.install_root.join("owner.json"),
+            lock::owner_marker(
+                &service::service_label(&machine.install_root, &machine.junto_home),
+                &machine.junto_home,
+            ),
+        )
+        .expect("the marker");
+        {
+            let mut fixture = machine.fixture.borrow_mut();
+            fixture.readiness = Duration::ZERO;
+            fixture.status_error = Some("core has not reported ready".to_string());
+        }
+        let (refused, disposition, _) = machine.install(None).err().expect("no readiness");
+        assert_eq!(disposition, Disposition::Activated);
+        assert!(
+            refused.message.contains("Nothing is running there"),
+            "{}",
+            refused.message
+        );
+        assert!(
+            refused.message.contains("fixture core exited at start"),
+            "{}",
+            refused.message
+        );
+        assert!(machine.fixture.borrow().definition_removed);
+        assert!(machine.current().contains(&"a".repeat(64)));
+    }
+
+    #[test]
+    fn an_unstoppable_candidate_never_claims_nothing_is_running() {
+        let machine = Machine::new("stuck", "a");
+        {
+            let mut fixture = machine.fixture.borrow_mut();
+            fixture.start_failure = true;
+            fixture.stop_failure = true;
+            fixture.readiness = Duration::ZERO;
+            fixture.status_error = Some("core has not reported ready".to_string());
+        }
+        let (refused, disposition, _) = machine.install(None).err().expect("uncertain");
+        assert_eq!(disposition, Disposition::Uncertain);
+        assert!(
+            refused
+                .message
+                .contains("stopping it could not be confirmed"),
+            "{}",
+            refused.message
+        );
+        assert!(!refused.message.contains("Nothing is running there"));
+        assert!(!machine.fixture.borrow().definition_removed);
+    }
+
+    #[test]
+    fn keeps_the_current_build_and_the_one_it_replaced_and_removes_older_ones() {
+        let machine = Machine::new("prune", "a");
+        for (index, build) in ["a", "b", "c"].iter().enumerate() {
+            let bundle = machine.root.join(format!("bundle-{build}"));
+            let mut manifest = shipped_bundle(&bundle);
+            manifest.build = build.repeat(64);
+            fs::write(
+                bundle.join("manifest.json"),
+                serde_json::to_string(&manifest).expect("json"),
+            )
+            .expect("the manifest");
+            machine.fixture.borrow_mut().ready(&build.repeat(64));
+            let mut input = machine.input(None);
+            input.bundle = bundle.display().to_string();
+            let result =
+                install_flow_with(input, &machinery(machine.fixture.clone())).expect("an install");
+            assert_eq!(result.build, build.repeat(64), "install {index}");
+        }
+        assert_eq!(
+            machine.builds(),
+            vec![
+                format!("{}-{}", "b".repeat(64), bundle::this_target()),
+                format!("{}-{}", "c".repeat(64), bundle::this_target()),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_lease_holds_through_the_quiesce_and_seats_stop_only_on_the_confirm() {
+        let machine = Machine::new("lease", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        machine.install(None).expect("the first install");
+        machine.fixture.borrow_mut().lease_calls.clear();
+        // A second build, so the install is an update with an incumbent.
+        let bundle = machine.root.join("bundle-b");
+        let mut manifest = shipped_bundle(&bundle);
+        manifest.build = "b".repeat(64);
+        fs::write(
+            bundle.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("json"),
+        )
+        .expect("the manifest");
+        machine.fixture.borrow_mut().ready(&"b".repeat(64));
+        let mut input = machine.input(None);
+        input.bundle = bundle.display().to_string();
+        install_flow_with(input, &machinery(machine.fixture.clone())).expect("the update");
+        let third = machine.root.join("bundle-c");
+        let mut manifest = shipped_bundle(&third);
+        manifest.build = "c".repeat(64);
+        fs::write(
+            third.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("json"),
+        )
+        .expect("the manifest");
+        machine.fixture.borrow_mut().ready(&"c".repeat(64));
+        assert_eq!(machine.fixture.borrow().lease_calls, vec![false]);
+        let mut input = machine.input(Some(true));
+        input.bundle = bundle.display().to_string();
+        install_flow_with(input, &machinery(machine.fixture.clone()))
+            .expect("the confirmed update");
+        assert_eq!(machine.fixture.borrow().lease_calls, vec![false, true]);
+    }
+
+    #[test]
+    fn a_refused_lease_names_the_seats_and_stops_nothing() {
+        let machine = Machine::new("seats", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        machine.install(None).expect("the first install");
+        {
+            let mut fixture = machine.fixture.borrow_mut();
+            fixture.seats = Seats::Refused;
+            fixture.running_seats = 2;
+        }
+        let bundle = machine.root.join("bundle-b");
+        let mut manifest = shipped_bundle(&bundle);
+        manifest.build = "b".repeat(64);
+        fs::write(
+            bundle.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("json"),
+        )
+        .expect("the manifest");
+        let mut input = machine.input(None);
+        input.bundle = bundle.display().to_string();
+        let (refused, disposition, _) =
+            install_flow_with(input, &machinery(machine.fixture.clone()))
+                .err()
+                .expect("refused");
+        assert_eq!(disposition, Disposition::Staged);
+        assert_eq!(disposition, Disposition::Staged, "retryable");
+        assert_eq!(refused.running_seats, Some(2));
+        assert!(
+            refused
+                .message
+                .contains("2 seats are running on this machine"),
+            "{}",
+            refused.message
+        );
+        assert_eq!(machine.fixture.borrow().stops, 0, "nothing was stopped");
+        assert!(machine.current().contains(&"a".repeat(64)));
+    }
+
+    #[test]
+    fn a_core_that_cannot_say_how_many_seats_it_runs_fails_closed() {
+        let machine = Machine::new("unknown-seats", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        machine.install(None).expect("the first install");
+        machine.fixture.borrow_mut().seats = Seats::Unknown;
+        let bundle = machine.root.join("bundle-b");
+        let mut manifest = shipped_bundle(&bundle);
+        manifest.build = "b".repeat(64);
+        fs::write(
+            bundle.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("json"),
+        )
+        .expect("the manifest");
+        let mut input = machine.input(None);
+        input.bundle = bundle.display().to_string();
+        let (refused, disposition, _) =
+            install_flow_with(input, &machinery(machine.fixture.clone()))
+                .err()
+                .expect("unknown");
+        assert_eq!(disposition, Disposition::Staged);
+        assert_eq!(disposition, Disposition::Staged, "retryable");
+        assert!(refused.running_seats_unknown);
+    }
+
+    #[test]
+    fn a_candidate_that_never_reaches_ready_rolls_back_both_build_and_database() {
+        let machine = Machine::new("rollback", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        let first = machine.install(None).expect("the first install");
+        let state = machine.state();
+        private(&state);
+        for (name, text) in [
+            ("junto.db", "before"),
+            ("junto.db-wal", "before wal"),
+            ("junto.db-shm", "before shm"),
+        ] {
+            fs::write(state.join(name), text).expect("a family member");
+            fs::set_permissions(state.join(name), fs::Permissions::from_mode(0o600))
+                .expect("private");
+        }
+        let bundle = machine.root.join("bundle-b");
+        let mut manifest = shipped_bundle(&bundle);
+        manifest.build = "b".repeat(64);
+        fs::write(
+            bundle.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("json"),
+        )
+        .expect("the manifest");
+        {
+            let mut fixture = machine.fixture.borrow_mut();
+            fixture.start_failure = true;
+            fixture.readiness = Duration::ZERO;
+        }
+        let mut input = machine.input(None);
+        input.bundle = bundle.display().to_string();
+        let (refused, disposition, _) =
+            install_flow_with(input, &machinery(machine.fixture.clone()))
+                .err()
+                .expect("rolled back");
+        assert_eq!(disposition, Disposition::RolledBack, "{}", refused.message);
+        assert_ne!(disposition, Disposition::Staged, "never retryable");
+        assert!(
+            refused
+                .message
+                .contains("previous build and its database are back"),
+            "{}",
+            refused.message
+        );
+        assert!(machine.current().contains(&first.build));
+        for (name, text) in [
+            ("junto.db", "before"),
+            ("junto.db-wal", "before wal"),
+            ("junto.db-shm", "before shm"),
+        ] {
+            assert_eq!(
+                fs::read_to_string(state.join(name)).expect("a member"),
+                text,
+                "{name}"
+            );
+        }
+        assert!(!machine.fixture.borrow().definition_removed);
+    }
+
+    #[test]
+    fn a_symlink_at_an_install_path_is_refused_and_its_target_kept() {
+        let machine = Machine::new("symlink", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        machine.install(None).expect("the first install");
+        let victim = machine.root.join("victim");
+        fs::write(&victim, "keep").expect("the target");
+        for name in ["builds", "logs", "owner.json"] {
+            let path = machine.install_root.join(name);
+            let _ = fs::remove_file(&path);
+            let _ = fs::remove_dir_all(&path);
+            std::os::unix::fs::symlink(&victim, &path).expect("a link");
+            let (_, disposition, _) = machine.install(None).err().expect("a link refuses");
+            assert_eq!(disposition, Disposition::Staged, "{name}");
+            assert_eq!(
+                fs::read_to_string(&victim).expect("the target"),
+                "keep",
+                "{name}"
+            );
+            let _ = fs::remove_file(&path);
+        }
+    }
+
+    #[test]
+    fn uninstall_stops_only_the_quiesced_service_and_retains_package_and_home() {
+        let machine = Machine::new("uninstall", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        let installed = machine.install(None).expect("the install");
+        let result = machine.uninstall().expect("the uninstall");
+        assert_eq!(result.disposition, "stopped");
+        assert_eq!(result.transitions[0].step, "quiescent");
+        assert_eq!(result.transitions[0].pid, Some(71));
+        assert_eq!(
+            result.transitions[0].start_key.as_deref(),
+            Some("incumbent")
+        );
+        assert!(result.definition_removed);
+        assert_eq!(
+            fs::read_to_string(installed.directory + "/core/junto.cjs").expect("the package"),
+            "core"
+        );
+        assert!(
+            machine.fixture.borrow().status.is_some(),
+            "the home's core record stays"
+        );
+    }
+
+    #[test]
+    fn an_uncertain_uninstall_stop_leaves_the_definition_alone() {
+        let machine = Machine::new("uninstall-stuck", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        machine.install(None).expect("the install");
+        machine.fixture.borrow_mut().stop_failure = true;
+        let (_, disposition, _) = machine.uninstall().err().expect("uncertain");
+        assert_eq!(disposition, Disposition::Uncertain);
+        assert_ne!(disposition, Disposition::Staged, "never retryable");
+        assert!(!machine.fixture.borrow().definition_removed);
+    }
+
+    #[test]
+    fn installs_into_private_directories() {
+        let machine = Machine::new("modes", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        let installed = machine.install(None).expect("the install");
+        for relative in ["", "bin", "core"] {
+            let path = if relative.is_empty() {
+                PathBuf::from(&installed.directory)
+            } else {
+                PathBuf::from(&installed.directory).join(relative)
+            };
+            assert_eq!(
+                fs::metadata(&path).expect("a directory").mode() & 0o777,
+                0o700,
+                "{relative}"
+            );
+        }
+        assert_eq!(
+            fs::metadata(PathBuf::from(&installed.directory).join("core/junto.cjs"))
+                .expect("a file")
+                .mode()
+                & 0o777,
+            0o644
+        );
+    }
 
     #[test]
     fn a_boot_with_no_marker_answers_without_taking_anything() {

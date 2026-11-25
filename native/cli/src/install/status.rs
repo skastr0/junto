@@ -78,6 +78,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_receipt_that_predates_this_builds_fields_is_read() {
+        // An installed 3363 machine answers with build, form, installation id,
+        // machine name, home, pid and ready; nothing newer is required.
+        let text = r#"{"ok":true,"command":"machine status","data":{"build":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","form":"mac-mini","installationId":"install-one","machineName":"mini","juntoHome":"/home/peer","pid":71,"ready":true}}"#;
+        let envelope: Envelope = serde_json::from_str(text).expect("the envelope");
+        assert!(envelope.ok);
+        let status = envelope.data.expect("the status");
+        assert_eq!(status.pid, 71);
+        assert_eq!(status.installation_id, "install-one");
+        assert!(status.ready);
+    }
+
+    #[test]
     fn an_envelope_that_is_not_the_own_status_is_refused() {
         let parsed: Option<Envelope> =
             serde_json::from_str(r#"{"ok":false,"command":"machine status"}"#).ok();

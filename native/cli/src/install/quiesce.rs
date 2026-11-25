@@ -95,6 +95,7 @@ pub fn quiesce_machine_service(
     service: &mut dyn Service,
     before: &Observed,
     on_stopping: impl FnOnce(),
+    epoch_of: &dyn Fn(u32) -> Option<Vec<Epoch>>,
 ) -> Result<Quiesced, Refused> {
     if !before.loaded {
         if before.pid != 0 {
@@ -105,21 +106,26 @@ pub fn quiesce_machine_service(
             ..Quiesced::default()
         });
     }
+    // A pid the table proves absent is a process already gone, not an identity
+    // nobody can establish: the stop still runs, and there is nothing to wait
+    // for. Only a probe that fails to answer refuses.
     let epoch = if before.pid > 0 {
-        read_epoch(before.pid).and_then(|rows| rows.into_iter().next())
+        match epoch_of(before.pid) {
+            Some(rows) => rows.into_iter().next(),
+            None => {
+                return Err(Refused::new(
+                    "cannot establish the incumbent process identity",
+                ));
+            }
+        }
     } else {
         None
     };
-    if before.pid > 0 && epoch.is_none() {
-        return Err(Refused::new(
-            "cannot establish the incumbent process identity",
-        ));
-    }
     on_stopping();
     service.stop()?;
     let deadline = Instant::now() + Duration::from_secs(30);
     while let Some(epoch) = epoch.clone() {
-        let rows = read_epoch(epoch.pid);
+        let rows = epoch_of(epoch.pid);
         if rows.is_some_and(|rows| !rows.iter().any(|row| row.start_key == epoch.start_key)) {
             break;
         }

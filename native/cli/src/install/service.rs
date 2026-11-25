@@ -201,6 +201,19 @@ impl Launchd {
         label: &str,
         runner: Box<dyn Runner>,
     ) -> Result<Self, Refused> {
+        let file = home()
+            .join("Library/LaunchAgents")
+            .join(format!("{label}.plist"));
+        Launchd::at(root, junto_home, label, file, runner)
+    }
+
+    fn at(
+        root: &Path,
+        junto_home: &Path,
+        label: &str,
+        file: PathBuf,
+        runner: Box<dyn Runner>,
+    ) -> Result<Self, Refused> {
         admit_label(label)?;
         let node = root.join("current/bin/node").to_string_lossy().into_owned();
         let entry = root
@@ -222,9 +235,6 @@ impl Launchd {
         } else {
             background.clone()
         };
-        let file = home()
-            .join("Library/LaunchAgents")
-            .join(format!("{label}.plist"));
         super::paths::ensure_machine_directory(file.parent().unwrap_or(&file), false)?;
         let service = Launchd {
             label: label.to_string(),
@@ -327,6 +337,29 @@ impl Launchd {
     }
 }
 
+impl Launchd {
+    /// A graphical session exists and its job is running, so it is the one that
+    /// stays: the fallback job goes, the session is the desired one, and the
+    /// definition on disk is the Aqua body. Answers whether it found one.
+    fn adopt_gui(&mut self) -> Result<bool, Refused> {
+        let jobs = self.snapshot()?;
+        if !jobs.iter().any(|job| job.domain == self.gui) {
+            return Ok(false);
+        }
+        if let Some(fallback) = jobs.iter().find(|job| job.domain == self.user).cloned() {
+            self.quiesce_job(&fallback)?;
+        }
+        self.domain = self.gui.clone();
+        self.desired = self.aqua.clone();
+        let previous = self.definition()?;
+        if let Some(previous) = previous.filter(|held| held != &self.desired) {
+            remove_machine_service_file(&self.file, &previous)?;
+        }
+        write_machine_service_file(&self.file, &self.desired)?;
+        Ok(true)
+    }
+}
+
 /// The `arguments = { ... }` block launchctl prints for a job.
 fn argument_lines(output: &str) -> Option<Vec<String>> {
     let mut inside = false;
@@ -369,20 +402,7 @@ impl Service for Launchd {
     }
 
     fn reconcile(&mut self) -> Result<Vec<&'static str>, Refused> {
-        let jobs = self.snapshot()?;
-        if !jobs.iter().any(|job| job.domain == self.gui) {
-            return Ok(Vec::new());
-        }
-        if let Some(fallback) = jobs.iter().find(|job| job.domain == self.user).cloned() {
-            self.quiesce_job(&fallback)?;
-        }
-        self.domain = self.gui.clone();
-        self.desired = self.aqua.clone();
-        let previous = self.definition()?;
-        if let Some(previous) = previous.filter(|held| held != &self.desired) {
-            remove_machine_service_file(&self.file, &previous)?;
-        }
-        write_machine_service_file(&self.file, &self.desired)?;
+        self.adopt_gui()?;
         Ok(Vec::new())
     }
 
@@ -432,7 +452,6 @@ impl Service for Launchd {
 
     fn start(&mut self) -> Result<(), Refused> {
         if !self.snapshot()?.is_empty() {
-            self.reconcile()?;
             return Err(Refused::new(
                 "Junto service must be quiescent before starting",
             ));
@@ -443,9 +462,19 @@ impl Service for Launchd {
         }
         write_machine_service_file(&self.file, &self.desired)?;
         let file = self.file.to_string_lossy().into_owned();
-        self.runner
+        if let Err(failure) = self
+            .runner
             .run("/bin/launchctl", &["bootstrap", &self.domain, &file])
-            .map_err(|failure| Refused::new(failure.message))?;
+        {
+            // A login can land between the session probe and this bootstrap,
+            // starting the graphical job the operator's own login owns. Then
+            // the fallback is the one to stop, never the job just started.
+            if !self.adopt_gui()? {
+                return Err(Refused::new(failure.message));
+            }
+        }
+        // A login that landed while this start was running owns the session:
+        // the fallback goes and the job is kicked in the session that stays.
         self.reconcile()?;
         let target = format!("{}/{}", self.domain, self.label);
         self.runner
@@ -482,10 +511,20 @@ struct Systemd {
 
 impl Systemd {
     fn new(root: &Path, junto_home: &Path, label: &str, runner: Box<dyn Runner>) -> Self {
-        let (body, legacy) = systemd_bodies(root, junto_home);
         let file = home()
             .join(".config/systemd/user")
             .join(format!("{label}.service"));
+        Systemd::at(root, junto_home, label, file, runner)
+    }
+
+    fn at(
+        root: &Path,
+        junto_home: &Path,
+        label: &str,
+        file: PathBuf,
+        runner: Box<dyn Runner>,
+    ) -> Self {
+        let (body, legacy) = systemd_bodies(root, junto_home);
         Systemd {
             file,
             name: format!("{label}.service"),
@@ -805,5 +844,981 @@ mod tests {
         );
         assert_eq!(pid_of(output), 1234);
         assert_eq!(pid_of("no pid here"), 0);
+    }
+
+    // --- the host, as launchctl and systemctl answer it ---
+
+    use super::super::paths;
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::{Arc, Mutex as ArcMutex};
+
+    #[derive(Clone)]
+    struct FakeJob {
+        pid: u32,
+        path: String,
+        program: String,
+        args: Vec<String>,
+        home: String,
+    }
+
+    /// A launchd host: the graphical session, the jobs in each session, the
+    /// file the plist is written to, and every call made. Cloned into the
+    /// service, so a test sees what the service asked for.
+    #[derive(Clone)]
+    struct Hosted {
+        gui: Arc<ArcMutex<bool>>,
+        jobs: Arc<ArcMutex<BTreeMap<String, FakeJob>>>,
+        calls: Arc<ArcMutex<Vec<String>>>,
+        failure: Arc<ArcMutex<Option<String>>>,
+        inject_login: Arc<ArcMutex<bool>>,
+        file: PathBuf,
+        node: String,
+        entry: String,
+        home: String,
+    }
+
+    impl Hosted {
+        fn new(root: &Path, home: &Path, file: PathBuf, gui: bool) -> Hosted {
+            Hosted {
+                gui: Arc::new(ArcMutex::new(gui)),
+                jobs: Arc::new(ArcMutex::new(BTreeMap::new())),
+                calls: Arc::new(ArcMutex::new(Vec::new())),
+                failure: Arc::new(ArcMutex::new(None)),
+                inject_login: Arc::new(ArcMutex::new(false)),
+                file,
+                node: root.join("current/bin/node").to_string_lossy().into_owned(),
+                entry: root
+                    .join("current/core/junto.cjs")
+                    .to_string_lossy()
+                    .into_owned(),
+                home: home.to_string_lossy().into_owned(),
+            }
+        }
+
+        fn own_job(&self, pid: u32) -> FakeJob {
+            FakeJob {
+                pid,
+                path: self.file.to_string_lossy().into_owned(),
+                program: self.node.clone(),
+                args: vec![self.node.clone(), self.entry.clone()],
+                home: self.home.clone(),
+            }
+        }
+
+        /// The calls that change something, by their launchctl arguments.
+        fn mutations(&self) -> Vec<String> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .iter()
+                .filter_map(|call| call.split_once(' ').map(|(_, rest)| rest.to_string()))
+                .filter(|call| !call.starts_with("print "))
+                .collect()
+        }
+
+        fn clear(&self) {
+            self.calls.lock().expect("calls").clear();
+        }
+
+        fn seed(&self, pid: u32) {
+            let domain = self.domain();
+            self.jobs
+                .lock()
+                .expect("jobs")
+                .insert(domain, self.own_job(pid));
+        }
+
+        fn domain(&self) -> String {
+            if *self.gui.lock().expect("gui") {
+                format!("gui/{}", uid())
+            } else {
+                format!("user/{}", uid())
+            }
+        }
+
+        fn jobs(&self) -> usize {
+            self.jobs.lock().expect("jobs").len()
+        }
+
+        fn has(&self, domain: &str) -> bool {
+            self.jobs.lock().expect("jobs").contains_key(domain)
+        }
+
+        fn gui(&self) -> String {
+            format!("gui/{}", uid())
+        }
+
+        fn user(&self) -> String {
+            format!("user/{}", uid())
+        }
+
+        fn file(&self) -> PathBuf {
+            self.file.clone()
+        }
+    }
+
+    impl Runner for Hosted {
+        fn run(&self, program: &str, args: &[&str]) -> Result<String, RunFailed> {
+            assert_eq!(program, "/bin/launchctl", "the plist writer's only tool");
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("{} {}", program, args.join(" ")));
+            let op = args[0];
+            if self.failure.lock().expect("failure").as_deref() == Some(op) {
+                return Err(RunFailed {
+                    exit: Some(5),
+                    message: "launchctl 5".to_string(),
+                });
+            }
+            let target = args.get(1).copied().unwrap_or_default();
+            if op == "print" && target == self.gui() {
+                return if *self.gui.lock().expect("gui") {
+                    Ok("gui exists".to_string())
+                } else {
+                    Err(RunFailed {
+                        exit: Some(112),
+                        message: "launchctl 112".to_string(),
+                    })
+                };
+            }
+            let domain = if target.starts_with("gui/") {
+                self.gui()
+            } else {
+                self.user()
+            };
+            if domain == self.gui() && !*self.gui.lock().expect("gui") {
+                if *self.inject_login.lock().expect("login") {
+                    let body = fs::read_to_string(&self.file).expect("the definition");
+                    assert!(
+                        body.contains("<string>Aqua</string>"),
+                        "the Aqua body is written before the login is observed"
+                    );
+                    *self.inject_login.lock().expect("login") = false;
+                    *self.gui.lock().expect("gui") = true;
+                    let job = self.own_job(73);
+                    self.jobs.lock().expect("jobs").insert(self.gui(), job);
+                }
+                return Err(RunFailed {
+                    exit: Some(112),
+                    message: "launchctl 112".to_string(),
+                });
+            }
+            match op {
+                "print" => {
+                    let jobs = self.jobs.lock().expect("jobs");
+                    let Some(job) = jobs.get(&domain) else {
+                        return Err(RunFailed {
+                            exit: Some(113),
+                            message: "launchctl 113".to_string(),
+                        });
+                    };
+                    let arguments: Vec<String> =
+                        job.args.iter().map(|arg| format!("  {arg}")).collect();
+                    Ok(format!(
+                        "service = {{\n path = {}\n program = {}\n arguments = {{\n{}\n }}\n environment = {{\n JUNTO_HOME => {}\n }}\n pid = {}\n}}",
+                        job.path,
+                        job.program,
+                        arguments.join("\n"),
+                        job.home,
+                        job.pid
+                    ))
+                }
+                "bootstrap" => {
+                    if self.jobs.lock().expect("jobs").contains_key(&domain) {
+                        return Err(RunFailed {
+                            exit: Some(5),
+                            message: "launchctl 5".to_string(),
+                        });
+                    }
+                    let job = self.own_job(72);
+                    self.jobs.lock().expect("jobs").insert(domain, job);
+                    Ok(String::new())
+                }
+                "bootout" => {
+                    self.jobs.lock().expect("jobs").remove(&domain);
+                    Ok(String::new())
+                }
+                "kickstart" => Ok(String::new()),
+                other => panic!("unexpected launchctl {other}"),
+            }
+        }
+    }
+
+    fn hosting(name: &str, gui: bool) -> (PathBuf, Hosted, String) {
+        let root = paths::home().join(format!(".junto-service-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("a root");
+        let home = root.join("home");
+        super::super::paths::ensure_machine_directory(&home, true).expect("a home");
+        let label = "dev.junto.machine.0123456789abcdef".to_string();
+        let file = root.join("machine.plist");
+        let host = Hosted::new(&root.join("machine"), &home, file, gui);
+        (root, host, label)
+    }
+
+    fn launchd(host: &Hosted, root: &Path, label: &str) -> Launchd {
+        Launchd::at(
+            &root.join("machine"),
+            &root.join("home"),
+            label,
+            host.file(),
+            Box::new(host.clone()),
+        )
+        .expect("a service")
+    }
+
+    #[test]
+    fn labels_that_are_not_juntos_are_refused() {
+        for bad in [
+            "",
+            "dev.junto.machine.",
+            "dev.junto.machine.0123456789abcdeF",
+            "dev.junto.machine.0123456789abcdef/x",
+            "x</string><key>",
+        ] {
+            assert!(admit_label(bad).is_err(), "{bad:?} must not be a label");
+        }
+        assert!(admit_label("dev.junto.machine.0123456789abcdef").is_ok());
+    }
+
+    #[test]
+    fn the_label_is_the_install_and_home_the_fixture_names() {
+        let fixture = fixture();
+        let root = Path::new(fixture["root"].as_str().expect("root"));
+        let home = Path::new(fixture["home"].as_str().expect("home"));
+        let label = fixture["label"].as_str().expect("label");
+        assert_eq!(service_label(root, home), label);
+    }
+
+    #[test]
+    fn starts_in_the_graphical_session_with_an_aqua_autostart() {
+        let (root, host, label) = hosting("aqua", true);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        assert_eq!(
+            service.observe().expect("observe"),
+            Observed {
+                loaded: true,
+                pid: 72,
+                matches_desired_placement: true,
+            }
+        );
+        let body = fs::read_to_string(host.file()).expect("the definition");
+        assert!(body.contains("<key>LimitLoadToSessionType</key><string>Aqua</string>"));
+        assert!(body.contains("<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>"));
+        assert_eq!(
+            host.mutations(),
+            vec![
+                format!("bootstrap {} {}", host.gui(), host.file().display()),
+                format!("kickstart {}/{label}", host.gui()),
+            ]
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn uses_the_background_autostart_when_no_graphical_session_exists() {
+        let (root, host, label) = hosting("background", false);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        assert_eq!(service.observe().expect("observe").pid, 72);
+        let body = fs::read_to_string(host.file()).expect("the definition");
+        assert!(body.contains("<key>LimitLoadToSessionType</key><string>Background</string>"));
+        assert_eq!(
+            host.mutations(),
+            vec![
+                format!("bootstrap {} {}", host.user(), host.file().display()),
+                format!("kickstart {}/{label}", host.user()),
+            ]
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_loaded_job_is_not_started_over_and_nothing_moves() {
+        let (root, host, label) = hosting("loaded", false);
+        launchd(&host, &root, &label)
+            .start()
+            .expect("the first start");
+        host.seed(71);
+        *host.gui.lock().expect("gui") = true;
+        let mut service = launchd(&host, &root, &label);
+        let observed = service.observe().expect("observe");
+        assert!(observed.loaded);
+        assert!(!observed.matches_desired_placement);
+        host.clear();
+        assert!(service.start().is_err(), "starting over a running job");
+        assert_eq!(host.mutations(), Vec::<String>::new());
+        assert!(
+            fs::read_to_string(host.file())
+                .expect("the body")
+                .contains("Background")
+        );
+        service.stop().expect("the stop");
+        assert_eq!(host.jobs(), 0);
+        assert_eq!(
+            host.mutations(),
+            vec![format!("bootout {}/{label}", host.user())]
+        );
+        host.clear();
+        service.start().expect("the restart");
+        assert!(host.has(&host.gui()));
+        assert!(!host.has(&host.user()));
+        assert_eq!(
+            host.mutations(),
+            vec![
+                format!("bootstrap {} {}", host.gui(), host.file().display()),
+                format!("kickstart {}/{label}", host.gui()),
+            ]
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn falls_back_to_user_when_the_graphical_session_goes_and_replaces_an_unloaded_aqua_body() {
+        let (root, host, label) = hosting("fallback", true);
+        let mut first = launchd(&host, &root, &label);
+        first.start().expect("the first start");
+        *host.gui.lock().expect("gui") = false;
+        host.jobs.lock().expect("jobs").clear();
+        host.clear();
+        let mut next = launchd(&host, &root, &label);
+        assert!(!next.observe().expect("observe").loaded);
+        next.start().expect("the fallback start");
+        assert!(host.has(&host.user()));
+        assert!(
+            fs::read_to_string(host.file())
+                .expect("the body")
+                .contains("<string>Background</string>")
+        );
+        assert_eq!(
+            host.mutations(),
+            vec![
+                format!("bootstrap {} {}", host.user(), host.file().display()),
+                format!("kickstart {}/{label}", host.user()),
+            ]
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn keeps_a_graphical_job_that_appears_after_user_was_selected() {
+        let (root, host, label) = hosting("late-gui", true);
+        let mut first = launchd(&host, &root, &label);
+        first.start().expect("the first start");
+        first.observe().expect("observe");
+        first.stop().expect("the stop");
+        *host.gui.lock().expect("gui") = false;
+        let mut next = launchd(&host, &root, &label);
+        // A login returns after selection, and RunAtLoad starts the old job.
+        *host.gui.lock().expect("gui") = true;
+        let job = host.own_job(73);
+        host.jobs.lock().expect("jobs").insert(host.gui(), job);
+        host.clear();
+        next.reconcile().expect("the repair");
+        assert_eq!(
+            next.observe().expect("observe"),
+            Observed {
+                loaded: true,
+                pid: 73,
+                matches_desired_placement: true,
+            }
+        );
+        assert!(host.has(&host.gui()));
+        assert!(!host.has(&host.user()));
+        assert_eq!(host.mutations(), Vec::<String>::new());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn activation_never_changes_its_selected_session() {
+        let (root, host, label) = hosting("activation", true);
+        let mut service = launchd(&host, &root, &label);
+        *host.gui.lock().expect("gui") = false;
+        assert!(service.start().is_err(), "the session is gone");
+        assert_eq!(host.jobs(), 0);
+        assert_eq!(
+            host.mutations(),
+            vec![format!(
+                "bootstrap {} {}",
+                host.gui(),
+                host.file().display()
+            )]
+        );
+        service.remove_definition().expect("the cleanup");
+        assert!(!host.file().exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn repairs_a_login_that_lands_after_the_last_session_scan() {
+        let (root, host, label) = hosting("late-login", true);
+        let mut first = launchd(&host, &root, &label);
+        first.start().expect("the first start");
+        first.observe().expect("observe");
+        first.stop().expect("the stop");
+        *host.gui.lock().expect("gui") = false;
+        let mut next = launchd(&host, &root, &label);
+        next.observe().expect("observe");
+        host.clear();
+        *host.inject_login.lock().expect("login") = true;
+        next.start().expect("the start repairs the login");
+        assert!(!*host.inject_login.lock().expect("login"));
+        assert_eq!(host.jobs(), 1);
+        assert!(host.has(&host.gui()));
+        assert!(!host.has(&host.user()));
+        assert_eq!(next.observe().expect("observe").pid, 73);
+        assert!(
+            fs::read_to_string(host.file())
+                .expect("the body")
+                .contains("<string>Aqua</string>")
+        );
+        assert!(
+            host.mutations()
+                .contains(&format!("bootout {}/{label}", host.user()))
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_unexpected_session_probe_failure_is_not_read_as_no_session() {
+        let (root, host, label) = hosting("probe", true);
+        *host.failure.lock().expect("failure") = Some("print".to_string());
+        assert!(Launchd::new(&root, &root.join("home"), &label, Box::new(host.clone())).is_err());
+        assert_eq!(host.mutations(), Vec::<String>::new());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_loaded_job_that_is_not_ours_is_refused_and_left_alone() {
+        let (root, host, label) = hosting("foreign", false);
+        host.seed(71);
+        *host.gui.lock().expect("gui") = true;
+        let mut service = launchd(&host, &root, &label);
+        for field in ["path", "program", "args", "home"] {
+            {
+                let mut jobs = host.jobs.lock().expect("jobs");
+                let job = jobs.get_mut(&host.user()).expect("the job");
+                match field {
+                    "args" => job.args = vec![job.program.clone(), "/foreign/core.cjs".to_string()],
+                    "path" => job.path = "/foreign".to_string(),
+                    "program" => job.program = "/foreign".to_string(),
+                    _ => job.home = "/foreign".to_string(),
+                }
+            }
+            host.clear();
+            assert!(service.observe().is_err(), "{field}");
+            assert!(service.start().is_err(), "{field}");
+            assert!(service.remove_definition().is_err(), "{field}");
+            assert_eq!(host.mutations(), Vec::<String>::new(), "{field}");
+            assert_eq!(host.jobs(), 1, "{field}");
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_running_job_with_no_owned_definition_is_refused() {
+        let (root, host, label) = hosting("no-definition", true);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        fs::remove_file(host.file()).expect("the definition goes");
+        host.clear();
+        assert!(service.observe().is_err());
+        assert_eq!(host.mutations(), Vec::<String>::new());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_foreign_definition_is_refused_and_not_modified() {
+        let (root, host, label) = hosting("foreign-definition", true);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        fs::write(host.file(), "foreign").expect("a foreign body");
+        host.clear();
+        assert!(service.observe().is_err());
+        assert_eq!(
+            fs::read_to_string(host.file()).expect("the body"),
+            "foreign"
+        );
+        assert_eq!(host.mutations(), Vec::<String>::new());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn two_owned_jobs_are_repaired_by_stopping_the_fallback() {
+        let (root, host, label) = hosting("pair", true);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        let job = host.own_job(71);
+        host.jobs.lock().expect("jobs").insert(host.user(), job);
+        host.clear();
+        service.reconcile().expect("the repair");
+        assert_eq!(
+            service.observe().expect("observe"),
+            Observed {
+                loaded: true,
+                pid: 72,
+                matches_desired_placement: true,
+            }
+        );
+        assert_eq!(
+            host.mutations(),
+            vec![format!("bootout {}/{label}", host.user())]
+        );
+        assert_eq!(host.jobs(), 1);
+        assert!(host.has(&host.gui()));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_foreign_job_in_an_owned_pair_is_refused() {
+        for foreign in ["user", "gui"] {
+            let (root, host, label) = hosting("foreign-pair", true);
+            let mut service = launchd(&host, &root, &label);
+            service.start().expect("the start");
+            let job = host.own_job(71);
+            host.jobs.lock().expect("jobs").insert(host.user(), job);
+            let domain = if foreign == "user" {
+                host.user()
+            } else {
+                host.gui()
+            };
+            host.jobs
+                .lock()
+                .expect("jobs")
+                .get_mut(&domain)
+                .expect("the job")
+                .args = vec!["/foreign".to_string()];
+            let before = fs::read_to_string(host.file()).expect("the body");
+            host.clear();
+            assert!(service.reconcile().is_err(), "{foreign}");
+            assert_eq!(host.mutations(), Vec::<String>::new(), "{foreign}");
+            assert_eq!(host.jobs(), 2, "{foreign}");
+            assert_eq!(fs::read_to_string(host.file()).expect("the body"), before);
+            let _ = fs::remove_dir_all(&root);
+        }
+    }
+
+    #[test]
+    fn an_uncertain_fallback_stop_keeps_both_jobs_and_the_repair_waits() {
+        let (root, host, label) = hosting("pair-stuck", true);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        let job = host.own_job(71);
+        host.jobs.lock().expect("jobs").insert(host.user(), job);
+        *host.failure.lock().expect("failure") = Some("bootout".to_string());
+        assert!(service.reconcile().is_err());
+        assert_eq!(host.jobs(), 2);
+        *host.failure.lock().expect("failure") = None;
+        service.reconcile().expect("the repair");
+        assert_eq!(host.jobs(), 1);
+        assert!(host.has(&host.gui()));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_late_login_pair_is_repaired_before_uninstall() {
+        let (root, host, label) = hosting("late-pair", false);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        *host.gui.lock().expect("gui") = true;
+        let job = host.own_job(73);
+        host.jobs.lock().expect("jobs").insert(host.gui(), job);
+        host.clear();
+        service.reconcile().expect("the repair");
+        service.observe().expect("observe");
+        service.stop().expect("the stop");
+        service.remove_definition().expect("the removal");
+        assert_eq!(host.jobs(), 0);
+        assert_eq!(
+            host.mutations(),
+            vec![
+                format!("bootout {}/{label}", host.user()),
+                format!("bootout {}/{label}", host.gui()),
+            ]
+        );
+        assert!(!host.file().exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_login_after_a_fallback_incumbent_was_admitted_quiesces_both() {
+        let (root, host, label) = hosting("login-after-admission", false);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        service.observe().expect("the incumbent is admitted");
+        *host.gui.lock().expect("gui") = true;
+        let job = host.own_job(73);
+        host.jobs.lock().expect("jobs").insert(host.gui(), job);
+        host.clear();
+        service.stop().expect("the stop");
+        assert_eq!(host.jobs(), 0);
+        assert_eq!(
+            host.mutations(),
+            vec![
+                format!("bootout {}/{label}", host.user()),
+                format!("bootout {}/{label}", host.gui()),
+            ]
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_replacement_job_after_admission_is_not_stopped() {
+        let (root, host, label) = hosting("replacement", true);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        service.observe().expect("admitted");
+        let job = host.own_job(99);
+        host.jobs.lock().expect("jobs").insert(host.gui(), job);
+        host.clear();
+        assert!(
+            service.stop().is_err(),
+            "a replacement is not the admitted job"
+        );
+        assert_eq!(host.mutations(), Vec::<String>::new());
+        assert_eq!(
+            host.jobs
+                .lock()
+                .expect("jobs")
+                .get(&host.gui())
+                .expect("the job")
+                .pid,
+            99
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_definition_is_not_removed_while_its_job_is_loaded() {
+        let (root, host, label) = hosting("loaded-removal", true);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        host.clear();
+        assert!(service.remove_definition().is_err());
+        assert_eq!(host.mutations(), Vec::<String>::new());
+        assert!(
+            fs::read_to_string(host.file())
+                .expect("the body")
+                .contains(&label)
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn either_placement_uninstalls_and_the_second_uninstall_asks_for_nothing() {
+        for graphical in [true, false] {
+            let (root, host, label) = hosting("uninstall", graphical);
+            let mut service = launchd(&host, &root, &label);
+            service.start().expect("the start");
+            *host.gui.lock().expect("gui") = true;
+            host.clear();
+            let mut next = launchd(&host, &root, &label);
+            next.observe().expect("observe");
+            next.stop().expect("the stop");
+            next.remove_definition().expect("the removal");
+            assert_eq!(host.jobs(), 0);
+            assert!(!host.file().exists());
+            let domain = if graphical { host.gui() } else { host.user() };
+            assert_eq!(
+                host.mutations(),
+                vec![format!("bootout {domain}/{label}")],
+                "graphical={graphical}"
+            );
+            host.clear();
+            let mut again = launchd(&host, &root, &label);
+            again.observe().expect("observe");
+            again.stop().expect("the stop");
+            again.remove_definition().expect("the removal");
+            assert_eq!(host.mutations(), Vec::<String>::new());
+            let _ = fs::remove_dir_all(&root);
+        }
+    }
+
+    #[test]
+    fn a_failed_bootstrap_leaves_only_its_owned_candidate_to_clean() {
+        for op in ["bootstrap", "kickstart"] {
+            let (root, host, label) = hosting("failed-start", true);
+            *host.failure.lock().expect("failure") = Some(op.to_string());
+            let mut service = launchd(&host, &root, &label);
+            assert!(service.start().is_err(), "{op}");
+            *host.failure.lock().expect("failure") = None;
+            if service.observe().expect("observe").loaded {
+                service.stop().expect("the stop");
+            }
+            service.remove_definition().expect("the removal");
+            assert_eq!(host.jobs(), 0);
+            assert!(!host.file().exists());
+            assert!(
+                !host
+                    .mutations()
+                    .iter()
+                    .any(|call| call.contains(&format!("user/{}/", uid()))),
+                "{op}: nothing touched the fallback session"
+            );
+            let _ = fs::remove_dir_all(&root);
+        }
+    }
+
+    #[test]
+    fn an_uncertain_stop_retains_the_old_definition_and_blocks_the_start() {
+        let (root, host, label) = hosting("stop-fails", false);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        let previous = fs::read_to_string(host.file()).expect("the body");
+        *host.gui.lock().expect("gui") = true;
+        let mut next = launchd(&host, &root, &label);
+        next.observe().expect("observe");
+        *host.failure.lock().expect("failure") = Some("bootout".to_string());
+        assert!(next.stop().is_err());
+        assert!(next.start().is_err(), "a loaded job is not started over");
+        assert_eq!(fs::read_to_string(host.file()).expect("the body"), previous);
+        assert!(host.has(&host.user()));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // --- systemd ---
+
+    #[derive(Clone)]
+    struct Managed {
+        file: PathBuf,
+        node: String,
+        entry: String,
+        pid: Arc<ArcMutex<u32>>,
+        linger: Arc<ArcMutex<&'static str>>,
+        calls: Arc<ArcMutex<Vec<String>>>,
+    }
+
+    impl Managed {
+        fn new(root: &Path, file: PathBuf) -> Managed {
+            Managed {
+                file,
+                node: root.join("current/bin/node").to_string_lossy().into_owned(),
+                entry: root
+                    .join("current/core/junto.cjs")
+                    .to_string_lossy()
+                    .into_owned(),
+                pid: Arc::new(ArcMutex::new(0)),
+                linger: Arc::new(ArcMutex::new("no")),
+                calls: Arc::new(ArcMutex::new(Vec::new())),
+            }
+        }
+
+        fn clear(&self) {
+            self.calls.lock().expect("calls").clear();
+        }
+
+        fn calls(&self) -> Vec<String> {
+            self.calls.lock().expect("calls").clone()
+        }
+    }
+
+    impl Runner for Managed {
+        fn run(&self, program: &str, args: &[&str]) -> Result<String, RunFailed> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("{} {}", program, args.join(" ")));
+            if program == "/usr/bin/loginctl" {
+                let mode = *self.linger.lock().expect("linger");
+                if mode == "fail" {
+                    return Err(RunFailed {
+                        exit: Some(1),
+                        message: "loginctl unavailable".to_string(),
+                    });
+                }
+                return match args[0] {
+                    "enable-linger" => {
+                        *self.linger.lock().expect("linger") = "yes";
+                        Ok(String::new())
+                    }
+                    "show-user" => Ok(format!(
+                        "Linger={}\n",
+                        if mode == "yes" { "yes" } else { "no" }
+                    )),
+                    other => panic!("unexpected loginctl {other}"),
+                };
+            }
+            assert_eq!(program, "/usr/bin/systemctl");
+            match args[1] {
+                "show" => {
+                    if !self.file.exists() {
+                        return Ok("LoadState=not-found\nMainPID=0\n".to_string());
+                    }
+                    Ok(format!(
+                        "LoadState=loaded\nMainPID={}\nFragmentPath={}\nExecStart={{ path={} ; argv[]={} }}\n",
+                        *self.pid.lock().expect("pid"),
+                        self.file.display(),
+                        self.node,
+                        self.entry
+                    ))
+                }
+                "daemon-reload" | "enable" | "disable" => Ok(String::new()),
+                "start" => {
+                    if !self.file.exists() {
+                        return Err(RunFailed {
+                            exit: Some(5),
+                            message: "Unit file not found".to_string(),
+                        });
+                    }
+                    *self.pid.lock().expect("pid") = 71;
+                    Ok(String::new())
+                }
+                "stop" => {
+                    *self.pid.lock().expect("pid") = 0;
+                    Ok(String::new())
+                }
+                other => panic!("unexpected systemctl {other}"),
+            }
+        }
+    }
+
+    fn managed(name: &str) -> (PathBuf, Managed, String) {
+        let root = paths::home().join(format!(".junto-systemd-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("a root");
+        let label = "dev.junto.machine.0123456789abcdef".to_string();
+        let file = root.join(format!("{label}.service"));
+        let managed = Managed::new(&root.join("machine"), file);
+        (root, managed, label)
+    }
+
+    fn systemd(host: &Managed, root: &Path, label: &str) -> Systemd {
+        Systemd::at(
+            &root.join("machine"),
+            &root.join("home"),
+            label,
+            host.file.clone(),
+            Box::new(host.clone()),
+        )
+    }
+
+    #[test]
+    fn a_unit_that_never_hits_the_start_limit_restarts_slowly_and_starts_once() {
+        let (root, host, label) = managed("start");
+        let mut service = systemd(&host, &root, &label);
+        service.start().expect("the start");
+        let body = fs::read_to_string(&host.file).expect("the unit");
+        assert!(body.contains("StartLimitIntervalSec=0"));
+        assert!(body.contains("Restart=on-failure\nRestartSec=10\n"));
+        assert!(!body.contains("RestartSec=2"));
+        assert_eq!(
+            host.calls(),
+            vec![
+                "/usr/bin/systemctl --user daemon-reload".to_string(),
+                format!("/usr/bin/systemctl --user enable {label}.service"),
+                format!("/usr/bin/systemctl --user start {label}.service"),
+            ]
+        );
+        assert_eq!(
+            service.observe().expect("observe"),
+            Observed {
+                loaded: true,
+                pid: 71,
+                matches_desired_placement: true,
+            }
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_legacy_unit_is_admitted_and_rewritten_on_start() {
+        let (root, host, label) = managed("legacy");
+        let mut service = systemd(&host, &root, &label);
+        let (_, legacy) = systemd_bodies(&root.join("machine"), &root.join("home"));
+        fs::create_dir_all(host.file.parent().expect("the directory")).expect("a directory");
+        fs::write(&host.file, &legacy).expect("the legacy unit");
+        fs::set_permissions(&host.file, fs::Permissions::from_mode(0o600)).expect("private");
+        host.clear();
+        service.start().expect("the start");
+        let body = fs::read_to_string(&host.file).expect("the unit");
+        assert!(body.contains("StartLimitIntervalSec=0"));
+        assert!(body.contains("RestartSec=10"));
+        assert!(
+            host.calls()
+                .contains(&format!("/usr/bin/systemctl --user start {label}.service"))
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_legacy_unit_is_removed_without_being_rewritten() {
+        let (root, host, label) = managed("legacy-removal");
+        let mut service = systemd(&host, &root, &label);
+        let (_, legacy) = systemd_bodies(&root.join("machine"), &root.join("home"));
+        fs::create_dir_all(host.file.parent().expect("the directory")).expect("a directory");
+        fs::write(&host.file, &legacy).expect("the legacy unit");
+        fs::set_permissions(&host.file, fs::Permissions::from_mode(0o600)).expect("private");
+        host.clear();
+        service.remove_definition().expect("the removal");
+        assert!(!host.file.exists());
+        assert_eq!(
+            host.calls(),
+            vec![
+                format!("/usr/bin/systemctl --user disable {label}.service"),
+                "/usr/bin/systemctl --user daemon-reload".to_string(),
+            ]
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn linger_is_enabled_once_and_never_reported_when_it_takes() {
+        let (root, host, label) = managed("linger");
+        let mut service = systemd(&host, &root, &label);
+        assert_eq!(
+            service.reconcile().expect("first"),
+            Vec::<&'static str>::new()
+        );
+        assert_eq!(
+            service.reconcile().expect("second"),
+            Vec::<&'static str>::new()
+        );
+        assert_eq!(
+            host.calls()
+                .iter()
+                .filter(|call| call.starts_with("/usr/bin/loginctl"))
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![
+                format!("/usr/bin/loginctl show-user {} -p Linger", uid()),
+                format!("/usr/bin/loginctl enable-linger {}", uid()),
+                format!("/usr/bin/loginctl show-user {} -p Linger", uid()),
+            ]
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_manager_that_already_lingers_is_not_asked_again() {
+        let (root, host, label) = managed("linger-yes");
+        *host.linger.lock().expect("linger") = "yes";
+        let mut service = systemd(&host, &root, &label);
+        assert_eq!(
+            service.reconcile().expect("the reconcile"),
+            Vec::<&'static str>::new()
+        );
+        assert!(
+            !host
+                .calls()
+                .iter()
+                .any(|call| call.contains("enable-linger"))
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_machine_without_linger_reports_the_notice_and_still_starts() {
+        let (root, host, label) = managed("linger-fail");
+        *host.linger.lock().expect("linger") = "fail";
+        let mut service = systemd(&host, &root, &label);
+        assert_eq!(
+            service.reconcile().expect("the reconcile"),
+            vec![LINGER_NOT_ENABLED]
+        );
+        service.start().expect("the start");
+        assert_eq!(service.observe().expect("observe").pid, 71);
+        let _ = fs::remove_dir_all(&root);
     }
 }
