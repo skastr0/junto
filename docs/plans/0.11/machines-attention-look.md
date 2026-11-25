@@ -424,6 +424,20 @@ cannot be read.** Junto sets the file aside and does not overwrite it.
   after the sentence: `Set aside at <path>`. The window shows the sentence
   only; the path stays in the CLI and the logs.
 
+**A send that finds the machine's name answering as another
+installation**, as after a reinstall there. It refuses before changing
+anything; the way on is the take-over, whose preview shows the seats and
+automations that move (`docs/machines.md`, take-over).
+
+- Core's words, `ownWords: true`, for the CLI and the row's third line:
+  `It now answers as a different install of Junto, so nothing changed.
+  Take it over to see which seats and automations move.`
+- The step: the window's `Take over` button, which opens the preview, and
+  `junto machine takeover` in the CLI. `nothing changed` holds on the near
+  side, since the send refuses before it changes anything. No name, no
+  installation id: the row shows the label, and the preview names the
+  installation it replaces.
+
 ## 6. The far install's refusal codes
 
 When a send or update fails on the far machine, its refusal carries one
