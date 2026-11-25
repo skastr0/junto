@@ -3,6 +3,7 @@ import type { PreambleEvent } from "@shared/preamble";
 import {
   dismissSeat,
   dropPending,
+  retireNote,
   feedPreamble,
   nextDeadline,
   tickFeed,
@@ -65,6 +66,11 @@ export const showPreamble = (event: PreambleEvent): void => {
 /** Forget a note held behind the dwell, ignoring one already shown or replaced. */
 export const dropPendingPreamble = (nodeId: string, preambleId: string): void => {
   commit(dropPending(feed, nodeId, preambleId));
+};
+
+/** A note's signal closed: it leaves the bubble if it is the one showing, and the note held behind it shows. */
+export const retirePreamble = (nodeId: string, preambleId: string): void => {
+  commit(retireNote(feed, nodeId, preambleId, Date.now()));
 };
 
 /** Dismiss a seat's bubble, ignoring a stale id from a replaced note. */

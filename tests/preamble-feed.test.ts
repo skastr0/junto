@@ -3,7 +3,9 @@ import type { PreambleEvent } from "../src/shared/preamble";
 import {
   FEED_TUNING,
   dismissSeat,
+  dropPending,
   feedPreamble,
+  retireNote,
   nextDeadline,
   tickFeed,
   type FeedState,
@@ -132,5 +134,43 @@ describe("preamble feed", () => {
     s = feedPreamble(s, ev({ preambleId: "keep" }), T0);
     expect(dismissSeat(s, "seat", "other-id")).toBe(s);
     expect(bubble(dismissSeat(s, "seat", "keep"))).toBeUndefined();
+  });
+
+  describe("a note whose signal closed", () => {
+    const signalNote = (text: string, at = T0): PreambleEvent => ev({ text, action: "signal", expiresAt: at + 14_000 }, at);
+
+    it("leaves the bubble, and the note held behind it shows at once with no trail", () => {
+      const first = signalNote("wants you: a");
+      const second = signalNote("blocked: b");
+      let s = feedPreamble(feedPreamble(new Map(), first, T0), second, T0 + 100);
+      expect(bubble(s)?.current.id).toBe(first.preambleId);
+      expect(s.get("seat")?.pending?.id).toBe(second.preambleId);
+      s = retireNote(s, "seat", first.preambleId, T0 + 1_000);
+      expect(bubble(s)).toEqual({ current: expect.objectContaining({ id: second.preambleId, shownAt: T0 + 1_000 }) });
+      expect(s.get("seat")?.pending).toBeUndefined();
+    });
+
+    it("leaves the bubble empty with nothing held, drops an expired held note, and leaves another note showing", () => {
+      const first = signalNote("wants you: a");
+      let s = retireNote(feedPreamble(new Map(), first, T0), "seat", first.preambleId, T0 + 500);
+      expect(bubble(s)).toBeUndefined();
+
+      const held = signalNote("blocked: b");
+      s = feedPreamble(feedPreamble(new Map(), first, T0), { ...held, expiresAt: T0 + 800 }, T0 + 100);
+      expect(bubble(retireNote(s, "seat", first.preambleId, T0 + 1_000))).toBeUndefined();
+
+      // Another note is the one showing: retiring a note that is not current changes nothing.
+      const showing = feedPreamble(new Map(), first, T0);
+      expect(retireNote(showing, "seat", "not-the-showing-note", T0 + 500)).toBe(showing);
+    });
+
+    it("forgets a note held behind the dwell by id, and only that one", () => {
+      const first = signalNote("wants you: a");
+      const held = signalNote("blocked: b");
+      const s = feedPreamble(feedPreamble(new Map(), first, T0), held, T0 + 100);
+      expect(dropPending(s, "seat", "other")).toBe(s);
+      expect(dropPending(s, "seat", held.preambleId).get("seat")?.pending).toBeUndefined();
+      expect(bubble(dropPending(s, "seat", held.preambleId))?.current.id).toBe(first.preambleId);
+    });
   });
 });

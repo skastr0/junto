@@ -33,7 +33,7 @@ import type { MailHold } from "@shared/mail-hold";
 import type { WireTrafficEvent } from "@shared/wire-traffic";
 import { agentSeat$ } from "./agent-seat-state";
 import { agentSignals$ } from "./agent-signals-state";
-import { dropPendingPreamble, showPreamble } from "./preamble-state";
+import { dropPendingPreamble, retirePreamble, showPreamble } from "./preamble-state";
 import { seatAwareness$ } from "./seat-awareness";
 import { threadSpeaksFor } from "./seat-threads";
 import { state$ } from "./state";
@@ -319,8 +319,12 @@ export const startPreambleSources = (api: Pick<JuntoApi, "onWireTraffic">): (() 
         if (prior === signal) continue;
         const raised = raiseNotes.get(id);
         const closing = signal.state !== "open";
-        // Its raise note still waiting out the dwell tells what no longer holds: it is not said later.
-        if (closing && raised !== undefined) dropPendingPreamble(raised.nodeId, raised.preambleId);
+        // Its raise note tells what no longer holds: if it is still waiting out the dwell it is not said
+        // later, and if it is the one showing it leaves the bubble now, not at expiry.
+        if (closing && raised !== undefined) {
+          dropPendingPreamble(raised.nodeId, raised.preambleId);
+          retirePreamble(raised.nodeId, raised.preambleId);
+        }
         const told = signalPreamble(prior, signal, now);
         if (told) {
           if (signal.state === "open") raiseNotes.set(id, { nodeId: told.nodeId, preambleId: told.preambleId });

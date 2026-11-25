@@ -206,6 +206,25 @@ export const dropPending = (state: FeedState, nodeId: string, id: string): FeedS
   return out;
 };
 
+/**
+ * A note's signal closed: if that note is the one showing, it leaves, and the
+ * note held behind it (if any, and not expired) shows in its place at once,
+ * with no trail; otherwise the bubble is empty. Another note showing is left.
+ */
+export const retireNote = (state: FeedState, nodeId: string, id: string, now: number): FeedState => {
+  const feed = state.get(nodeId);
+  if (feed?.bubble === undefined || feed.bubble.current.id !== id) return state;
+  const held = feed.pending !== undefined && feed.pending.expiresAt > now ? { ...feed.pending, shownAt: now } : undefined;
+  const out = new Map(state);
+  out.set(nodeId, {
+    ...feed,
+    bubble: held === undefined ? undefined : { current: held },
+    pending: undefined,
+    seen: held === undefined ? feed.seen : remember(feed.seen, held, now),
+  });
+  return out;
+};
+
 /** Dismiss a seat's bubble (the operator's close), optionally only a given id. */
 export const dismissSeat = (state: FeedState, nodeId: string, id?: string): FeedState => {
   const feed = state.get(nodeId);

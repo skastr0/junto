@@ -119,16 +119,42 @@ describe("the seat's bubble through a withdrawal", () => {
     release();
   });
 
-  it("says the held raise note of a signal that is still open once its dwell is up, whenever the other closes", async () => {
+  it("takes a closed signal's raise note off the bubble when it closes, and shows the note held behind it", async () => {
     set(signal("S1", "escalate", PLAIN));
     set(signal("S2", "blocked", ASKS));
     await later(1_000);
-    // As the end-to-end line does: the first signal is withdrawn while the second waits its dwell.
+    expect(host.querySelector(".junto-preamble__text")?.textContent).toContain(PLAIN);
+    // The first signal is withdrawn inside the dwell, and a thread on screen says it.
     const release = speakSignalsFor(["S1"]);
     set(signal("S1", "escalate", PLAIN, { state: "withdrawn", closedAt: Date.now() }));
+    await later(0);
+    // Its note is gone now, not at expiry; the held raise of the still-open signal shows in its place, once.
+    const text = host.querySelector(".junto-preamble__line:not(.junto-preamble__line--was) .junto-preamble__text")?.textContent ?? "";
+    expect(text).toContain(ASKS);
+    expect(host.textContent).not.toContain("cleared");
     await later(6_000);
-    // The second raise is said once, at the end of the first note's dwell: its own time, not the withdrawal's.
-    expect(said.map((text) => text.replace(/^.*?(wants you|blocked)/, "$1"))).toEqual([`wants you: ${PLAIN}`, `blocked: ${ASKS}`]);
+    expect(said.map((line) => line.replace(/^.*?(wants you|blocked)/, "$1"))).toEqual([`wants you: ${PLAIN}`, `blocked: ${ASKS}`]);
+    release();
+  });
+
+  it("leaves the bubble empty when the note closed was the only one", async () => {
+    set(signal("S1", "escalate", PLAIN));
+    await later(1_000);
+    const release = speakSignalsFor(["S1"]);
+    set(signal("S1", "escalate", PLAIN, { state: "withdrawn", closedAt: Date.now() }));
+    await later(0);
+    expect(host.querySelector('[data-testid="node-preamble"]')).toBeNull();
+    release();
+  });
+
+  it("leaves another note showing when a signal that is not the one showing closes", async () => {
+    set(signal("S1", "escalate", PLAIN));
+    set(signal("S2", "blocked", ASKS));
+    await later(3_000);
+    const release = speakSignalsFor(["S1", "S2"]);
+    set(signal("S1", "escalate", PLAIN, { state: "withdrawn", closedAt: Date.now() }));
+    await later(0);
+    expect(host.querySelector(".junto-preamble__line:not(.junto-preamble__line--was) .junto-preamble__text")?.textContent).toContain(ASKS);
     release();
   });
 
