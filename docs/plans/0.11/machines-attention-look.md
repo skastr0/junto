@@ -453,20 +453,28 @@ automations that move (`docs/machines.md`, take-over).
 
 **The same, found only after the new build started there** (case B,
 remote-verify's receipt 18): no core ran there, so the send installed the
-new build, started it, met a different installation, and stopped it.
-`nothing changed` is false here.
+new build, started it, and met a different installation. No sentence
+here says `nothing changed`.
 
-- Core's words, `ownWords: true`: `The new build is installed there but
-  answers as a different install of Junto, so Junto stopped it. Preview a
-  take-over with junto machine takeover to see which seats and automations
-  move.`
-- That sentence only when the stop is confirmed on this side. When it is
-  not, a sentence of its own (remote-security's term 4), which says
-  neither that Junto stopped it nor that nothing changed: `The new build
-  is installed there but answers as a different install of Junto, and it
-  may still be running. Preview a take-over with junto machine takeover to
-  see which seats and automations move.`
-- Either way the same printed preview line follows, under the same three
+- The near side picks the sentence by the disposition the far end gives
+  (remote-security, on cli-identity's deb667f07); any other disposition
+  gives no words, and the far text stays unmarked.
+  - `rolled-back`: `It answers as a different install of Junto, so Junto
+    put its old build and data back, but the old build may not be
+    running. Preview a take-over with junto machine takeover to see which
+    seats and automations move.` Not `nothing changed`: the old service's
+    restart is best-effort (`mod.rs:747`), as `start-rolled-back` says.
+  - `activated` (a fresh home, no restore point; the stop is always
+    confirmed on this path): `The new build is installed there but answers
+    as a different install of Junto, so Junto stopped it. Preview a
+    take-over with junto machine takeover to see which seats and
+    automations move.`
+  - `uncertain` (the stop not confirmed; reached only if that branch keeps
+    the code and the started id, as remote-security recommends): `The new
+    build is installed there but answers as a different install of Junto,
+    and it may still be running. Preview a take-over with junto machine
+    takeover to see which seats and automations move.`
+- Each is followed by the same printed preview line, under the same three
   conditions.
 
 ## 6. The far install's refusal codes
