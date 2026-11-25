@@ -751,6 +751,11 @@ fn install_flow_with(
                 let diagnostics = service_error_tail(&install_root);
                 let stopped = stop_machine_service(&mut *service, machinery.epoch);
                 if let Err(stop) = stopped {
+                    // The take-over preview stays useful even when the stop is
+                    // not confirmed; keep the identity code and id, uncertain.
+                    if error.check == Some(Check::InstallationChanged) {
+                        return Err(error);
+                    }
                     let kept = point
                         .as_ref()
                         .map(|point| {
@@ -1632,6 +1637,9 @@ mod tests {
         stopped: bool,
         matches: bool,
         stop_failure: bool,
+        /// Fail the stop once this many starts have happened; the recovery
+        /// stop after a refused start is then the one that cannot confirm.
+        stop_failure_after: Option<usize>,
         start_failure: bool,
         starts: usize,
         stops: usize,
@@ -1658,6 +1666,7 @@ mod tests {
                 stopped: false,
                 matches: true,
                 stop_failure: false,
+                stop_failure_after: None,
                 start_failure: false,
                 starts: 0,
                 stops: 0,
@@ -1715,7 +1724,11 @@ mod tests {
                 .map(|target| target.to_string_lossy().into_owned())
                 .unwrap_or_default();
             fixture.stop_selections.push(selection);
-            if fixture.stop_failure {
+            if fixture.stop_failure
+                || fixture
+                    .stop_failure_after
+                    .is_some_and(|starts| fixture.starts >= starts)
+            {
                 return Err(Refused::new("stop outcome unknown"));
             }
             fixture.stopped = true;
@@ -1998,6 +2011,45 @@ mod tests {
         assert_eq!(
             fs::read_to_string(state.join("junto.db")).expect("the restored database"),
             "before"
+        );
+    }
+
+    #[test]
+    fn an_unconfirmed_stop_keeps_installation_changed_and_the_started_id() {
+        let machine = Machine::new("installation-uncertain", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        let first = machine.install(None).expect("the first install");
+        let second_bundle = machine.root.join("bundle-b");
+        let mut manifest = shipped_bundle(&second_bundle);
+        manifest.build = "b".repeat(64);
+        fs::write(
+            second_bundle.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("json"),
+        )
+        .expect("the second manifest");
+        machine.fixture.borrow_mut().next_installation_id = Some("install-two".to_string());
+        // The incumbent stop succeeds; the recovery stop after the candidate
+        // answers with the other id cannot be confirmed.
+        machine.fixture.borrow_mut().stop_failure_after = Some(2);
+        let mut input = machine.input(None);
+        input.bundle = second_bundle.display().to_string();
+        input.expected_installation_id = Some(first.installation_id.clone());
+        let (refused, disposition, _) =
+            install_flow_with(input, &machinery(machine.fixture.clone()))
+                .err()
+                .expect("the unconfirmed stop refuses");
+        assert_eq!(refused.check, Some(Check::InstallationChanged));
+        assert_eq!(
+            refused.started_installation_id.as_deref(),
+            Some("install-two")
+        );
+        assert_eq!(disposition, Disposition::Uncertain);
+        assert!(
+            refused
+                .message
+                .contains("candidate installation identity changed"),
+            "{}",
+            refused.message
         );
     }
 
