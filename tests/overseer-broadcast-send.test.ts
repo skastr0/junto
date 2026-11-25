@@ -27,6 +27,8 @@ import { makeInstallOpsLive } from "../src/core/install-ops/engine";
 import { threadRow } from "../src/core/work-control/signal-raise";
 import { executeOverseerWork } from "../src/core/overseer/work";
 import { executeOverseerThreads } from "../src/core/overseer/threads";
+import { messageDelivery } from "../src/core/work/message-delivery";
+import { makeMessageDeliveryStore } from "../src/core/work/message-delivery-store";
 import { THIS_MACHINE } from "./support/machines";
 import { nameThisMachine } from "./support/name-this-machine";
 import { makeThisMachine } from "../src/shared/remote-hosts";
@@ -198,6 +200,36 @@ describe("msg.broadcast", () => {
     const digest = await broadcast("bc-stale", actor, { expect: 3, set: "0000000000000000" });
     expect(Result.isFailure(digest) && digest.failure.details?.reason).toBe("set_changed");
     for (const nodeId of ["a", "b", "c"]) expect(await mailbox("bc-stale", nodeId)).toHaveLength(0);
+  });
+
+  it("never starts a seat that is not live, by the row's own noWake mark", async () => {
+    const actor = await ready("bc-asleep");
+    const wakes: string[] = [];
+    const writes: string[] = [];
+    messageDelivery.configure({
+      store: await run(makeMessageDeliveryStore()),
+      transport: {
+        seatLive: () => false,
+        wakeSeat: async (bindingId) => {
+          wakes.push(bindingId);
+          return true;
+        },
+        writeMail: async (bindingId) => {
+          writes.push(bindingId);
+          return "written";
+        },
+      },
+    });
+    try {
+      const answer = await broadcast("bc-asleep", actor, { expect: 3 });
+      if (!Result.isSuccess(answer)) throw new Error("the broadcast did not send");
+      expect((answer.success as Sent).seats.map((one) => one.delivery)).toEqual(["waiting", "waiting", "waiting"]);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(wakes).toEqual([]);
+      expect(writes).toEqual([]);
+    } finally {
+      messageDelivery.suspend();
+    }
   });
 
   it("refuses a revoked overseer and sends nothing", async () => {

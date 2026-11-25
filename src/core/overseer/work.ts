@@ -382,6 +382,9 @@ export const executeOverseerWork = (
     if (op === "msg.broadcast") {
       // The text was checked by the decode, before the set is read.
       const args = yield* decodeArgs(op, raw);
+      // Read just before the transaction: what seats are doing and need, and
+      // which are running or elsewhere, can be a few milliseconds older than
+      // the set. Who is on the canvas and in each region is read again inside it.
       const readings = yield* audienceReadings(caller.canvasName);
       let audience: Audience | undefined;
       // One transaction for the whole set: the live grant, the set read again
@@ -405,11 +408,10 @@ export const executeOverseerWork = (
                 ...stamp,
                 mailKind: "notice",
                 broadcast: true,
-                // Stored on the row: a seat that is not up is never started by it, across a restart too.
+                // Stored on the row, in this same transaction: delivery reads it, so a
+                // seat that is not up is never started by it, across a restart too.
                 noWake: true,
               }));
-              // Held in memory too, before the commit, as delivery reads both.
-              messageDelivery.holdWake(message.messageId);
               return { nodeId: seat.nodeId, message };
             });
           }),

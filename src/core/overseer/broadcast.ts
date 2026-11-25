@@ -15,6 +15,12 @@
  * and the regions around it. Regions resolve on the overseer's own canvas
  * only. A single seat takes no limit; one command's `doing` and `needs` go on
  * every region pick in it.
+ *
+ * A limit of the guard: at the send, the canvas, its regions and so who they
+ * hold are read again inside the send's transaction and checked against the
+ * count and digest. The readings (`AudienceReadings`: what a seat is doing,
+ * its open signals, whether it runs or sits elsewhere) are read just before
+ * that transaction, so they can be a few milliseconds older than the set.
  */
 import { createHash } from "node:crypto";
 import { Result } from "effect";
