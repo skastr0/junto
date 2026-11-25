@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_MIGRATION_PLAN,
   STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V75_IDENTITY,
@@ -27,7 +28,6 @@ import {
 } from "../src/core/state/migrations";
 import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
 import { makeStateEngineLive } from "../src/core/state/engine";
 import { AgentSignalRepository, AgentSignalRepositoryLive } from "../src/core/signals/repository";
 import { signalReadiness } from "../src/shared/agent-signals";
@@ -89,10 +89,9 @@ const seedAt75 = (database: DatabaseSync): void => {
 };
 
 describe("state migration 75 -> 76 (a signal in a thread, after other signals)", () => {
-  it("starts from the version-75 witness and ends at the version-76 one, as a fresh install has it", () => {
+  it("starts from the version-75 witness and ends at the version-76 one", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V75_SQL)).toEqual(STATE_SCHEMA_V75_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V76_SQL)).toEqual(STATE_SCHEMA_V76_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V76_IDENTITY);
   });
 
   it.each(["command-center-v13.db", "remote-v13.db"])(
@@ -109,7 +108,7 @@ describe("state migration 75 -> 76 (a signal in a thread, after other signals)",
         expect(events).toBeGreaterThan(0);
         const before = Object.fromEntries(tables(database).map((table) => [table, rows(database, table)]));
 
-        expect(migrateStateSchema(database, upTo(76, STATE_SCHEMA_SQL))).toMatchObject({
+        expect(migrateStateSchema(database, upTo(76, STATE_SCHEMA_V76_SQL))).toMatchObject({
           previousVersion: 75,
           schemaVersion: 76,
           ...STATE_SCHEMA_V76_IDENTITY,
@@ -171,7 +170,7 @@ describe("state migration 75 -> 76 (a signal in a thread, after other signals)",
     60_000,
   );
 
-  it("boots a version-75 store to 76 and reads every old signal with no thread, ready", async () => {
+  it("boots a version-75 store to the head and reads every old signal with no thread, ready", async () => {
     const { database, path } = await openCopy("command-center-v13.db");
     try {
       migrateStateSchema(database, upTo(75, STATE_SCHEMA_V75_SQL));
@@ -208,7 +207,7 @@ describe("state migration 75 -> 76 (a signal in a thread, after other signals)",
     }
     const reopened = new DatabaseSync(path, { readOnly: true });
     try {
-      expect(reopened.prepare("PRAGMA user_version").get()).toEqual({ user_version: 76 });
+      expect(reopened.prepare("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_STATE_SCHEMA_VERSION });
     } finally {
       reopened.close();
     }

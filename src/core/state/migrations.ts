@@ -49,6 +49,7 @@ import { migrateTaskArchivedFrom } from "./migrate-task-archived-from";
 import { migrateTaskFinishNotes } from "./migrate-task-finish-notes";
 import { migrateSignalContentOwner } from "./migrate-signal-content-owner";
 import { migrateSignalKinds, SIGNAL_KINDS_REPLACED_TABLES } from "../signals/migrate-signal-kinds";
+import { migrateSignalWithdrawn, SIGNAL_WITHDRAWN_REPLACED_TABLES } from "../signals/migrate-signal-withdrawn";
 import { migrateStubFiles, STUB_FILES_REPLACED_TABLES } from "./migrate-stub-files";
 import { WORK_MENTIONS_SQL } from "../work/mention-state-schema";
 import {
@@ -949,6 +950,20 @@ export const STATE_SCHEMA_V76_IDENTITY = {
     "019e4af78cce21ec1e8fbf256820a6517955d472780babf1370564f8e8d0833e",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+/**
+ * Version 77 keeps both closings of a signal that cross between machines
+ * (0.12, remote-work's terms): `agent_signals` rebuilt with its state CHECKs
+ * relaxed so a withdrawn signal may hold a late answer, and `withdrawn_at`
+ * added for a withdrawal that reached an answered one, empty on every row
+ * held. It rebuilds that one table and drops none; every row is copied as
+ * it was, and the rows that name a signal are not touched. Approved by the
+ * operator 2026-11-23 ("Approved: rebuild agent_signals in 77"). Consolidate.
+ */
+export const STATE_SCHEMA_V77_IDENTITY = {
+  actualSchemaSha256:
+    "41023c64ce463292c9d4d9b7477f82d2f4014c6966fcc2e7ae333a7808b78db6",
+} as const satisfies VerifiedStateSchemaIdentity;
+
 import { CURRENT_STATE_SCHEMA_VERSION } from "../../node/state/schema-version";
 
 export { CURRENT_STATE_SCHEMA_VERSION };
@@ -1569,6 +1584,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
       }
       database.exec(`${AGENT_SIGNAL_THREAD_INDEXES_SQL}\n${AGENT_SIGNAL_DEPENDS_STATE_SCHEMA_SQL}`);
     },
+  },
+  {
+    fromVersion: 76,
+    toVersion: 77,
+    name: "keep both closings of a signal that cross between machines",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V76_IDENTITY,
+    replacesTables: [...SIGNAL_WITHDRAWN_REPLACED_TABLES],
+    migrate: migrateSignalWithdrawn,
   },
 ];
 

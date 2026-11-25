@@ -450,3 +450,9 @@ export const STATE_SCHEMA_V76_SQL = stepped(
   STATE_SCHEMA_V75_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 76)!.migrate,
 );
+
+/** Step 77 rebuilds `agent_signals` so both closings of a signal that cross are kept: five state CHECKs and `withdrawn_at`. */
+export const STATE_SCHEMA_V77_SQL = stepped(
+  STATE_SCHEMA_V76_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 77)!.migrate,
+);

@@ -781,8 +781,10 @@ export const AgentSignalRepositoryLive: Layer.Layer<
         changed = true;
       } else if (held.canvasName !== input.canvasName || held.nodeId !== input.nodeId) {
         return yield* notFound(input.signalId, `signal ${input.signalId} belongs to another seat`);
-      } else if (held.threadId === undefined && input.threadId !== undefined) {
+      } else if (!input.raises && held.threadId === undefined && input.threadId !== undefined) {
         // A thread set after the raise, as an answer that starts one, crosses the same way.
+        // Only the editing machine's answer may place it: a raise that arrives again with a
+        // thread would store a thread the editing machine never judged.
         const placed = yield* sql`
           UPDATE agent_signals SET thread_id = ${input.threadId}
           WHERE signal_id = ${input.signalId} AND thread_id IS NULL

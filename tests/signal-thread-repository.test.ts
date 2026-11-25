@@ -110,21 +110,31 @@ describe("a signal in a thread", () => {
     expect(refused._tag).toBe("AgentSignalNotFound");
   });
 
-  it("takes another machine's signal with its thread, and a thread set there later", async () => {
+  it("takes another machine's signal with its thread, and places a thread there only on an answer", async () => {
     const thread = ulid();
     const id = ulid();
     const later = ulid();
-    const { taken, placed } = await run(
+    const { taken, refused, placed, heardAfterRaise, heardAfterRefused, heardAfterPlaced } = await run(
       Effect.gen(function* () {
         const r = yield* repo;
         const taken = yield* r.take({ ...seatA, signalId: id, kind: "blocked", text: "remote", createdAt: 1, raises: true, threadId: thread });
         yield* r.take({ ...seatA, signalId: later, kind: "feedback", text: "remote plain", createdAt: 2, raises: true });
-        const placed = yield* r.take({ ...seatA, signalId: later, kind: "feedback", text: "remote plain", createdAt: 2, raises: true, threadId: thread });
-        return { taken, placed };
+        const heardAfterRaise = heard.length;
+        // A raise that arrives again with a thread is the same raise, not the editing machine's answer.
+        const refused = yield* r.take({ ...seatA, signalId: later, kind: "feedback", text: "remote plain", createdAt: 2, raises: true, threadId: thread });
+        const heardAfterRefused = heard.length;
+        const placed = yield* r.take({ ...seatA, signalId: later, kind: "feedback", text: "remote plain", createdAt: 2, raises: false, threadId: thread });
+        const heardAfterPlaced = heard.length;
+        return { taken, refused, placed, heardAfterRaise, heardAfterRefused, heardAfterPlaced };
       }),
     );
     expect(taken?.threadId).toBe(thread);
+    expect(refused).toBeUndefined();
+    expect(heardAfterRefused).toBe(heardAfterRaise);
     expect(placed?.threadId).toBe(thread);
+    expect(heardAfterPlaced).toBe(heardAfterRaise + 1);
+    // The answer's take announced the placed thread, not the raise it repeated.
+    expect(heard.at(-1)?.threadId).toBe(thread);
   });
 });
 

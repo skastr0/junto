@@ -21,6 +21,11 @@ export const AGENT_SIGNAL_THREAD_COLUMNS_SQL = [
  * (`@shared/agent-signals`). Durable because each one waits for an operator
  * response; closed rows stay as the seat's history. A row is open until it is
  * answered (response present), dismissed, or withdrawn by its own seat.
+ *
+ * An answer and a withdrawal that cross between machines are both kept (step
+ * 77): a withdrawn signal may hold the answer that reached the seat after it
+ * withdrew, and an answered one the time the seat withdrew it
+ * (`withdrawn_at`, on the editing machine). State moves only from open.
  */
 export const AGENT_SIGNALS_STATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS agent_signals (
@@ -52,9 +57,12 @@ export const AGENT_SIGNALS_STATE_SCHEMA_SQL = `
     response_at INTEGER,
     closed_at INTEGER,
     ${AGENT_SIGNAL_THREAD_COLUMNS_SQL.join(",\n    ")},
+    withdrawn_at INTEGER,
     CHECK ((state = 'open') = (closed_at IS NULL)),
-    CHECK ((state = 'answered') = (response_text IS NOT NULL)),
-    CHECK ((response_text IS NULL) = (response_at IS NULL))
+    CHECK (state <> 'answered' OR response_text IS NOT NULL),
+    CHECK (response_text IS NULL OR state IN ('answered', 'withdrawn')),
+    CHECK ((response_text IS NULL) = (response_at IS NULL)),
+    CHECK (withdrawn_at IS NULL OR (state = 'answered' AND typeof(withdrawn_at) = 'integer' AND withdrawn_at >= 0))
   ) STRICT, WITHOUT ROWID;
 
   CREATE INDEX IF NOT EXISTS agent_signals_by_seat
