@@ -109,7 +109,8 @@ test("[fake-tui] the Threads button count", async () => {
       const l = await label();
       frames.push(await shot("b3-after-filter"));
       const n = Number(/\d+/.exec(l)?.[0] ?? "0");
-      if (n !== rowsListed) throw new Error(`button "${l}" but the Unread filter lists ${rowsListed} rows (its chip: "${lastChip}")`);
+      const chipN = Number(/\d+/.exec(lastChip)?.[0] ?? "-1");
+      if (n !== rowsListed || chipN !== n) throw new Error(`button "${l}", the Unread filter lists ${rowsListed} rows, its chip reads "${lastChip}"`);
       return `button "${l}" equals the ${rowsListed} rows Global threads lists under Unread (the chip itself reads "${lastChip}")`;
     });
 
@@ -118,8 +119,8 @@ test("[fake-tui] the Threads button count", async () => {
       await settle(600);
       const l = await label();
       const rowsListed = await unreadRows();
-      if (l !== "Threads, 2 unread" || rowsListed !== 2) throw new Error(`button "${l}", rows ${rowsListed}, chip "${lastChip}"`);
-      return `Ada answers a second time in the same thread: button stays "${l}" (threads, not mails), rows ${rowsListed}, chip "${lastChip}"`;
+      if (l !== "Threads, 2 unread" || rowsListed !== 2 || Number(/\d+/.exec(lastChip)?.[0] ?? "-1") !== 2) throw new Error(`button "${l}", rows ${rowsListed}, chip "${lastChip}"`);
+      return `Ada answers a second time in the same thread: button stays "${l}" (threads, not mails), rows ${rowsListed}, chip "${lastChip}": all three read threads (536e0383e)`;
     });
 
     await check("b5-moves-when-the-operator-reads", async (frames) => {
@@ -146,35 +147,60 @@ test("[fake-tui] the Threads button count", async () => {
       return "the button opens Global threads and a second press closes it (aria-expanded true then false); the key closes it too";
     });
 
-    // The button says it closes Global threads when pressed again; a pointer has to be able to press it.
-    await check("b7-pointer-reaches-the-button-while-open", async (frames) => {
-      await button().click();
-      await expect(modal()).toBeVisible({ timeout: 5_000 });
-      const hit = await button().evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return { reaches: top !== null && el.contains(top), topIs: top === null ? "nothing" : `${top.tagName}.${(top.className?.toString() ?? "").slice(0, 60)}` };
+    // 494cc8712, 707e6dd14: a wide operator panel opens under the top bar (its top clears the bar), the dim still covers the bar, and a press on the bar's button lands on the dim and closes the panel.
+    const underBar = async (id: string, trigger: Locator, openIt: () => Promise<void>, panelSel: string, frames: string[]): Promise<string> => {
+      await openIt();
+      const panel = page.locator(panelSel).first();
+      await expect(panel).toBeVisible({ timeout: 10_000 });
+      const geo = await panel.evaluate((el) => {
+        const frame = el.closest('[role="dialog"]') ?? el;
+        return { top: Math.round(frame.getBoundingClientRect().top), viewport: `${window.innerWidth}x${window.innerHeight}`, bar: Math.round(document.querySelector("header")?.getBoundingClientRect().bottom ?? 0) };
       });
-      frames.push(await shot("b7-modal-open"));
-      await page.keyboard.press("Escape");
-      await expect(modal()).toHaveCount(0, { timeout: 5_000 });
-      if (!hit.reaches) throw new Error(`with Global threads open the top-bar Threads button is under ${hit.topIs}: a pointer cannot press it to close`);
-      return "a pointer reaches the Threads button while Global threads is open";
-    });
-    // The same press on Needs you (product-attention: every FocusSurface sits over the top bar).
-    await check("b8-pointer-reaches-needs-you-while-open", async (frames) => {
+      frames.push(await shot(`${id}-open`));
+      const box = await trigger.boundingBox();
+      if (box === null) throw new Error("no box for the bar button");
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await expect(panel).toHaveCount(0, { timeout: 5_000 });
+      if (geo.top < 64) throw new Error(`the panel's top is ${geo.top}px at ${geo.viewport}, not under the 64px bar`);
+      return `at ${geo.viewport} the panel's top is ${geo.top}px (the bar ends at ${geo.bar}px); a pointer press on the bar button closes it`;
+    };
+    await check("b7-threads-opens-under-the-bar-and-a-bar-press-closes", async (frames) => underBar("b7", button(), async () => { await button().click(); }, ".operator-threads", frames));
+    await check("b8-needs-you-opens-under-the-bar-and-a-bar-press-closes", async (frames) =>
+      underBar("b8", page.getByTestId("operator-feed-trigger"), async () => { await page.getByTestId("operator-feed-trigger").click(); }, ".operator-feed, [data-testid='operator-feed']", frames));
+    // f184af92e: the bar is live under a wide panel: one press on Threads switches Needs you to Threads, and the open panel's own button closes it.
+    await check("b9-needs-you-to-threads-in-one-press", async (frames) => {
       const needs = page.getByTestId("operator-feed-trigger");
       await needs.click();
       await expect(page.locator(".operator-feed, [data-testid='operator-feed']").first()).toBeVisible({ timeout: 10_000 });
-      const hit = await needs.evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return { reaches: top !== null && el.contains(top), topIs: top === null ? "nothing" : `${top.tagName}.${(top.className?.toString() ?? "").slice(0, 60)}`, viewport: `${window.innerWidth}x${window.innerHeight}` };
-      });
-      frames.push(await shot("b8-feed-open"));
-      await page.keyboard.press("Escape");
-      if (!hit.reaches) throw new Error(`with Needs you open its own button is under ${hit.topIs} at ${hit.viewport}: the same as Threads`);
-      return `a pointer reaches the Needs you button while its modal is open (${hit.viewport})`;
+      await button().click();
+      await expect(modal()).toBeVisible({ timeout: 5_000 });
+      const feedGone = (await page.locator(".operator-feed, [data-testid='operator-feed']").count()) === 0;
+      frames.push(await shot("b9-threads-after-one-press"));
+      await button().click();
+      await expect(modal()).toHaveCount(0, { timeout: 5_000 });
+      if (!feedGone) throw new Error("Needs you stayed open under Threads");
+      return "with Needs you open, one press on the bar's Threads button opened Threads and closed Needs you; a press on the open Threads button closed it";
+    });
+    await check("b10-needs-you-at-600-high", async (frames) => {
+      const original = await junto.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.getSize());
+      await junto.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1320, 600));
+      await settle(800);
+      try {
+        await page.getByTestId("operator-feed-trigger").click();
+        const panel = page.locator(".operator-feed, [data-testid='operator-feed']").first();
+        await expect(panel).toBeVisible({ timeout: 10_000 });
+        await settle(500);
+        const geo = await panel.evaluate((el) => {
+          const frame = el.closest('[role="dialog"]') ?? el;
+          const r = frame.getBoundingClientRect();
+          return { top: Math.round(r.top), bottom: Math.round(r.bottom), viewport: `${window.innerWidth}x${window.innerHeight}`, rows: document.querySelectorAll("[data-testid='feed-card'], [data-testid='operator-feed-card'], [data-feed-card]").length };
+        });
+        frames.push(await shot("b10-needs-you-600"));
+        await page.keyboard.press("Escape");
+        return `viewport ${geo.viewport}: Needs you's panel runs ${geo.top} to ${geo.bottom}px (the bar ends at 64); cards in the DOM ${geo.rows} (this canvas has no signal raised, so the list is empty: a layout check only)`;
+      } finally {
+        await junto.app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0]!.setSize(w!, h!), original as [number, number]);
+      }
     });
   } finally {
     await writeFile(join(FRAMES, "results.json"), `${JSON.stringify(lines, null, 2)}\n`).catch(() => undefined);

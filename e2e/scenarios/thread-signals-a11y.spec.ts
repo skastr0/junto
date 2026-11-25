@@ -75,6 +75,10 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
         for (const record of records)
           for (const node of record.addedNodes) {
             if (!(node instanceof Element)) continue;
+            // The faded previous line of a bubble swap is aria-hidden: it is not spoken, but it is recorded so it can be told apart.
+            const hiddenEl = node.closest('[aria-hidden="true"]');
+            const hidden = hiddenEl !== null;
+            const hiddenBy = hiddenEl === null ? null : `${hiddenEl.tagName}${hiddenEl.getAttribute("data-testid") ? `[${hiddenEl.getAttribute("data-testid")}]` : ""}.${(hiddenEl.className?.toString() ?? "").slice(0, 50)}${hiddenEl === (node.closest('[data-testid="node-preamble"]') ?? null) ? " (the bubble itself)" : hiddenEl.contains(document.querySelector('[data-testid="node-preamble"]')) ? " (an ancestor of the bubble)" : ""}`;
             const made = node.matches('[data-testid="node-preamble"]') ? node : node.querySelector('[data-testid="node-preamble"]');
             if (made !== null) w.__watch.created.push({ t: performance.now(), id: made.getAttribute("data-preamble-id"), marked: made.hasAttribute("data-pa-mark") });
             const live = node.closest('[role="status"], [aria-live]') ?? node.querySelector('[role="status"], [aria-live]');
@@ -83,6 +87,8 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
             const pre = preambleOf(host) ?? (host.getAttribute("data-testid") === "node-preamble" ? host : null);
             w.__watch.said.push({
               t: performance.now(),
+              hidden,
+              hiddenBy,
               text: (node.textContent ?? "").trim(),
               in: host.getAttribute("data-testid") ?? host.className?.toString().slice(0, 40) ?? host.tagName,
               preambleId: pre?.getAttribute("data-preamble-id") ?? null,
@@ -101,6 +107,7 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
     if (!asks.ok) throw new Error(`asking signal refused ${JSON.stringify(asks)}`);
     const plainId = idOf(plain);
     const askId = idOf(asks);
+    const openAsks: string[] = [askId];
     await settle(1_000);
 
     await page.mouse.click(30, 300);
@@ -158,6 +165,9 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
         const w = window as unknown as { __watch: { said: unknown[]; created: unknown[]; mark: number } };
         w.__watch.mark = w.__watch.said.length;
       });
+      // Withdraw at raiseP + 4 s, after the first note's 2.5 s dwell, so the second raise note is said on its own time before it.
+      const early = 4_000 - ((await now()) - raiseAt.plain!);
+      if (early > 0) await settle(early);
       const withdrawAt = await now();
       const cleared = await seat.op("signal.clear", { signalId: plainId });
       if (!cleared.ok) throw new Error(`withdraw refused ${JSON.stringify(cleared)}`);
@@ -165,15 +175,74 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
       const watch = await page.evaluate(() => (window as unknown as { __watch: { said: Array<Record<string, unknown>>; created: Array<Record<string, unknown>> } }).__watch);
       frames.push(await shot("s4-after-withdraw"));
       const ms = (t: unknown, ref: number) => Math.round(Number(t) - ref);
-      const detail = watch.said.map((x) => `"${String(x.text)}" in ${String(x.in)} preambleId=${String(x.preambleId)} elementWasMarked=${String(x.elementWasMarked)} sinceRaisePlain=${ms(x.t, raiseAt.plain!)}ms sinceRaiseAsks=${ms(x.t, raiseAt.asks!)}ms sinceWithdraw=${ms(x.t, withdrawAt)}ms`);
+      const detail = watch.said.map((x) => `${x.hidden === true ? `[aria-hidden by ${String(x.hiddenBy)}, not spoken] ` : ""}"${String(x.text)}" in ${String(x.in)} preambleId=${String(x.preambleId)} elementWasMarked=${String(x.elementWasMarked)} sinceRaisePlain=${ms(x.t, raiseAt.plain!)}ms sinceRaiseAsks=${ms(x.t, raiseAt.asks!)}ms sinceWithdraw=${ms(x.t, withdrawAt)}ms`);
       const createdAfter = watch.created.filter((c) => Number(c.t) >= withdrawAt).map((c) => `id=${String(c.id)} marked=${String(c.marked)} +${ms(c.t, withdrawAt)}ms`);
       const note = `bubble text just before the withdraw: ${JSON.stringify(before)}; every saying from before the raises on: ${JSON.stringify(detail)}; bubble elements created after the withdraw: ${JSON.stringify(createdAfter)}; all bubble creations: ${watch.created.length}`;
-      const afterWithdraw = watch.said.filter((x) => Number(x.t) >= withdrawAt);
+      const afterWithdraw = watch.said.filter((x) => Number(x.t) >= withdrawAt && x.hidden !== true);
       const ok = afterWithdraw.length === 1 && String(afterWithdraw[0]!.text).startsWith(`Ada withdrew: ${PLAIN}`);
       if (!ok) throw new Error(`after the withdraw ${JSON.stringify(afterWithdraw.map((x) => x.text))}. ${note}`);
       return `withdrawn while the thread is on screen: one saying, "${String(afterWithdraw[0]!.text)}". ${note}`;
     });
 
+    // One case: raise a plain and an asking signal, withdraw the plain one `withdrawAfterMs` after its raise, and return every saying since the raise with its timings.
+    const runCase = async (plainText: string, asksText: string, withdrawAfterMs: number) => {
+      const mark = await page.evaluate(() => (window as unknown as { __watch: { said: unknown[] } }).__watch.said.length);
+      const t0 = await now();
+      const p = await seat.op("signal.raise", { kind: "escalate", text: plainText, thread: threadId });
+      if (!p.ok) throw new Error(`plain signal refused ${JSON.stringify(p)}`);
+      const a = await seat.op("signal.raise", { kind: "blocked", text: asksText, thread: threadId, form: { kind: "proof" } });
+      if (!a.ok) throw new Error(`asking signal refused ${JSON.stringify(a)}`);
+      openAsks.push(idOf(a));
+      const wait = withdrawAfterMs - ((await now()) - t0);
+      if (wait > 0) await settle(wait);
+      const w = await now();
+      const cleared = await seat.op("signal.clear", { signalId: idOf(p) });
+      if (!cleared.ok) throw new Error(`withdraw refused ${JSON.stringify(cleared)}`);
+      await settle(5_000);
+      const said = (await page.evaluate(() => (window as unknown as { __watch: { said: Array<Record<string, unknown>> } }).__watch.said)).slice(mark);
+      const detail = said.map((x) => `${x.hidden === true ? `[aria-hidden by ${String(x.hiddenBy)}, not spoken] ` : ""}"${String(x.text)}" in ${String(x.in)} raise+${Math.round(Number(x.t) - t0)}ms (W${Math.round(Number(x.t) - w) >= 0 ? "+" : ""}${Math.round(Number(x.t) - w)}ms)`);
+      return { said, spoken: said.filter((x) => x.hidden !== true), detail, w, t0, note: `withdrawn at raise+${Math.round(w - t0)}ms; sayings since the raise: ${JSON.stringify(detail)}` };
+    };
+
+    // The thread is on screen in Global threads, which hides the canvas (and the bubble on it) from the accessibility tree: the thread says the withdrawal once and nothing of the bubble is spoken.
+    await check("s4b-withdrawal-inside-the-dwell-thread-on-screen", async (frames) => {
+      const c = await runCase("Which region should it go to?", "Need the staging key", 1_000);
+      frames.push(await shot("s4b-after-withdraw"));
+      const texts = c.spoken.map((x) => String(x.text));
+      if (texts.length !== 1 || !texts[0]!.startsWith("Ada withdrew: Which region should it go to?")) throw new Error(`spoken ${JSON.stringify(texts)}. ${c.note}`);
+      return `inside the dwell with the thread on screen: spoken once, "${texts[0]}"; the bubble's lines are all inside aria-hidden (the hidden canvas or the faded old line). ${c.note}`;
+    });
+
+    // The thread is not on screen: the canvas is in the tree, so the bubble is what speaks.
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".operator-threads")).toHaveCount(0, { timeout: 5_000 });
+    await settle(2_000);
+    await check("s8-bubble-after-the-dwell-canvas-visible", async (frames) => {
+      const c = await runCase("Which tag should it carry?", "Need the signing key", 4_000);
+      frames.push(await shot("s8-after-withdraw"));
+      const texts = c.spoken.map((x) => String(x.text));
+      const atW = c.spoken.filter((x) => Number(x.t) >= c.w).map((x) => String(x.text));
+      const blocked = texts.filter((t) => t.includes("Need the signing key"));
+      if (blocked.length !== 1 || atW.length > 0 || texts.some((t) => t.startsWith("cleared"))) throw new Error(`blocked said ${blocked.length} time(s), ${atW.length} saying(s) at the withdrawal ${JSON.stringify(atW)}. ${c.note}`);
+      return `after the dwell: "blocked: Need the signing key" said once, nothing at the withdrawal. ${c.note}`;
+    });
+    await check("s9-bubble-inside-the-dwell-canvas-visible", async (frames) => {
+      const c = await runCase("Which cluster should it use?", "Need the vault key", 1_000);
+      frames.push(await shot("s9-after-withdraw"));
+      const texts = c.spoken.map((x) => String(x.text));
+      const withdrawnNote = texts.filter((t) => t.includes("Which cluster should it use?"));
+      const blocked = texts.filter((t) => t.includes("Need the vault key"));
+      const atW = c.spoken.filter((x) => Number(x.t) >= c.w).map((x) => String(x.text));
+      // The withdrawn signal's own raise note was already said before the withdrawal in this case only if its dwell had run: it had not.
+      if (blocked.length !== 1 || texts.some((t) => t.startsWith("cleared")) || (atW.length !== 1 || !atW[0]!.includes("Need the vault key")))
+        throw new Error(`blocked said ${blocked.length} time(s), at the withdrawal ${JSON.stringify(atW)}, the withdrawn note ${withdrawnNote.length} time(s). ${c.note}`);
+      return `inside the dwell: "blocked: Need the vault key" said once at the withdrawal; the withdrawn signal's note said ${withdrawnNote.length} time(s). ${c.note}`;
+    });
+    // The thread back on screen for the lines about the reply field.
+    await page.keyboard.press(mod("U"));
+    await expect(page.locator(".operator-threads").first()).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("operator-threads-row").filter({ hasText: "Ada" }).first().click();
+    await expect(pane().getByTestId("thread-composer-input")).toBeVisible({ timeout: 15_000 });
     await check("s5-no-open-plain-signal-no-answers-line", async () => {
       await composer.focus();
       const description = await descriptionOf(composer);
@@ -181,8 +250,10 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
       return `with no open plain signal left the reply field no longer says what it answers; what remains is the asking signal's block: "${description}"`;
     });
     await check("s6-no-open-signal-no-describedby", async () => {
-      const cleared = await seat.op("signal.clear", { signalId: askId });
-      if (!cleared.ok) throw new Error(`withdraw refused ${JSON.stringify(cleared)}`);
+      for (const id of openAsks) {
+        const cleared = await seat.op("signal.clear", { signalId: id });
+        if (!cleared.ok) throw new Error(`withdraw refused ${JSON.stringify(cleared)}`);
+      }
       await settle(1_500);
       await composer.focus();
       const describedby = await composer.getAttribute("aria-describedby");
