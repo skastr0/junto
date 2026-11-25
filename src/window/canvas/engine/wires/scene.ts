@@ -1113,7 +1113,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       for (const id of [...foldWiresDirty]) {
         foldWiresDirty.delete(id);
         const entry = entries.get(id);
-        if (entry !== undefined) syncFoldWire(entry, now);
+        if (entry !== undefined) syncFoldWire(entry, now, true);
       }
     }
     if (foldsDirty.size > 0) {

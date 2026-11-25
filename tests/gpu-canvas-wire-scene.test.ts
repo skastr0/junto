@@ -741,6 +741,23 @@ describe("the wire scene", () => {
     expect(folds.find((fold) => fold.members.includes("kept"))!.members).toEqual(["kept"]);
   });
 
+  it("moves a fold when its badge centre moves without changing its key", () => {
+    const cards = board();
+    const gatherings = new Map<string, TestGathering>([
+      ["a", badge("k1", 100, 0)],
+      ["c", badge("k2", 600, 400)],
+    ]);
+    const { scene, frame, gather } = makeScene(cards, false, undefined, gatherings);
+    scene.apply(load([wire("w", "a", "c")]));
+    frame(T0, "far");
+    const before = scene.folds()[0]!.points[0]!;
+    gather("a", badge("k1", 180, 0));
+    frame(T0 + 16, "far");
+    const after = scene.folds()[0]!.points[0]!;
+    expect(after).not.toEqual(before);
+    expect(after.x).toBeGreaterThan(before.x);
+  });
+
   it("unfolds at mid with no strip rebuild once both tier strips are warm", () => {
     const cards = board();
     const { scene, frame, gather } = makeScene(cards);
