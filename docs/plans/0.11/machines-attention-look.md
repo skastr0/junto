@@ -336,26 +336,31 @@ occupant. No middle dots.
 
 ## 5. A removed machine's link that outlives it
 
-Two answers from remote-core's remove fix. In the example, rvd is the
-removed machine and rvc is a machine that accepted rvd's link key.
+Two answers from remote-core's remove fix. `<this>` is the machine that ran
+`machine remove`; `<removed>` is the machine it removed. `<this>` forgets
+`<removed>`'s route and link key, but `<removed>` keeps `<this>`'s link
+line until Junto reaches it. Builders fill both from the answer, never
+from an example.
 
 Rules: name both machines and never say `this machine`, since everywhere
-else in Junto that means the Mac the operator sits at, and a remove answer
-is read there. Say what is still true and who clears it; no `trusts`.
+else in Junto that means the Mac the operator sits at. Say what is still
+true and who clears it; no `trusts`.
 
-**Remove, when rvc cannot be reached.** The remove itself succeeded, so the
-sentence says so first.
+**Remove, when `<removed>` cannot be reached.** The remove itself
+succeeded, so the sentence says so first.
 
-- CLI: `rvd is removed, but rvc still accepts its link key. Junto clears it
-  the next time it reaches rvc.`
-- Window: `rvd is removed. rvc still lets it connect until Junto reaches
-  rvc.`
+- CLI: `<removed> is removed, but it still accepts <this>'s link key.
+  Junto clears it the next time it reaches <removed>.`
+- Window: `<removed> is removed. It still lets <this> connect until Junto
+  reaches it.`
 
-**A send that stops before ready, because rvc holds rvd's old link.**
+**A send to a re-added `<removed>` that stops before ready, because it
+still holds the link `<this>` made before the remove.**
 
-- CLI: `rvc still has the link rvd had before it was removed. Run junto
-  machine link rvd rvc to link them again.`
-- Window: `rvc still has rvd's old link. Link them again from a terminal:
-  junto machine link rvd rvc`. The window has no link button, so the
-  command is the fix, as `peer-newer` names its fix. The command is the
-  last thing on the line and has no period after it, so it copies clean.
+- CLI: `<removed> still has the link <this> made before <removed> was
+  removed. Run junto machine link <this> <removed> to link them again.`
+- Window: `<removed> still has the old link from <this>. Link them again
+  from a terminal: junto machine link <this> <removed>`. The window has no
+  link button, so the command is the fix, as `peer-newer` names its fix.
+  The command is the last thing on the line and has no period after it, so
+  it copies clean.
