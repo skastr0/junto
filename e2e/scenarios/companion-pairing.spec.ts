@@ -6,7 +6,10 @@
  * with its own key; the phone appears, the key is swapped, and Remove takes
  * it back out. Frames land in test-results/companion/ (disposable).
  *
- *   bun run test:e2e:fast e2e/scenarios/companion-pairing.spec.ts
+ *   bun run cli:build && bun run test:e2e:fast e2e/scenarios/companion-pairing.spec.ts
+ *
+ * The relay is the built native CLI, dist/junto: the binary the app writes
+ * into the forced command, so the phone runs what sshd would.
  *
  * The harness sandboxes HOME, so the authorized_keys written here is the
  * sandbox's. The operator's real ~/.ssh/authorized_keys is only read, before
@@ -23,6 +26,9 @@ import { expect, launchJunto, test } from "../harness/launch";
 import { inheritedEnvForLaunch } from "../harness/launch-env";
 
 const SHOTS = join(process.cwd(), "test-results", "companion");
+const CLI = join(process.cwd(), "dist", "junto");
+const CLI_MISSING =
+  "SETUP: dist/junto is missing. The phone runs the built CLI's companion-stdio relay, so this walk does not run without it. Build it with `bun run cli:build` in the checkout the run starts from.";
 const PHONE_KEY = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBE2eFakePhoneKeyForE2E=";
 const OPERATOR_LINE = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOperatorsOwnKeyE2E me@laptop";
 
@@ -31,12 +37,12 @@ const realKeysDigest = (): string => {
   return existsSync(path) ? createHash("sha256").update(readFileSync(path)).digest("hex") : "absent";
 };
 
-/** A phone stand-in: the real CLI relay, driven over stdio. */
+/** A phone stand-in: the built CLI's relay, driven over stdio. */
 const runPhone = (home: string, deviceId: string, lines: ReadonlyArray<string>) =>
   new Promise<ReadonlyArray<Record<string, any>>>((resolve, reject) => {
     // A phone is no seat: none of this seat's own JUNTO_* identity reaches it.
     const env: NodeJS.ProcessEnv = { ...inheritedEnvForLaunch(process.env), HOME: home };
-    const child = spawn("bun", [join(process.cwd(), "src/cli/main.ts"), "companion-stdio", "--device", deviceId], {
+    const child = spawn(CLI, ["companion-stdio", "--device", deviceId], {
       env,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -58,6 +64,7 @@ const request = (id: string, op: string, args: object = {}): string =>
 
 test("pairs a phone through the running app and removes it", async () => {
   test.setTimeout(240_000);
+  if (!existsSync(CLI)) throw new Error(CLI_MISSING);
   await mkdir(SHOTS, { recursive: true });
   const realBefore = realKeysDigest();
   const environment = {
@@ -69,7 +76,7 @@ test("pairs a phone through the running app and removes it", async () => {
     hosts: ["studio.tail1234.ts.net", "100.101.102.103", "studio.local", "192.168.1.20"],
     user: "operator",
     station: "Studio Mac",
-    juntoPath: join(process.cwd(), "dist", "junto"),
+    juntoPath: CLI,
   };
   const junto = await launchJunto({
     extraEnv: { JUNTO_E2E_COMPANION_ENVIRONMENT: JSON.stringify(environment) },
