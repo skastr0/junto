@@ -1454,6 +1454,91 @@ fn an_owner_command_refuses_an_answer_for_another_request() {
     );
 }
 
+#[test]
+fn a_machine_send_refusal_with_a_takeover_prints_its_command() {
+    let operator = Operator::start(|frame| {
+        serde_json::json!({
+            "protocol": "junto-operator/v1",
+            "id": frame["id"],
+            "op": frame["op"],
+            "ok": false,
+            "error": {
+                "type": "conflict",
+                "message": "It now answers as a different install of Junto, so nothing changed.",
+                "details": {
+                    "takeover": {
+                        "machineName": "mini",
+                        "installationId": "new-install",
+                        "previousInstallationId": "old-install",
+                    },
+                },
+            },
+        })
+    });
+    let output = operator.run(&["machine", "send", "{}"]);
+    assert_eq!(
+        code(&output),
+        1,
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert_eq!(lines.len(), 2, "{stderr}");
+    let envelope: Value = serde_json::from_str(lines[0]).expect("the refusal envelope");
+    assert_eq!(
+        envelope["error"]["message"],
+        "It now answers as a different install of Junto, so nothing changed."
+    );
+    assert_eq!(lines[1], "junto machine takeover mini new-install");
+}
+
+#[test]
+fn a_malformed_takeover_prints_no_command() {
+    for takeover in [
+        serde_json::json!({"machineName": "mini", "installationId": "new-install"}),
+        serde_json::json!({
+            "machineName": "local",
+            "installationId": "new-install",
+            "previousInstallationId": "old-install",
+        }),
+        serde_json::json!({
+            "machineName": "mini",
+            "installationId": "bad id",
+            "previousInstallationId": "old-install",
+        }),
+        serde_json::json!({
+            "machineName": "mini",
+            "installationId": "new-install",
+            "previousInstallationId": "old-install",
+            "extra": true,
+        }),
+    ] {
+        let label = takeover.clone();
+        let answer = takeover;
+        let operator = Operator::start_with(move |frame| {
+            serde_json::json!({
+                "protocol": "junto-operator/v1",
+                "id": frame["id"],
+                "op": frame["op"],
+                "ok": false,
+                "error": {
+                    "type": "conflict",
+                    "message": "fixed words",
+                    "details": { "takeover": answer.clone() },
+                },
+            })
+        });
+        let output = operator.run(&["machine", "send", "{}"]);
+        assert_eq!(code(&output), 1);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(stderr.lines().count(), 1, "{label}: {stderr}");
+        let printed: Value =
+            serde_json::from_str(stderr.lines().next().expect("a line")).expect("the envelope");
+        assert_eq!(printed["error"]["message"], "fixed words");
+    }
+}
+
 /// A stand-in operator socket at `$HOME/.junto/operator/control.sock`.
 struct Operator {
     home: PathBuf,
