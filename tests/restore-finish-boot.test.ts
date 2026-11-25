@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { acquireHomeLock } from "../src/node/home-lock";
-import { runRestoreFinish } from "../src/node/hosts/restore-finish";
+import { owedRestoreMarker, runRestoreFinish } from "../src/node/hosts/restore-finish";
 import { startCore } from "../src/core/core";
 import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
 
@@ -94,5 +94,25 @@ describe("a core's boot under the home lock", () => {
     });
     await expect(started).rejects.toMatchObject({ _tag: "CoreSchemaTooNew", userVersion: 100000 });
     await (await acquireHomeLock(home)).release();
+  });
+
+  it("refuses, with no install root to finish it, a home whose install left a restore owed, and opens no database", async () => {
+    const home = await root();
+    mkdirSync(join(home, ".junto", "state"), { recursive: true, mode: 0o700 });
+    const marker = join(home, ".junto", "state", ".restore-11111111-2222-4333-8444-555555555555.marker");
+    writeFileSync(marker, "owed\n");
+    await expect(startCore({ home, build: "a".repeat(64) } as never)).rejects.toMatchObject({
+      _tag: "CoreHomeLocked", reason: "restore-refused", message: expect.stringContaining(marker),
+    });
+    expect(existsSync(join(home, ".junto", "state", "junto.db"))).toBe(false);
+    expect(existsSync(marker)).toBe(true);
+    await (await acquireHomeLock(home)).release();
+  });
+
+  it("takes no other name in the state directory for an owed restore", async () => {
+    const home = await root();
+    mkdirSync(join(home, ".junto", "state"), { recursive: true, mode: 0o700 });
+    writeFileSync(join(home, ".junto", "state", ".restore-not-a-uuid.marker"), "");
+    expect(owedRestoreMarker(home)).toBeUndefined();
   });
 });

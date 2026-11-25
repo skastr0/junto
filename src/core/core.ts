@@ -20,7 +20,7 @@ import { MachineLink, type MachineLinkListener } from "./link/service";
 import { startOperatorControlServer, type OperatorControlServer } from "../node/operator-control";
 import { evaluateSchemaCompatibility, probeInstalledStateSchema } from "../node/state/schema-version-probe";
 import { acquireHomeLock, HomeLockRefused } from "../node/home-lock";
-import type { RestoreFinishOutcome } from "../node/hosts/restore-finish";
+import { owedRestoreMarker, type RestoreFinishOutcome } from "../node/hosts/restore-finish";
 import { watchSocketPathOwned } from "../node/socket-path-watch";
 import { quiesceServiceChildrenOnQuit } from "./services/process";
 import { terminateAdapterChildrenOnQuit } from "./adapters/exec";
@@ -172,6 +172,13 @@ export const startCore = async (options: CoreOptions) => {
     if (cause instanceof HomeLockRefused) throw new CoreHomeLocked({ reason: cause.reason, message: cause.message });
     throw cause;
   });
+  // A core with no install root to finish an owed restore refuses rather than open past it.
+  const owed = options.finishRestore === undefined ? owedRestoreMarker(options.home) : undefined;
+  if (owed !== undefined) {
+    await homeLock.release();
+    throw new CoreHomeLocked({ reason: "restore-refused",
+      message: `A restore an install left owed in ${options.home} is not finished (${owed}). Start the installed Junto for this home, which finishes it` });
+  }
   const restore = options.finishRestore === undefined ? "ready" : await options.finishRestore().catch(() => "refused" as const);
   if (restore !== "ready") {
     await homeLock.release();

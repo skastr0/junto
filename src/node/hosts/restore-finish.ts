@@ -11,6 +11,8 @@
  * JUNTO_HOME and JUNTO_INSTALL_ROOT are always set from this core, never left
  * to the child's defaults, which need not agree with the install's.
  */
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { appProcessPlane } from "../app-process-plane";
 
 export type RestoreFinishOutcome = "ready" | "updating" | "refused";
@@ -54,3 +56,25 @@ export const runRestoreFinish = (input: RestoreFinishInput): Promise<RestoreFini
       resolve(code === 0 ? "ready" : code === RESTORE_FINISH_UPDATING_EXIT ? "updating" : "refused");
     });
   });
+
+/** The install's marker name, `.restore-<uuid>.marker` (native/cli/src/install/restore.rs marker_of, is_uuid). */
+const RESTORE_MARKER = /^\.restore-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.marker$/u;
+
+/**
+ * The marker an install left in `home`'s state directory when a restore is
+ * owed, if one is there. A core with no install root (the desktop app, a dev
+ * run, an unpacked bundle) cannot finish the restore, so it must not open the
+ * database past one. A state directory it cannot read counts as owing one.
+ */
+export const owedRestoreMarker = (home: string): string | undefined => {
+  const state = join(home, ".junto", "state");
+  let entries: string[];
+  try {
+    entries = readdirSync(state);
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    return state;
+  }
+  const marker = entries.find((entry) => RESTORE_MARKER.test(entry));
+  return marker === undefined ? undefined : join(state, marker);
+};
