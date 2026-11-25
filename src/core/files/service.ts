@@ -428,6 +428,27 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       return withRoot(session.ref, (root) => fileForBytes(root, path));
     },
 
+    /**
+     * A regular file's bytes under a node named by its canvas and id, with its
+     * stamp, for a peer that reads it in chunks over the link (X3). Scoped as
+     * every op by ref is: the root from this machine's own copy of the node.
+     */
+    bytesAt: (
+      ref: FilesNodeRef,
+      path: FilePath,
+    ): Promise<FilesResult<{ readonly handle: FileHandle; readonly size: number; readonly stamp: FileStamp }>> =>
+      withRoot(ref, async (root) => {
+        const found = await fileForBytes(root, path);
+        if (!found.ok) return found;
+        try {
+          const info = await found.value.handle.stat();
+          return ok({ handle: found.value.handle, size: found.value.size, stamp: { mtimeMs: info.mtimeMs, size: info.size } });
+        } catch {
+          await found.value.handle.close().catch(() => undefined);
+          return refused("failed");
+        }
+      }),
+
     /** For tests and diagnostics: roots held now. */
     heldRoots: (): ReadonlyArray<string> => [...new Set([...sessions.values()].map((session) => session.root))],
 

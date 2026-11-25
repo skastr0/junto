@@ -11,6 +11,8 @@ import { makeNativeConfigChannel } from "./inventory/native-channel";
 import { FILES_REMOTE_ENABLED } from "@shared/features";
 import { makeHeadlessFilesService } from "./files/headless-service";
 import { makeFilesLinkChannel } from "./files/link";
+import { makeFileBytesLinkChannel } from "./files/bytes-link";
+import { resolveJuntoHome } from "@shared/junto-home";
 import { FilesRemoteService } from "./files/link-client";
 import { FILES_REMOTE_CHANGED, SEAT_CACHE_DUE_CHANGED } from "../contract/core/channels";
 import { unboundYet } from "./link/unbound";
@@ -383,7 +385,13 @@ export const startCore = async (options: CoreOptions) => {
       service: () => filesHost,
       ...(filesRemote === undefined ? {} : { onEvent: filesRemote.onEvent, onOpened: filesRemote.onOpened, onClosed: filesRemote.onClosed }),
     }));
-    await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, files, consensus: unboundYet("consensus"), authority: unboundYet("authority") }));
+    // A file's bytes and a drop, in chunks, on a channel of their own that waits behind every other frame.
+    const fileBytes = await runtime.runPromise(makeFileBytesLinkChannel({
+      enabled: FILES_REMOTE_ENABLED,
+      service: () => filesHost,
+      juntoHome: resolveJuntoHome(),
+    }));
+    await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, files, "file-bytes": fileBytes, consensus: unboundYet("consensus"), authority: unboundYet("authority") }));
     const machineDispatch = (request: OperatorRequestEnvelope) => runtime.runPromise(actions.dispatch(request));
     if (options.companion !== undefined) {
       const unbind = bindCompanionHost({ runPromise: (effect) => runtime.runPromise(effect), showSignal: options.companion.showSignal });
