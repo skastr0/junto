@@ -1,4 +1,4 @@
-//! The success and failure envelopes, as src/cli/core/output.ts writes them:
+//! The success and failure envelopes:
 //! `{"ok":true,"command","data"}` on stdout, `{"ok":false,"command"?,"error"}`
 //! on stderr with exit 1.
 

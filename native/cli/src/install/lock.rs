@@ -1,5 +1,4 @@
-//! One install at a time on a machine, as src/cli/hosts/install-lock.ts takes
-//! it: only an installation's exact owner marker admits its lock directory, and
+//! One install at a time on a machine: only an installation's exact owner marker admits its lock directory, and
 //! the lease is a kernel flock on a private file there, so it outlives this
 //! process while it holds the descriptor and a crash releases it.
 

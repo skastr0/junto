@@ -1,6 +1,6 @@
-//! The byte pipes, run before any parsing (src/cli/early-dispatch.ts):
-//! `link` (src/cli/link.ts), `companion-stdio` (src/cli/companion-stdio.ts)
-//! and `content-transfer` (src/cli/content-transfer.ts). Each owns its stdio
+//! The byte pipes, run before any parsing:
+//! `link`, `companion-stdio`
+//! and `content-transfer`. Each owns its stdio
 //! and its exit code; none prints an envelope.
 
 use std::io;

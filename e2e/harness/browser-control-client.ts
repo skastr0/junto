@@ -1,8 +1,8 @@
 /**
  * Agent-side browser control-plane client for e2e — a minimal node:http
  * client over the unix-domain socket, built from the same wire contract
- * module (`@shared/browser-control`) real agents (`junto browser`,
- * src/cli/core/browser-control-client.ts) use. Deliberately independent of the
+ * module (`@shared/browser-control`) that real agents' `junto browser`
+ * (native/cli/src/commands/browser.rs) follows. Deliberately independent of the
  * product's own CLI process so a test can hand-craft transport tokens and
  * request ids to exercise the denial paths.
  *

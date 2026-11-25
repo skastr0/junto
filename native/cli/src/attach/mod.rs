@@ -1,6 +1,5 @@
 //! Input and attachments (N3, cli-external): signal input, the attach kinds,
-//! git, hashing and content staging (src/cli/core/signal-*.ts, content-stage.ts,
-//! body-input.ts, secret-input.ts).
+//! git, hashing and content staging.
 
 // Ported ahead of their commands (overseer references write, secret put).
 #[allow(dead_code)]

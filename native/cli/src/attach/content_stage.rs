@@ -1,5 +1,5 @@
 //! Put one file of this seat's into the content store, and answer the
-//! reference to name it by (src/cli/core/content-stage.ts).
+//! reference to name it by.
 //!
 //! The bytes go up a piece at a time, each piece its own `content.stage`
 //! call, so a file of any size crosses the socket without being whole in

@@ -1,6 +1,5 @@
 //! The running-seat gate on an install (docs/machines.md, Installing and
-//! updating a machine), as src/cli/hosts/install-lease.ts holds it: the
-//! installer never counts seats itself. It asks the incumbent core on its own
+//! updating a machine): the installer never counts seats itself. It asks the incumbent core on its own
 //! term control socket to observe the live set, and closes create admission
 //! with a maintenance lease it keeps through the quiesce, so a seat cannot start
 //! between the check and the stop.

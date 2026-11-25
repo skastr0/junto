@@ -60,8 +60,7 @@ const architectureRoleRule = (
     pathHasPrefix(path, "src/core/browser") ||
     pathHasPrefix(path, "src/node/browser") ||
     pathHasPrefix(path, "src/core/term") ||
-    pathHasPrefix(path, "src/app/term") ||
-    pathHasPrefix(path, "src/cli")
+    pathHasPrefix(path, "src/app/term")
   ) {
     return { id: "integration.process-boundary", role: "integration" }
   }

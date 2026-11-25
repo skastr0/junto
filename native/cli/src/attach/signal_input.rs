@@ -1,5 +1,5 @@
 //! How `junto escalate|blocked|feedback <input> [--detail <md>]` reads its
-//! input (src/cli/core/signal-input.ts). The sentence is plain text, or a
+//! input. The sentence is plain text, or a
 //! JSON object inline, `@file`, or `-` for stdin. `--detail` is markdown,
 //! inline, `@file`, or `-`. Stdin feeds one thing only. What is attached is
 //! read and uploaded first, and the signal names it by reference.

@@ -191,7 +191,7 @@ empty composer.
 - No harness config is written, and no plugin or hook is installed, to make a
   seat aware of Junto.
 
-Browser control (`junto browser` / `bun run browser`) is off in this build: its
+Browser control (`junto browser`) is off in this build: its
 protected routes refuse every caller until they move to the seat generation
 credential. There is **no enable-grant ceremony** and no client capability
 secret, and human-drawn edges to page nodes stay the only grant. Content transfer is `junto content-transfer …`. Packaged installs and every machine bundle ship

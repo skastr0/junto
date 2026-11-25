@@ -1,8 +1,7 @@
-//! The running app as a phone's host (makeRelayHost, src/cli/companion-stdio.ts):
+//! The running app as a phone's host (makeRelayHost):
 //! every request relayed over the operator control socket, which checks the
 //! device against the paired-device registry on every call. When the app is
-//! down at hello, the installed Junto is started and given a moment
-//! (src/cli/companion-launch.ts).
+//! down at hello, the installed Junto is started and given a moment.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

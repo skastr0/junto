@@ -1,4 +1,4 @@
-//! escalate, blocked, feedback and `signal` (src/cli/commands/signals.ts):
+//! escalate, blocked, feedback and `signal`:
 //! how a seat raises its hand to the operator. No edge or port is needed; a
 //! seat can only speak for itself.
 

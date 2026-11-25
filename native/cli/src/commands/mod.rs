@@ -1,5 +1,5 @@
-//! The root commands, one module per TypeScript command file
-//! (src/cli/commands/*.ts). Each root command is a clap `Args` type that
+//! The root commands, one module per TypeScript command file.
+//! Each root command is a clap `Args` type that
 //! knows how to run itself; a family's subcommands live in its own module.
 
 use std::process::ExitCode;

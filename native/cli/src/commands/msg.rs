@@ -1,4 +1,4 @@
-//! `msg` (src/cli/commands/work.ts): mail between seats. Each request type is
+//! `msg`: mail between seats. Each request type is
 //! its op's schema in src/shared/work-control.ts, keys in the schema's order.
 
 use std::num::NonZeroU64;

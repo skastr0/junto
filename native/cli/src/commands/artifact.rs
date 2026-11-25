@@ -1,4 +1,4 @@
-//! `artifact` (src/cli/commands/artifact.ts): the artifacts on the Artifacts
+//! `artifact`: the artifacts on the Artifacts
 //! nodes in this seat's reach. Writes carry their opId as task's do (minted,
 //! or `--op-id`), and create mints the artifact's id. Each request's keys go
 //! out in the order artifact.ts builds them, and each request type is its

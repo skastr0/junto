@@ -1,11 +1,6 @@
 {
-  "$comment": "S0 fitness gate for bare Effect.runPromise in the Node programs (app, core, node, terminal, contract, and the CLI's machine-local entry). permanent = true host/post-dispose adapters only. debt = known product debt (ratchet: count may only shrink; never promote kernel/work claim paths to permanent).",
+  "$comment": "S0 fitness gate for bare Effect.runPromise in the Node programs (app, core, node, terminal, contract). permanent = true host/post-dispose adapters only. debt = known product debt (ratchet: count may only shrink; never promote kernel/work claim paths to permanent).",
   "permanent": [
-    {
-      "path": "src/cli/machine-local.ts",
-      "maxCount": 1,
-      "reason": "host program edge: the machine bundle's Node entry (core/machine-local.cjs) runs one command per process and exits; there is no AppRuntime in that host"
-    },
     {
       "path": "src/app/core-process/children.ts",
       "maxCount": 2,

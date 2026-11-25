@@ -1,5 +1,4 @@
-//! `overseer` (src/cli/commands/overseer.ts, overseer-automation.ts,
-//! overseer-skill.ts): the closed operations of a human-granted overseer
+//! `overseer`: the closed operations of a human-granted overseer
 //! seat, sent over the work socket as the op `overseer`, and the offline
 //! surface that needs no daemon: skill, schema, examples and capabilities,
 //! answered from the built-in corpus.

@@ -1,4 +1,4 @@
-//! JSON input as src/cli/core/json.ts loads it: inline, `@file`, or `-` and
+//! JSON input: inline, `@file`, or `-` and
 //! `@-` for stdin, decoded into the type the command sends. Unknown keys are
 //! dropped, as Effect Schema drops them; the runtime decodes again and decides.
 

@@ -1,4 +1,4 @@
-//! `task` (src/cli/commands/task.ts), with `task rules` (work.ts): tasks on
+//! `task`, with `task rules` (work.ts): tasks on
 //! the task nodes in this seat's reach. A task is `#42`, its id or a
 //! `junto://` ref; a seat is `@name`, its name or id, or `me`; main resolves
 //! both. Every write carries its opId, minted here unless `--op-id` names the

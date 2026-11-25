@@ -1,4 +1,4 @@
-//! `references` (src/cli/commands/references.ts): the operator's references
+//! `references`: the operator's references
 //! in this seat's scope. The name is a plain argument, not JSON.
 
 use std::process::ExitCode;

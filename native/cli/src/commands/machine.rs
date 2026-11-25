@@ -1,4 +1,4 @@
-//! `machine` over the operator socket (src/cli/commands/machine.ts): the
+//! `machine` over the operator socket: the
 //! owner installs and manages Junto on machines. A seat is refused before
 //! parsing (main.rs). What runs on the target machine's own files, install,
 //! uninstall and a Boat machine's key, is this binary's own install module: the
@@ -204,13 +204,6 @@ impl Run for Machine {
     }
 }
 
-// --- the install lease ------------------------------------------------------
-
-/// `junto machine install-lease`: an exclusive flock on the lease file it hands
-/// over as stdin. The native install takes its own flock in process; this is
-/// the TypeScript installer's helper (src/cli/hosts/install-lock.ts, on the
-/// bundle's Node) while src/cli stands. The lock belongs to that open file
-/// description, so it outlives this process while the caller keeps the file
 /// The core's boot step before it opens the database: finish a restore an
 /// install left owed, under the install lock when a marker is there. Nothing on
 /// stdout is parsed: 0 means nothing was owed or the restore finished, 75 that
@@ -225,21 +218,6 @@ pub fn restore_finish() -> ExitCode {
             Some("machine restore-finish"),
             &Failure::new(ErrorType::InternalError, refused.message),
         ),
-    }
-}
-
-/// The install lease on stdin, which Node cannot take itself: it outlives the
-/// caller's exit or crash. Exit 0 locked, 1 held by another install, 2 not
-/// lockable.
-pub fn install_lease() -> ExitCode {
-    use rustix::fs::{FlockOperation, flock};
-    match flock(std::io::stdin(), FlockOperation::NonBlockingLockExclusive) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(rustix::io::Errno::WOULDBLOCK) => ExitCode::FAILURE,
-        Err(errno) => {
-            envelope::warn(&format!("install lease: {errno}"));
-            ExitCode::from(2)
-        }
     }
 }
 

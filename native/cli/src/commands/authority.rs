@@ -1,4 +1,4 @@
-//! `authority` over the operator socket (src/cli/commands/authority.ts):
+//! `authority` over the operator socket:
 //! what this machine knows of each canvas's authority, and the operator's
 //! one path to divergence. Owner only; the group is off unless the build
 //! carries it (main.rs).

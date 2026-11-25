@@ -54,7 +54,6 @@ const ALLOWED = new Set([
   "tests/overseer-canvas-commands.test.ts",
   "tests/rts-control-placement.test.tsx",
   "tests/overseer-control.test.ts",
-  "tests/overseer-cli.test.ts",
   "tests/terminal-actor-entry-architecture.test.ts",
 ]);
 
@@ -74,7 +73,7 @@ const TEXT = /\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|css|sh|sql|yml|yaml|html)$/;
 const areaOf = (file: string): string => {
   if (/\.test\.tsx?$/.test(file) || file.startsWith("tests/")) return "tests";
   if (file.startsWith("e2e/")) return "e2e";
-  for (const area of ["src/window/preload", "src/window", "src/app", "src/core", "src/node", "src/terminal", "src/contract", "src/shared", "src/cli"]) {
+  for (const area of ["src/window/preload", "src/window", "src/app", "src/core", "src/node", "src/terminal", "src/contract", "src/shared"]) {
     if (file.startsWith(`${area}/`)) return area;
   }
   if (file.startsWith("scripts/")) return "scripts";

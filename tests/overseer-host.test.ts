@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { OverseerHostEvent, OverseerHostRun } from "../src/shared/overseer-host-control";
 import { requestBackendResponse, runOverseerTurn } from "../src/node/overseer-host/session";
 import { decodeHostTool, overseerHostTools } from "../src/node/overseer-host/tools";
-import { earlyDispatchFromArgv } from "../src/cli/early-dispatch";
 
 const assignment = (): OverseerHostRun => ({
   type: "run", sessionId: "session", requestId: "request", intentRevision: 1,
@@ -14,8 +13,7 @@ const call = (name: string, args: unknown) => ({ status: "completed", output: [
 ] });
 
 describe("native Overseer host", () => {
-  it("ships as one internal command in the existing packaged CLI", () => {
-    expect(earlyDispatchFromArgv(["bun", "/app/junto", "overseer-host"])).toEqual({ kind: "overseer-host", args: [] });
+  it("offers the controller catalog's canvas tools, each an object schema", () => {
     const tools = overseerHostTools();
     expect(tools.some((tool) => tool.name === "canvas__batch")).toBe(true);
     expect(tools.every((tool) => tool.parameters.type === "object")).toBe(true);

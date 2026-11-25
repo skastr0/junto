@@ -351,7 +351,7 @@ fn read_owned(path: &Path, forbidden_mode: u32) -> Result<String, Refusal> {
     Ok(text)
 }
 
-// --- the exact bytes the install writes (src/cli/hosts/install-service.ts) ---
+// --- the exact bytes the install writes ---
 
 fn xml(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());

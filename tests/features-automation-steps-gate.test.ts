@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { AUTOMATION_WRITE_DESCRIPTIONS, codeFilesOf, overseerAutomationExamples } from "../src/cli/commands/overseer-automation";
 import { actionKindInBuild, actionKindRefusal, actionRefusal, answeredWatchRefusal } from "../src/shared/automation";
 import { ALL_FEATURES, SHIP_FEATURES } from "../src/shared/feature-catalog";
 import { AUTOMATION_SIGNALS_ENABLED, CODE_STEPS_ENABLED, VAULT_ENABLED } from "../src/shared/features";
@@ -43,23 +42,14 @@ describe("code steps and the automation signal action (0.11 gates)", () => {
   });
 
   describe.runIf(!CODE_STEPS_ENABLED)("with code steps off", () => {
-    it("refuses a code step at save, saying why, and the CLI neither says nor stages one", async () => {
+    it("refuses a code step at save, saying why", () => {
       expect(actionKindRefusal("code")).toMatchObject({ reason: "not_available", message: "code steps are off in this build" });
-      expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).not.toContain("code step");
-      expect(overseerAutomationExamples.some((one) => JSON.stringify(one).includes('"kind":"code"'))).toBe(false);
-      const refused = await Effect.runPromise(Effect.flip(codeFilesOf("automation.create", {
-        target: "Automations",
-        then: [{ kind: "code", language: "shell", file: "./step.sh" }],
-      })));
-      expect(refused.message).toContain("code steps are off in this build");
     });
   });
 
   describe.runIf(!AUTOMATION_SIGNALS_ENABLED)("with automation signals off", () => {
-    it("refuses a signal action at save, saying why, and the CLI does not say one", () => {
+    it("refuses a signal action at save, saying why", () => {
       expect(actionKindRefusal("signal")).toMatchObject({ reason: "not_available", message: "signals from automations are off in this build" });
-      expect(AUTOMATION_WRITE_DESCRIPTIONS["automation.create"]).not.toContain("signal action");
-      expect(overseerAutomationExamples.some((one) => JSON.stringify(one).includes('"kind":"signal"'))).toBe(false);
       // An answered watch rides the same gate: nothing it hears is raised.
       expect(answeredWatchRefusal({ kind: "change", on: { kind: "answered", automation: { node: "automations-1", automationId: "01M5ESKJFC1A88R1MH1NEZWJ2Q" } } } as never))
         .toMatchObject({ reason: "not_available", message: "answers to automation signals are off in this build" });

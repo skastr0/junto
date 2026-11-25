@@ -1,4 +1,4 @@
-//! `seat` (src/cli/commands/seat.ts): observe and wait on authorized peer
+//! `seat`: observe and wait on authorized peer
 //! seats, bounded and read-only. The flags a person types lower onto the
 //! wire here, with a socket bound that sits above the op's own deadline.
 

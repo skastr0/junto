@@ -1,5 +1,5 @@
-//! `overseer automation create|edit|enable|disable|move|archive|run`
-//! (src/cli/commands/overseer-automation.ts): the input as given, its labels
+//! `overseer automation create|edit|enable|disable|move|archive|run`:
+//! the input as given, its labels
 //! folded as the store holds them, with the ids this process mints. A
 //! create's automation id is its opId, so a resend names the same automation.
 

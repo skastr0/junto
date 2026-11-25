@@ -1,4 +1,4 @@
-//! `logs` (src/cli/commands/logs.ts): this machine's log, read from a seat,
+//! `logs`: this machine's log, read from a seat,
 //! within the scope its credential gives. `machine logs` takes the same filters.
 
 use std::process::ExitCode;

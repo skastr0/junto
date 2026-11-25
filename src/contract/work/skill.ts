@@ -2,9 +2,8 @@
  * The work socket's artifact.*, automation.*, references.* and content.stage
  * ops, as one Effect `RpcGroup`: each op's arguments, its answer and its
  * refusal. Owned by cli-skill. The core serves the group
- * (`src/core/work-control/skill.ts`) and the CLI calls it (`src/cli`), so a
- * change to an op's arguments or answer fails the compile of both, and a
- * missing handler fails the core's.
+ * (`src/core/work-control/skill.ts`) and the CLI (native/cli) speaks its
+ * frames, so a missing handler fails the core's compile.
  *
  * Each op's tag is its v1 name, and the wire stays v1: the arguments are the
  * frame's `args`, the answer its `data`, and the refusal its `error`.

@@ -20,7 +20,6 @@ import {
 } from "../src/core/overseer/offboard";
 import { overseerOffboard, type OverseerOffboard } from "../src/core/overseer/offboard-seam";
 import { setOperatorOffboard } from "../src/core/seat-sessions/operator-offboard";
-import { offboardRefusedAny } from "../src/cli/commands/overseer";
 
 const caller = { canvasName: "factory", nodeId: "boss" };
 
@@ -277,7 +276,6 @@ describe("the product binding", () => {
         refused: 2,
       },
     });
-    expect(offboardRefusedAny(ran.ok ? ran.data : undefined)).toBe(true);
     expect(
       await executeOverseerOffboard(caller, { operation: "agent.offboard-status", args: { nodeIds: ["a"] } }, overseerOffboard),
     ).toMatchObject({ ok: true, data: [{ seatId: "a", now: { allowed: false, code: "failed" }, preferred: "ask" }] });
@@ -292,14 +290,5 @@ describe("the product binding", () => {
     } finally {
       setOperatorOffboard(undefined);
     }
-  });
-});
-
-describe("offboard exit rule", () => {
-  it("tells the CLI to exit non-zero only when a seat was refused", () => {
-    expect(offboardRefusedAny({ results: [], closed: 0, asked: 0, refused: 0 })).toBe(false);
-    expect(offboardRefusedAny({ results: [], closed: 1, asked: 0, refused: 1 })).toBe(true);
-    expect(offboardRefusedAny({ rules: defaultOffboardRules() })).toBe(false);
-    expect(offboardRefusedAny(undefined)).toBe(false);
   });
 });

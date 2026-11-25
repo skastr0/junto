@@ -1,4 +1,4 @@
-//! `docs` (src/cli/commands/docs.ts): the doctrine, the node catalog, the
+//! `docs`: the doctrine, the node catalog, the
 //! concepts, the overseer's surface and the command surface, answered from
 //! the built-in docs with nothing running; the overseer topic is the
 //! overseer command's own (commands/overseer/offline.rs).

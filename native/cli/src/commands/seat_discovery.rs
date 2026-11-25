@@ -1,5 +1,5 @@
-//! ping, doctor, capabilities, onboard, since and offboard
-//! (src/cli/commands/seat-discovery.ts): a seat learns where it is, and ends
+//! ping, doctor, capabilities, onboard, since and offboard:
+//! a seat learns where it is, and ends
 //! its session.
 
 use std::os::unix::fs::PermissionsExt;
@@ -176,7 +176,7 @@ fn decode<T: for<'de> Deserialize<'de>>(data: &Data) -> Result<T> {
 
 // --- doctor ---
 
-/// localDoctorChecks (src/cli/core/socket.ts): what this process can see
+/// localDoctorChecks: what this process can see
 /// before it calls. The credential itself never leaves this function.
 struct Local {
     socket_path: String,
@@ -441,7 +441,7 @@ impl<'a> Source<'a> {
     }
 }
 
-/// loadOffboardArgs (src/cli/core/offboard-input.ts): markdown notes inline,
+/// loadOffboardArgs: markdown notes inline,
 /// `@file` or stdin, or the `{"notes", "continuation"}` object; the
 /// continuation reads the same ways, and stdin feeds at most one of them.
 fn offboard_args(notes: &str, continuation: Option<&str>) -> Result<OffboardArgs> {

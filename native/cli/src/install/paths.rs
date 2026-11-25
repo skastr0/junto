@@ -1,5 +1,4 @@
-//! Which paths a machine's install may touch, as src/cli/hosts/install-paths.ts
-//! decides it: under the real account home, every component a real directory
+//! Which paths a machine's install may touch: under the real account home, every component a real directory
 //! this user owns and nobody else may write, files regular and never links,
 //! and a service definition replaced only by exact bytes.
 

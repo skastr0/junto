@@ -1,5 +1,4 @@
-//! The owner-only operator control socket, as src/cli/core/operator-socket.ts
-//! speaks it for the companion ops: one NDJSON request, one line back, bound
+//! The owner-only operator control socket, as the companion ops speak it: one NDJSON request, one line back, bound
 //! by the call's timeout from before it connects.
 
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};

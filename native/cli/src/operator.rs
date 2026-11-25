@@ -1,5 +1,4 @@
-//! The operator socket client (N6, cli-identity), as src/cli/core/operator-socket.ts
-//! speaks it: the owner's commands, one NDJSON request and one response line
+//! The operator socket client (N6, cli-identity): the owner's commands, one NDJSON request and one response line
 //! over `~/.junto/operator/control.sock`, refused from inside a seat.
 
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};

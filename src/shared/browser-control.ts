@@ -23,7 +23,7 @@ import { BrowserTabId } from "./browser-tab";
 
 // Browser control-plane protocol: the wire contract between the Electron-hosted
 // HTTP server (main/junto/browser/control.ts) and the agent CLI
-// (`junto browser`, src/cli/commands/browser.ts). Pure module — no Node imports — so both ends and
+// (`junto browser`, native/cli/src/commands/browser.rs). Pure module — no Node imports — so both ends and
 // tests share one source of truth. Transport is a local Unix domain socket only
 // and every request carries a bearer token; this file only knows shapes,
 // admission bounds, and paths-as-strings.

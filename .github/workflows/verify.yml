@@ -180,9 +180,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      # build.rs builds the built-in corpus (help, schema, examples, docs)
-      # from the TypeScript that defines it, so the job needs Bun and the deps.
-      - uses: ./.github/actions/setup
+      # build.rs reads the committed corpus (native/cli/corpus) and the docs and
+      # schemas the core publishes (src/contract/*/published); it runs no
+      # TypeScript, so the job needs no Bun and no deps.
       # Installs the channel rust-toolchain.toml pins, before any cargo call.
       - run: rustup toolchain install
       - run: cargo fmt --check
@@ -192,19 +192,8 @@ jobs:
         run: cargo test --locked
       - if: ${{ !cancelled() }}
         run: cargo build --locked --release
-      # Every command through both CLIs against one stand-in socket: the
-      # frames, stdout and exit match, and failures on what an agent acts on.
       - if: ${{ !cancelled() }}
         run: cargo build --locked
-      - if: ${{ !cancelled() }}
-        working-directory: .
-        run: bun scripts/native-cli-parity.ts --bin native/cli/target/debug/junto
-      # The machine install lease on Node, taken through this native junto.
-      - if: ${{ !cancelled() }}
-        working-directory: .
-        env:
-          JUNTO_NATIVE_CLI: native/cli/target/debug/junto
-        run: bunx vitest run tests/machine-install.test.ts
 
   free-startup-e2e:
     name: Free startup E2E (${{ matrix.os }})

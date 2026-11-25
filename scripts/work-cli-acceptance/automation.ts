@@ -12,7 +12,7 @@ import { AutomationApplyAsk, AutomationRpcs } from "../../src/contract/core/auto
 import { AutomationHandlers } from "../../src/core/ops/ipc-automation";
 import { CorePushes } from "../../src/core/push";
 import { ModelService } from "../../src/core/model/service";
-import { overseerAutomationExamples } from "../../src/cli/commands/overseer-automation";
+import corpusExamples from "../../native/cli/corpus/examples.json";
 import { Command } from "../../src/shared/model";
 import type { AutomationApplyResponse } from "../../src/shared/automation";
 import { mintItemId } from "../../src/shared/resource-command";
@@ -26,7 +26,11 @@ const NAME = "standup reminder";
 const OVERSEEN = "wrap up";
 /** A paired machine that edits the canvas while the off-editor case runs. */
 const EDITOR = { machine: "atlas", installation: "inst-acceptance-atlas" } as const;
-const CREATE = overseerAutomationExamples.find((entry) => entry.command === "overseer automation create")!.input;
+/** The CLI's first create example, its JSON argument as the junto binary ships it (native/cli/corpus). */
+const CREATE: unknown = JSON.parse(
+  (corpusExamples as ReadonlyArray<{ readonly command: string; readonly args: ReadonlyArray<string> }>)
+    .find((entry) => entry.command === "overseer automation create")!.args[3]!,
+);
 
 export const automationArea: AcceptanceArea = {
   name: "automation",

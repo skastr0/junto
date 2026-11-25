@@ -1,4 +1,4 @@
-//! What an agent attaches to a signal (src/cli/core/signal-attach.ts): one
+//! What an agent attaches to a signal: one
 //! flag per kind, each repeatable, or the same things as objects in the JSON
 //! input's `attach` list.
 //!

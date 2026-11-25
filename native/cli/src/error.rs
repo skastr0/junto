@@ -1,5 +1,5 @@
 //! The CLI's errors as values: what failed, in the shape the failure envelope
-//! prints (src/cli/core/output.ts toErrorDetails), `{type, message, details?}`.
+//! prints, `{type, message, details?}`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};

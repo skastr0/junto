@@ -28,7 +28,7 @@ use serde_json::json;
 use crate::commands::{Root, Run};
 
 /// The app version the build stamps, as the TypeScript CLI reads APP_VERSION
-/// (src/cli/core/constants.ts); the same fallback when it is not stamped.
+///; the same fallback when it is not stamped.
 pub const CLI_VERSION: &str = match option_env!("JUNTO_APP_VERSION") {
     Some(version) => version,
     None => "0.1.0",
@@ -44,10 +44,6 @@ fn main() -> ExitCode {
         .collect();
     let words: Vec<&str> = argv.iter().map(String::as_str).collect();
 
-    // The machine-local entry's install lease, which Node cannot take itself.
-    if words == ["machine", "install-lease"] {
-        return commands::machine::install_lease();
-    }
     // early-dispatch.ts: owner refusals and the byte pipes, before any parsing.
     if matches!(
         words.first(),

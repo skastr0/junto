@@ -1,4 +1,4 @@
-//! `schema` and `examples` (src/cli/commands/discovery.ts): the JSON input
+//! `schema` and `examples`: the JSON input
 //! schemas and the executable examples, answered from the built-in catalog.
 
 use std::process::ExitCode;

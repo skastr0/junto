@@ -1,4 +1,4 @@
-//! `preamble` and `rulings` (src/cli/commands/work.ts).
+//! `preamble` and `rulings`.
 
 use std::process::ExitCode;
 

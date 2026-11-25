@@ -1,5 +1,4 @@
-//! The service an install owns, as src/cli/hosts/install-service.ts writes and
-//! reads it: one launchd job on macOS (Aqua, or Background when no graphical
+//! The service an install owns, as it is written and read: one launchd job on macOS (Aqua, or Background when no graphical
 //! domain answers) or one systemd user unit on Linux, its exact bytes, its exact
 //! loaded paths and home, and nothing else ever acted on. The bytes are the seam
 //! tests/fixtures/link-service-bodies.json holds, so a link's start and an

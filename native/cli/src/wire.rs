@@ -1,4 +1,4 @@
-//! The seat's work control socket, as src/cli/core/socket.ts speaks it: one
+//! The seat's work control socket: one
 //! newline-delimited JSON frame out with the seat credential, one line back,
 //! and the same errors for every way that can fail. Blocking std I/O: one
 //! connection per call, bounded by the call's timeout from before it connects.

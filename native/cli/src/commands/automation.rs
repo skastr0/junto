@@ -1,4 +1,4 @@
-//! `automation` (src/cli/commands/automation.ts): list, show and history over
+//! `automation`: list, show and history over
 //! the Automations nodes in this seat's reach. Seats read automations; the
 //! operator and overseers write them (`overseer automation`). Each request
 //! type is its op's schema in src/shared/automation-control.ts, which refuses

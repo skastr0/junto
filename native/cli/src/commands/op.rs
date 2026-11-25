@@ -1,4 +1,4 @@
-//! `op` (src/cli/commands/op.ts): what became of this seat's resource writes,
+//! `op`: what became of this seat's resource writes,
 //! read by the opId each returned. Each request type is its op's schema in
 //! src/shared/op-control.ts, keys in the schema's order.
 

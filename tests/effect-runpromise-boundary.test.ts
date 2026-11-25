@@ -20,7 +20,7 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 const LINT = path.join(ROOT, "scripts/lint-effect-runpromise.ts");
 const ALLOWLIST = path.join(ROOT, "scripts/effect-runpromise-allowlist.json");
 /** The Node programs the gate scans, and the work claim plane's folders in them. */
-const PRODUCT_ROOTS = ["src/app", "src/core", "src/node", "src/terminal", "src/contract", "src/cli/hosts", "src/cli/machine-local.ts"];
+const PRODUCT_ROOTS = ["src/app", "src/core", "src/node", "src/terminal", "src/contract"];
 const WORK_DIRS = ["src/core/work", "src/node/work", "src/app/work"];
 
 /** IRON V4-ENTRY surfaces — domain Effects only via ManagedRuntime. */

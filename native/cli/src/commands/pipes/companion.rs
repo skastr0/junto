@@ -1,4 +1,4 @@
-//! `junto companion-stdio --device dev_<id>` (src/cli/companion-stdio.ts): the
+//! `junto companion-stdio --device dev_<id>`: the
 //! phone end of junto-companion/1 (docs/companion-protocol.md).
 //!
 //! sshd runs this as the forced command of a paired phone's key: stdin and

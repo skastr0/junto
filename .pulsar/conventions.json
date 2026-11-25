@@ -125,14 +125,6 @@
       "allowed_imports": [
         "electron"
       ]
-    },
-    "src/cli": {
-      "visibility": "internal",
-      "allowed_imports": [
-        "effect",
-        "@effect/platform-bun",
-        "@effect/platform-node"
-      ]
     }
   },
   "naming_conventions": {

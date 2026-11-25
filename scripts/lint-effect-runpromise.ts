@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ALLOWLIST_REL = "scripts/effect-runpromise-allowlist.json";
 /** The Node programs' product code: what lived under src/main before the folder move. */
-const PRODUCT_ROOTS_REL = ["src/app", "src/core", "src/node", "src/terminal", "src/contract", "src/cli/hosts", "src/cli/machine-local.ts"] as const;
+const PRODUCT_ROOTS_REL = ["src/app", "src/core", "src/node", "src/terminal", "src/contract"] as const;
 
 const CALL_PATTERN = /Effect\.runPromise\b/;
 

@@ -1,9 +1,8 @@
 /**
  * The work socket's task.* and rulings ops, as one Effect `RpcGroup`: each
  * op's arguments, its answer and its refusal. The core serves the group
- * (`src/core/work-control/task.ts`) and the CLI calls it (`src/cli`), so a
- * change to an op's arguments or answer fails the compile of both, and a
- * missing handler fails the core's.
+ * (`src/core/work-control/task.ts`) and the CLI (native/cli) speaks its
+ * frames, so a missing handler fails the core's compile.
  *
  * Each op's tag is its v1 name, and the wire stays v1: the arguments are the
  * frame's `args`, the answer its `data`, and the refusal its `error`.

@@ -7,7 +7,6 @@
 import { describe, expect, it } from "vitest";
 import { BUILD_FEATURES, overseerOperationEnabled } from "../src/shared/features";
 import { OVERSEER_CATALOG, OVERSEER_OPERATION_NAMES } from "../src/shared/overseer-control";
-import { overseerCapabilities, overseerExamples, overseerSchemas } from "../src/cli/commands/overseer";
 
 // The build under test says which it is: these three surfaces are all off in
 // a ship build and all on with every feature on.
@@ -40,7 +39,6 @@ const SHIP_OPERATIONS = [
 ];
 
 const familyOf = (operation: string): string => operation.split(".", 1)[0] ?? operation;
-const operationOf = (commandId: string): string => commandId.replace(/^overseer\./u, "");
 
 describe("overseer operations a build exposes", () => {
   it("runs under a profile it knows", () => {
@@ -62,18 +60,5 @@ describe("overseer operations a build exposes", () => {
 
   it.runIf(profile === "all-on")("exposes every operation with every feature on", () => {
     expect(OVERSEER_CATALOG.map(({ operation }) => operation)).toEqual([...OVERSEER_OPERATION_NAMES]);
-  });
-
-  it("gives the CLI a schema for each exposed operation and nothing for a gated one", () => {
-    const exposed = OVERSEER_CATALOG.map(({ operation }) => operation);
-    expect(overseerSchemas.map((schema) => operationOf(schema.command_id))).toEqual(exposed);
-    for (const example of overseerExamples) {
-      expect(exposed).toContain(operationOf(example.command_id));
-    }
-    const offline = ["skill", "schema", "examples", "capabilities"];
-    for (const capability of overseerCapabilities) {
-      const operation = operationOf(capability.command_id);
-      if (!offline.includes(operation)) expect(exposed).toContain(operation);
-    }
   });
 });

@@ -222,7 +222,7 @@ export const codeEnvironment = (
     if (name === "__proto__") continue;
     env[name] = value;
   }
-  // Defined and empty: the CLI refuses owner and machine commands (src/cli/core/owner-access.ts).
+  // Defined and empty: the CLI refuses owner and machine commands (native/cli/src/operator.rs).
   env[WORK_TOKEN_ENV] = "";
   // Node's own flags come from the launch alone: a region value cannot preload code or change resolution.
   if (language === "typescript") {

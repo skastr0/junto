@@ -1,4 +1,4 @@
-//! `thread` (src/cli/commands/thread.ts): a seat's threads with the
+//! `thread`: a seat's threads with the
 //! operator. No --seat is the caller's own; --seat a connected seat's, on
 //! port threads.read. Reading marks nothing read.
 

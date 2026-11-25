@@ -46,7 +46,7 @@ const hostTarget = (): string => {
   return host;
 };
 
-/** What --version must print: the TypeScript CLI's own form (src/cli/main.ts). */
+/** What --version must print (native/cli/src/main.rs). */
 export const nativeCliVersionLine = (version: string): string => `junto v${version}`;
 
 /** The feature profile as cargo's build environment. */

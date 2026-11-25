@@ -1,4 +1,4 @@
-//! A prose body for a write command (src/cli/core/body-input.ts). Prose never
+//! A prose body for a write command. Prose never
 //! has to be JSON-escaped: it comes from `--body <text | @file | ->`, the
 //! same source rule as `--detail`, or as `"body"` in the JSON argument.
 //! Never both, and never empty.

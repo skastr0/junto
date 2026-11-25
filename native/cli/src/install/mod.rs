@@ -1,6 +1,5 @@
 //! What runs on a machine's own files: install, uninstall and a Boat machine's
-//! key, ported from src/cli/hosts (install, uninstall, machine-local) so the
-//! bundle needs no Node entry for them. The work is local to the machine: an
+//! key, here so the bundle needs no Node entry for them. The work is local to the machine: an
 //! install bundle is verified and copied, a service written and proven
 //! quiescent, and the running set asked on the incumbent's own socket.
 //!

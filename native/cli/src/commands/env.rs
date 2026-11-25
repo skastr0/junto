@@ -1,4 +1,4 @@
-//! `env` (src/cli/commands/env.ts): this seat's region environment report,
+//! `env`: this seat's region environment report,
 //! names and sources, never a value.
 
 use std::process::ExitCode;
@@ -53,7 +53,7 @@ fn report(timeout: Timeout) -> Answer {
     })
 }
 
-/// reportBlocksLaunch (src/cli/core/env-report.ts): a `required` source that
+/// reportBlocksLaunch: a `required` source that
 /// could not be read, wherever a source row appears in the report.
 pub fn blocks_launch(report: &Value) -> bool {
     match report {

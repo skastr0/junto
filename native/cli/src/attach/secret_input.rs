@@ -1,5 +1,5 @@
-//! How `junto overseer secret put [json]` reads its two inputs
-//! (src/cli/core/secret-input.ts). The JSON argument names the secret (`{}`
+//! How `junto overseer secret put [json]` reads its two inputs.
+//! The JSON argument names the secret (`{}`
 //! or `{secretId}`), inline or `@file`. The value comes from stdin and from
 //! nowhere else: an argument is visible to every process and stays in shell
 //! history, a pipe does not. No error built here repeats what it was given,

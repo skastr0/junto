@@ -1,4 +1,4 @@
-//! runMutationBatch (src/cli/core/batch.ts): one object or an array of them,
+//! runMutationBatch: one object or an array of them,
 //! each decoded and sent on its own, at most `concurrency` at a time, and one
 //! answer for all of them.
 
@@ -13,7 +13,7 @@ use crate::error::{ErrorType, Failure, Result};
 use crate::input;
 use crate::wire::{self, Data, Request, Timeout};
 
-/// DEFAULT_BATCH_CONCURRENCY (src/cli/core/constants.ts).
+/// DEFAULT_BATCH_CONCURRENCY.
 pub const DEFAULT_CONCURRENCY: i64 = 5;
 
 #[derive(Serialize, Clone, Copy, PartialEq, Eq)]

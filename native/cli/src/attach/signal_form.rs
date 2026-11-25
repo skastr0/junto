@@ -1,5 +1,5 @@
-//! The reply form a seat asks for when it raises a signal
-//! (src/cli/core/signal-form.ts): what the operator produces right in the
+//! The reply form a seat asks for when it raises a signal:
+//! what the operator produces right in the
 //! signal. One per signal; text, today's reply, is the default and needs
 //! none. Main resolves the node in the seat's reach and refuses a secret
 //! until the vault.

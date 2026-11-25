@@ -1,6 +1,6 @@
-//! `browser` (src/cli/commands/browser.ts): drive a page this seat's navigates
-//! edge grants. Transport is HTTP over the app's browser control socket
-//! (src/cli/core/browser-control-client.ts), carrying the owner-local
+//! `browser`: drive a page this seat's navigates
+//! edge grants. Transport is HTTP over the app's browser control socket,
+//! carrying the owner-local
 //! transport token and the seat credential; the server admits the seat that
 //! credential names, and decodes every body again.
 
@@ -28,7 +28,7 @@ const MAX_HEAD_BYTES: usize = 64 * 1024;
 const HOME_ENV: &str = "JUNTO_BROWSER_HOME";
 const TIMEOUT_ENV: &str = "JUNTO_BROWSER_REQUEST_TIMEOUT_MS";
 
-// --- the control plane's errors (src/cli/core/browser-errors.ts) -----------
+// --- the control plane's errors -----------
 
 /// ControlErrorTag (src/shared/browser-control.ts).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

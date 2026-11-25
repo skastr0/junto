@@ -1,13 +1,13 @@
 /**
  * A seat whose machine runs another Junto build, read the way the CLI meets
  * it: the real dispatcher over the native adapter, the result through JSON,
- * then the CLI's own unwrap. Stores live in a temp folder.
+ * then decoded as the wire result a seat reads. Stores live in a temp folder.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Result } from "effect";
 import { grantOverseer, ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { makeStateEngineLive } from "../src/core/state/engine";
 import { makeInstallOpsLive } from "../src/core/install-ops/engine";
@@ -26,8 +26,14 @@ import { makeOverseerNativeLive, workDetails } from "../src/core/overseer/native
 import { LinkBuildMismatch } from "../src/core/link/types";
 import type { TermPlane } from "../src/core/term/plane";
 import { TerminalNodeDeleteService } from "../src/core/term/node-delete";
-import type { OverseerRequest } from "../src/shared/overseer-control";
-import { unwrapOverseerSocketData } from "../src/cli/commands/overseer";
+import { decodeOverseerResult, type OverseerRequest } from "../src/shared/overseer-control";
+
+/** A result as the seat reads it off the wire: its data, or its error's type, message and details. */
+const seatReads = (data: unknown): Effect.Effect<unknown, { readonly type: string; readonly message: string; readonly details?: unknown }> => {
+  const decoded = decodeOverseerResult(data);
+  if (Result.isFailure(decoded)) return Effect.fail({ type: "ProtocolError", message: "overseer result was not a valid OverseerResult" });
+  return decoded.success.ok ? Effect.succeed(decoded.success.data) : Effect.fail(decoded.success.error);
+};
 import { canvasOf, seat, taskBoard } from "./support/model-nodes";
 import { TaskPersistenceError, TaskRepository } from "../src/core/work/task-repository";
 import { NoTasksLive } from "./support/no-tasks";
@@ -100,7 +106,7 @@ const boot = async (remote: () => never = stale, tasks?: Layer.Layer<TaskReposit
   ) => {
     const { provide = (effect) => effect, ...rest } = seams;
     const result = await held.runPromise(provide(executeOverseer(caller, request, { native: native.execute, ...rest })));
-    return Effect.runPromise(unwrapOverseerSocketData(JSON.parse(JSON.stringify(result))).pipe(Effect.result));
+    return Effect.runPromise(seatReads(JSON.parse(JSON.stringify(result))).pipe(Effect.result));
   };
 };
 

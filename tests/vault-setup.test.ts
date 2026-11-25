@@ -263,7 +263,8 @@ describe("--mint: Junto makes the token itself, so its scope is verified", () =>
 });
 
 it("the CLI waits out a mint's approval and its placement, under the operator socket's ceiling", async () => {
-  const { VAULT_MINT_CALL_MS } = await import("../src/cli/commands/machine");
+  // The bound the CLI gives a mint call, as native/cli/src/commands/machine.rs:249 sets it.
+  const VAULT_MINT_CALL_MS = 10 * 60_000;
   const { MINT_MS } = await import("../src/core/vault/setup");
   const { OPERATOR_MAX_TIMEOUT_MS } = await import("../src/shared/operator-control");
   // The mint's wait, the far placement's one-shot SSH (standard budget) and two op liveness calls.

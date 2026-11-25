@@ -1,5 +1,5 @@
-//! Old build directories under an install, as src/cli/hosts/install-prune.ts
-//! removes them (docs/machines.md, Installing and updating a machine): never
+//! Old build directories under an install, and how they are removed
+//! (docs/machines.md, Installing and updating a machine): never
 //! the current build, the build it replaced, or a directory a live process runs
 //! from. The live set is read from the host's own process table, and a table
 //! that cannot be read prunes nothing. The copy is best effort after ready.

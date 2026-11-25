@@ -218,7 +218,7 @@ pub fn examples_show(target: &str) -> Answer {
     }
 }
 
-/// retiredOverseerInvocation (src/cli/commands/overseer-retired.ts):
+/// retiredOverseerInvocation:
 /// `junto overseer edge <rest>`, typed by an agent that still holds the old
 /// skill, refused before parsing.
 pub fn retired_edge(rest: &[&str]) -> Failure {

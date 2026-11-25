@@ -1,5 +1,5 @@
 //! A Boat machine's own key, written by that machine's Junto from its stdin, as
-//! src/cli/hosts/machine-local.ts and src/node/boat/files.ts write it: the
+//! src/node/boat/files.ts writes it: the
 //! delivery is checked closed, then two files under `<home>/.junto/boat` are
 //! written whole, 0600, in a directory this user alone may read.
 

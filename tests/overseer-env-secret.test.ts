@@ -1,7 +1,7 @@
 import type { Node, NodeOf } from "../src/shared/model";
 import { note as noteNode, region as regionNode } from "./support/model-nodes";
 import { describe, expect, it } from "vitest";
-import { Effect, Result } from "effect";
+import { Result } from "effect";
 import {
   OVERSEER_SECRET_ARGS_FAILURE,
   decodeOverseerArgs,
@@ -19,13 +19,6 @@ import {
   executeOverseerSecret,
 } from "../src/core/overseer/secret";
 import type { OverseerSecretStore } from "../src/core/overseer/secret-store-seam";
-import { reportBlocksLaunch } from "../src/cli/core/env-report";
-import { InputError } from "../src/cli/core/errors";
-import {
-  decodeSecretPutInput,
-  readSecretValue,
-  stripOneTrailingNewline,
-} from "../src/cli/core/secret-input";
 
 // A value no assertion may ever find in an output, an error or a result.
 const VALUE = "s3cr3t-never-echoed";
@@ -292,79 +285,6 @@ describe("overseer secret operations", () => {
   });
 });
 
-const run = <A>(effect: Effect.Effect<A, InputError>) =>
-  Effect.runPromise(Effect.result(effect));
-
-const noFile = () => Effect.fail(new InputError({ message: "no file in this test" }));
-
-describe("secret put input", () => {
-  it("takes {} or {secretId} as its argument", async () => {
-    expect(await run(decodeSecretPutInput(undefined, noFile))).toMatchObject({ success: {} });
-    expect(await run(decodeSecretPutInput("  ", noFile))).toMatchObject({ success: {} });
-    expect(await run(decodeSecretPutInput('{"secretId":"5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70"}', noFile))).toMatchObject({
-      success: { secretId: "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70" },
-    });
-    expect(
-      await run(decodeSecretPutInput("@named.json", () => Effect.succeed('{"secretId":"6c1a7e1f-3d2b-4c8f-8e4a-9b2d3f5a7b81"}'))),
-    ).toMatchObject({ success: { secretId: "6c1a7e1f-3d2b-4c8f-8e4a-9b2d3f5a7b81" } });
-  });
-
-  it("refuses a value in the argument, stdin as the argument, and anything else, without echo", async () => {
-    for (const input of [
-      JSON.stringify({ value: VALUE }),
-      JSON.stringify({ secretId: "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70", value: VALUE }),
-      JSON.stringify({ secretId: "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70", note: VALUE }),
-      JSON.stringify({ secretId: VALUE }),
-      JSON.stringify(VALUE),
-      `{"secretId": ${VALUE}`,
-      "-",
-      "@-",
-    ]) {
-      const result = await run(decodeSecretPutInput(input, noFile));
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure._tag).toBe("InputError");
-        expect(JSON.stringify(result.failure)).not.toContain(VALUE);
-        expect(result.failure.received).toBeUndefined();
-      }
-    }
-  });
-
-  it("reads the value from a pipe and strips exactly one trailing newline", async () => {
-    const piped = (text: string) =>
-      run(readSecretValue({ isTTY: false, text: () => Promise.resolve(text) }));
-    expect(await piped(`${VALUE}\n`)).toMatchObject({ success: VALUE });
-    expect(await piped(VALUE)).toMatchObject({ success: VALUE });
-    expect(await piped(`${VALUE}\n\n`)).toMatchObject({ success: `${VALUE}\n` });
-    expect(await piped(` ${VALUE} `)).toMatchObject({ success: ` ${VALUE} ` });
-    expect(stripOneTrailingNewline("a\r\n")).toBe("a\r");
-  });
-
-  it("refuses a terminal, an empty value, and an unreadable stdin", async () => {
-    let read = false;
-    const tty = await run(
-      readSecretValue({
-        isTTY: true,
-        text: () => {
-          read = true;
-          return Promise.resolve(VALUE);
-        },
-      }),
-    );
-    expect(Result.isFailure(tty)).toBe(true);
-    expect(read).toBe(false);
-    for (const text of ["", "\n"]) {
-      expect(
-        Result.isFailure(await run(readSecretValue({ isTTY: false, text: () => Promise.resolve(text) }))),
-      ).toBe(true);
-    }
-    const broken = await run(
-      readSecretValue({ isTTY: false, text: () => Promise.reject(new Error(VALUE)) }),
-    );
-    expect(Result.isFailure(broken)).toBe(true);
-    expect(JSON.stringify(broken)).not.toContain(VALUE);
-  });
-});
 
 const source = (
   sourceId: string,
@@ -382,22 +302,6 @@ const source = (
 });
 
 describe("environment report", () => {
-  it("fails only for a required source that is missing or in error", () => {
-    const report = (status: string, required: boolean) => ({
-      regions: [{ regionId: "outer", regionLabel: "outer", sealed: false, sources: [source("s", "ok", true)] }],
-      seats: [{ nodeId: "seat", title: "Seat", regions: ["outer"], report: [source("s", status, required)], folders: [], restartToApply: false }],
-    });
-    expect(reportBlocksLaunch(report("missing", true))).toBe(true);
-    expect(reportBlocksLaunch(report("error", true))).toBe(true);
-    expect(reportBlocksLaunch(report("missing", false))).toBe(false);
-    expect(reportBlocksLaunch(report("error", false))).toBe(false);
-    for (const status of ["ok", "skipped-host", "overridden"]) {
-      expect(reportBlocksLaunch(report(status, true))).toBe(false);
-    }
-    expect(reportBlocksLaunch({ regions: [], seats: [] })).toBe(false);
-    // One seat's own report obeys the same rule.
-    expect(reportBlocksLaunch(report("missing", true).seats[0])).toBe(true);
-  });
 
   it("narrows the canvas-wide report to a region or to a seat", () => {
     const whole: RegionEnvironmentReport = {

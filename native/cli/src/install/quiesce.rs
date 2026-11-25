@@ -1,5 +1,5 @@
 //! Stop by service identity, then independently observe the captured process
-//! epoch gone, as src/cli/hosts/quiesce-service.ts proves it: a stop the service
+//! epoch gone: a stop the service
 //! confirmed is not enough, the process the machine started must be proven
 //! absent from the host's own table, or the stop is unconfirmed.
 

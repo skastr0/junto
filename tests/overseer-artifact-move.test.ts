@@ -8,7 +8,6 @@ import { Result } from "effect";
 import { decodeOverseerArgs, isOverseerMutation, OVERSEER_CATALOG } from "../src/shared/overseer-control";
 import {
   ARTIFACT_MOVE_MAX,
-  ARTIFACT_MOVE_REFUSAL_CODES,
   ARTIFACT_MOVE_REFUSAL_REASON,
   summarizeArtifactMoveRun,
   type ArtifactMoveRun,
@@ -21,8 +20,6 @@ import {
   ARTIFACT_MOVE_MISSING,
   executeOverseerArtifactMove,
 } from "../src/core/overseer/artifact-move";
-import { offboardRefusedAny, overseerExamples } from "../src/cli/commands/overseer";
-import { OVERSEER_SKILL_MARKDOWN } from "../src/cli/commands/overseer-skill";
 
 const caller = { canvasName: "factory", nodeId: "boss" };
 const actor = { seatId: "seat-boss" } as never;
@@ -96,7 +93,6 @@ describe("artifact.move", () => {
         refused: 1,
       },
     });
-    expect(offboardRefusedAny(outcome.ok ? outcome.data : undefined)).toBe(true);
   });
 
   it("moves on the canvas named", async () => {
@@ -129,28 +125,5 @@ describe("artifact.move", () => {
       ok: false,
       error: { type: "InternalError", message: ARTIFACT_MOVE_FAILED },
     });
-  });
-});
-
-describe("artifact move in the CLI", () => {
-  it("exits non-zero only when an artifact was refused", () => {
-    expect(offboardRefusedAny({ results: [], moved: 2, refused: 0 })).toBe(false);
-    expect(offboardRefusedAny({ results: [], moved: 1, refused: 1 })).toBe(true);
-  });
-
-  it("has an example whose input decodes, and the skill says the rows and the exit rule", () => {
-    const examples = overseerExamples.filter((example) => example.command_id === "overseer.artifact.move");
-    expect(examples).toHaveLength(1);
-    expect(ok(examples[0]!.input)).toBe(true);
-    expect(OVERSEER_SKILL_MARKDOWN).toContain("artifact move {artifactIds, to, canvas?}");
-    expect(OVERSEER_SKILL_MARKDOWN).toContain("`unchanged` when it was already on `to` (a retry is not a refusal)");
-    expect(OVERSEER_SKILL_MARKDOWN).toContain("`queued` when another machine edits the canvas");
-    // Every refusal code M1 rules is named, in the skill and in the example.
-    const example = overseerExamples.find((entry) => entry.command_id === "overseer.artifact.move")!;
-    for (const code of ARTIFACT_MOVE_REFUSAL_CODES) {
-      expect(OVERSEER_SKILL_MARKDOWN, code).toContain(`\`${code}\``);
-      expect(example.description, code).toContain(code);
-    }
-    expect(OVERSEER_SKILL_MARKDOWN).toContain("its `opId` is what `junto op show` reads it by");
   });
 });
