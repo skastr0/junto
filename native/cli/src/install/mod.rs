@@ -628,6 +628,7 @@ fn install_flow_with(
             let outcome = quiesce::quiesce_machine_service(
                 &mut *service,
                 &before,
+                quiesce::Stop::Admitted,
                 || {
                     flow.disposition = Disposition::Uncertain;
                 },
@@ -1045,15 +1046,17 @@ fn restore_under_home_lock(
     restore::restore_database_marker(point)
 }
 
-/// Prove the service stopped, once: reconcile against the process table and
-/// quiesce what it reports.
+/// Prove the candidate this run started stopped, once: reconcile against the
+/// process table and quiesce what it reports. Only the rollback calls this,
+/// under the install lease and before the previous build is selected back.
 fn stop_machine_service(
     service: &mut dyn service::Service,
     epoch_of: &dyn Fn(u32) -> Option<Vec<quiesce::Epoch>>,
 ) -> Result<(), Refused> {
     service.reconcile()?;
     let seen = service.observe()?;
-    quiesce::quiesce_machine_service(service, &seen, || {}, epoch_of).map(|_| ())
+    quiesce::quiesce_machine_service(service, &seen, quiesce::Stop::Started, || {}, epoch_of)
+        .map(|_| ())
 }
 
 /// `machine uninstall-local`: retain package and product bytes, remove only the
@@ -1139,6 +1142,7 @@ fn uninstall_flow_with(
         let quiesced = quiesce::quiesce_machine_service(
             &mut *service,
             &before,
+            quiesce::Stop::Admitted,
             || {
                 *disposition = Disposition::Uncertain;
             },
@@ -1643,6 +1647,8 @@ mod tests {
         start_failure: bool,
         starts: usize,
         stops: usize,
+        /// How many times the rollback stop of this run's candidate ran.
+        stop_started_calls: u32,
         definition_removed: bool,
         stop_selections: Vec<String>,
         seats: Seats,
@@ -1670,6 +1676,7 @@ mod tests {
                 start_failure: false,
                 starts: 0,
                 stops: 0,
+                stop_started_calls: 0,
                 definition_removed: false,
                 stop_selections: Vec::new(),
                 seats: Seats::Lease,
@@ -1716,6 +1723,10 @@ mod tests {
                 pid: fixture.pid,
                 matches_desired_placement: fixture.matches,
             })
+        }
+        fn stop_started(&mut self) -> Result<(), Refused> {
+            self.fixture.borrow_mut().stop_started_calls += 1;
+            self.stop()
         }
         fn stop(&mut self) -> Result<(), Refused> {
             let mut fixture = self.fixture.borrow_mut();
@@ -2462,6 +2473,10 @@ mod tests {
                 .err()
                 .expect("rolled back");
         assert_eq!(disposition, Disposition::RolledBack, "{}", refused.message);
+        assert!(
+            machine.fixture.borrow().stop_started_calls >= 1,
+            "the rollback used the candidate's own stop"
+        );
         assert_ne!(disposition, Disposition::Staged, "never retryable");
         assert!(
             refused

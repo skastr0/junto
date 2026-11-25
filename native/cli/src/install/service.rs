@@ -38,6 +38,12 @@ pub trait Service {
     fn reconcile(&mut self) -> Result<Vec<&'static str>, Refused>;
     fn observe(&mut self) -> Result<Observed, Refused>;
     fn stop(&mut self) -> Result<(), Refused>;
+    /// Stop the candidate this run started. launchd's KeepAlive can respawn a
+    /// dying candidate under the same definition with a new pid; that job is
+    /// still the one this run started. The admitted stop keeps its pid check.
+    fn stop_started(&mut self) -> Result<(), Refused> {
+        self.stop()
+    }
     fn start(&mut self) -> Result<(), Refused>;
     fn remove_definition(&mut self) -> Result<(), Refused>;
 }
@@ -187,6 +193,7 @@ struct Launchd {
     domain: String,
     desired: String,
     admitted: Option<Job>,
+    started: Option<Started>,
     runner: Box<dyn Runner>,
 }
 
@@ -194,6 +201,14 @@ struct Launchd {
 struct Job {
     domain: String,
     pid: u32,
+    definition: String,
+}
+
+/// What this run loaded at `start`: the domain bootstrapped into and the exact
+/// definition bytes written there, held instead of re-read from disk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Started {
+    domain: String,
     definition: String,
 }
 
@@ -252,6 +267,7 @@ impl Launchd {
             domain,
             desired,
             admitted: None,
+            started: None,
             runner,
         };
         service.definition()?;
@@ -318,6 +334,14 @@ impl Launchd {
             });
         }
         Ok(jobs)
+    }
+
+    fn bootout(&self, domain: &str) -> Result<(), Refused> {
+        let target = format!("{domain}/{}", self.label);
+        self.runner
+            .run("/bin/launchctl", &["bootout", &target])
+            .map(|_| ())
+            .map_err(|failure| Refused::new(failure.message))
     }
 
     fn quiesce_job(&mut self, job: &Job) -> Result<(), Refused> {
@@ -457,7 +481,44 @@ impl Service for Launchd {
         Ok(())
     }
 
+    fn stop_started(&mut self) -> Result<(), Refused> {
+        // No start this run: the admitted stop is the only identity there is.
+        let Some(started) = self.started.clone() else {
+            return self.stop();
+        };
+        let ours = |job: &Job| job.domain == started.domain && job.definition == started.definition;
+        let jobs = self.snapshot()?;
+        if jobs.is_empty() {
+            return Ok(());
+        }
+        if !jobs.iter().all(ours) {
+            return Err(
+                Refused::new("service changed after admission; stopping refused")
+                    .with_check(Check::ServiceNotOurs),
+            );
+        }
+        self.bootout(&started.domain)?;
+        let remaining = self.snapshot()?;
+        if remaining.is_empty() {
+            return Ok(());
+        }
+        if !remaining.iter().all(ours) {
+            return Err(
+                Refused::new("service changed after admission; stopping refused")
+                    .with_check(Check::ServiceNotOurs),
+            );
+        }
+        // One more, for a launchd race between the first bootout and the
+        // respawn; never a loop.
+        self.bootout(&started.domain)?;
+        if self.snapshot()?.is_empty() {
+            return Ok(());
+        }
+        Err(Refused::new("service did not become quiescent").with_check(Check::ServiceNotQuiescent))
+    }
+
     fn start(&mut self) -> Result<(), Refused> {
+        self.started = None;
         if !self.snapshot()?.is_empty() {
             return Err(
                 Refused::new("Junto service must be quiescent before starting")
@@ -481,6 +542,12 @@ impl Service for Launchd {
                 return Err(Refused::new(failure.message));
             }
         }
+        // The job is loaded; hold the exact definition this run wrote and the
+        // domain it loaded it into, before the fallible kick and reconcile.
+        self.started = Some(Started {
+            domain: self.domain.clone(),
+            definition: self.desired.clone(),
+        });
         // A login that landed while this start was running owns the session:
         // the fallback goes and the job is kicked in the session that stays.
         self.reconcile()?;
@@ -489,6 +556,12 @@ impl Service for Launchd {
             .run("/bin/launchctl", &["kickstart", &target])
             .map_err(|failure| Refused::new(failure.message))?;
         self.reconcile()?;
+        // The reconcile can move the chosen session; the record follows the
+        // job this run actually kicked.
+        self.started = Some(Started {
+            domain: self.domain.clone(),
+            definition: self.desired.clone(),
+        });
         Ok(())
     }
 
@@ -883,6 +956,8 @@ mod tests {
         calls: Arc<ArcMutex<Vec<String>>>,
         failure: Arc<ArcMutex<Option<String>>>,
         inject_login: Arc<ArcMutex<bool>>,
+        /// How many bootouts the job survives, with a new pid each time.
+        survivals: Arc<ArcMutex<u32>>,
         file: PathBuf,
         node: String,
         entry: String,
@@ -897,6 +972,7 @@ mod tests {
                 calls: Arc::new(ArcMutex::new(Vec::new())),
                 failure: Arc::new(ArcMutex::new(None)),
                 inject_login: Arc::new(ArcMutex::new(false)),
+                survivals: Arc::new(ArcMutex::new(0)),
                 file,
                 node: root.join("current/bin/node").to_string_lossy().into_owned(),
                 entry: root
@@ -1048,7 +1124,16 @@ mod tests {
                     Ok(String::new())
                 }
                 "bootout" => {
-                    self.jobs.lock().expect("jobs").remove(&domain);
+                    let mut jobs = self.jobs.lock().expect("jobs");
+                    let mut survivals = self.survivals.lock().expect("survivals");
+                    if *survivals > 0 {
+                        *survivals -= 1;
+                        if let Some(job) = jobs.get_mut(&domain) {
+                            job.pid += 1;
+                        }
+                    } else {
+                        jobs.remove(&domain);
+                    }
                     Ok(String::new())
                 }
                 "kickstart" => Ok(String::new()),
@@ -1144,6 +1229,71 @@ mod tests {
                 format!("kickstart {}/{label}", host.user()),
             ]
         );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_candidate_respawned_under_its_definition_is_stopped_but_an_admission_is_not() {
+        let (root, host, label) = hosting("respawn", true);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        assert_eq!(service.observe().expect("observe").pid, 72);
+        host.clear();
+        // KeepAlive starts the dying candidate again: the same job and the
+        // same definition, a new pid.
+        {
+            let mut jobs = host.jobs.lock().expect("jobs");
+            jobs.get_mut(&host.gui()).expect("the job").pid = 73;
+        }
+        let refused = service.stop().expect_err("an admitted pid changed");
+        assert_eq!(refused.check, Some(Check::ServiceNotOurs));
+        assert_eq!(host.jobs(), 1, "the admitted stop left it alone");
+        service
+            .stop_started()
+            .expect("the started candidate is still ours");
+        assert_eq!(host.jobs(), 0);
+        assert_eq!(
+            host.mutations(),
+            vec![format!("bootout {}/{label}", host.gui())]
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_candidate_whose_definition_changed_is_refused() {
+        let (root, host, label) = hosting("changed-definition", true);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        service.observe().expect("observe");
+        host.clear();
+        // A later write is a definition this run did not load.
+        fs::write(host.file(), service.background.clone()).expect("the other body");
+        let refused = service.stop_started().expect_err("not what this run wrote");
+        assert_eq!(refused.check, Some(Check::ServiceNotOurs));
+        assert_eq!(host.jobs(), 1);
+        assert_eq!(host.mutations(), Vec::<String>::new(), "never booted out");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_job_that_survives_two_bootouts_is_not_chased_further() {
+        let (root, host, label) = hosting("survives", true);
+        let mut service = launchd(&host, &root, &label);
+        service.start().expect("the start");
+        service.observe().expect("observe");
+        host.clear();
+        *host.survivals.lock().expect("survivals") = 2;
+        let refused = service.stop_started().expect_err("still loaded");
+        assert_eq!(refused.check, Some(Check::ServiceNotQuiescent));
+        assert_eq!(
+            host.mutations(),
+            vec![
+                format!("bootout {}/{label}", host.gui()),
+                format!("bootout {}/{label}", host.gui()),
+            ],
+            "exactly two boots, never a loop"
+        );
+        assert_eq!(host.jobs(), 1, "left for the uncertain path");
         let _ = fs::remove_dir_all(&root);
     }
 

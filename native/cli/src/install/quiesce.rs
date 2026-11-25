@@ -82,6 +82,15 @@ pub fn read_epoch(pid: u32) -> Option<Vec<Epoch>> {
     Some(rows)
 }
 
+/// Which stop a quiesce calls. An admitted incumbent keeps its pid check; the
+/// candidate this run started may have been respawned by launchd's KeepAlive
+/// under the same definition with a new pid, and is still ours.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stop {
+    Admitted,
+    Started,
+}
+
 /// What a quiesce proved: the incumbent's identity, and how the service stands.
 #[derive(Debug, Clone, Default)]
 pub struct Quiesced {
@@ -95,6 +104,7 @@ pub struct Quiesced {
 pub fn quiesce_machine_service(
     service: &mut dyn Service,
     before: &Observed,
+    stop: Stop,
     on_stopping: impl FnOnce(),
     epoch_of: &dyn Fn(u32) -> Option<Vec<Epoch>>,
 ) -> Result<Quiesced, Refused> {
@@ -125,7 +135,10 @@ pub fn quiesce_machine_service(
         None
     };
     on_stopping();
-    service.stop()?;
+    match stop {
+        Stop::Admitted => service.stop()?,
+        Stop::Started => service.stop_started()?,
+    }
     let deadline = Instant::now() + Duration::from_secs(30);
     while let Some(epoch) = epoch.clone() {
         let rows = epoch_of(epoch.pid);
