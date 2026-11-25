@@ -24,9 +24,12 @@ it("keeps a sandbox id and short words that start like a key", () => {
 });
 
 it("cuts what follows the path of a Boat link", () => {
-  const scrubbed = scrubMessage("open https://boat.dev/cli/login?code=Zq81kd2&state=abc to sign in");
+  // The empty known list pins the test away from the lane's own env: in the
+  // shared lane another file's leftover secret-shaped variable would join
+  // the redaction set and change what these two lines produce.
+  const scrubbed = scrubMessage("open https://boat.dev/cli/login?code=Zq81kd2&state=abc to sign in", []);
   expect(scrubbed).toBe("open https://boat.dev/cli/login?[redacted] to sign in");
-  expect(scrubMessage("https://app-3000.on.boat.dev/?_token=abcdef")).not.toContain("abcdef");
+  expect(scrubMessage("https://app-3000.on.boat.dev/?_token=abcdef", [])).not.toContain("abcdef");
 });
 
 it("holds Boat ids in logs to their own shapes", () => {
