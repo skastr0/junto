@@ -110,6 +110,8 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
       const names = await handIn.evaluateAll((all) => all.map((el) => el.getAttribute("aria-label")));
       if (names.length !== 1 || names[0] !== `Hand in: ${ASKS}`) throw new Error(`Hand in buttons named ${JSON.stringify(names)}`);
       const snapshot = await pane().getByTestId("seat-threads-signal").filter({ hasText: ASKS }).first().ariaSnapshot();
+      const lead = await pane().getByTestId("seat-threads-signal").filter({ hasText: ASKS }).first().locator("p").first().evaluate((el) => (el.textContent ?? "").trim());
+      if (lead !== "Blocked, Open") throw new Error(`the signal line reads "${lead}"`);
       return `Hand in is named ${JSON.stringify(names)} (one, on the signal that asks for work; the plain signal has none). Accessibility tree of that signal: ${snapshot.replace(/\s+/g, " ").slice(0, 400)}`;
     });
 
@@ -122,7 +124,11 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
             for (const node of record.addedNodes) {
               if (!(node instanceof Element)) continue;
               const live = node.closest('[role="status"], [aria-live]') ?? node.querySelector('[role="status"], [aria-live]');
-              if (live !== null && (node.textContent ?? "").trim() !== "") w.__said.push((node.textContent ?? "").trim());
+              if (live !== null && (node.textContent ?? "").trim() !== "") {
+                const host = (node.closest('[role="status"], [aria-live]') ?? live) as Element;
+                const where = host.getAttribute("data-testid") ?? host.className?.toString().slice(0, 40) ?? host.tagName;
+                w.__said.push(`${(node.textContent ?? "").trim()}  [in ${where}]`);
+              }
             }
         }).observe(document.body, { subtree: true, childList: true });
       });
@@ -132,7 +138,8 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
       const said = await page.evaluate(() => (window as unknown as { __said: string[] }).__said);
       frames.push(await shot("s4-after-withdraw"));
       const withdrawn = said.filter((t) => /withdrew/.test(t));
-      if (JSON.stringify(withdrawn) !== JSON.stringify([`Ada withdrew: ${PLAIN}`])) throw new Error(`said ${JSON.stringify(said)}`);
+      // Only the thread's own saying: the seat bubble and the feed stay quiet about a withdrawal the thread says (958e5617d).
+      if (said.length !== 1 || !said[0]!.startsWith(`Ada withdrew: ${PLAIN}`)) throw new Error(`said ${JSON.stringify(said)}`);
       return `withdrawn while the thread is on screen: said ${JSON.stringify(withdrawn)} once (every live-region saying that arrived: ${JSON.stringify(said)})`;
     });
 

@@ -161,6 +161,21 @@ test("[fake-tui] the Threads button count", async () => {
       if (!hit.reaches) throw new Error(`with Global threads open the top-bar Threads button is under ${hit.topIs}: a pointer cannot press it to close`);
       return "a pointer reaches the Threads button while Global threads is open";
     });
+    // The same press on Needs you (product-attention: every FocusSurface sits over the top bar).
+    await check("b8-pointer-reaches-needs-you-while-open", async (frames) => {
+      const needs = page.getByTestId("operator-feed-trigger");
+      await needs.click();
+      await expect(page.locator(".operator-feed, [data-testid='operator-feed']").first()).toBeVisible({ timeout: 10_000 });
+      const hit = await needs.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { reaches: top !== null && el.contains(top), topIs: top === null ? "nothing" : `${top.tagName}.${(top.className?.toString() ?? "").slice(0, 60)}`, viewport: `${window.innerWidth}x${window.innerHeight}` };
+      });
+      frames.push(await shot("b8-feed-open"));
+      await page.keyboard.press("Escape");
+      if (!hit.reaches) throw new Error(`with Needs you open its own button is under ${hit.topIs} at ${hit.viewport}: the same as Threads`);
+      return `a pointer reaches the Needs you button while its modal is open (${hit.viewport})`;
+    });
   } finally {
     await writeFile(join(FRAMES, "results.json"), `${JSON.stringify(lines, null, 2)}\n`).catch(() => undefined);
     await junto.close();
