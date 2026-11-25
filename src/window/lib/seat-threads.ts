@@ -817,6 +817,37 @@ export const openSeatThread = (seat: SeatAddress, threadId: string): (() => void
 };
 
 /**
+ * The mail a send committed, drawn before the thread's next read returns. Its
+ * id is the store's own id, so the read replaces it rather than doubling it.
+ */
+const laySentMessage = (
+  seat: SeatAddress,
+  sent: { readonly messageId: string; readonly threadId: string; readonly delivery: "delivered" | "waiting_for_seat" | "failed" },
+  mail: Pick<OperatorThreadSend, "text" | "attachments">,
+): void => {
+  const key = threadKey(seat, sent.threadId);
+  const prior = seatThreads$.messages[key].peek();
+  if (prior?.messages.some((message) => message.messageId === sent.messageId)) return;
+  const optimistic: SeatThreadMessage = {
+    messageId: sent.messageId,
+    author: "you",
+    mine: true,
+    text: mail.text,
+    at: Date.now(),
+    ...(mail.attachments === undefined ? {} : { attachments: mail.attachments }),
+    ...(sent.delivery === "delivered" ? {} : { waiting: true as const }),
+  };
+  seatThreads$.messages[key].set({
+    messages: [...(prior?.messages ?? []), optimistic],
+    loaded: prior?.loaded ?? false,
+    error: prior?.error ?? "",
+    ...(prior?.older === undefined ? {} : { older: prior.older }),
+    ...(prior?.loadingMore === undefined ? {} : { loadingMore: true as const }),
+    ...(prior?.headSignal === undefined ? {} : { headSignal: prior.headSignal }),
+  });
+};
+
+/**
  * Read a thread a send has just written before its chat can mount. The first
  * read holds the thread open only until it returns; a chat mounted meanwhile
  * holds its own count.
@@ -1186,6 +1217,7 @@ export const sendSeatThread = async (
     if (result.ok) {
       // Before the read the send asks for, so no read can draw the mark inside its second.
       holdWaitingMark(result.messageId);
+      laySentMessage({ canvasName, seatId }, result, mail);
       preloadSeatThread({ canvasName, seatId }, result.threadId);
       refreshSeatThreads({ canvasName, seatId });
     }
