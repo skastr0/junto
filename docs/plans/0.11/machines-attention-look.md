@@ -425,7 +425,7 @@ Rules, from remote-security's term 5 and this doc:
 | `boat-key-not-placed` | `Its machine key could not be written there. Check it again.` |
 | `seats-did-not-stop` | `A seat there did not stop when asked. Check it again before you update.` |
 | `running-seats-unreported` | `Junto there did not say how many seats it runs. Check it again before you update.` |
-| `restore-finish-blocked` | `Junto could not finish restoring its data there. Send Junto again.` |
+| `restore-finish-blocked` | `Junto could not finish restoring its data there. Its data is kept. Send Junto again.` |
 
 **An outcome only the near side knows.** The code comes from the far
 machine, so a sentence never claims an outcome the near side did not
@@ -460,8 +460,10 @@ Update Junto on this machine, then send again.` (remote-security, on
 `restore-finish-blocked` says `Send Junto again` (the window's `Send
 Junto`, `junto machine send` in the CLI), never `Reinstall`: on a machine
 owing a restore, reinstall reads as uninstall first, which would lose the
-data being restored. Pending remote-security: a send over a blocked restore
-never drops the kept copy.
+data being restored. remote-security confirmed sending is the safe path:
+a new install finishes the owed restore under the home lock before it
+copies anything (`mod.rs` `lock_for_copy`), so the sentence may say the
+data is kept.
 
 Changed from remote-core's draft: no machine name (term 5); `Check this
 machine` is `Check it again`, since `this machine` is the operator's Mac;
