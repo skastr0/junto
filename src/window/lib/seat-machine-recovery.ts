@@ -1,6 +1,7 @@
 import { use$ } from "@legendapp/state/react";
 import type { BoatStatusData } from "@shared/boat";
 import type { RemoteHost } from "@shared/remote-hosts";
+import { MachineRowUrgency, type ViewGroup } from "@shared/wire/urgency";
 import { isOnMachine, machineLabelIn, type MachineFacts } from "./machines";
 import { boatMachine, machines$ } from "./machines-actions";
 import {
@@ -20,7 +21,7 @@ import {
 } from "./machines-view";
 import { state$ } from "./state";
 
-export type SeatMachineRecoverySeverity = "broken" | "needs-you" | "asleep";
+export type SeatMachineRecoverySeverity = ViewGroup<typeof MachineRowUrgency>;
 
 export type SeatMachineRecoveryAction = {
   readonly kind: "send" | "update" | "wake" | "check" | "finish" | "check-updates" | "open-machines";
@@ -101,7 +102,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `Boat says ${label} failed`,
@@ -116,7 +117,7 @@ export const seatMachineRecovery = (input: {
     return {
       hostId: host,
       label,
-      severity: "needs-you",
+      severity: MachineRowUrgency.group["needs-you"],
       eyebrow: "stopped",
       eyebrowTone: "amber",
       headline: `${label} is not one of your machines`,
@@ -153,7 +154,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "asleep",
+        severity: MachineRowUrgency.group.asleep,
         eyebrow: "asleep",
         eyebrowTone: "steel",
         headline: `${label} is asleep`,
@@ -169,7 +170,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "asleep",
+        severity: MachineRowUrgency.group.asleep,
         eyebrow: "asleep",
         eyebrowTone: "steel",
         headline: `Waking ${label}`,
@@ -186,7 +187,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "needs-you",
+        severity: MachineRowUrgency.group["needs-you"],
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `Sending Junto to ${label}`,
@@ -202,7 +203,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "needs-you",
+        severity: MachineRowUrgency.group["needs-you"],
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `Updating Junto on ${label}`,
@@ -218,7 +219,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "needs-you",
+        severity: MachineRowUrgency.group["needs-you"],
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `Junto is not on ${label} yet`,
@@ -234,7 +235,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "needs-you",
+        severity: MachineRowUrgency.group["needs-you"],
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `${label} is not connected to this Mac`,
@@ -250,7 +251,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "needs-you",
+        severity: MachineRowUrgency.group["needs-you"],
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `${label} is not finished on Boat`,
@@ -266,7 +267,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "needs-you",
+        severity: MachineRowUrgency.group["needs-you"],
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `${label} needs an update`,
@@ -282,7 +283,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "needs-you",
+        severity: MachineRowUrgency.group["needs-you"],
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `${label} is on a newer Junto`,
@@ -298,7 +299,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `Junto stopped on ${label}`,
@@ -314,7 +315,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `Update failed on ${label}`,
@@ -330,7 +331,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `Could not send Junto to ${label}`,
@@ -350,7 +351,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline:
@@ -371,7 +372,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `Boat says ${label} failed`,
@@ -387,7 +388,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `${label} is no longer on Boat`,
@@ -404,7 +405,7 @@ export const seatMachineRecovery = (input: {
       return {
         hostId: host,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         eyebrow: "stopped",
         eyebrowTone: "amber",
         headline: `Cannot reach ${label}`,
@@ -423,7 +424,7 @@ export const seatMachineRecovery = (input: {
         return {
           hostId: host,
           label,
-          severity: "needs-you",
+          severity: MachineRowUrgency.group["needs-you"],
           eyebrow: "stopped",
           eyebrowTone: "amber",
           headline: `${harnessName(lacking[0]!)} is not on ${label}`,
@@ -442,7 +443,7 @@ export const seatMachineRecovery = (input: {
         return {
           hostId: host,
           label,
-          severity: "needs-you",
+          severity: MachineRowUrgency.group["needs-you"],
           eyebrow: "stopped",
           eyebrowTone: "amber",
           headline: `Sign-in blocked on ${label}`,
@@ -460,7 +461,7 @@ export const seatMachineRecovery = (input: {
         return {
           hostId: host,
           label,
-          severity: "needs-you",
+          severity: MachineRowUrgency.group["needs-you"],
           eyebrow: "stopped",
           eyebrowTone: "amber",
           headline: `${label} is missing secrets`,
@@ -484,7 +485,7 @@ export const seatMachineRecovery = (input: {
         return {
           hostId: host,
           label,
-          severity: "needs-you",
+          severity: MachineRowUrgency.group["needs-you"],
           eyebrow: "stopped",
           eyebrowTone: "amber",
           headline: `${harnessName(harness)} is not on ${label}`,

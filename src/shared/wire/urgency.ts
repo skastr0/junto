@@ -278,6 +278,26 @@ export const RegionUrgency = defineView("RegionUrgency", ["blocked", "needs-you"
   calm: ["done", "notice", "degraded", "working", "resting", "offline"],
 });
 
+/**
+ * A machine's row in the Machines badge, its popover, and the card a stopped
+ * seat shows when its machine is why it cannot run. Broken outranks needs
+ * you, which outranks a fix in flight; a sleeping machine is its own tier
+ * below that, and a quiet machine shows no row. The operator's own work rungs,
+ * review through notice, share needs-you: neither describes a machine, and
+ * both want the operator's look.
+ */
+export const MachineRowUrgency = defineView(
+  "MachineRowUrgency",
+  ["broken", "needs-you", "working", "asleep", "quiet"],
+  {
+    broken: ["blocked", "stopped"],
+    "needs-you": ["waiting", "escalated", "due", "review", "todo", "done", "notice"],
+    working: ["degraded", "working"],
+    asleep: ["resting"],
+    quiet: ["offline"],
+  },
+);
+
 /** A region rollup member's tier. */
 export const MemberSeverity = defineView("MemberSeverity", ["blocked", "attention", "escalated", "ready", "working", "idle"], {
   blocked: ["blocked", "stopped"],

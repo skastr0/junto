@@ -71,7 +71,7 @@ describe("SeatCard", () => {
     expect(card("near")).not.toContain("data-machine-state");
 
     state$.machineFacts.set({ [OTHER_MACHINE]: { setUp: true, needsUpdate: false, reachable: true, harnesses: ["codex"] } });
-    expect(card("far")).toContain("Claude Code is not on Atlas. Install it there, or move this seat.");
+    expect(card("far")).toContain("Claude Code is not on Atlas. Install it there.");
     state$.machineFacts.set({ [OTHER_MACHINE]: { setUp: true, needsUpdate: false, reachable: true, harnesses: ["claude"] } });
     expect(card("far")).not.toContain("data-machine-state");
   });

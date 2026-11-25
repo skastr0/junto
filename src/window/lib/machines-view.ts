@@ -9,6 +9,7 @@ import { resolveMachineForm, type MachineFigureState, type MachineForm } from "@
 import type { MachineInstallError, MachineInstallTransition } from "@shared/machine-install";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import { MACHINE_COPY_STALL_MS, type MachineCopyProgress, type MachineDownloadProgress } from "@shared/machine-progress";
+import { compareView, MachineRowUrgency, type ViewGroup } from "@shared/wire/urgency";
 
 // What the Machines window says about one machine, worked out from what the
 // owner commands answered. Pure: no window, no store, so every state the
@@ -741,7 +742,7 @@ export const runningSeatsLine = (item: MachineListItem): string | undefined => {
 };
 
 export type MachinesBarSeverity = "quiet" | "working" | "amber" | "crimson";
-export type MachinesBarRowSeverity = "broken" | "needs-you" | "working";
+export type MachinesBarRowSeverity = ViewGroup<typeof MachineRowUrgency>;
 
 export type MachinesBarRowAction = {
   readonly kind: "send" | "update" | "check" | "finish" | "check-updates" | "remove" | "delete";
@@ -814,7 +815,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
   const condition = machineCondition(item, read, copy, boat);
 
   if (condition === "adding" || condition === "sending" || condition === "updating" || condition === "waking") {
-    return { id, label, severity: "working", status: workingStatusLine(condition, label, copy), condition, listed };
+    return { id, label, severity: MachineRowUrgency.group.working, status: workingStatusLine(condition, label, copy), condition, listed };
   }
 
   // Sleeping, falling asleep, and checking are quiet.
@@ -830,7 +831,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         status: `Boat says ${label} failed.`,
         action: { kind: "delete", label: "Delete on Boat", armedLabel: `Delete ${label} on Boat`, danger: true },
         condition,
@@ -840,7 +841,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         status: `${label} is no longer on Boat.`,
         action: { kind: "remove", label: "Remove", armedLabel: `Remove ${label}`, danger: true },
         condition,
@@ -850,7 +851,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         status: said || `Junto stopped on ${label}. Reinstall Junto to run its seats.`,
         action: { kind: "update", label: "Reinstall Junto", pendingLabel: "Reinstalling…", danger: false },
         condition,
@@ -860,7 +861,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         status: said || `Update failed on ${label}.`,
         action: { kind: "update", label: "Try update again", pendingLabel: "Updating…", danger: false },
         condition,
@@ -870,7 +871,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         status: said || `Could not confirm Junto was updated on ${label}.`,
         action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
         condition,
@@ -880,7 +881,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         status: said || `Junto was updated on ${label}, but is not ready.`,
         action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
         condition,
@@ -890,7 +891,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         status: said || `Could not send Junto to ${label}.`,
         action: { kind: "send", label: "Send Junto", pendingLabel: "Sending…", danger: false },
         condition,
@@ -902,7 +903,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: "broken",
+        severity: MachineRowUrgency.group.broken,
         status:
           said ||
           (condition === "add-failed"
@@ -928,7 +929,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: hasSeats ? "broken" : "needs-you",
+        severity: hasSeats ? MachineRowUrgency.group.broken : MachineRowUrgency.group["needs-you"],
         status: withRunningSeats(base, item),
         action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
         condition,
@@ -939,7 +940,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: "needs-you",
+        severity: MachineRowUrgency.group["needs-you"],
         status: withRunningSeats(`${label} needs an update before its seats can run.`, item),
         action: { kind: "update", label: "Update Junto", pendingLabel: "Updating…", danger: false },
         condition,
@@ -949,7 +950,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: "needs-you",
+        severity: MachineRowUrgency.group["needs-you"],
         status: `${label} is on a newer Junto. Update Junto on this Mac to connect.`,
         action: { kind: "check-updates", label: "Check for updates", danger: false },
         condition,
@@ -959,7 +960,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: "needs-you",
+        severity: MachineRowUrgency.group["needs-you"],
         status: `Junto is not on ${label} yet. Send Junto to set it up.`,
         action: { kind: "send", label: "Send Junto", pendingLabel: "Sending…", danger: false },
         condition,
@@ -969,7 +970,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: "needs-you",
+        severity: MachineRowUrgency.group["needs-you"],
         status: `${label} is not connected to this Mac. Reconnect to run its seats.`,
         action: { kind: "send", label: "Reconnect", pendingLabel: "Reconnecting…", danger: false },
         condition,
@@ -979,7 +980,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       return {
         id,
         label,
-        severity: "needs-you",
+        severity: MachineRowUrgency.group["needs-you"],
         status: `Made on Boat, not added yet. Finish adding ${label} to send Junto.`,
         action: { kind: "finish", label: "Finish adding", pendingLabel: "Adding…", danger: false },
         condition,
@@ -994,7 +995,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         return {
           id,
           label,
-          severity: "needs-you",
+          severity: MachineRowUrgency.group["needs-you"],
           status: line.advice ?? line.headline,
           action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
           condition,
@@ -1006,7 +1007,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         return {
           id,
           label,
-          severity: "needs-you",
+          severity: MachineRowUrgency.group["needs-you"],
           status: `Sign-in blocked on ${where}. Sign in at its screen, then restart Junto.`,
           action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
           condition,
@@ -1018,11 +1019,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
   }
 };
 
-const ROW_SEVERITY_RANK: Readonly<Record<MachinesBarRowSeverity, number>> = {
-  broken: 0,
-  "needs-you": 1,
-  working: 2,
-};
+const compareMachineRow = compareView(MachineRowUrgency);
 
 const workingAriaLabel = (workingRows: ReadonlyArray<MachinesBarRow>): string => {
   if (workingRows.length > 1) return `Machines, ${workingRows.length} are busy`;
@@ -1041,13 +1038,13 @@ export const machinesBarSummary = (entries: ReadonlyArray<MachinesBarEntry>): Ma
     .map(classifyBarEntry)
     .filter((row): row is MachinesBarRow => row !== undefined)
     .sort((left, right) => {
-      const rank = ROW_SEVERITY_RANK[left.severity] - ROW_SEVERITY_RANK[right.severity];
-      return rank !== 0 ? rank : left.label.localeCompare(right.label);
+      const bySeverity = compareMachineRow(left.severity, right.severity);
+      return bySeverity !== 0 ? bySeverity : left.label.localeCompare(right.label);
     });
 
-  const brokenRows = rows.filter((row) => row.severity === "broken");
-  const needsYouRows = rows.filter((row) => row.severity === "needs-you");
-  const workingRows = rows.filter((row) => row.severity === "working");
+  const brokenRows = rows.filter((row) => row.severity === MachineRowUrgency.group.broken);
+  const needsYouRows = rows.filter((row) => row.severity === MachineRowUrgency.group["needs-you"]);
+  const workingRows = rows.filter((row) => row.severity === MachineRowUrgency.group.working);
   const brokenCount = brokenRows.length;
   const needsYouCount = needsYouRows.length;
   const workingCount = workingRows.length;
