@@ -375,6 +375,17 @@ describe("signals in a thread", () => {
       fixture.signalChange();
       await later(600);
       expect(q("seat-threads-said")!.textContent).toBe("pty-lead says it withdrew a signal before your answer reached it: Which store holds the notes?");
+      // Said once per crossing: the same change again, and the other face of the same crossing, add no saying.
+      const said = q("seat-threads-said")!;
+      const turn = said.firstElementChild;
+      fixture.signalChange();
+      await later(600);
+      fixture.state.messages.notes = [mine, raised({ ...ask, state: "answered", crossed: true })];
+      fixture.signalChange();
+      await later(600);
+      expect(q("seat-threads-signal-state")?.textContent).toBe("Answered");
+      expect(said.textContent).toBe("pty-lead says it withdrew a signal before your answer reached it: Which store holds the notes?");
+      expect(said.firstElementChild).toBe(turn);
     } finally {
       vi.useRealTimers();
     }

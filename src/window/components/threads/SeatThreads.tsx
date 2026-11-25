@@ -619,8 +619,8 @@ export function ThreadChat({
     ];
     const changed: string[] = [];
     for (const { signal, author } of now) {
-      // Where it stands, and whether its answer and the seat's withdrawal crossed.
-      const standing = `${signal.state}${signal.crossed === true ? "+crossed" : ""}`;
+      // Where it stands; a crossing is one standing whichever face of it is read (withdrawn or answered), so it is said once.
+      const standing = signal.crossed === true ? "crossed" : signal.state;
       const was = states.get(signal.signalId);
       states.set(signal.signalId, standing);
       if (!shown || was === undefined || was === standing) continue;
