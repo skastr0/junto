@@ -493,10 +493,10 @@ export const AgentSignal = Schema.Struct({
   paired: Schema.optionalKey(Schema.Literal(true)),
   /**
    * Read, never stored: the operator's answer and the seat's withdrawal
-   * crossed, so the seat withdrew it before the answer reached it. Either
+   * crossed: the seat says it withdrew it before the answer reached it. Either
    * closing may have landed first, so `state` is answered or withdrawn and the
-   * other is kept beside it. A window shows "withdrew this before your answer
-   * reached it" from this alone, with no reread of the thread.
+   * other is kept beside it. A window shows "<seat> says it withdrew this
+   * before your answer reached it" from this alone, with no reread of the thread.
    */
   crossed: Schema.optionalKey(Schema.Literal(true)),
 });

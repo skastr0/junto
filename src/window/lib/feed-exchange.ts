@@ -33,18 +33,6 @@ export type ExchangeRow =
     }
   | { readonly kind: "answer"; readonly text: string; readonly at: number };
 
-/**
- * The sentence for an answer and a withdrawal that crossed, in the pane's
- * answer area, on an exchange row and on a signal in a thread. The seat's own
- * statement: the withdrawal is the seat's claim, not a fact this machine can
- * check (remote-security, Race C).
- */
-export const crossedWords = (seat: string): string => `${seat} says it withdrew this before your answer reached it.`;
-
-/** The same said alone, where the card is out of sight: it names the signal, its headline last after a colon. */
-export const crossedLiveWords = (seat: string, headline: string): string =>
-  `${seat} says it withdrew a signal before your answer reached it: ${headline}`;
-
 /** Beside an answer its seat never received: the signal was withdrawn first, said as the seat's own statement. */
 export const answerHeldWords = (seat: string): string => `${seat} says it withdrew this before the answer arrived.`;
 
