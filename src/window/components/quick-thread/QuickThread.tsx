@@ -426,7 +426,11 @@ export function QuickThread({
   const sendFixed = (to: ReadonlyArray<BroadcastSeat>): void => {
     if (awaiting.current || sendTo.current === null) return;
     awaiting.current = true;
-    void sendTo.current(to.map((seat) => ({ seatId: seat.nodeId, name: seat.name })))
+    const send = sendTo.current;
+    const recipients = to.map((seat) => ({ seatId: seat.nodeId, name: seat.name }));
+    // Through a promise, so a send that throws at once is caught like one that rejects.
+    void Promise.resolve()
+      .then(() => send(recipients))
       .then((started) => {
         if (started) return;
         awaiting.current = false;
