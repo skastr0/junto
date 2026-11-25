@@ -14,7 +14,7 @@ import {
   useSeatThreadMessages,
   useSeatThreads,
   useSeatUnread,
-  WAITING_AFTER_MS,
+  waitingHoldLeft,
   type SeatAddress,
   type SeatThreadSummary,
 } from "../../lib/seat-threads";
@@ -556,6 +556,7 @@ export function ThreadChat({
   const follow = useCallback(
     (messageId: string) => {
       followed.current.add(messageId);
+      // The mark and this line end their wait together: the hold the send put on the mail is the one clock.
       timers.current.set(
         messageId,
         setTimeout(() => {
@@ -571,7 +572,7 @@ export function ThreadChat({
           }
           // Said only while the thread is on screen, as its arrival is.
           if (shownNow.current) say(sentWaiting(name));
-        }, WAITING_AFTER_MS),
+        }, waitingHoldLeft(messageId)),
       );
     },
     [name, say],
@@ -802,7 +803,7 @@ export function ThreadChat({
                     {words}
                     {files}
                     {/* The operator's own mail that its seat does not have yet. */}
-                    {message.mine && message.waiting && !message.held ? <WaitingMark name={name} messageId={message.messageId} /> : null}
+                    {message.mine && message.waiting && !message.held ? <WaitingMark name={name} mail={message} seatId={seat.seatId} /> : null}
                     {/* An answer its seat withdrew the signal before it arrived: kept from the seat, said in the crossed note's own style. */}
                     {message.mine && message.held && !(message.answers !== undefined && crossedSignals.has(message.answers.signalId)) ? (
                       <p className="seat-threads__signal-note seat-threads__signal-note--held" data-testid="seat-threads-answer-held">{answerHeldWords(name)}</p>

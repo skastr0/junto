@@ -174,9 +174,18 @@ export function AnswerTo({
  * Plain words, not a status: a thread can hold many of them, and its history
  * is never said aloud. The send that comes back waiting is said by `ThreadSaid`.
  */
-export function WaitingMark({ name, messageId }: { readonly name: string; readonly messageId?: string }) {
-  // Mail sent from here draws nothing inside its first second, and nothing at all if it has arrived by then.
-  const held = useWaitingMarkHeld(messageId ?? "");
+export function WaitingMark({
+  name,
+  mail,
+  seatId,
+}: {
+  readonly name: string;
+  /** The mail this mark is under: mail sent from here draws nothing inside its first second. */
+  readonly mail?: { readonly messageId: string; readonly at: number };
+  readonly seatId?: string;
+}) {
+  // Nothing inside the first second, and nothing at all if the seat has it by then.
+  const held = useWaitingMarkHeld(mail ?? { messageId: "", at: 0 }, seatId ?? "");
   if (held) return null;
   return (
     <p className="seat-threads__waiting" data-testid="seat-threads-waiting">

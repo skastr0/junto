@@ -993,20 +993,48 @@ export const WAITING_AFTER_MS = 1000;
 // One store for every place that draws the mark (a message in a thread, a row in Global threads),
 // so no place draws it from a read before the others do.
 const markHeld$ = observable<Record<string, true>>({});
+const heldSince = new Map<string, number>();
 const holdTimers = new Set<ReturnType<typeof setTimeout>>();
+// The sends in flight to a seat, by seat, and when the first began. The mail a send writes can reach a
+// list (a pushed change) before the answer names it, so the seat's mail written since the send began is
+// held too, until the answer's own hold by id takes over.
+const sending$ = observable<Record<string, { count: number; since: number }>>({});
+
+const sendBegins = (seatId: string): void => {
+  const now = sending$[seatId].peek();
+  sending$[seatId].set({ count: (now?.count ?? 0) + 1, since: now?.since ?? Date.now() });
+};
+const sendEnds = (seatId: string): void => {
+  const now = sending$[seatId].peek();
+  if (now === undefined || now.count <= 1) sending$[seatId].delete();
+  else sending$[seatId].set({ count: now.count - 1, since: now.since });
+};
 
 /** The operator's mail was sent from here: its waiting mark is held back for a second. */
 export const holdWaitingMark = (messageId: string): void => {
   markHeld$[messageId].set(true);
+  heldSince.set(messageId, Date.now());
   const timer = setTimeout(() => {
     holdTimers.delete(timer);
+    heldSince.delete(messageId);
     markHeld$[messageId].delete();
   }, WAITING_AFTER_MS);
   holdTimers.add(timer);
 };
 
-/** Whether this mail's waiting mark is still held back. */
-export const useWaitingMarkHeld = (messageId: string): boolean => use$(markHeld$[messageId]) === true;
+/** How much of its second this mail's hold has left, so what is said about it can end when the mark can be drawn. */
+export const waitingHoldLeft = (messageId: string): number => {
+  const since = heldSince.get(messageId);
+  return since === undefined ? WAITING_AFTER_MS : Math.max(0, WAITING_AFTER_MS - (Date.now() - since));
+};
+
+/** Whether this mail's waiting mark is still held back: held by its id, or written while a send to its seat is still in flight. */
+export const useWaitingMarkHeld = (mail: { readonly messageId: string; readonly at: number }, seatId: string): boolean => {
+  const byId = use$(markHeld$[mail.messageId]) === true;
+  const sending = use$(sending$[seatId]);
+  // A second of slack for the clocks of the write and of the send's start.
+  return byId || (sending !== undefined && mail.at >= sending.since - 1000);
+};
 
 /**
  * Who the operator's mail has not reached yet, in one sentence about the
@@ -1057,6 +1085,7 @@ export const sendSeatThread = async (
   const { canvasName, seatId, ...mail } = input;
   const send = getJuntoApi()?.seatThreadSend;
   if (typeof send !== "function") return { ok: false, reason: "failed", message: "Junto could not reach this seat." };
+  sendBegins(seatId);
   try {
     const result = await send({ canvasName, nodeId: seatId, ...mail });
     if (result.ok) {
@@ -1067,6 +1096,8 @@ export const sendSeatThread = async (
     return result;
   } catch (error) {
     return { ok: false, reason: "failed", message: errorText(error) };
+  } finally {
+    sendEnds(seatId);
   }
 };
 
@@ -1087,6 +1118,8 @@ export const resetSeatThreads = (): void => {
   closedOn.clear();
   for (const timer of holdTimers) clearTimeout(timer);
   holdTimers.clear();
+  heldSince.clear();
   markHeld$.set({});
+  sending$.set({});
   seatThreads$.set({ seats: {}, messages: {}, unread: {} });
 };

@@ -140,7 +140,7 @@ function ThreadListRow({
   const unread = row.unread > 0;
   const mine = lastIsMine(row);
   // A reply just sent from here is not drawn as waiting inside its first second.
-  const waitingHeld = useWaitingMarkHeld(row.last.messageId);
+  const waitingHeld = useWaitingMarkHeld(row.last, row.seat.nodeId);
   return (
     <li>
       <button

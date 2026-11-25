@@ -13,6 +13,9 @@ import type { OperatorThreadRow, OperatorThreadsSource } from "../src/window/lib
 
 const CANVAS = "send-hold";
 let waitingRows = new Set<string>();
+// When each row's last mail was written; the default is long ago.
+let writtenAt: Record<string, number> = {};
+let gate: Promise<void> | undefined;
 
 vi.mock("../src/window/lib/use-model", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -35,7 +38,7 @@ const row = (threadId: string, messageId: string, waiting: boolean): OperatorThr
   title: threadId,
   startedAt: 100,
   lastAt: 100,
-  last: { messageId, from: { kind: "operator" }, text: "Are you there?", at: 100, ...(waiting ? { waiting: true as const } : {}) },
+  last: { messageId, from: { kind: "operator" }, text: "Are you there?", at: writtenAt[messageId] ?? 100, ...(waiting ? { waiting: true as const } : {}) },
   messageCount: 1,
   unread: 0,
 });
@@ -59,10 +62,15 @@ const marked = (): Array<string | undefined> =>
 
 beforeEach(() => {
   waitingRows = new Set(["m-sent", "m-old"]);
+  writtenAt = {};
+  gate = undefined;
   clearThreadsFilters();
   state$.canvasName.set(CANVAS);
   (window as { junto?: unknown }).junto = {
-    seatThreadSend: async () => ({ ok: true, messageId: "m-sent", threadId: "t-sent", delivery: "waiting_for_seat" }),
+    seatThreadSend: async () => {
+      await gate;
+      return { ok: true, messageId: "m-sent", threadId: "t-sent", delivery: "waiting_for_seat" };
+    },
   };
   setOperatorThreadsSource(source());
   host = document.createElement("div");
@@ -119,4 +127,34 @@ it("never draws it for a reply its seat takes inside the second", async () => {
     await vi.advanceTimersByTimeAsync(2000);
   });
   expect(marked()).not.toContain("t-sent");
+});
+
+it("draws nothing for mail the list shows before the send's own answer names it", async () => {
+  // The write can reach the list as a pushed change before the send's answer does.
+  waitingRows = new Set(["m-old"]);
+  await rowsShown();
+  expect(marked()).toEqual(["t-old"]);
+  vi.useFakeTimers();
+  let letThrough!: () => void;
+  gate = new Promise<void>((resolve) => (letThrough = resolve));
+  const sending = sendSeatThread({ canvasName: CANVAS, seatId: "a", text: "Are you there?", threadId: "t-sent" });
+  // The list now has the mail, waiting, written just now, and the answer has not come.
+  waitingRows.add("m-sent");
+  writtenAt["m-sent"] = Date.now();
+  setOperatorThreadsSource(source());
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(100);
+  });
+  expect(marked()).toEqual(["t-old"]);
+  // The answer comes: the hold by id takes over, and the second runs from there.
+  letThrough();
+  await act(async () => {
+    await sending;
+    await vi.advanceTimersByTimeAsync(900);
+  });
+  expect(marked()).toEqual(["t-old"]);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(200);
+  });
+  expect(marked().sort()).toEqual(["t-old", "t-sent"]);
 });
