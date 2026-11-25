@@ -21,6 +21,7 @@
  * WARNINGS. A `warn` row the first time main heap use crosses 50% and 75% of
  * the heap limit, re-armed once it falls back below that line.
  */
+import { HEAP_WARN_FRACTIONS, heapLinesCrossed, heapRow, type HeapInput, type HeapRow } from "../../node/observability/heap-log";
 
 /** The fields of Electron's `ProcessMetric` this log reads. */
 export type ProcessMetricInput = {
@@ -33,16 +34,7 @@ export type ProcessMetricInput = {
   readonly memory: { readonly workingSetSize: number; readonly peakWorkingSetSize: number };
 };
 
-export type MainHeapInput = {
-  readonly rss: number;
-  readonly heapUsed: number;
-  readonly heapTotal: number;
-  readonly external: number;
-  readonly arrayBuffers: number;
-  readonly heapLimit: number;
-  readonly nativeContexts: number;
-  readonly detachedContexts: number;
-};
+export type MainHeapInput = HeapInput;
 
 export type ProcessMetricsRow = {
   readonly procs: ReadonlyArray<{
@@ -54,26 +46,14 @@ export type ProcessMetricsRow = {
     readonly mb: number;
     readonly peakMb: number;
   }>;
-  readonly main: {
-    readonly rssMb: number;
-    readonly heapUsedMb: number;
-    readonly heapTotalMb: number;
-    readonly externalMb: number;
-    readonly arrayBuffersMb: number;
-    readonly heapLimitMb: number;
-    readonly heapUsedPct: number;
-    readonly nativeContexts: number;
-    readonly detachedContexts: number;
-  };
+  readonly main: HeapRow;
   readonly totals: { readonly cpu: number; readonly mb: number };
 };
 
 export const PROCESS_METRICS_INTERVAL_MS = 60_000;
-export const HEAP_WARN_FRACTIONS: ReadonlyArray<number> = [0.5, 0.75];
+export { HEAP_WARN_FRACTIONS, heapLinesCrossed };
 
-const MB = 1024 * 1024;
 const round1 = (value: number): number => Math.round(value * 10) / 10;
-const mbOfBytes = (bytes: number): number => round1(bytes / MB);
 const mbOfKb = (kb: number): number => round1(kb / 1024);
 
 /** "GPU", "Tab", "Utility:Junto Core", ...: the type, and the service a utility process names. */
@@ -102,39 +82,12 @@ export const processMetricsRow = (
     .sort((a, b) => b.cpu - a.cpu || b.mb - a.mb);
   return {
     procs,
-    main: {
-      rssMb: mbOfBytes(heap.rss),
-      heapUsedMb: mbOfBytes(heap.heapUsed),
-      heapTotalMb: mbOfBytes(heap.heapTotal),
-      externalMb: mbOfBytes(heap.external),
-      arrayBuffersMb: mbOfBytes(heap.arrayBuffers),
-      heapLimitMb: mbOfBytes(heap.heapLimit),
-      heapUsedPct: heap.heapLimit > 0 ? round1((100 * heap.heapUsed) / heap.heapLimit) : 0,
-      nativeContexts: heap.nativeContexts,
-      detachedContexts: heap.detachedContexts,
-    },
+    main: heapRow(heap),
     totals: {
       cpu: round1(procs.reduce((sum, proc) => sum + proc.cpu, 0)),
       mb: round1(procs.reduce((sum, proc) => sum + proc.mb, 0)),
     },
   };
-};
-
-/**
- * The heap lines crossed upward since the last call, given which were armed.
- * A line re-arms once use falls below it again.
- */
-export const heapLinesCrossed = (
-  usedFraction: number,
-  armed: ReadonlySet<number>,
-): { readonly crossed: ReadonlyArray<number>; readonly armed: ReadonlySet<number> } => {
-  const next = new Set<number>();
-  const crossed: Array<number> = [];
-  for (const line of HEAP_WARN_FRACTIONS) {
-    if (usedFraction < line) next.add(line);
-    else if (armed.has(line)) crossed.push(line);
-  }
-  return { crossed, armed: next };
 };
 
 export type ProcessMetricsLogDeps = {

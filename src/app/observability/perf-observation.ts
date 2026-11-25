@@ -5,8 +5,8 @@
  * wires is plain and tested on its own.
  */
 import { cpus } from "node:os";
-import { getHeapStatistics } from "node:v8";
 import { app, contentTracing } from "electron";
+import { readHeap } from "../../node/observability/heap-log";
 import { mainLog } from "./main-log";
 import { startProcessMetricsLog } from "./process-metrics-log";
 import { makePerfTraceRecorder, type PerfTraceRecorder } from "./perf-trace";
@@ -24,20 +24,7 @@ export const startPerfObservation = (juntoHome: string): PerfObservation => {
   const stopMetrics = startProcessMetricsLog({
     appMetrics: () => app.getAppMetrics(),
     cores: cpus().length,
-    mainHeap: () => {
-      const usage = process.memoryUsage();
-      const heap = getHeapStatistics();
-      return {
-        rss: usage.rss,
-        heapUsed: usage.heapUsed,
-        heapTotal: usage.heapTotal,
-        external: usage.external,
-        arrayBuffers: usage.arrayBuffers,
-        heapLimit: heap.heap_size_limit,
-        nativeContexts: heap.number_of_native_contexts,
-        detachedContexts: heap.number_of_detached_contexts,
-      };
-    },
+    mainHeap: readHeap,
     write,
   });
   const trace = makePerfTraceRecorder({ juntoHome, tracing: contentTracing, write });

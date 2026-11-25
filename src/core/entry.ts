@@ -35,6 +35,7 @@ import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import { armMainThreadBudget } from "../node/observability/main-thread-budget";
 import { startSqlTimingLog } from "./observability/sql-timing-log";
 import { openCoreLog } from "./core-log";
+import { startHeapLog } from "../node/observability/heap-log";
 import type { TerminalPortMain } from "./terminals/over-ports";
 
 export type CoreBoot = {
@@ -84,6 +85,9 @@ const main = async (parent: ParentPort): Promise<void> => {
   // ~/.junto/logs/sql-timing.json every minute and on exit.
   armMainThreadBudget({ enabled: !boot.app.packaged });
   startSqlTimingLog({ home: boot.home });
+  // One `[metrics] core heap` row a minute in core.jsonl, every build: the
+  // core's V8 heap against its limit, which no other process can read (#650).
+  startHeapLog({ label: "core", write: (level, message) => log.writeLog({ level, source: "core", message }) });
   // The port opens before the core boots: what boots may already publish.
   const served = serveCore(parentCorePort(parent));
   // The core's RPC groups ride the same port; a request that comes before
