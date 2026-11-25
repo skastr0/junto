@@ -2,7 +2,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { closeSync, constants, fchmodSync, fsyncSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, Socket, type Server } from "node:net";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 export const CONTROL_DIRECTORY_MODE = 0o700;
 export const CONTROL_FILE_MODE = 0o600;
@@ -211,24 +211,62 @@ const acquireDarwinFileLease = async (
 };
 
 /**
+ * The names one listener path is held under: the directory it resolves to,
+ * and the path as written when that differs, as under a home that is a
+ * symlink. A home relinked to a fresh directory under a running listener
+ * still names the old listener's text, so a second one is refused; a second
+ * path to the same directory still names the resolved one.
+ */
+const listenerLeaseKeys = (socketPath: string): ReadonlyArray<string> => {
+  const resolved = join(realpathSync(dirname(socketPath)), basename(socketPath));
+  const written = resolve(socketPath);
+  return written === resolved ? [resolved] : [resolved, written];
+};
+
+/** Every key's abstract address, or none: one held by another listener refuses the lease. */
+const acquireLinuxAbstractLeases = async (
+  leaseKeys: ReadonlyArray<string>,
+): Promise<KernelListenerLease> => {
+  const leases: KernelListenerLease[] = [];
+  try {
+    for (const leaseKey of leaseKeys) leases.push(await acquireLinuxAbstractLease(leaseKey));
+  } catch (error) {
+    await Promise.all(leases.map((lease) => lease.release()));
+    throw error;
+  }
+  if (leases.length === 1) return leases[0]!;
+  let releaseFlight: Promise<void> | undefined;
+  return {
+    held: () => leases.every((lease) => lease.held()),
+    release: () => {
+      releaseFlight ??= Promise.all(leases.map((lease) => lease.release())).then(() => undefined);
+      return releaseFlight;
+    },
+  };
+};
+
+/**
  * Acquire the kernel-released exclusion authority for one listener pathname.
  *
  * Linux uses the abstract Unix namespace, so a crash releases the address
- * without leaving another stale filesystem inode. Darwin takes an exclusive
+ * without leaving another stale filesystem inode. It holds one address for
+ * the resolved path and one for the written path when they differ, and
+ * refuses when another listener holds either. Darwin takes an exclusive
  * kernel flock (`O_EXLOCK`) on an exact no-follow descriptor held by this
- * process, so abrupt exit releases the lock with the descriptor.
+ * process, so abrupt exit releases the lock with the descriptor. Its lock
+ * file sits in the resolved directory, so it holds the resolved path only.
  */
 export const acquireControlListenerLease = async (
   socketPath: string,
 ): Promise<ControlListenerLease> => {
-  const leaseKey = join(realpathSync(dirname(socketPath)), basename(socketPath));
+  const leaseKeys = listenerLeaseKeys(socketPath);
   let kernel: KernelListenerLease;
   try {
     kernel =
       process.platform === "linux"
-        ? await acquireLinuxAbstractLease(leaseKey)
+        ? await acquireLinuxAbstractLeases(leaseKeys)
         : process.platform === "darwin"
-          ? await acquireDarwinFileLease(leaseKey)
+          ? await acquireDarwinFileLease(leaseKeys[0]!)
           : (() => {
               throw new Error(`control listener leases unsupported on ${process.platform}`);
             })();

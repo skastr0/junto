@@ -363,6 +363,13 @@ The one interface three seats build against.
   That command only relays its input and output to the core's owner-only
   socket on that machine, the way the phone relay does. It never opens the
   database.
+- One core per home. Each control socket is held under a kernel lease on the
+  directory its path resolves to and, on Linux, also on the path as written.
+  A home that is a symlink, relinked to a fresh directory under a running
+  core, no longer lets a second core listen beside the first under the same
+  path (remote-verify, VM B, 25 November): the new core is refused until the
+  old one exits. The old core keeps running where no client reaches it until
+  it is stopped. On macOS the lease follows the resolved directory only.
 - Hello first, both ways: build, installation id, machine name. A build
   mismatch closes the link and names the machine to update.
 - After hello, framed messages on named channels, each frame bounded. The
