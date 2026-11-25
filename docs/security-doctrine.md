@@ -259,9 +259,32 @@ count covers every kind of authored reference, including folder maps and
 environment restrictions. A fresh, empty seed permits naming. Migrated
 authored canvases retain their advanced counts. A pinned peer's name and
 installation id never change at either end.
-Retirement retains that binding: a different installation under the retired
-name is refused. Rename and replacement under a used name require a later
-explicit design.
+Retirement retains that binding until a setup replaces it. Removing a
+machine is the operator saying its old installation is gone, so a setup of a
+different installation under the retired name (the hello of the installation
+this send just installed, its install receipt's id, or the far's own setup)
+replaces the retired row, under remote-security's terms P1 to P6:
+
+- A live pin under another installation still refuses, and so does an
+  installation already pinned under another name.
+- Work this machine still places on the name (seats, automations, Files
+  nodes, as a take-over counts them) refuses, and nothing changes; a take-over
+  moves that work.
+- The old installation's link-key line is removed first, outside the SQL, and
+  a failure to remove it refuses.
+  If the transaction then refuses, the old line stays removed: removing trust
+  is the safe direction.
+- Then one transaction checks the row is still retired under that
+  installation, counts again, and sweeps what the old installation held here:
+  its vault tokens, owed deletes and seen row. `known_installations` keeps it.
+  The new pin goes in plain, replacing the row in the same transaction, since
+  a pin's identity never changes in place.
+- The replacement is logged as "machine retired pin replaced", with the name
+  and both installation ids and no route.
+
+A link accept never replaces a retired pin. A setup that brings no such rule
+refuses as before. Renaming under a used name still requires a later explicit
+design.
 
 Bindings from the retired Station protocol are discarded, not imported as
 pins for this protocol. Existing installation identities needed by durable
