@@ -68,6 +68,8 @@ export type MachineCopy =
       readonly id: string;
       /** The plain reason, as the owner command said it. */
       readonly message: string;
+      /** The message is the core's own fixed words, so a failed row may show it as the reason. */
+      readonly ownWords?: true;
       /** The steps that were confirmed. One that is not here may still have happened. */
       readonly steps: ReadonlyArray<MachineInstallStep>;
       /** This build's bundle being fetched, before anything is copied. */
@@ -364,6 +366,31 @@ export type MachineSummary = {
 };
 
 const reason = (message: string | undefined, fallback: string): string => message?.trim() || fallback;
+
+/** Failed-copy states that may show the core's own reason under their fixed sentence. */
+const FAILED_COPY_CONDITIONS: ReadonlySet<MachineCondition> = new Set([
+  "add-failed",
+  "send-failed",
+  "update-failed",
+  "update-stopped",
+  "send-unconfirmed",
+  "update-unconfirmed",
+  "sent-not-ready",
+  "updated-not-ready",
+]);
+
+/**
+ * Core's own fixed sentence as a failed row shows it: first letter raised and
+ * a period added when missing. Only a message the core marked as its own is
+ * shown; an unmarked message may carry stderr, a path or a peer's words.
+ */
+const ownWordsReason = (copy: MachineCopy | undefined, condition: MachineCondition): string | undefined => {
+  if (copy?.kind !== "failed" || copy.ownWords !== true || !FAILED_COPY_CONDITIONS.has(condition)) return undefined;
+  const words = copy.message.trim();
+  if (words === "") return undefined;
+  const raised = `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
+  return /[.!?]$/u.test(raised) ? raised : `${raised}.`;
+};
 
 const CONDITIONS_THAT_NEED_YOU: ReadonlySet<MachineCondition> = new Set([
   "add-failed",
@@ -761,6 +788,8 @@ export type MachinesBarRow = {
   readonly label: string;
   readonly severity: MachinesBarRowSeverity;
   readonly status: string;
+  /** Core's own fixed reason, on a failed command's row, when the core marked it. */
+  readonly reason?: string;
   readonly action?: MachinesBarRowAction;
   readonly condition: MachineCondition;
   readonly listed: boolean;
@@ -1052,7 +1081,12 @@ const workingAriaLabel = (workingRows: ReadonlyArray<MachinesBarRow>): string =>
  */
 export const machinesBarSummary = (entries: ReadonlyArray<MachinesBarEntry>): MachinesBarSummary => {
   const rows = entries
-    .map(classifyBarEntry)
+    .map((entry) => {
+      const row = classifyBarEntry(entry);
+      if (row === undefined) return undefined;
+      const reason = ownWordsReason(entry.copy, row.condition);
+      return reason === undefined ? row : { ...row, reason };
+    })
     .filter((row): row is MachinesBarRow => row !== undefined)
     .sort((left, right) => {
       const bySeverity = compareMachineRow(left.severity, right.severity);

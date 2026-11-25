@@ -44,6 +44,8 @@ export type MachineCommandRefusal = {
   readonly runningSeats?: number;
   /** True when an older remote build could not confirm running seats and needs confirmation before update. */
   readonly runningSeatsUnknown?: true;
+  /** True when the message is the core's own fixed words, safe to show as the reason on a failed row. */
+  readonly ownWords?: true;
 };
 
 export type MachineCommandAnswer<Op extends MachineOpName> =
@@ -153,6 +155,7 @@ export const machineCommand = async <Op extends MachineOpName>(
       ...(details?.installed === undefined ? {} : { installed: details.installed }),
       ...(runningSeats === undefined ? {} : { runningSeats }),
       ...(runningSeatsUnknown === undefined ? {} : { runningSeatsUnknown }),
+      ...(details?.ownWords === true ? { ownWords: true } : {}),
     };
   }
   return { ok: true, data: answer.data as MachineDataByOp[Op] };

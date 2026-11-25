@@ -662,6 +662,26 @@ describe("Slice 1 conditions, TopBar summary, and copy law", () => {
     }
   });
 
+  it("shows the core's own reason on a failed row only when the core marked it", () => {
+    const failed = (message: string, ownWords?: true): MachineCopy => ({
+      kind: "failed", op: "update", id: "f", message, steps: [], disposition: "staged", installed: false,
+      ...(ownWords === true ? { ownWords: true } : {}),
+    });
+    const row = (copy: MachineCopy) => machinesBarSummary([entry(listed(), { copy })]).rows[0]!;
+
+    expect(row(failed("bundle must be a directory, not a link", true))).toMatchObject({
+      status: "Junto could not be updated. The old build still runs.",
+      reason: "Bundle must be a directory, not a link.",
+    });
+    expect(row(failed("One seat is running on this machine. Confirm to stop it and update", true)).reason)
+      .toBe("One seat is running on this machine. Confirm to stop it and update.");
+    // Unmarked is never a reason, even when the message looks like fixed words.
+    expect(row(failed("bundle must be a directory, not a link"))).not.toHaveProperty("reason");
+    // Machines window advice keeps the core's own words exactly as they came.
+    expect(machineSummary(listed(), peer(), failed("bundle must be a directory, not a link", true)).advice)
+      .toBe("bundle must be a directory, not a link");
+  });
+
   it("enforces Copy Law across all states: no middots, no mechanics jargon, no move-seat, no this-machine for remotes", () => {
     const boat = (power: MachineBoat["power"], listedFlag = true): MachineBoat => ({
       machineName: OTHER_MACHINE,

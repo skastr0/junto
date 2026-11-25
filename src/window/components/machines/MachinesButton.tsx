@@ -134,6 +134,15 @@ function PopoverRow({
         <p className="machines-popover__status" title={row.status}>
           {row.status}
         </p>
+        {row.reason ? (
+          <p
+            className="machines-popover__reason"
+            data-testid={`machines-popover-reason-${row.id}`}
+            title={row.reason}
+          >
+            {row.reason}
+          </p>
+        ) : null}
       </div>
       {action ? (
         <Button

@@ -101,6 +101,16 @@
   overflow: hidden;
 }
 
+.machines-popover__reason {
+  margin: 0;
+  color: var(--color-dim);
+  font-size: var(--text-body);
+  line-height: var(--leading-dense);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .machines-popover__empty {
   margin: 0;
   padding: 12px;

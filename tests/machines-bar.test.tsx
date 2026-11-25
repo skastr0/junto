@@ -330,6 +330,35 @@ it("arms Delete on Boat and Remove on first press, disarms on timeout or blur, a
   expect(owner.requests.some((r) => r.op === "machine.remove" && r.args.name === "boat-gone")).toBe(true);
 });
 
+it("shows a marked refusal on the failed update row and never an unmarked one", async () => {
+  const owner = makeOwner([
+    row(THIS_MACHINE, {}, { label: "Studio", isThisMachine: true, sshEndpoint: undefined }),
+    row("mini", { needsUpdate: true }, { label: "Mini" }),
+  ]);
+  await mount(owner);
+  await click(byTest("machines-trigger"));
+
+  await click(byTest("machines-popover-action-mini"));
+  await act(async () => {
+    owner.refuseUpdate("mini", "bundle must be a directory, not a link", {
+      retryable: true, disposition: "staged", transitions: [], ownWords: true,
+    });
+    await flush();
+  });
+  expect(byTest("machines-popover-row-mini")?.textContent).toContain("Junto could not be updated. The old build still runs.");
+  expect(byTest("machines-popover-reason-mini")?.textContent).toBe("Bundle must be a directory, not a link.");
+
+  await click(byTest("machines-popover-action-mini"));
+  await act(async () => {
+    owner.refuseUpdate("mini", "bundle must be a directory, not a link", {
+      retryable: true, disposition: "staged", transitions: [],
+    });
+    await flush();
+  });
+  expect(byTest("machines-popover-row-mini")?.textContent).toContain("Junto could not be updated. The old build still runs.");
+  expect(byTest("machines-popover-reason-mini")).toBeNull();
+});
+
 it("offers Update all when two or more idle machines need an update and handles runningSeatsUnknown", async () => {
   const owner = makeOwner([
     row(THIS_MACHINE, {}, { label: "Studio", isThisMachine: true, sshEndpoint: undefined }),

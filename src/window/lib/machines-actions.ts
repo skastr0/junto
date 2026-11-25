@@ -318,6 +318,7 @@ const keepFailedCopy = (name: string, op: MachineCopyOp, id: string, answer: Mac
     ...(running?.download === undefined ? {} : { download: running.download }),
     ...(running?.transfer === undefined ? {} : { transfer: running.transfer }),
     ...(answer.disposition === undefined ? {} : { disposition: answer.disposition }),
+    ...(answer.ownWords === true ? { ownWords: true } : {}),
     installed: answer.installed !== undefined,
   });
 };

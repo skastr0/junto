@@ -42,6 +42,16 @@ describe("an owner machine command from the window", () => {
     });
   });
 
+  it("keeps the core's mark that a refusal is its own fixed words", async () => {
+    withMain((request) => ({
+      protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false,
+      error: { type: "io", message: "One seat is running on this machine. Confirm to stop it and update", details: { retryable: true, disposition: "staged", ownWords: true } },
+    }));
+    expect(await machineCommand("machine.update", { name: OTHER_MACHINE })).toMatchObject({
+      ok: false, message: "One seat is running on this machine. Confirm to stop it and update", ownWords: true,
+    });
+  });
+
   it("keeps where the owner said a failed install left the machine", async () => {
     for (const disposition of ["staged", "activated", "uncertain"] as const) {
       withMain((request) => ({
