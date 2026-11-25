@@ -55,5 +55,8 @@ test("a name already taken is refused in words in the window", async ({ junto: {
   await create(page, BOARD);
   // Nothing is made; the operator is told why, not left with a closed dialog and no word.
   await expect(page.getByRole("alert")).toContainText(/already exist/i, { timeout: 20_000 });
+  // The kind main marks a failure with never reaches the words, and a refusal offers no retry: the same answer would come back.
+  await expect(page.getByRole("alert")).not.toContainText("[model:");
+  await expect(page.getByRole("button", { name: /retry save/i })).toHaveCount(0);
   expect(await names(page)).toEqual([BOARD]);
 });
