@@ -16,3 +16,12 @@ for (const seats of [100,300,1000]) {
   for(let i=0;i<7;i++){const c=process.cpuUsage();canvasToCapabilityView(doc,{editingMachine:"m"});const d=process.cpuUsage(c);reps.push((d.user+d.system)/1000)}
   reps.sort((a,b)=>a-b);console.log(`seats=${seats} resources=${boards} median_ms=${reps[3]} best_ms=${reps[0]}`);
 }
+
+const fixture=JSON.parse(require("node:fs").readFileSync("e2e/scenarios/zz-proof-factory-shape.json","utf8")).model;
+const doc=canvasOf(fixture.nodes,fixture.wires);
+const seats=fixture.nodes.filter((n:any)=>n.kind==="agent").length;
+const resources=fixture.nodes.filter((n:any)=>["task","artifacts","automations"].includes(n.kind)).length;
+for(let i=0;i<3;i++) canvasToCapabilityView(doc,{editingMachine:"studio"});
+const reps:number[]=[];
+for(let i=0;i<9;i++){const c=process.cpuUsage();canvasToCapabilityView(doc,{editingMachine:"studio"});const d=process.cpuUsage(c);reps.push((d.user+d.system)/1000)}
+reps.sort((a,b)=>a-b);console.log(`factory seats=${seats} resources=${resources} nodes=${fixture.nodes.length} wires=${fixture.wires.length} median_ms=${reps[4]} best_ms=${reps[0]}`);
