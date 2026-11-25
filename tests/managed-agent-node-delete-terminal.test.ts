@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { THIS_MACHINE } from "./support/machines";
 import type { Node, NodeOf } from "../src/shared/model";
 import { quiesceAndFlushCanvasEdits } from "../src/window/lib/canvas-editor-flush";
+import type { TerminalBeginNodeDeleteResult } from "../src/shared/ipc";
 import {
   canvasMutationsQuiesced,
   deleteNode,
@@ -10,12 +11,16 @@ import {
 import { seat } from "./support/model-nodes";
 import { held, openCanvas } from "./support/open-canvas";
 import { state$ } from "../src/window/lib/state";
-import { answerConfirm, confirm$ } from "../src/window/lib/confirm";
+import { answerConfirm, confirm$, type ConfirmRequest } from "../src/window/lib/confirm";
 
+const asks: ConfirmRequest[] = [];
 const confirmDelete = vi.fn(() => true);
 // A node delete asks through the shared ConfirmDialog; the stub answers it with confirmDelete.
 confirm$.pending.onChange(({ value }) => {
-  if (value !== null) queueMicrotask(() => answerConfirm(confirmDelete()));
+  if (value !== null) {
+    asks.push(value);
+    queueMicrotask(() => answerConfirm(confirmDelete()));
+  }
 });
 type TerminalDeleteResource = { readonly bindingId: string; readonly hostId?: string };
 const cleanTerminalDelete = (resources: ReadonlyArray<TerminalDeleteResource>) => ({
@@ -28,7 +33,7 @@ const cleanTerminalDelete = (resources: ReadonlyArray<TerminalDeleteResource>) =
   })),
 });
 const terminalBeginNodeDelete = vi.fn(
-  async (resources: ReadonlyArray<TerminalDeleteResource>) =>
+  async (resources: ReadonlyArray<TerminalDeleteResource>): Promise<TerminalBeginNodeDeleteResult> =>
     cleanTerminalDelete(resources),
 );
 const terminalFinishNodeDelete = vi.fn(
@@ -76,6 +81,8 @@ const nodesHeld = (): ReadonlyArray<Node> => [...held().nodes.values()];
 describe.sequential("managed agent node terminal teardown", () => {
   beforeEach(() => {
     state$.error.set("");
+    state$.machines.set([{ id: "studio", label: "Studio", isThisMachine: false, capabilities: ["terminal"] }]);
+    asks.length = 0;
     confirmDelete.mockReset();
     confirmDelete.mockReturnValue(true);
     terminalBeginNodeDelete.mockReset();
@@ -141,6 +148,168 @@ describe.sequential("managed agent node terminal teardown", () => {
       "Junto could not stop the managed terminal cleanly; the agent node was not deleted.",
     ));
     expect(nodesHeld()).toEqual([node]);
+  });
+
+  it("offers Delete anyway when a remote stop is unproven, then re-calls with the marker on that seat", async () => {
+    const node = managedAgent({ id: "seat-a", bindingId: "binding-a", hostId: "studio" });
+    open(node);
+    terminalBeginNodeDelete.mockImplementationOnce(async () => ({
+      ok: false as const,
+      error: "terminal binding-a stop could not be proven",
+      unstoppedRemote: [{ bindingId: "binding-a", hostId: "studio", reason: "unreachable" as const }],
+    }));
+
+    deleteNode("seat-a");
+    await vi.waitFor(() => expect(nodesHeld()).toEqual([]));
+
+    expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(2);
+    expect(terminalBeginNodeDelete.mock.calls[0]![0]).toEqual([
+      {
+        bindingId: "binding-a",
+        hostId: "studio",
+        canvas: "managed-agent-delete",
+        seatId: "seat-a",
+        canvasSeq: 0,
+      },
+    ]);
+    expect(terminalBeginNodeDelete.mock.calls[1]![0]).toEqual([
+      {
+        bindingId: "binding-a",
+        hostId: "studio",
+        canvas: "managed-agent-delete",
+        seatId: "seat-a",
+        canvasSeq: 0,
+        confirmedUnreachable: true,
+      },
+    ]);
+    expect(asks.map((ask) => ask.source)).toEqual(["node-delete", "node-delete-unreachable"]);
+    expect(asks[1]).toMatchObject({
+      title: "Delete seat-a anyway?",
+      confirmLabel: "Delete anyway",
+      tone: "danger",
+    });
+    expect(asks[1]!.body).toEqual([
+      "Junto cannot reach Studio, so it could not stop seat-a there.",
+      "Delete anyway removes it here, and it may keep running on Studio.",
+    ]);
+  });
+
+  it("deletes nothing when the operator says no to Delete anyway", async () => {
+    confirmDelete.mockReturnValueOnce(true).mockReturnValueOnce(false);
+    const node = managedAgent({ id: "seat-a", bindingId: "binding-a", hostId: "studio" });
+    open(node);
+    terminalBeginNodeDelete.mockImplementationOnce(async () => ({
+      ok: false as const,
+      error: "terminal binding-a stop could not be proven",
+      unstoppedRemote: [{ bindingId: "binding-a", hostId: "studio", reason: "unreachable" as const }],
+    }));
+
+    deleteNode("seat-a");
+    await vi.waitFor(() => expect(asks).toHaveLength(2));
+    expect(nodesHeld()).toEqual([node]);
+    expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1);
+    expect(state$.error.peek()).toBe("");
+    expect(terminalFinishNodeDelete).not.toHaveBeenCalled();
+  });
+
+  it("aborts when the canvas changes during the second question, and does not re-call the stop", async () => {
+    confirmDelete.mockReturnValueOnce(true).mockImplementationOnce(() => {
+      state$.docEpoch.set(state$.docEpoch.peek() + 1);
+      return true;
+    });
+    const node = managedAgent({ id: "seat-a", bindingId: "binding-a", hostId: "studio" });
+    open(node);
+    terminalBeginNodeDelete.mockImplementationOnce(async () => ({
+      ok: false as const,
+      error: "terminal binding-a stop could not be proven",
+      unstoppedRemote: [{ bindingId: "binding-a", hostId: "studio", reason: "unreachable" as const }],
+    }));
+
+    deleteNode("seat-a");
+    await vi.waitFor(() =>
+      expect(state$.error.peek()).toBe("Canvas changed before deletion completed; no nodes were deleted."),
+    );
+    expect(nodesHeld()).toEqual([node]);
+    expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not ask Delete anyway when the canvas changed while the first stop was running", async () => {
+    const node = managedAgent({ id: "seat-a", bindingId: "binding-a", hostId: "studio" });
+    open(node);
+    let finishBegin!: (result: TerminalBeginNodeDeleteResult) => void;
+    terminalBeginNodeDelete.mockImplementationOnce(
+      () => new Promise((resolve) => { finishBegin = resolve; }),
+    );
+
+    deleteNode("seat-a");
+    await vi.waitFor(() => expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1));
+    state$.docEpoch.set(state$.docEpoch.peek() + 1);
+    finishBegin({
+      ok: false,
+      error: "terminal binding-a stop could not be proven",
+      unstoppedRemote: [{ bindingId: "binding-a", hostId: "studio", reason: "unreachable" }],
+    });
+    await vi.waitFor(() =>
+      expect(state$.error.peek()).toBe("Canvas changed before deletion completed; no nodes were deleted."),
+    );
+    expect(asks).toHaveLength(1);
+    expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1);
+    expect(nodesHeld()).toEqual([node]);
+  });
+
+  it("re-stops a local seat alongside the confirmed remote one, marking only the remote", async () => {
+    const remote = managedAgent({ id: "seat-a", bindingId: "binding-a", hostId: "studio" });
+    const local = managedAgent({ id: "seat-local", bindingId: "binding-local", hostId: THIS_MACHINE });
+    open(remote, local);
+    terminalBeginNodeDelete.mockImplementationOnce(async () => ({
+      ok: false as const,
+      error: "terminal binding-a stop could not be proven",
+      unstoppedRemote: [{ bindingId: "binding-a", hostId: "studio", reason: "unreachable" as const }],
+    }));
+
+    deleteNodes(["seat-a", "seat-local"]);
+    await vi.waitFor(() => expect(nodesHeld()).toEqual([]));
+
+    expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(2);
+    const second = terminalBeginNodeDelete.mock.calls[1]![0] as ReadonlyArray<Record<string, unknown>>;
+    const localCall = second.find((resource) => resource.bindingId === "binding-local");
+    const remoteCall = second.find((resource) => resource.bindingId === "binding-a");
+    expect(localCall).toMatchObject({
+      hostId: THIS_MACHINE,
+      canvas: "managed-agent-delete",
+      seatId: "seat-local",
+      canvasSeq: 0,
+    });
+    expect(localCall).not.toHaveProperty("confirmedUnreachable");
+    expect(remoteCall).toMatchObject({
+      hostId: "studio",
+      canvas: "managed-agent-delete",
+      seatId: "seat-a",
+      canvasSeq: 0,
+      confirmedUnreachable: true,
+    });
+  });
+
+  it("offers nothing when a local stop also failed", async () => {
+    const remote = managedAgent({ id: "seat-a", bindingId: "binding-a", hostId: "studio" });
+    const local = managedAgent({ id: "seat-local", bindingId: "binding-local", hostId: THIS_MACHINE });
+    open(remote, local);
+    terminalBeginNodeDelete.mockImplementationOnce(async () => ({
+      ok: false as const,
+      error: "terminal binding-local did not produce an exact clean teardown receipt",
+      failedLocal: [{ bindingId: "binding-local", hostId: THIS_MACHINE }],
+      unstoppedRemote: [{ bindingId: "binding-a", hostId: "studio", reason: "unreachable" as const }],
+    }));
+
+    deleteNodes(["seat-a", "seat-local"]);
+    await vi.waitFor(() =>
+      expect(state$.error.peek()).toBe(
+        "Junto could not stop the managed terminal cleanly; the agent node was not deleted.",
+      ),
+    );
+    expect(asks).toHaveLength(1);
+    expect(terminalBeginNodeDelete).toHaveBeenCalledTimes(1);
+    expect(nodesHeld()).toEqual([remote, local]);
   });
 
   it("keys teardown by binding, not a shared agent key", async () => {

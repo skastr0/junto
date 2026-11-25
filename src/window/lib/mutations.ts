@@ -6,6 +6,8 @@ import { formatNodeRef } from "@shared/node-ref";
 import { TASKS_ENABLED } from "@shared/features";
 import { failureCanRetry, failureWords } from "@shared/model-failure";
 import { removalTasks, removalWarnings, signalRemovalWarnings, deleteSubjectName } from "./deletion-impact";
+import { unprovenStopLines } from "./delete-unproven";
+import { machineLabel } from "./machines";
 import { agentSignals$ } from "./agent-signals-state";
 import { askConfirm } from "./confirm";
 import type { Color, Command, Node, NodeOf, RegionContract, RegionDefaults, RegionEnvironment } from "@shared/model";
@@ -554,31 +556,109 @@ const deleteNodesInternal = async (
       return;
     }
     let began;
+    const stopUnproven = (): void => {
+      state$.error.set(
+        canvasGenerationMatches()
+          ? "Junto could not stop the managed terminal cleanly; the agent node was not deleted."
+          : "Canvas changed before deletion completed; no nodes were deleted.",
+      );
+    };
     try {
       began = await beginTerminalDelete([
         ...managedTerminalBindings.values(),
       ]);
     } catch {
       await finishDeleteLeases("aborted");
-      if (canvasMutationAdmissionOpen) {
-        state$.error.set(
-          canvasGenerationMatches()
-            ? "Junto could not stop the managed terminal cleanly; the agent node was not deleted."
-            : "Canvas changed before deletion completed; no nodes were deleted.",
-        );
-      }
+      if (canvasMutationAdmissionOpen) stopUnproven();
       return;
     }
     if (!began.ok) {
-      await finishDeleteLeases("aborted");
-      if (canvasMutationAdmissionOpen) {
-        state$.error.set(
-          canvasGenerationMatches()
-            ? "Junto could not stop the managed terminal cleanly; the agent node was not deleted."
-            : "Canvas changed before deletion completed; no nodes were deleted.",
-        );
+      const unstopped = began.unstoppedRemote ?? [];
+      const failedLocal = began.failedLocal ?? [];
+      // A local failure is a hard abort. Only a remote stop that could not be
+      // proven, with no local failure beside it, offers the operator the choice.
+      if (unstopped.length === 0 || failedLocal.length > 0) {
+        await finishDeleteLeases("aborted");
+        if (canvasMutationAdmissionOpen) stopUnproven();
+        return;
       }
-      return;
+      // The begin is a network wait: the operator may have switched canvases
+      // while it ran, so the second question must not name a canvas no longer open.
+      if (!canvasGenerationMatches()) {
+        await abortForCanvasChange();
+        return;
+      }
+      const nameOfSeat = (node: NodeOf<"agent">): string => {
+        const name = deleteSubjectName(node);
+        return name === "this node" ? "this seat" : name;
+      };
+      const seatNames = new Map<string, string>(
+        existingNodes
+          .filter((node): node is NodeOf<"agent"> => node.kind === "agent")
+          .map((node) => [node.id, nameOfSeat(node)]),
+      );
+      const seatOfBinding = new Map(
+        [...managedTerminalBindings.entries()].map(([key, resource]) => [key, resource.seatId]),
+      );
+      const facts = state$.machineFacts.peek();
+      const body = [
+        ...unprovenStopLines(unstopped.map((entry) => {
+          const seatId = seatOfBinding.get(`${entry.hostId}\0${entry.bindingId}`);
+          return {
+            machine: machineLabel(entry.hostId),
+            seat: (seatId === undefined ? undefined : seatNames.get(seatId)) ?? "this seat",
+            reason: entry.reason,
+            asleep: facts[entry.hostId]?.asleep === true,
+          };
+        })),
+        ...signalRemovalWarnings(removed, Object.values(agentSignals$.peek())),
+        ...(connectedEdges === 0 ? [] : [`Connected edges (${connectedEdges}) will also be removed.`]),
+      ];
+      // Only this answer overrides the stop; the first question still stands.
+      const confirmedUnproven = await askConfirm({
+        source: "node-delete-unreachable",
+        title: `Delete ${nodeLabel} anyway?`,
+        body,
+        confirmLabel: "Delete anyway",
+        tone: "danger",
+      });
+      if (!confirmedUnproven) {
+        await finishDeleteLeases("aborted");
+        return;
+      }
+      if (!canvasGenerationMatches()) {
+        await abortForCanvasChange();
+        return;
+      }
+      // A quit latch that closed while the question was open must stop the
+      // destructive re-call itself, as the Stop Page path does.
+      if (!canvasMutationAdmissionOpen) {
+        await finishDeleteLeases("aborted");
+        return;
+      }
+      const confirmedKeys = new Set(
+        unstopped.map((entry) => `${entry.hostId}\0${entry.bindingId}`),
+      );
+      const resources = [...managedTerminalBindings.entries()].map(([key, resource]) => ({
+        bindingId: resource.bindingId,
+        hostId: resource.hostId,
+        canvas: resource.canvas,
+        seatId: resource.seatId,
+        canvasSeq: resource.canvasSeq,
+        ...(confirmedKeys.has(key) ? { confirmedUnreachable: true as const } : {}),
+      }));
+      try {
+        began = await beginTerminalDelete(resources);
+      } catch {
+        await finishDeleteLeases("aborted");
+        if (canvasMutationAdmissionOpen) stopUnproven();
+        return;
+      }
+      if (!began.ok) {
+        await finishDeleteLeases("aborted");
+        if (canvasMutationAdmissionOpen) stopUnproven();
+        return;
+      }
     }
     terminalDeleteLeaseId = began.leaseId;
     if (!canvasMutationAdmissionOpen) {
