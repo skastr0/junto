@@ -231,6 +231,8 @@ interface Page {
   readonly mipCount: number;
   readonly plots: Plot[];
   dead: boolean;
+  /** When no quad or waiting slot holds any cell of this page, on `nowMs()`'s clock. */
+  unheldSince?: number;
 }
 
 interface Placed {
@@ -326,6 +328,8 @@ const TEXTURE_USAGE_COVERAGE = 0x01 | 0x02 | 0x04; // COPY_SRC | COPY_DST | TEXT
 const WIPE_BAND_BYTES = 1 << 20;
 const BASE_RETRY_MS = 250;
 const MAX_RETRY_MS = 8000;
+/** How long a page may hold only unreferenced cache cells before its texture is given back. */
+const PAGE_RECLAIM_IDLE_MS = 10_000;
 
 const MIP_BLIT_SHADER = /* wgsl */ `
 @group(0) @binding(0) var srcTex: texture_2d<f32>;
@@ -1024,6 +1028,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     rec.placed = at;
     at.plot.cells.add(rec);
     at.plot.lastUsedTick = ++plotTick;
+    at.page.unheldSince = undefined;
   };
 
   /** `rec` gives its rect up. A plot it leaves empty starts over. */
@@ -1033,6 +1038,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     rec.placed = undefined;
     at.plot.cells.delete(rec);
     if (at.plot.cells.size === 0) resetPlot(poolFor(at.pool), at.page, at.plot);
+    notePageIdle(at.page);
   };
 
   /** `to` takes `from`'s rect as it stands. The plot is not emptied on the way, so nothing is wiped. */
@@ -1329,7 +1335,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
   /** One more holder of `rec`: a quad, or a slot that shows it. Its plot counts as used. */
   const hold = (rec: SlotRecord): void => {
     rec.refCount += 1;
-    if (rec.placed !== undefined) rec.placed.plot.lastUsedTick = ++plotTick;
+    if (rec.placed !== undefined) {
+      rec.placed.plot.lastUsedTick = ++plotTick;
+      rec.placed.page.unheldSince = undefined;
+    }
   };
 
   /**
@@ -1383,6 +1392,93 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     stopRetryTimer();
     retryAt = at;
     retryTimer = setTimeout(retryDue, Math.max(0, Math.ceil(at - nowMs())));
+  };
+
+  /** The one timer for giving idle page memory back. */
+  let pageReclaimTimer: ReturnType<typeof setTimeout> | undefined;
+  let pageReclaimAt = Number.POSITIVE_INFINITY;
+
+  const stopPageReclaimTimer = (): void => {
+    if (pageReclaimTimer !== undefined) clearTimeout(pageReclaimTimer);
+    pageReclaimTimer = undefined;
+    pageReclaimAt = Number.POSITIVE_INFINITY;
+  };
+
+  const pageReclaimBy = (at: number): void => {
+    if (disposed || at >= pageReclaimAt) return;
+    stopPageReclaimTimer();
+    pageReclaimAt = at;
+    pageReclaimTimer = setTimeout(reclaimPagesDue, Math.max(0, Math.ceil(at - nowMs())));
+  };
+
+  /** True when nothing on screen, and nothing waiting to land for it, holds any cell of `page`. */
+  const pageIsUnheld = (page: Page): boolean => {
+    for (const plot of page.plots) {
+      for (const rec of plot.cells) {
+        if (rec.refCount > 0) return false;
+      }
+    }
+    return true;
+  };
+
+  /** Start `page`'s idle clock when its last holder has gone; a new cell or holder clears it. */
+  const notePageIdle = (page: Page): void => {
+    if (page.dead || page.unheldSince !== undefined || !pageIsUnheld(page)) return;
+    page.unheldSince = nowMs();
+    pageReclaimBy(page.unheldSince + PAGE_RECLAIM_IDLE_MS);
+  };
+
+  /** A page nobody has used for the idle span is cache, not working memory: its cells go and its texture is destroyed. Its index stays for P3 to reuse. */
+  const reclaimPage = (pool: PagePool, page: Page): void => {
+    if (page.dead || !pageIsUnheld(page)) {
+      page.unheldSince = undefined;
+      return;
+    }
+    // Mark it dead first: the plots reset without wiping a texture that is going away.
+    page.dead = true;
+    page.unheldSince = undefined;
+    for (const plot of page.plots) {
+      for (const rec of [...plot.cells]) freeSlot(rec);
+    }
+    dropMipRectsFor(page.texture);
+    page.texture.destroy();
+    const fallback = pool.kind === "rgba" ? dummyRgbaTex : dummyCovTex;
+    if (fallback !== undefined && page.pageIndex < pool.pageTextures.length) pool.pageTextures[page.pageIndex] = fallback;
+    if (page.pageIndex === 0 && fallback !== undefined) {
+      if (pool.kind === "rgba") mutable.texture = fallback;
+      else mutable.coverageTexture = fallback;
+    }
+    if (page.pageIndex < pool.bindLimit) {
+      textureGeneration += 1;
+      mutable.textureGeneration = textureGeneration;
+    }
+    markDirty();
+  };
+
+  const reclaimPagesDue = (): void => {
+    pageReclaimTimer = undefined;
+    pageReclaimAt = Number.POSITIVE_INFINITY;
+    if (disposed) return;
+    const now = nowMs();
+    let next = Number.POSITIVE_INFINITY;
+    for (const pool of [rgbaPool, coveragePool]) {
+      for (const page of pool.pages) {
+        if (page.dead) continue;
+        if (!pageIsUnheld(page)) {
+          page.unheldSince = undefined;
+          continue;
+        }
+        if (page.unheldSince === undefined) {
+          page.unheldSince = now;
+          next = Math.min(next, now + PAGE_RECLAIM_IDLE_MS);
+        } else if (page.unheldSince + PAGE_RECLAIM_IDLE_MS <= now) {
+          reclaimPage(pool, page);
+        } else {
+          next = Math.min(next, page.unheldSince + PAGE_RECLAIM_IDLE_MS);
+        }
+      }
+    }
+    pageReclaimBy(next);
   };
 
   /**
@@ -1772,6 +1868,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     // large to keep off screen, and a landed cell no key finds is no cache.
     if (rec.state === "landed" && rec.standalone === undefined && byKey.get(rec.key) === rec) {
       rec.desc = undefined;
+      if (rec.placed !== undefined) notePageIdle(rec.placed.page);
       return;
     }
     const hadOwnTexture = rec.standalone !== undefined;
@@ -2488,6 +2585,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
           ? Math.max(1, Math.floor(maxStorage / (ATLAS_CELL_FLOATS * 4)))
           : Number.MAX_SAFE_INTEGER;
 
+      stopPageReclaimTimer();
       dropPages();
       // The side map names page textures too, and one texture for every slot
       // showing it: a texture of its own is destroyed through its one owner.
@@ -2623,6 +2721,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     dispose: () => {
       disposed = true;
       stopRetryTimer();
+      stopPageReclaimTimer();
       seenContentKeys.clear();
       drainChannel?.port1.close();
       drainChannel?.port2.close();
