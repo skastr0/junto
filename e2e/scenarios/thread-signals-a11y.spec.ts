@@ -71,6 +71,7 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
     const asks = await seat.op("signal.raise", { kind: "blocked", text: ASKS, thread: threadId, form: { kind: "proof" } });
     if (!asks.ok) throw new Error(`asking signal refused ${JSON.stringify(asks)}`);
     const plainId = idOf(plain);
+    const askId = idOf(asks);
     await settle(1_000);
 
     await page.mouse.click(30, 300);
@@ -140,6 +141,15 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
       const description = await descriptionOf(composer);
       if (description.includes("Your reply answers")) throw new Error(`still described as "${description}"`);
       return `with no open plain signal left the reply field no longer says what it answers; what remains is the asking signal's block: "${description}"`;
+    });
+    await check("s6-no-open-signal-no-describedby", async () => {
+      const cleared = await seat.op("signal.clear", { signalId: askId });
+      if (!cleared.ok) throw new Error(`withdraw refused ${JSON.stringify(cleared)}`);
+      await settle(1_500);
+      await composer.focus();
+      const describedby = await composer.getAttribute("aria-describedby");
+      if (describedby !== null && describedby.trim() !== "") throw new Error(`aria-describedby is "${describedby}" with no open signal`);
+      return "with no open signal left the reply field has no aria-describedby";
     });
   } finally {
     await writeFile(join(FRAMES, "results.json"), `${JSON.stringify(lines, null, 2)}\n`).catch(() => undefined);
