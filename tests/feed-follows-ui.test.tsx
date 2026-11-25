@@ -265,6 +265,63 @@ it("keeps a half-typed reply, shown and locked, when its card closes crossed, an
   expect(q('[data-testid="feed-crossed"]')?.textContent).toBe("atlas says it withdrew this before your answer reached it. Your draft was not sent.");
 });
 
+it("keeps a half-typed reply, shown and locked, when the seat plainly withdraws its card, and says the seat withdrew it", async () => {
+  const open4 = signal(4);
+  live.set(twoOpen(open4));
+  operatorModal$.open.set("feed");
+  await act(async () =>
+    root.render(
+      <WindowRuntimeContext.Provider value={feedRuntime as never}>
+        <OperatorFeed />
+      </WindowRuntimeContext.Provider>,
+    ),
+  );
+  const frame = q(".operator-modal__frame")!;
+  await act(async () => {
+    frame.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  const field = q('[data-testid="signal-reply"] textarea') as HTMLTextAreaElement;
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    set.call(field, "A half-typed answer");
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  // signal.clear: closed withdrawn, no answer reached it, so nothing crossed.
+  await act(async () => {
+    agentSignals$.s4.set({ ...open4, state: "withdrawn" });
+    live.set(twoOpen(undefined));
+  });
+  const kept = q('[data-testid="signal-reply"] textarea') as HTMLTextAreaElement;
+  expect(kept).toBe(field);
+  expect(kept.value).toBe("A half-typed answer");
+  expect(kept.readOnly).toBe(true);
+  expect(q('[data-testid="operator-feed-detail"]')?.dataset.itemId).toBe("signal:s4");
+  expect(document.activeElement).toBe(q('[data-testid="feed-crossed"]'));
+  expect(q('[data-testid="feed-crossed"]')?.textContent).toBe("atlas withdrew this signal. Your draft was not sent.");
+  expect(q(".operator-feed__announce")?.textContent).toBe(
+    "atlas withdrew a signal: Topic 4 needs your call. Your draft was not sent.",
+  );
+});
+
+it("lets a withdrawn card go at once when no reply was being written", async () => {
+  const open4 = signal(4);
+  live.set(twoOpen(open4));
+  operatorModal$.open.set("feed");
+  await act(async () =>
+    root.render(
+      <WindowRuntimeContext.Provider value={feedRuntime as never}>
+        <OperatorFeed />
+      </WindowRuntimeContext.Provider>,
+    ),
+  );
+  await act(async () => {
+    agentSignals$.s4.set({ ...open4, state: "withdrawn" });
+    live.set(twoOpen(undefined));
+  });
+  expect(q('[data-testid="feed-crossed"]')).toBeNull();
+  expect(q('[data-testid="operator-feed-detail"]')?.dataset.itemId).toBe("signal:b1");
+});
+
 it("says nothing of a card that closed an ordinary way", async () => {
   const open4 = signal(4);
   live.set(twoOpen(open4));

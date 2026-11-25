@@ -21,3 +21,12 @@ export const crossedWords = (seat: string): string => `${seat} says it withdrew 
 /** The same said alone, where the card is out of sight: it names the signal, its headline last after a colon. */
 export const crossedLiveWords = (seat: string, headline: string): string =>
   `${seat} says it withdrew a signal before your answer reached it: ${headline}`;
+
+/** The seat withdrew a signal and no answer was on its way: said where the operator's half-typed reply was kept under it. */
+export const withdrawnWords = (seat: string): string => `${seat} withdrew this signal.`;
+
+/** The same said alone, where the card is out of sight. */
+export const withdrawnLiveWords = (seat: string, headline: string): string => `${seat} withdrew a signal: ${headline}`;
+
+/** Closed by its own seat with no answer held: only a reply being written under it asks the pane to keep it. */
+export const withdrawnPlain = (signal: AgentSignal): boolean => signal.state === "withdrawn" && !crossedClosing(signal);

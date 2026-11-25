@@ -116,7 +116,7 @@ import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
 import { Button, Dropdown, Kbd } from "../ui";
 import { FeedExchange } from "./FeedExchange";
-import { crossedClosing, crossedLiveWords, crossedWords } from "@shared/signal-crossing";
+import { crossedClosing, crossedLiveWords, crossedWords, withdrawnLiveWords, withdrawnPlain, withdrawnWords } from "@shared/signal-crossing";
 import { FeedRegionStrip } from "./FeedRegionStrip";
 import { FeedEmpty, FeedSeatChosen, FeedSeatsRow, FeedSeatsToggle } from "./FeedFilterParts";
 import { feedTasksByNumber, type FeedTaskRef } from "./feed-text";
@@ -271,6 +271,7 @@ function FeedDetail({
   onGoTo,
   onOpenThread,
   crossed = false,
+  plainWithdrawal = false,
 }: {
   readonly item: FeedItem;
   readonly node: Node | undefined;
@@ -294,7 +295,10 @@ function FeedDetail({
   readonly onOpenThread?: (threadId: string) => void;
   /** The seat withdrew it before the operator's answer reached it: it is closed, and the answer area says so. */
   readonly crossed?: boolean;
+  /** The held card was withdrawn with no answer on its way: the note says that, not a crossing. */
+  readonly plainWithdrawal?: boolean;
 }) {
+  const closedWords = plainWithdrawal ? withdrawnWords : crossedWords;
   const runtime = useWindowRuntime();
   const companion = useWindowService(CompanionWindow);
   const actions = useSignalActions();
@@ -379,7 +383,7 @@ function FeedDetail({
         {crossed && !(replying && item.signalId) ? (
           // Nothing failed for the operator to fix, so it is said in ink, not as an error.
           <p className="operator-feed__crossed" data-testid="feed-crossed" tabIndex={-1}>
-            {crossedWords(item.seat.name)}
+            {closedWords(item.seat.name)}
           </p>
         ) : item.signalId &&
         (form?.kind === "artifact" || form?.kind === "proof" || (form?.kind === "secret" && VAULT_ENABLED)) &&
@@ -436,7 +440,7 @@ function FeedDetail({
           <>
             {crossed ? (
               <p className="operator-feed__crossed" data-testid="feed-crossed" tabIndex={-1}>
-                {crossedWords(item.seat.name)} Your draft was not sent.
+                {closedWords(item.seat.name)} Your draft was not sent.
               </p>
             ) : null}
             {/* Locked when the card closes under it: the draft stays mounted to be read and copied, and nothing sends. */}
@@ -756,6 +760,8 @@ const feed = useOperatorFeed();
   // The selected card closed because the seat withdrew it before the operator's answer reached it: the pane
   // keeps it and says so, in the answer area, until the operator moves; the list has already handed on.
   const [crossed, setCrossed] = useState<FeedItem | null>(null);
+  // Held for a plain withdrawal (no answer crossed it): kept only because a reply was being written under it.
+  const [heldPlain, setHeldPlain] = useState(false);
   const lastSelected = useRef<FeedItem | undefined>(undefined);
   // On the render where the selected card has just left and the hold is not set yet, the pane keeps it
   // (never an empty pane for a frame): a reply being written in it stays mounted if the hold follows.
@@ -778,11 +784,14 @@ const feed = useOperatorFeed();
     const before = lastSelected.current;
     if (before?.signalId !== undefined && !items.some((item) => item.itemId === before.itemId)) {
       const closed = agentSignals$[before.signalId].peek();
-      if (closed !== undefined && crossedClosing(closed)) {
+      const drafting = replyForRef.current === before.itemId;
+      const draft = scrollRef.current?.closest(".operator-modal__frame")?.querySelector<HTMLTextAreaElement>('.operator-feed__answer [data-testid="signal-reply"] textarea');
+      const plain = closed !== undefined && withdrawnPlain(closed) && drafting && (draft?.value.trim().length ?? 0) > 0;
+      if (closed !== undefined && (crossedClosing(closed) || plain)) {
+        setHeldPlain(plain);
         setCrossed(before);
-        setAnnounceNote(
-          `${crossedLiveWords(before.seat.name, before.text)}${replyForRef.current === before.itemId ? ". Your draft was not sent." : ""}`,
-        );
+        const said = plain ? withdrawnLiveWords(before.seat.name, before.text) : crossedLiveWords(before.seat.name, before.text);
+        setAnnounceNote(`${said}${drafting ? ". Your draft was not sent." : ""}`);
       }
     }
     lastSelected.current = selectedItem;
@@ -1298,6 +1307,7 @@ const feed = useOperatorFeed();
               notHere={paneItem.notReceived?.length ?? 0}
               onGoTo={goTo}
               crossed={crossed !== null}
+              plainWithdrawal={crossed !== null && heldPlain}
               onOpenThread={(threadId) => {
                 askThread(threadId);
                 openOperatorModalFrom("feed", "threads", {
