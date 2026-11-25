@@ -37,6 +37,8 @@ import {
 import { attachXtermAutoCopy } from "../../lib/xterm-auto-copy";
 import { attachTerminalModifierFence } from "../../lib/terminal-modifier-fence";
 import { registerTerminalPerfProbe } from "../../lib/terminal-perf-probe";
+import { markFirstPaint, openPhaseMark } from "../../lib/terminal-open-marks";
+import { PERF_ENABLED } from "../../lib/performance/perf-flag";
 import { playCue } from "../../lib/sound";
 import { seatTasks$, type SeatTask } from "../../lib/seat-tasks";
 import { tasksSource } from "../../lib/tasks-source";
@@ -1128,14 +1130,21 @@ export function TerminalSurface({
     // the same path an operator edit takes.
     prefsRef.current = terminalSettings(state$.settings.peek());
     const prefs = livePrefs();
+    // One key for this surface: it names the perf marks below and the screen
+    // text registries further down, so a probe reads one cell's row of numbers.
+    const openKey = bindingId || `surface-${Math.random().toString(36).slice(2)}`;
+    openPhaseMark(openKey, "ctor", "start");
     const term = new Terminal({
       ...managedTerminalOptions(prefs, { visible: visibleRef.current }),
       allowProposedApi: true,
       theme: xtermThemeFor(themeMode$.peek()),
     });
+    openPhaseMark(openKey, "ctor", "end");
     // FitAddon still loaded for xterm internals; host measure is geometry authority.
+    openPhaseMark(openKey, "fit-addon", "start");
     const fit = new FitAddon();
     term.loadAddon(fit);
+    openPhaseMark(openKey, "fit-addon", "end");
     // Read-only screen-text registries for tests: under the WebGL renderer the
     // DOM carries no text, so e2e reads the buffer through these instead of
     // .xterm-rows. Display-only — no write path, no capability.
@@ -1150,7 +1159,7 @@ export function TerminalSurface({
     );
     screenTextRegistry.__juntoTermScreenText ??= new Map();
     screenTextRegistry.__juntoTermTranscriptText ??= new Map();
-    const screenTextKey = bindingId || `surface-${Math.random().toString(36).slice(2)}`;
+    const screenTextKey = openKey;
     screenTextRegistry.__juntoTermScreenText.set(screenTextKey, () => {
       const buffer = term.buffer.active;
       const rows: string[] = [];
@@ -1176,18 +1185,29 @@ export function TerminalSurface({
     // dimensions here; a 0-size or not-yet-laid-out box poisons the cell metrics
     // for the life of this terminal.
     const openRect = host.getBoundingClientRect();
+    openPhaseMark(openKey, "open", "start");
     term.open(host);
+    openPhaseMark(openKey, "open", "end");
     termRef.current = term;
     fitRef.current = fit;
+    // The first painted frame after the open, one shot, perf builds only.
+    if (PERF_ENABLED) {
+      const stopFirstPaint = term.onRender(() => {
+        stopFirstPaint.dispose();
+        markFirstPaint(openKey);
+      });
+    }
     // GPU paint. Measured: renderer paint, not the PTY backend, is what costs
     // during hard scrolling, and the DOM renderer amplifies whatever a TUI
     // repaints. Attach after open() so activation is synchronous — before
     // open() the addon defers itself to xterm's onWillOpen, and the guard
     // never sees the failure it is there to catch. Hidden keep-alive seats
     // skip attach; applyWebglLease reattaches when the pane is visible.
+    openPhaseMark(openKey, "webgl", "start");
     applyWebglLease(
       shouldPresentTerminalFrames({ visible: visibleRef.current }),
     );
+    openPhaseMark(openKey, "webgl", "end");
     {
       const openFallback = fallbackCell(prefs);
       const { cellW, cellH } = readCellSize(term, openFallback);
@@ -1209,7 +1229,9 @@ export function TerminalSurface({
     // Resizing now runs while the GPU is idle; after the first raster the same
     // resize waits behind it (~9 ms per GL sync, ~55 ms an open). The settle
     // ladder below stays as the backstop for late layout and cell metrics.
+    openPhaseMark(openKey, "fit", "start");
     pushResize({ forcePaint: true });
+    openPhaseMark(openKey, "fit", "end");
 
     /**
      * Wheel: do NOT capture-phase preventDefault.
