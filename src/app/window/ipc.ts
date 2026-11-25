@@ -16,6 +16,7 @@ import { mainAuthoringGate, type MainAuthoringLabel } from "../../node/main-auth
 import { subscribe as onCorePush } from "../core-process/main-side/core-pushes";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { tracedInMain } from "../observability/tracing";
+import { perfStage } from "@shared/perf-stages";
 import { heldForServer, serverProtocol, type PortMessage, type RpcPort } from "@shared/rpc-port";
 import { WindowLink } from "../../contract/window/link";
 import { WindowRpcs } from "../../contract/window/rpcs";
@@ -43,9 +44,25 @@ export const windowServer = (link: RpcPort, handlers: WindowHandlers, sender: Wi
   );
 
 const linkOf = (port: MessagePortMain): RpcPort => ({
-  post: (message) => port.postMessage(message),
+  post: (message) => {
+    if (message.kind === "rpcReply") {
+      const data = message.data as { readonly requestId?: unknown };
+      perfStage("main", "main-reply", { id: typeof data.requestId === "string" || typeof data.requestId === "number" ? data.requestId : undefined });
+    }
+    port.postMessage(message);
+  },
   listen: (handler) => {
-    const on = (event: Electron.MessageEvent) => handler(event.data as PortMessage);
+    const on = (event: Electron.MessageEvent) => {
+      const message = event.data as PortMessage;
+      if (message.kind === "rpc") {
+        const data = message.data as { readonly tag?: unknown; readonly id?: unknown };
+        perfStage("main", "main-receive", {
+          op: typeof data.tag === "string" ? data.tag : undefined,
+          id: typeof data.id === "string" || typeof data.id === "number" ? data.id : undefined,
+        });
+      }
+      handler(message);
+    };
     port.on("message", on);
     return () => {
       port.off("message", on);
@@ -175,7 +192,15 @@ export const pushes = <K extends CorePushChannel>(channel: K): Stream.Stream<Cor
 export const authored = <A, E, R>(label: MainAuthoringLabel, write: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
   Effect.flatMap(Effect.context<R>(), (context) =>
     Effect.flatMap(
-      Effect.promise(() => mainAuthoringGate.run(label, () => Effect.runPromiseExit(Effect.provide(write, context)))),
+      Effect.promise(() => {
+      perfStage("main", "authoring-enter", { label });
+      const running = mainAuthoringGate.run(label, () => Effect.runPromiseExit(Effect.provide(write, context)));
+      void running.then(
+        () => perfStage("main", "authoring-exit", { label }),
+        () => perfStage("main", "authoring-exit", { label }),
+      );
+      return running;
+    }),
       (exit: Exit.Exit<A, E>) => exit,
     ),
   );

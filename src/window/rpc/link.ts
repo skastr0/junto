@@ -9,12 +9,17 @@
  */
 import { IPC_CHANNELS } from "@shared/ipc";
 import type { PortMessage, RpcPortMessage, RpcPort } from "@shared/rpc-port";
+import { perfStage } from "@shared/perf-stages";
 
 type LinkBridge = { readonly openWindowLink?: () => void } | undefined;
 
 export const pageLink = (bridge: LinkBridge, page: Window): RpcPort => {
   const handlers = new Set<(message: PortMessage) => void>();
   const deliver = (message: PortMessage): void => {
+    if (message.kind === "rpcReply") {
+      const data = message.data as { readonly requestId?: unknown };
+      perfStage("renderer", "rpc-reply-arrived", { id: typeof data.requestId === "string" || typeof data.requestId === "number" ? data.requestId : undefined });
+    }
     for (const handler of handlers) handler(message);
   };
   const waiting: Array<RpcPortMessage> = [];
@@ -48,6 +53,13 @@ export const pageLink = (bridge: LinkBridge, page: Window): RpcPort => {
   bridge.openWindowLink();
   return {
     post: (message) => {
+      if (message.kind === "rpc") {
+        const data = message.data as { readonly tag?: unknown; readonly id?: unknown };
+        perfStage("renderer", "invoke-sent", {
+          op: typeof data.tag === "string" ? data.tag : undefined,
+          id: typeof data.id === "string" || typeof data.id === "number" ? data.id : undefined,
+        });
+      }
       if (port === undefined) waiting.push(message);
       else port.postMessage(message);
     },

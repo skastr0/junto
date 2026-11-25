@@ -25,6 +25,7 @@ import type { MailParty, MailThreadMessage, ThreadHeadSignal, ThreadSignal, Thre
 import { agentSignals$ } from "./agent-signals-state";
 import { getJuntoApi } from "./junto-api";
 import type { AttachmentHold } from "./operator-attachments";
+import { perfStage } from "@shared/perf-stages";
 
 export type SeatAddress = { readonly canvasName: string; readonly seatId: string };
 
@@ -210,7 +211,10 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
       };
     },
     // Any mailbox can change a seat's threads: the canvas alone decides.
-    onChanged: (listener) => onMail((event) => listener({ canvasName: event.canvasName })),
+    onChanged: (listener) => onMail((event) => {
+      perfStage("renderer", "change-push-arrived", { op: "WorkMailChanged" });
+      listener({ canvasName: event.canvasName });
+    }),
     // The window's own signals are the open canvas's, kept current by main:
     // any of them changing is that canvas's threads reading differently.
     onSignalsChanged: (listener) =>
@@ -493,6 +497,7 @@ const refreshThread = (key: string): Promise<void> =>
     if (!read || !openThreads.has(key)) return;
     try {
       const page = await read.messages({ canvasName, seatId, threadId });
+      perfStage("renderer", "reread-returned", { op: "ThreadsMessages" });
       if (activeSource() !== read || !openThreads.has(key)) return;
       const prior = seatThreads$.messages[key].peek();
       const head = refreshed(prior?.messages ?? [], page.messages, page.older, prior?.older, (m) => m.messageId, byAge, (row, far) => byAge(row, far) < 0);
@@ -1104,7 +1109,9 @@ export const sendSeatThread = async (
   if (typeof send !== "function") return { ok: false, reason: "failed", message: "Junto could not reach this seat." };
   const endSend = sendBegins(seatId);
   try {
+    perfStage("renderer", "invoke-sent", { op: "seatThreadSend" });
     const result = await send({ canvasName, nodeId: seatId, ...mail });
+    perfStage("renderer", "promise-resolved", { op: "seatThreadSend" });
     if (result.ok) {
       // Before the read the send asks for, so no read can draw the mark inside its second.
       holdWaitingMark(result.messageId);

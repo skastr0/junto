@@ -36,6 +36,7 @@ import { ThreadsCore } from "../../contract/core/threads";
 import { askOnEveryCore } from "../core-process/every-core";
 import { CorePushesMain } from "../core-process/main-side/core-pushes";
 import { AppRuntime } from "../runtime";
+import { perfStage } from "@shared/perf-stages";
 
 /** A write under its main authoring label, so shutdown drains it. */
 type Authored = <A>(operation: () => Promise<A>) => Promise<A>;
@@ -108,13 +109,18 @@ export const registerThreadsIpc = (
     return AppRuntime.runPromise(threads.ThreadsWrite(send.success));
   };
   ipc.handle(IPC_CHANNELS.seatThreadSend, async (_event, input: unknown): Promise<OperatorThreadSent> => {
+    perfStage("main", "main-receive", { op: "seatThreadSend" });
     try {
       // The write alone holds the authoring gate; delivery follows it, as before.
+      perfStage("main", "authoring-enter", { label: "ipc.work.thread-send" });
       const sent = await authoring.send(() => write(input));
-      if ("ok" in sent) return sent;
-      return await AppRuntime.runPromise(threads.ThreadsDeliver(sent));
+      perfStage("main", "authoring-exit", { label: "ipc.work.thread-send" });
+      const result = "ok" in sent ? sent : await AppRuntime.runPromise(threads.ThreadsDeliver(sent));
+      perfStage("main", "main-reply", { op: "seatThreadSend" });
+      return result;
     } catch {
       // Fixed words: a thrown error may carry the mail's text.
+      perfStage("main", "main-reply", { op: "seatThreadSend" });
       return { ok: false, reason: "failed", message: "The mail could not be sent." };
     }
   });

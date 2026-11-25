@@ -15,6 +15,7 @@ import type { WindowRuntime } from "../rpc/runtime";
 import { playCue } from "./sound";
 import { signalCue } from "./sound/director";
 import { state$ } from "./state";
+import { perfStage, perfStageEnabled } from "@shared/perf-stages";
 
 /**
  * Renderer projection of the open canvas's agent signals, keyed by signalId.
@@ -136,8 +137,8 @@ export const respondToAgentSignal = async (
   signalId: string,
   text: string,
   options?: AgentSignalAnswerOptions,
-): Promise<SignalActionResult> =>
-  signalsCall(runtime, (signals) =>
+): Promise<SignalActionResult> => {
+  const answer = signalsCall(runtime, (signals) =>
     signals.SignalsAnswer({
       signalId,
       text,
@@ -148,6 +149,12 @@ export const respondToAgentSignal = async (
     ok: false as const,
     message: error instanceof Error ? error.message : "answer failed",
   }));
+  if (!perfStageEnabled()) return answer;
+  return answer.then((result) => {
+    perfStage("renderer", "promise-resolved", { op: "SignalsAnswer" });
+    return result;
+  });
+};
 
 /** Close an open signal without mail. */
 export const dismissAgentSignal = async (runtime: WindowRuntime | undefined, signalId: string): Promise<SignalActionResult> =>

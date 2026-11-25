@@ -10,6 +10,7 @@ import { Context, Effect, FiberSet, Layer, Stream } from "effect";
 import { SignalsWindow } from "../../contract/window/signals";
 import { agentSignals$, replaceAgentSignals, upsertAgentSignal } from "./agent-signals-state";
 import { state$ } from "./state";
+import { perfStage } from "@shared/perf-stages";
 
 export class AgentSignalsSync extends Context.Service<AgentSignalsSync, {}>()("@junto/window/AgentSignalsSync") {
   static readonly layer = Layer.effect(
@@ -21,7 +22,10 @@ export class AgentSignalsSync extends Context.Service<AgentSignalsSync, {}>()("@
 
       // The stream opens before the first list, so no change is lost between them.
       yield* signals.SignalsChanged().pipe(
-        Stream.runForEach((signal) => Effect.sync(() => upsertAgentSignal(signal))),
+        Stream.runForEach((signal) => Effect.sync(() => {
+          perfStage("renderer", "change-push-arrived", { op: "SignalsChanged" });
+          upsertAgentSignal(signal);
+        })),
         Effect.ignore,
         Effect.forkScoped,
       );

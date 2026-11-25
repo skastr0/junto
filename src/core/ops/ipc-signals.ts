@@ -28,6 +28,7 @@ import { messageDelivery } from "../work/message-delivery";
 import { WorkService } from "../work/service";
 import { resolvedSpawnEnv } from "../adapters/spawn-env";
 import { runTool } from "../region-env/tool";
+import { perfStage } from "@shared/perf-stages";
 
 /** A delivery this process could not make; the mail waits in the mailbox either way. */
 class SeatDeliveryLost extends Schema.TaggedError<SeatDeliveryLost>()("SeatDeliveryLost", {
@@ -64,6 +65,15 @@ const deliverIntoSeat = (answer: {
   });
 };
 
+
+const stagedCore = <A, E, R>(op: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+  Effect.gen(function* () {
+    perfStage("core", "core-handler-start", { op });
+    const exit = yield* Effect.exit(effect);
+    perfStage("core", "core-handler-end", { op });
+    return yield* exit;
+  });
+
 export const SignalsHandlers = SignalsRpcs.toLayer(
   Effect.gen(function* () {
     const scope = yield* Effect.scope;
@@ -86,7 +96,10 @@ export const SignalsHandlers = SignalsRpcs.toLayer(
       Effect.mapError(unavailable),
     ),
   SignalsAnswer: ({ signalId, text, silent, attachments }) =>
-    answerAgentSignal(signalId, text, { silent, attachments }).pipe(Effect.tap(deliverIntoSeat), Effect.mapError(unavailable)),
+    stagedCore(
+      "SignalsAnswer",
+      answerAgentSignal(signalId, text, { silent, attachments }).pipe(Effect.tap(deliverIntoSeat), Effect.mapError(unavailable)),
+    ),
   SignalsReply: ({ signalId, reply }) =>
     Effect.flatMap(WorkService, (work) =>
       replyAgentSignal(signalId, reply, {

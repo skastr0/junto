@@ -34,6 +34,7 @@ import {
 import { WorkService } from "../work/service";
 import { WorkRepository } from "../work/repository";
 import { makeThreadRowsWatches, operatorThreadsPage, operatorThreadsView } from "../work/thread-rows";
+import { perfStage } from "@shared/perf-stages";
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : Predicate.hasProperty(error, "message") ? String(error.message) : String(error);
@@ -41,6 +42,15 @@ const messageOf = (error: unknown): string =>
 /** A read the core could not make, as the contract names it: what the core said. */
 const unavailable = <A, E, R>(read: Effect.Effect<A, E, R>) =>
   Effect.mapError(read, (error) => new ThreadsUnavailable({ message: messageOf(error) }));
+
+
+const stagedCore = <A, E, R>(op: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+  Effect.gen(function* () {
+    perfStage("core", "core-handler-start", { op });
+    const exit = yield* Effect.exit(effect);
+    perfStage("core", "core-handler-end", { op });
+    return yield* exit;
+  });
 
 export const ThreadsHandlers = ThreadsRpcs.toLayer(
   Effect.gen(function* () {
@@ -104,13 +114,16 @@ export const ThreadsHandlers = ThreadsRpcs.toLayer(
           Effect.orElseSucceed(() => null),
         ),
       ThreadsWrite: (send) =>
-        unavailable(
-          Effect.map(sendOperatorThreadMail(send), (sent) =>
-            "ok" in sent ? sent : { written: sent, canvasName: send.canvasName, nodeId: send.nodeId },
+        stagedCore(
+          "ThreadsWrite",
+          unavailable(
+            Effect.map(sendOperatorThreadMail(send), (sent) =>
+              "ok" in sent ? sent : { written: sent, canvasName: send.canvasName, nodeId: send.nodeId },
+            ),
           ),
         ),
       ThreadsDeliver: ({ canvasName, nodeId, written }) =>
-        Effect.promise(() => deliverOperatorThreadMail(canvasName, nodeId, written)),
+        stagedCore("ThreadsDeliver", Effect.promise(() => deliverOperatorThreadMail(canvasName, nodeId, written))),
       ThreadsCollaborationAsk: ({ draft }) =>
         unavailable(
           Effect.gen(function* () {
