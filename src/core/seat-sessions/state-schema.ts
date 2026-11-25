@@ -24,7 +24,7 @@ export const SEAT_SESSIONS_STATE_SCHEMA_SQL = `
     started_at INTEGER NOT NULL CHECK (started_at >= 0),
     ended_at INTEGER CHECK (ended_at IS NULL OR ended_at >= 0),
     end_reason TEXT
-      CHECK (end_reason IS NULL OR end_reason IN ('offboard', 'reseat', 'replaced')),
+      CHECK (end_reason IS NULL OR end_reason IN ('offboard', 'reseat', 'replaced', 'removed')),
     ended_by TEXT CHECK (ended_by IS NULL OR ended_by IN ('operator', 'overseer', 'automatic')),
     offboarded_at INTEGER CHECK (offboarded_at IS NULL OR offboarded_at >= 0),
     onboarded_at INTEGER CHECK (onboarded_at IS NULL OR onboarded_at >= 0),

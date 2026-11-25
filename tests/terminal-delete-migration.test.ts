@@ -22,7 +22,7 @@ import {
 import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
 import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
-import { STATE_SCHEMA_V77_SQL } from "./fixtures/state-v13/schema";
+import { STATE_SCHEMA_V77_SQL, STATE_SCHEMA_V78_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -72,7 +72,7 @@ const objects = (database: DatabaseSync) =>
 
 describe("state migration 77 -> 78 (durable terminal deletes)", () => {
   it("ends at the version-78 witness as a fresh install has it", () => {
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V78_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V78_SQL)).toEqual(STATE_SCHEMA_V78_IDENTITY);
   });
 
   it("is expand-only and names no rebuild, drop, rename or retired column", () => {
@@ -97,7 +97,7 @@ describe("state migration 77 -> 78 (durable terminal deletes)", () => {
         const beforeRows = Object.fromEntries(beforeTables.map((table) => [table, rows(database, table)]));
         const beforeObjects = objects(database);
 
-        expect(migrateStateSchema(database, upTo(78, STATE_SCHEMA_SQL))).toMatchObject({
+        expect(migrateStateSchema(database, upTo(78, STATE_SCHEMA_V78_SQL))).toMatchObject({
           previousVersion: 77,
           schemaVersion: 78,
           ...STATE_SCHEMA_V78_IDENTITY,
@@ -120,7 +120,7 @@ describe("state migration 77 -> 78 (durable terminal deletes)", () => {
   it("holds no secrets or paths and closes the owed reason set", () => {
     const database = new DatabaseSync(":memory:");
     try {
-      migrateStateSchema(database, upTo(78, STATE_SCHEMA_SQL));
+      migrateStateSchema(database, upTo(78, STATE_SCHEMA_V78_SQL));
       database.exec(`INSERT INTO terminal_delete_held(binding_id, canvas_name, seat_id, editor_installation_id, editor_canvas_seq, created_at)
         VALUES('binding', 'factory', 'seat', 'installation', 4, 10)`);
       database.exec(`INSERT INTO terminal_delete_owed(lease_id, binding_id, machine_name, canvas_name, seat_id, reason, created_at)

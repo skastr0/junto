@@ -456,3 +456,9 @@ export const STATE_SCHEMA_V77_SQL = stepped(
   STATE_SCHEMA_V76_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 77)!.migrate,
 );
+
+/** Step 78 keeps a remote seat delete durable on both machines: `terminal_delete_held` and `terminal_delete_owed`. */
+export const STATE_SCHEMA_V78_SQL = stepped(
+  STATE_SCHEMA_V77_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 78)!.migrate,
+);

@@ -19,6 +19,7 @@ import { SEAT_CONTROLS_STATE_SCHEMA_SQL } from "../work/seat-controls-state-sche
 import { FLEET_CONSENSUS_SEED_SQL, FLEET_CONSENSUS_STATE_SCHEMA_SQL, FLEET_COPY_LIST_STATE_SCHEMA_SQL, FLEET_STRUCTURE_LOG_STATE_SCHEMA_SQL } from "../fleet/state-schema";
 import { MACHINE_VAULT_TOKENS_SQL } from "../vault/state-schema";
 import { TERMINAL_DELETE_STATE_SCHEMA_SQL } from "../term/node-delete-state-schema";
+import { migrateSeatSessionEndReasonRemoved, SEAT_SESSIONS_REMOVED_REPLACED_TABLES } from "../seat-sessions/migrate-end-reason-removed";
 import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import {
   AUTOMATION_PLACEMENTS_STATE_SCHEMA_SQL,
@@ -975,6 +976,16 @@ export const STATE_SCHEMA_V78_IDENTITY = {
     "818f0f6815823669baad117934a17abb2e2addfcc21ff6002772bbf3e7e26df2",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+/**
+ * Version 79 admits the removed end reason a deleted seat session takes:
+ * seat_sessions is rebuilt with the widened CHECK, every row copied as it
+ * was. Consolidate.
+ */
+export const STATE_SCHEMA_V79_IDENTITY = {
+  actualSchemaSha256:
+    "8cbf4724ec4704a957edc8e360580cb4194b32bf1b18a3a646d3467babe78b0a",
+} as const satisfies VerifiedStateSchemaIdentity;
+
 import { CURRENT_STATE_SCHEMA_VERSION } from "../../node/state/schema-version";
 
 export { CURRENT_STATE_SCHEMA_VERSION };
@@ -1612,6 +1623,15 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V77_IDENTITY,
     migrate: (database) => database.exec(TERMINAL_DELETE_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 78,
+    toVersion: 79,
+    name: "admit the removed end reason a deleted seat session takes",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V78_IDENTITY,
+    replacesTables: [...SEAT_SESSIONS_REMOVED_REPLACED_TABLES],
+    migrate: migrateSeatSessionEndReasonRemoved,
   },
 ];
 
