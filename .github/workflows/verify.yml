@@ -74,7 +74,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-24.04]
+        os: [macos-15, ubuntu-24.04]
     concurrency:
       group: verify-unit-shared-${{ matrix.os }}-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -82,6 +82,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          # tests/learn-content.test.ts reads each quiz receipt at its commit.
+          fetch-depth: 0
       - uses: ./.github/actions/setup
       - run: bun scripts/run-unit-tests.ts --lane=shared --maxWorkers=2
         env:
@@ -94,7 +96,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-24.04]
+        os: [macos-15, ubuntu-24.04]
         shard: [1, 2]
     concurrency:
       group: verify-unit-isolated-${{ matrix.shard }}-${{ matrix.os }}-${{ github.ref }}
@@ -103,6 +105,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          # tests/learn-content.test.ts reads each quiz receipt at its commit.
+          fetch-depth: 0
       - uses: ./.github/actions/setup
       - run: bun scripts/run-unit-tests.ts --lane=isolated --shard=${{ matrix.shard }}/2 --maxWorkers=2
         env:
@@ -115,7 +119,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-24.04]
+        os: [macos-15, ubuntu-24.04]
     concurrency:
       group: verify-unit-alone-${{ matrix.os }}-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -123,6 +127,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          # tests/learn-content.test.ts reads each quiz receipt at its commit.
+          fetch-depth: 0
       - uses: ./.github/actions/setup
       - run: bun scripts/run-unit-tests.ts --lane=alone
         env:
@@ -163,7 +169,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-24.04]
+        os: [macos-15, ubuntu-24.04]
     concurrency:
       group: verify-native-cli-${{ matrix.os }}-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -207,7 +213,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-24.04]
+        os: [macos-15, ubuntu-24.04]
     concurrency:
       group: verify-free-startup-e2e-${{ matrix.os }}-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -227,7 +233,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-24.04]
+        os: [macos-15, ubuntu-24.04]
     concurrency:
       group: verify-source-packages-${{ matrix.os }}-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
