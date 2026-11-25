@@ -38,6 +38,14 @@ describe("a key-bound route", () => {
     expect(args.indexOf("-F")).toBeLessThan(args.indexOf("ops@100.96.152.41"));
   });
 
+  it("passes a bare IPv6 host as one endpoint, with the port separate and no brackets", async () => {
+    const target = await Effect.runPromise(parseSshRoute({ ...bound, endpoint: "ops@2001:db8::1", port: 2222 }));
+    const args = argv(compiler.stream(dedicatedStream(target, await Effect.runPromise(makeRemoteCommand("/usr/bin/true")))).command);
+    expect(args).toContain("ops@2001:db8::1");
+    expect(args[args.indexOf("-p") + 1]).toBe("2222");
+    expect(args.join(" ")).not.toContain("[");
+  });
+
   it.each([
     ["no key of its own", { ...bound, identityFile: undefined }],
     ["no known hosts of its own", { ...bound, knownHostsFile: undefined }],

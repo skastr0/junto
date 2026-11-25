@@ -114,11 +114,45 @@ describe("the key that dials", () => {
     ["a host with a newline", { user: "ops", host: "vps\n@cert-authority *", port: 22 }],
     ["a user with an at sign", { user: "ops@x", host: "vps", port: 22 }],
     ["a port out of range", { user: "ops", host: "vps", port: 70_000 }],
+    ["an IPv6 address in brackets", { user: "ops", host: "[2001:db8::1]", port: 22 }],
+    ["an IPv6 zone", { user: "ops", host: "fe80::1%en0", port: 22 }],
+    ["an IPv4-mapped IPv6 address", { user: "ops", host: "::ffff:203.0.113.7", port: 22 }],
+    ["the unspecified address", { user: "ops", host: "::", port: 22 }],
+    ["a multicast address", { user: "ops", host: "ff02::1", port: 22 }],
+    ["a link-local address", { user: "ops", host: "fe80::1", port: 22 }],
   ])("refuses a route with %s", async (_what, route) => {
     const home = await root();
     makeLinkKey(home, "vps", "mini-installation");
     expect(() => writeLinkKnownHosts(home, "vps", route, [KEY])).toThrow(/literal user, host and port/);
     expect(() => writeBoundRoute(home, "vps", route)).toThrow(/literal user, host and port/);
+  });
+
+  it("stores an IPv6 route in RFC 5952 text and writes the two known_hosts forms", async () => {
+    const home = await root();
+    makeLinkKey(home, "vps", "mini-installation");
+    const route = { user: "ops", host: "2001:0DB8:0000:0000:0000:0000:0000:0001", port: 22 };
+    const knownHosts = writeLinkKnownHosts(home, "vps", route, [KEY]);
+    expect(await readFile(knownHosts, "utf8")).toBe(`2001:db8::1 ${KEY}\n`);
+    const files = writeBoundRoute(home, "vps", route);
+    expect(await readFile(join(home, ".junto/core/link-keys/vps/route.json"), "utf8")).toBe(`${JSON.stringify({ user: "ops", host: "2001:db8::1", port: 22 })}\n`);
+    expect(readBoundRoute(home, "vps")).toEqual(files);
+    const otherPort = writeLinkKnownHosts(home, "vps", { ...route, port: 2222 }, [KEY]);
+    expect(await readFile(otherPort, "utf8")).toBe(`[2001:db8::1]:2222 ${KEY}\n`);
+  });
+
+  it("canonicalizes an IPv6 spelling already in route.json", async () => {
+    const home = await root();
+    makeLinkKey(home, "vps", "mini-installation");
+    writeLinkKnownHosts(home, "vps", { user: "ops", host: "2001:0db8::1", port: 22 }, [KEY]);
+    await writeFile(join(home, ".junto/core/link-keys/vps/route.json"), `${JSON.stringify({ user: "ops", host: "2001:0DB8::1", port: 22 })}\n`);
+    expect(readBoundRoute(home, "vps")).toMatchObject({ user: "ops", host: "2001:db8::1", port: 22 });
+  });
+
+  it("looks up a verified IPv6 host key under its canonical names, default port and not", async () => {
+    const file = join(await root(), "known_hosts");
+    await writeFile(file, `2001:db8::1 ${KEY}\n[2001:db8::1]:2222 ${KEY}\n`);
+    expect(verifiedHostKeys([file], "2001:0DB8::1", 22)).toEqual([KEY]);
+    expect(verifiedHostKeys([file], "2001:db8::1", 2222)).toEqual([KEY]);
   });
 
   it.each([["a second key on the line", `${KEY} ${OTHER}`], ["a newline", `${KEY}\n* ${OTHER}`], ["an rsa key", "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ"]])(

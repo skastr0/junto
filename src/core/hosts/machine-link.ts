@@ -18,6 +18,7 @@ import { lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, w
 import { basename, dirname, join } from "node:path";
 import { Effect, Schema, Stream } from "effect";
 import type { InstallationId } from "@shared/installation-id";
+import { canonicalLiteralHost, literalHostRefusal } from "@shared/literal-host";
 import type {
   MachineLinkAcceptData, MachineLinkAcceptInput, MachineLinkData, MachineLinkInput, MachineLinkKeyData, MachineLinkKeyInput,
   MachineLinkOpenData, MachineLinkOpenInput, MachineLinkRevokeData, MachineLinkRevokeInput, MachineLinkRoute,
@@ -115,7 +116,10 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
     }
     if (fields.get("hostkeyalias") !== undefined) return yield* Effect.fail(refused(`The route to ${host.id} names a HostKeyAlias; a link key dials a literal host`));
     const port = Number(fields.get("port"));
-    const route = { machine: host.id, user: fields.get("user") ?? "", host: fields.get("hostname") ?? "", port };
+    const hostname = fields.get("hostname") ?? "";
+    const literal = canonicalLiteralHost(hostname);
+    if (literal === undefined) return yield* Effect.fail(refused(literalHostRefusal(hostname)));
+    const route = { machine: host.id, user: fields.get("user") ?? "", host: literal, port };
     const files = [...(fields.get("userknownhostsfile") ?? "").split(" "), ...(fields.get("globalknownhostsfile") ?? "").split(" ")].filter((file) => file.startsWith("/"));
     const hostKeys = yield* Effect.try({ try: () => verifiedHostKeys(files, route.host, route.port), catch: (cause) => refused(`${host.id}: ${(cause as Error).message}`) });
     return { route, hostKeys };
@@ -334,9 +338,10 @@ const writePending = (home: string, rows: ReadonlyArray<PendingRevocation>): voi
 /** `user@host` as `from` reaches `to`: literal, since a bound link reads no config. */
 const literalRoute = (machine: string, target: string, port: number | undefined) => Effect.gen(function* () {
   const at = target.indexOf("@");
-  const route = { machine, user: target.slice(0, at), host: target.slice(at + 1), port: port ?? 22 };
-  if (at <= 0 || !/^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/.test(route.user) || !/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(route.host)) {
-    return yield* Effect.fail(refused("The route to dial is one literal user@host: a bound link reads no SSH config"));
+  const user = target.slice(0, at);
+  const host = canonicalLiteralHost(target.slice(at + 1));
+  if (at <= 0 || !/^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/.test(user) || host === undefined) {
+    return yield* Effect.fail(refused(`${literalHostRefusal(target.slice(at + 1))} A link key reads no SSH config.`));
   }
-  return route;
+  return { machine, user, host, port: port ?? 22 };
 });

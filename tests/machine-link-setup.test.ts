@@ -225,6 +225,20 @@ it("dials the VPS from the mini at the address the operator gives, still pinned 
   expect(await readFile(readBoundRoute(mini.home, "vps")!.knownHostsFile, "utf8")).toBe(`[vps.tailnet.ts.net]:2222 ${vps.hostKey}\n`);
 });
 
+it("dials the VPS from the mini at a bare IPv6 address, stored canonical", async () => {
+  const { editor, mini, vps } = await fleet();
+  const result = await run(editor, editor.setup.link({ from: "mini", to: "vps", sshTarget: "deploy@2001:0DB8:0::1" as never, sshPort: 2222 }));
+  expect(result.routes[0]).toEqual({ from: "mini", machine: "vps", user: "deploy", host: "2001:db8::1", port: 2222 });
+  expect(readBoundRoute(mini.home, "vps")).toMatchObject({ user: "deploy", host: "2001:db8::1", port: 2222 });
+  expect(await readFile(readBoundRoute(mini.home, "vps")!.knownHostsFile, "utf8")).toBe(`[2001:db8::1]:2222 ${vps.hostKey}\n`);
+});
+
+it("refuses an IPv6 address in brackets when the operator gives the route to dial", async () => {
+  const { editor } = await fleet();
+  await expect(run(editor, editor.setup.link({ from: "mini", to: "vps", sshTarget: "deploy@[2001:db8::1]" as never, sshPort: 2222 })))
+    .rejects.toThrow(/Leave the brackets out/);
+});
+
 it("never gives a machine a route to the editing machine", async () => {
   const { editor } = await fleet();
   await expect(run(editor, editor.setup.link({ from: "mini", to: "book" }))).rejects.toThrow(/dials out/);

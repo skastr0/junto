@@ -8,6 +8,7 @@ import { Schema } from "effect";
 import { InstallationId } from "./installation-id";
 import { MachineAbsolutePath } from "./machine-install";
 import { isValidMachineName } from "./machine-identity";
+import { isLiteralHost } from "./literal-host";
 import { HostSshEndpoint } from "./remote-hosts";
 
 const Name = Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName)));
@@ -15,7 +16,7 @@ const Port = Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum: 1, maximum
 /** One ssh-ed25519 public key; link-keys.ts checks its blob before any line is built. */
 const PublicKey = Schema.String.pipe(Schema.check(Schema.isMaxLength(256)), Schema.check(Schema.isPattern(/^ssh-ed25519 [A-Za-z0-9+/]{16,}={0,3}$/)));
 const LiteralUser = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/)));
-const LiteralHost = Schema.String.pipe(Schema.check(Schema.isMaxLength(254)), Schema.check(Schema.isPattern(/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/)));
+const LiteralHost = Schema.String.pipe(Schema.check(Schema.isMaxLength(254)), Schema.check(Schema.makeFilter(isLiteralHost)));
 
 /** A route as ssh -G resolved it once, and as a bound link dials it with -F none. */
 export const MachineLinkRoute = Schema.Struct({ machine: Name, user: LiteralUser, host: LiteralHost, port: Port });

@@ -20,6 +20,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, r
 import { join, resolve } from "node:path";
 import { Schema } from "effect";
 import { InstallationId } from "@shared/installation-id";
+import { canonicalLiteralHost, literalHostRefusal } from "@shared/literal-host";
 import { isValidMachineName } from "@shared/machine-identity";
 import { AuthorizedKeysError } from "../companion/authorized-keys";
 import { encodeOpenSshEd25519 } from "../companion/pairing-key";
@@ -30,8 +31,6 @@ export const LINK_KEY_TAG = "junto-link:";
 const ED25519_KEY = /^ssh-ed25519 [A-Za-z0-9+/]{16,}={0,3}$/u;
 /** A path the forced command can quote with single quotes, and sshd can carry in double quotes. */
 const SAFE_PATH = /^\/[^'"\\\n\r\u0000]*$/u;
-/** One literal host: a DNS name or an IPv4 address, never a pattern, a list or a marker. */
-const LITERAL_HOST = /^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$/u;
 const LITERAL_USER = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/u;
 const HOME_TAG = /^[0-9a-f]{12}$/u;
 
@@ -129,10 +128,11 @@ export const makeLinkKey = (home: string, peer: string, self: string, options: {
 const knownHostsName = (host: string, port: number): string => port === 22 ? host : `[${host}]:${port}`;
 
 const boundRoute = (route: BoundRoute): BoundRoute => {
-  if (!LITERAL_USER.test(route.user) || !LITERAL_HOST.test(route.host) || !Number.isInteger(route.port) || route.port < 1 || route.port > 65_535) {
-    throw new LinkKeyRefused({ check: "route", message: "a bound route is one literal user, host and port" });
+  const host = canonicalLiteralHost(route.host);
+  if (!LITERAL_USER.test(route.user) || host === undefined || !Number.isInteger(route.port) || route.port < 1 || route.port > 65_535) {
+    throw new LinkKeyRefused({ check: "route", message: literalHostRefusal(route.host) });
   }
-  return { user: route.user, host: route.host, port: route.port };
+  return { user: route.user, host, port: route.port };
 };
 
 /**
