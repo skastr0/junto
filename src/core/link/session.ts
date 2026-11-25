@@ -4,6 +4,7 @@ import { Effect, Schema } from "effect";
 import { failureSentence, OperationId, type EncodedCause, type EncodedFailure } from "@shared/failure";
 import type { InstallationId } from "@shared/installation-id";
 import { decodeEncodedFailure, describeCause, encodeError } from "../../node/failure-encode";
+import { FILE_BYTES_FRAME_MAX, FILE_BYTES_IN_FLIGHT } from "@shared/files-bytes-link";
 import { decodeLinkFrame, LINK_EVENT_WINDOW, LinkHelloSchema, type LinkFrame } from "./protocol";
 import { linkLog, type LinkLogLevel } from "./log";
 import { isLinkContractChannel, type LinkContractChannel, type LinkRpcWire } from "./contract";
@@ -33,6 +34,20 @@ export { LinkBuildMismatch } from "./types";
  */
 const DEFAULT_LIMITS = { frameBytes: 1024 * 1024, queuedBytes: 4 * 1024 * 1024, pendingRequests: 32, inboundCalls: 32, inboundEvents: 64, inboundEventBytes: 8 * 1024 * 1024, eventWindow: LINK_EVENT_WINDOW, helloTimeoutMs: 10_000, requestTimeoutMs: 30_000 } as const;
 const WINDOWED: ReadonlySet<LinkChannel> = new Set<LinkChannel>(["rows"]);
+/**
+ * Bulk channels: their frames go out only when no frame of another channel
+ * waits to be written, in their own order, one at a time, so a seat start or a
+ * rows event waits behind at most one bulk frame. Their frames have a bound of
+ * their own, below the link's (X3, remote-security terms 1 and 2).
+ */
+const BULK: ReadonlySet<LinkChannel> = new Set<LinkChannel>(["file-bytes"]);
+const BULK_FRAME_BYTES = FILE_BYTES_FRAME_MAX;
+/** A bulk channel's requests from the peer received and not yet answered: past this, one is refused at once. */
+const BULK_IN_FLIGHT = FILE_BYTES_IN_FLIGHT;
+const bulkFrame = (input: unknown): boolean => {
+  const channel = (input as { readonly channel?: unknown } | null)?.channel;
+  return typeof channel === "string" && BULK.has(channel as LinkChannel);
+};
 const CLOSE_FLUSH_MS = 1_000;
 export interface LinkSessionOptions {
   readonly readable: Readable;
@@ -170,6 +185,14 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
   let stopped: LinkClosed | undefined;
   let queuedBytes = 0;
   let writeTail = Promise.resolve();
+  /** Frames of other channels handed to the write chain and not yet written; a bulk frame waits while any are. */
+  let waitingFrames = 0;
+  /** Bulk frames not yet handed to the write chain, oldest first, and whether one is in it now. */
+  const bulkQueue: Array<{ readonly bytes: Buffer; readonly resolve: () => void; readonly reject: (cause: unknown) => void }> = [];
+  let bulkWriting = false;
+  let bulkQueuedBytes = 0;
+  /** Requests from the peer on each bulk channel, received and not yet answered. */
+  const bulkInbound = new Map<LinkChannel, number>();
   let resolveReady!: (peer: LinkHello) => void;
   let rejectReady!: (error: MachineLinkError) => void;
   let resolveClosed!: (closed: LinkClosed) => void;
@@ -233,6 +256,8 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       for (const waiter of window.waiting.splice(0)) waiter.stop(ended);
       window.waitingBytes = 0;
     }
+    for (const waiting of bulkQueue.splice(0)) waiting.reject(ended);
+    bulkQueuedBytes = 0;
     log(ended.by === "this-end" && ended.reason === "closed" ? "Info" : "Warning", "link closed", {
       by: ended.by, reason: ended.reason, failure: encodeError(first, { machine: self.machineName }),
       ...(ended.exitCode === undefined ? {} : { exitCode: ended.exitCode }), ...(ended.signal === undefined ? {} : { signal: ended.signal }),
@@ -275,12 +300,33 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     if (stopped !== undefined) return Promise.reject(stopped);
     let bytes: Buffer;
     try { bytes = encode(input); } catch (cause) { return Promise.reject(cause); }
-    return writeBytes(bytes);
+    if (!bulkFrame(input)) return writeBytes(bytes);
+    if (bytes.length - 1 > BULK_FRAME_BYTES) { finish(thisEnd("bound-exceeded", [bound("Link output exceeds its bulk frame bound")])); return Promise.reject(stopped); }
+    return writeBulk(bytes);
   };
-  const writeBytes = (bytes: Buffer): Promise<void> => {
+  /** A bulk frame waits for every other frame already waiting, then goes alone. */
+  const writeBulk = (bytes: Buffer): Promise<void> => {
+    if (queuedBytes + bulkQueuedBytes + bytes.length > limits.queuedBytes) { finish(thisEnd("bound-exceeded", [bound("Link output exceeds its bound")])); return Promise.reject(stopped); }
+    bulkQueuedBytes += bytes.length;
+    return new Promise<void>((resolve, reject) => {
+      bulkQueue.push({ bytes, resolve, reject });
+      pumpBulk();
+    });
+  };
+  const pumpBulk = (): void => {
+    if (bulkWriting || waitingFrames > 0) return;
+    const next = bulkQueue.shift();
+    if (next === undefined) return;
+    bulkQueuedBytes -= next.bytes.length;
+    if (stopped !== undefined) { next.reject(stopped); pumpBulk(); return; }
+    bulkWriting = true;
+    writeBytes(next.bytes, true).then(next.resolve, next.reject).finally(() => { bulkWriting = false; pumpBulk(); });
+  };
+  const writeBytes = (bytes: Buffer, bulk = false): Promise<void> => {
     if (stopped !== undefined) return Promise.reject(stopped);
     if (queuedBytes + bytes.length > limits.queuedBytes) { finish(thisEnd("bound-exceeded", [bound("Link output exceeds its bound")])); return Promise.reject(stopped); }
     queuedBytes += bytes.length;
+    if (!bulk) waitingFrames++;
     const flight = writeTail.then(() => new Promise<void>((resolve, reject) => {
       if (stopped !== undefined) { reject(stopped); return; }
       let settled = false;
@@ -292,7 +338,10 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       const aborted = (): void => complete(stopped ?? thisEnd("closed"));
       controller.signal.addEventListener("abort", aborted, { once: true });
       try { options.writable.write(bytes, complete); } catch (cause) { complete(cause instanceof Error ? cause : classify(cause)); }
-    })).finally(() => { queuedBytes -= bytes.length; });
+    })).finally(() => {
+      queuedBytes -= bytes.length;
+      if (!bulk && --waitingFrames === 0) pumpBulk();
+    });
     writeTail = flight.catch(cause => { finish(cause); });
     return flight;
   };
@@ -613,6 +662,22 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
     const handle = serving.handle;
     if (handle === undefined) throw frameInvalid("no-handler", "Link channel does not accept requests", peer.machineName);
     if (inboundIds.has(frame.id) || completedIds.has(frame.id)) throw frameInvalid("duplicate-request", "Link request id was already used", peer.machineName);
+    if (BULK.has(frame.channel)) {
+      // A request is a bulk channel's credit: past the bound the peer broke its window, so this one is refused
+      // at once, in the channel's own refusal, and the link stays up.
+      const held = bulkInbound.get(frame.channel) ?? 0;
+      if (held >= BULK_IN_FLIGHT) {
+        log("Warning", "link bulk window exceeded", { channel: frame.channel, operationId: frame.op, requestId: frame.id });
+        const refusal = isLinkContractChannel(selected) ? selected.overWindow?.(context(frame.op), frame.tag ?? "", payload) : undefined;
+        const failure = encodeError(refusal ?? thisEnd("bound-exceeded", [bound("Link channel exceeds its request window")]),
+          { machine: self.machineName, operationId: frame.op, detail: refusal === undefined ? undefined : serving.detail(refusal) });
+        completedIds.add(frame.id);
+        await checkAdmission();
+        await write({ type: "response", id: frame.id, op: frame.op, channel: frame.channel, ok: false, failure });
+        return;
+      }
+      bulkInbound.set(frame.channel, held + 1);
+    }
     inboundIds.add(frame.id);
     const own = new AbortController();
     inboundAborts.set(frame.id, { op: frame.op, controller: own });
@@ -623,6 +688,7 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
       return true;
     };
     const done = (): void => {
+      if (BULK.has(frame.channel)) bulkInbound.set(frame.channel, (bulkInbound.get(frame.channel) ?? 1) - 1);
       inboundAborts.delete(frame.id);
       inboundIds.delete(frame.id); completedIds.add(frame.id);
       if (completedIds.size > 256) completedIds.delete(completedIds.values().next().value!);
@@ -667,7 +733,10 @@ export const makeLinkSession = (options: LinkSessionOptions): LinkSession => {
           const size = count;
           pieces = []; count = 0;
           const json = decoded("json", "Link input is not JSON", () => JSON.parse(line) as unknown);
-          await receive(decoded("schema", "Link frame does not match the protocol", () => decodeLinkFrame(json)), size);
+          const frame = decoded("schema", "Link frame does not match the protocol", () => decodeLinkFrame(json));
+          // A bulk channel's frame has its own bound, checked before anything decodes or queues it.
+          if ("channel" in frame && BULK.has(frame.channel) && size > BULK_FRAME_BYTES) throw frameInvalid("frame-bound", "Link input exceeds its bulk frame bound", peerName());
+          await receive(frame, size);
           offset = newline + 1;
           if (stopped !== undefined) return;
           if (eventsHigh()) await new Promise<void>(resume => { eventsDrained = resume; });

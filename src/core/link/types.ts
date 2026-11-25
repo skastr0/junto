@@ -12,7 +12,7 @@ import type { LinkContractChannel } from "./contract";
  * a missing one). A feature flag changes what a handler answers, never whether
  * its channel exists.
  */
-export const LINK_CHANNELS = ["rows", "seats", "status", "inventory", "settings", "native-config", "content", "consensus", "authority", "files"] as const;
+export const LINK_CHANNELS = ["rows", "seats", "status", "inventory", "settings", "native-config", "content", "consensus", "authority", "files", "file-bytes"] as const;
 export type LinkChannel = (typeof LINK_CHANNELS)[number];
 export const isLinkChannel = (name: string): name is LinkChannel => (LINK_CHANNELS as ReadonlyArray<string>).includes(name);
 

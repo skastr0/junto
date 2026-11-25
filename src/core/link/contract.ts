@@ -92,6 +92,12 @@ export type LinkHandlers<C extends AnyLinkContract> = {
   /** Runs in the channel's event queue, so it gets no request. */
   readonly opened?: (context: LinkEventContext) => Effect.Effect<void, unknown>;
   readonly closed?: (context: LinkEventContext) => Effect.Effect<void, unknown>;
+  /**
+   * A bulk channel only: the refusal for a request past the channel's
+   * in-flight bound, answered at once without running a handler. It may undo
+   * what the request names (a stream it would read); it gets no request.
+   */
+  readonly overWindow?: (context: LinkEventContext, tag: string, payload: unknown) => unknown;
 } & EventHandlers<LinkEventOf<C>>;
 
 /**
@@ -106,6 +112,7 @@ export interface LinkContractChannel {
   readonly handleEvent?: (context: LinkEventContext, payload: unknown) => Effect.Effect<void, unknown>;
   readonly opened?: (context: LinkEventContext) => Effect.Effect<void, unknown>;
   readonly closed?: (context: LinkEventContext) => Effect.Effect<void, unknown>;
+  readonly overWindow?: (context: LinkEventContext, tag: string, payload: unknown) => unknown;
 }
 
 export const isLinkContractChannel = (channel: object): channel is LinkContractChannel =>
@@ -123,6 +130,7 @@ export const bindLinkChannel = <C extends AnyLinkContract>(contract: C, handlers
     ...(event === undefined ? {} : { handleEvent: (context: LinkEventContext, payload: unknown) => event(payload, context) }),
     ...(handlers.opened === undefined ? {} : { opened: handlers.opened }),
     ...(handlers.closed === undefined ? {} : { closed: handlers.closed }),
+    ...(handlers.overWindow === undefined ? {} : { overWindow: handlers.overWindow }),
   };
 };
 
