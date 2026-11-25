@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+## 0.12.0 — 2026-11-25
+
+Opening the database with 0.12.0 moves it from version 76 to 79, and 0.11.15
+then refuses it as newer than supported. To go back to 0.11.15, open the
+backup taken at the upgrade. Three steps: one rebuilds the stored signals
+table so a withdrawn signal can hold a late answer, one adds two empty tables
+that keep a remote seat delete durable, and one rebuilds the seat sessions
+table to admit the removed end reason. Every existing row is copied as it was.
+
+- A new canvas from the top bar no longer takes the window down on a canvas
+  that was being watched, and the canvas delete confirm says how many open
+  signals close with it.
+- Top bar: a Threads button beside Needs you shows the unread thread count and
+  opens Global threads; the search field is smaller, the Saved label is gone,
+  and the bar stops being a drag region while a panel is open. Threads, Needs
+  you, Quick capture and Commit review open under the bar, so every bar button
+  acts in one press.
+- Deleting a seat on another machine reaches that machine, and a delete in
+  flight holds the seat against copies. When the machine cannot confirm the
+  stop, "Delete anyway" removes the seat here and says it may keep running
+  there.
+- Broadcast in Quick thread says which seats a region only partly holds, in
+  plain words ("6 seats are partly inside Big and are not included"), and
+  lists them apart from the seats it reaches.
+- Signals raised in a thread read as signals, can name the ones they come
+  after, and Needs you shows them in the order to act. A card that waits on
+  another signal reads as not ready, not as waiting on you. A half-typed reply
+  is kept per thread through a close and a panel switch.
+- Machines: an idle pinned machine updates itself and a running seat keeps the
+  click; a machine says which build it runs; a copy that fails shows the core's own
+  reason.
+- `junto` is the native CLI alone. The TypeScript CLI is deleted; help,
+  completions, docs, schema and examples all come from the native command tree.
+- A quoted git path no longer takes down a diff.
+- Every release keeps the source maps of every program outside the app.
+
 ## 0.11.15 — 2026-11-24
 
 Opening the database with 0.11.15 moves it to version 76, and 0.11.14 then
