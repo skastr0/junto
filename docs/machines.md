@@ -747,6 +747,19 @@ still open.
   removed. Mail `remote-lead` each landed commit; the ledger below is kept
   from those.
 
+### Where checks run
+
+- Nothing runs on the operator's MacBook: no type check, lint, test, build or
+  app run. Everything goes to a VM (`VM_SEAT=<seat> scripts/vm.sh pool tech`,
+  then `sync` and `run`), where a real-app or e2e run uses the Linux display:
+  `bun run cli:build && scripts/run-e2e.sh <spec>`.
+- The Mac mini is for GPU checks only (operator, 2026-11-25): the GPU canvas
+  ladder, texel, atlas, frame and paint proofs, anything that needs the real
+  GPU. `scripts/mini.sh at`, `put` and `run` refuse a call that does not say it
+  is one: `scripts/mini.sh --gpu run <folder> ...`, or `MINI_GPU=1` in front.
+  The refusal names the rule and the VM commands to use instead. `book`, `rm`
+  and `status` need no mark. A run that measures time still takes the book.
+
 ### Committing in the shared checkout
 
 The private index method, from the repository root. Never a bare
@@ -826,14 +839,20 @@ git show --stat --oneline HEAD
 - The shared checkout follows main by itself. `scripts/git-hooks/reference-transaction`
   runs after every update of `refs/heads/main` in this repository, from the
   main checkout, a linked worktree or a bundle. The landing never waits for
-  it: the follower is detached, runs one at a time, and gives up after 5 s
+  it: the follower is detached, runs one at a time, and gives up after 20 s
   (`JUNTO_FOLLOW_BUDGET`). It remembers the last commit it followed in
   `.git/junto-follow.head` and follows from there to the tip of main, a commit
   at a time, so a landing it missed is followed by the next one. For each path
   that changed it writes main's copy into the checkout, or removes the file,
   only where the checkout file equals the old committed copy, and moves the
   index entry along when it equals the old one; the index is left alone while
-  its lock is held. Anything else is someone's own work: left alone and named
+  its lock is held. After each follow it also sweeps what earlier landings
+  left behind: a working file that is an older committed copy of main's goes
+  to main's, and an index entry that is an older committed copy of its path
+  goes to main's (a staged blob no commit holds is left and counted;
+  `JUNTO_FOLLOW_SWEEP=0` or `JUNTO_FOLLOW_SWEEP_WORK=0` turn them off). On 400
+  stale files the working-file sweep costs about 0.6 s, and with nothing stale
+  about 10 ms. Anything else is someone's own work: left alone and named
   in `.git/junto-follow.log`, one line per step. A path it names as kept is
   not yours to reset: find its owner. The hook does not replace the stale-path
   check above, which stops a stale copy from being added.
