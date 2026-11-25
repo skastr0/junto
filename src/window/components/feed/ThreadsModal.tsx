@@ -523,6 +523,7 @@ export function ThreadsBody({
       }
       width={1180}
       fill
+      belowBar
       panelClassName="operator-feed__panel operator-threads"
       onEscape={onEscape}
       onKeyDown={onListKey}

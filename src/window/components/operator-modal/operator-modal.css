@@ -13,6 +13,15 @@
   padding: 3vh 16px;
 }
 
+/* A big panel opens under the top bar, on every width: the bar's buttons stay
+   pressable (the dim covers the bar, and a press on it closes the panel), and the
+   panel's header never lies over them. The small command-bar style modals keep
+   sitting in the bar's band. */
+.operator-modal[data-below-bar="true"] {
+  /* The shell is portalled to the body, outside .junto-app where --bar-height is set: the fallback is that token's value. */
+  padding-top: calc(var(--bar-height, 64px) + 12px);
+}
+
 .operator-modal__frame {
   display: flex;
   flex-direction: column;

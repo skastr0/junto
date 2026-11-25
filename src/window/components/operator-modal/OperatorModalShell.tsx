@@ -31,6 +31,7 @@ export function OperatorModalShell({
   headerProps,
   width,
   fill = false,
+  belowBar = false,
   panelClassName,
   onEscape,
   onKeyDown,
@@ -47,6 +48,8 @@ export function OperatorModalShell({
   readonly width?: number;
   /** Take the full available height instead of the content's. */
   readonly fill?: boolean;
+  /** Open under the top bar, so the whole bar stays in view and a press on it reaches the dim (and closes). */
+  readonly belowBar?: boolean;
   readonly panelClassName?: string;
   /**
    * First say on Escape: return true when the body used it (closed a reply
@@ -94,6 +97,7 @@ export function OperatorModalShell({
       className="operator-modal"
       data-layer="operator"
       data-operator-modal={id}
+      data-below-bar={belowBar ? "true" : undefined}
       data-testid="operator-modal"
       onKeyDown={layer.onKeyDown}
     >

@@ -6,6 +6,8 @@
  * for its next page; a row says its seat, region, line, last mail and
  * unread; the status and the filters speak in the feed's form.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -112,6 +114,15 @@ afterEach(() => {
 });
 
 const rows = [row("t1", "a", PRODUCT, 300, 2), row("t2", "b", OPEN, 200, 0, true)];
+
+it("opens under the top bar on every width, so the whole bar stays pressable", () => {
+  draw(state(rows));
+  expect(q('[data-operator-modal="threads"]')?.getAttribute("data-below-bar")).toBe("true");
+  // The rule that places it: under the bar's own height (the shell is portalled outside the app, so the token has its value as a fallback).
+  const css = readFileSync(join(__dirname, "..", "src/window/components/operator-modal/operator-modal.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rule = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((match) => match[1]!.trim() === '.operator-modal[data-below-bar="true"]');
+  expect(rule?.[2]).toMatch(/padding-top:\s*calc\(var\(--bar-height,\s*64px\)\s*\+\s*\d+px\)/);
+});
 
 it("shows the first thread's chat on the right, and only it", () => {
   draw(state(rows));
