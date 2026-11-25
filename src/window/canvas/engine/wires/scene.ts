@@ -1626,9 +1626,6 @@ export const createWireScene = (host: WireHost): WireScene => {
       }
       tierStaleList = [...tierStale];
       tierStaleAt = 0;
-      // gatheredInto is tiered: re-key every wire once at the crossing. The
-      // members' strips are kept; only their visibility and the fold strips change.
-      for (const id of entries.keys()) foldWiresDirty.add(id);
     }
     // A regroup lands in the same frame as the badge: drain it after prepare's
     // tier work and before any visible list is built.

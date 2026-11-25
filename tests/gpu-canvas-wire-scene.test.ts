@@ -17,13 +17,26 @@ const wire = (id: string, from: string, to: string, verb: "messages" | "flows" |
 type TestGathering = { readonly key: string; readonly rect: Rect };
 
 const makeScene = (cards: Map<string, Rect>, reducedMotion = false, surfaces?: Map<string, Rect>, gatherings: Map<string, TestGathering> = new Map()) => {
-  const gatheringPending: string[] = [];
   let tierNow: WireFrame["tier"] = "near";
+  const gatheringWas = new Map<string, TestGathering>();
+  const gatheringNow = (): ReadonlyMap<string, TestGathering> => (tierNow === "far" || tierNow === "overview" ? gatherings : new Map());
+  const drainGathering = (): string[] => {
+    const now = gatheringNow();
+    const changed: string[] = [];
+    for (const [id, gathering] of now) {
+      const before = gatheringWas.get(id);
+      if (before === undefined || before.key !== gathering.key || before.rect.x !== gathering.rect.x || before.rect.y !== gathering.rect.y) changed.push(id);
+    }
+    for (const id of gatheringWas.keys()) if (!now.has(id)) changed.push(id);
+    gatheringWas.clear();
+    for (const [id, gathering] of now) gatheringWas.set(id, gathering);
+    return changed;
+  };
   const scene = createWireScene({
     rectOf: (id: NodeId) => cards.get(id),
     ...(surfaces === undefined ? {} : { surfaceOf: (id: NodeId) => surfaces.get(id) }),
-    gatheredInto: (id: NodeId) => (tierNow === "far" || tierNow === "overview" ? gatherings.get(id) : undefined),
-    gatheringChanged: () => gatheringPending.splice(0),
+    gatheredInto: (id: NodeId) => gatheringNow().get(id),
+    gatheringChanged: drainGathering,
     reducedMotion: () => reducedMotion,
   });
   const frame = (at: number, tier: WireFrame["tier"] = "near", live?: ReadonlySet<string>): boolean => {
@@ -38,7 +51,6 @@ const makeScene = (cards: Map<string, Rect>, reducedMotion = false, surfaces?: M
   const gather = (id: string, gathering: TestGathering | undefined): void => {
     if (gathering === undefined) gatherings.delete(id);
     else gatherings.set(id, gathering);
-    gatheringPending.push(id);
   };
   return { scene, frame, card, gather };
 };
