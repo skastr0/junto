@@ -11,11 +11,11 @@ import type { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSe
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { scrubMessage, scrubText } from "../../node/credentials/scrub";
 import { encodeFailure } from "../../node/failure-encode";
-import { MachineInstallError, MachineSetupError, type MachineInstallResult } from "@shared/machine-install";
+import { MachineInstallError, MachineSetupError, type MachineInstallResult, type MachinePinRefused } from "@shared/machine-install";
 import type { MachineSendEvent } from "@shared/machine-progress";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { MachineRefused } from "../machines/configuration";
-import { MachineRepository } from "../machines/repository";
+import { MachinePersistenceError, MachineRepository } from "../machines/repository";
 import { StateTransactionOperation } from "../state/service";
 import { HostsService } from "./service";
 import { parseHostSshRoute } from "../ssh/domain";
@@ -507,6 +507,12 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       default: return yield* Effect.fail(new RemoteHostsError("validation", "unsupported machine operation"));
     }
   });
+  /** The pin rule that refused a setup, from the refusal itself or the persistence error that carries it. */
+  const pinRuleOf = (cause: unknown): { readonly pinRefused?: MachinePinRefused } => {
+    const refusal = cause instanceof MachinePersistenceError ? cause.cause : cause;
+    return refusal instanceof MachineRefused && (refusal.check === "name-pinned-elsewhere" || refusal.check === "installation-pinned-elsewhere")
+      ? { pinRefused: refusal.check } : {};
+  };
   // Reads and seat control take no machine mutation lock: a seat start must not wait behind a send.
   const unlocked = new Set<string>(["machine.list", "machine.status", "machine.harnesses", "machine.logs", "machine.seat-start", "machine.seat-stop", "machine.seat-read"]);
   return {
@@ -541,7 +547,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
             ...(cause instanceof MachineSetupError ? { installed: cause.installed, ...(cause.ownWords === true ? { ownWords: true as const } : {}),
               ...(cause.takeoverRemote === undefined ? {} : { takeoverRemote: cause.takeoverRemote }) } : {}),
             // The sender of a setup reads which pin rule refused it from here, closed, never from the words.
-            ...(cause instanceof MachineRefused && (cause.check === "name-pinned-elsewhere" || cause.check === "installation-pinned-elsewhere") ? { pinRefused: cause.check } : {}),
+            ...pinRuleOf(cause),
             ...(failure === undefined ? {} : { failure }),
           } },
       } as const)))),
