@@ -23,6 +23,11 @@ const PROTOCOL: u64 = 1;
 const DIAL_TIMEOUT: Duration = Duration::from_secs(8);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const MAINTENANCE_TIMEOUT: Duration = Duration::from_secs(5);
+/// A kill is asynchronous: the incumbent's own table still counts the seat
+/// until its process is reaped, so the lease is asked only once every killed
+/// session has actually gone.
+const STOP_BOUND: Duration = Duration::from_secs(10);
+const STOP_POLL: Duration = Duration::from_millis(100);
 
 /// The incumbent's maintenance lease, or why it could not be held.
 pub enum Hold {
@@ -32,6 +37,8 @@ pub enum Hold {
     Refused {
         running_seats: u32,
     },
+    /// Sessions were killed and at least one was still there at the bound.
+    SeatsStillRunning(u32),
     Unknown,
 }
 
@@ -149,6 +156,47 @@ impl Client {
     }
 }
 
+impl Client {
+    fn sessions(&mut self) -> Option<Vec<SessionRow>> {
+        let data = self.call("list", json!({}), REQUEST_TIMEOUT)?;
+        Some(
+            data.get("sessions")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .unwrap_or_default(),
+        )
+    }
+}
+
+/// Every killed session is gone from the incumbent's own table, or the bound
+/// passed without that.
+fn wait_until_gone(client: &mut Client, killed: &[String], bound: Duration) -> bool {
+    let deadline = std::time::Instant::now() + bound;
+    loop {
+        match client.sessions() {
+            Some(sessions) => {
+                let alive = killed.iter().any(|binding| {
+                    sessions
+                        .iter()
+                        .any(|row| &row.binding_id == binding && row.status != "exited")
+                });
+                if !alive {
+                    return true;
+                }
+            }
+            None => {
+                // The table went quiet: nothing here can prove the seats are
+                // gone, and the lease is not the place to guess.
+                return false;
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(STOP_POLL);
+    }
+}
+
 fn own_socket(junto_home: &Path) -> std::path::PathBuf {
     junto_home.join(".junto").join("term").join("control.sock")
 }
@@ -166,6 +214,10 @@ fn own_token(junto_home: &Path) -> Option<String> {
 
 /// The incumbent's maintenance lease, or why it could not be held.
 pub fn hold_incumbent_for_update(junto_home: &Path, stop_running_seats: bool) -> Hold {
+    hold_with(junto_home, stop_running_seats, STOP_BOUND)
+}
+
+fn hold_with(junto_home: &Path, stop_running_seats: bool, stop_bound: Duration) -> Hold {
     let Some(token) = own_token(junto_home) else {
         return Hold::Unknown;
     };
@@ -176,24 +228,24 @@ pub fn hold_incumbent_for_update(junto_home: &Path, stop_running_seats: bool) ->
         return Hold::Unknown;
     }
     if stop_running_seats {
-        let Some(data) = client.call("list", json!({}), REQUEST_TIMEOUT) else {
+        let Some(sessions) = client.sessions() else {
             return Hold::Unknown;
         };
-        let sessions: Vec<SessionRow> = data
-            .get("sessions")
-            .cloned()
-            .and_then(|value| serde_json::from_value(value).ok())
-            .unwrap_or_default();
+        let mut killed: Vec<String> = Vec::new();
         for session in sessions {
             if session.status == "exited" {
                 continue;
             }
-            // A kill that fails is not the lease's answer; the count below is.
+            // A kill that fails is not the lease's answer; the wait below is.
             let _ = client.call(
                 "kill",
                 json!({ "bindingId": session.binding_id }),
                 REQUEST_TIMEOUT,
             );
+            killed.push(session.binding_id);
+        }
+        if !killed.is_empty() && !wait_until_gone(&mut client, &killed, stop_bound) {
+            return Hold::SeatsStillRunning(killed.len().min(u32::MAX as usize) as u32);
         }
     }
     let Some(data) = client.call("maintenance.acquire", json!({}), MAINTENANCE_TIMEOUT) else {
@@ -232,6 +284,19 @@ pub fn running_seats_refusal(running_seats: u32) -> Refused {
     Refused::with_running_seats(message, running_seats)
 }
 
+/// The refusal a seat that did not stop earns: not the operator's confirm,
+/// which was already given, but a machine to look at.
+pub fn seats_did_not_stop(count: u32) -> Refused {
+    let message = if count == 1 {
+        "One seat on this machine did not stop when it was asked to, so nothing was changed. Check this machine before sending again".to_string()
+    } else {
+        format!(
+            "{count} seats on this machine did not stop when they were asked to, so nothing was changed. Check this machine before sending again"
+        )
+    };
+    Refused::new(message)
+}
+
 /// The refusal an unanswered socket earns.
 pub fn running_seats_unknown() -> Refused {
     Refused::with_running_seats_unknown(
@@ -242,6 +307,170 @@ pub fn running_seats_unknown() -> Refused {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+
+    /// A term control socket that answers like the incumbent: the token
+    /// handshake, its own session table, kills that take effect asynchronously,
+    /// and a maintenance lease that only grants once the table is empty.
+    fn incumbent(
+        home: &Path,
+        exit_after_lists: Option<usize>,
+    ) -> (Arc<Mutex<Vec<String>>>, std::thread::JoinHandle<()>) {
+        use std::io::{BufRead, BufReader, Write};
+        use std::os::unix::net::UnixListener;
+
+        let term = home.join(".junto/term");
+        std::fs::create_dir_all(&term).expect("a term directory");
+        let token: String = (0..64)
+            .map(|index| {
+                let byte = (0x41u8.wrapping_add((index * 7 % 6) as u8)) as char;
+                byte.to_ascii_lowercase()
+            })
+            .collect();
+        std::fs::write(term.join("token"), &token).expect("a token");
+        let socket = term.join("control.sock");
+        let _ = std::fs::remove_file(&socket);
+        let listener = UnixListener::bind(&socket).expect("the control socket");
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let record = seen.clone();
+        let handle = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("a client");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            let mut writer = stream;
+            let mut killed = false;
+            let mut lists_since_kill = 0usize;
+            loop {
+                let mut line = String::new();
+                match reader.read_line(&mut line) {
+                    Ok(0) | Err(_) => return,
+                    Ok(_) => {}
+                }
+                let request: Value = match serde_json::from_str(line.trim()) {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                };
+                if request.get("token").is_some() {
+                    record.lock().expect("seen").push("auth".to_string());
+                    let _ = writeln!(
+                        writer,
+                        "{}",
+                        json!({ "v": PROTOCOL, "ok": true, "id": "auth" })
+                    );
+                    continue;
+                }
+                let id = request.get("id").cloned().unwrap_or(Value::Null);
+                let op = request
+                    .get("op")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                record.lock().expect("seen").push(op.to_string());
+                let data = match op {
+                    "list" => {
+                        let status = if !killed {
+                            "running"
+                        } else {
+                            lists_since_kill += 1;
+                            match exit_after_lists {
+                                Some(after) if lists_since_kill >= after => "exited",
+                                _ => "running",
+                            }
+                        };
+                        json!({ "sessions": [{ "bindingId": "s1", "status": status }] })
+                    }
+                    "kill" => {
+                        killed = true;
+                        json!({})
+                    }
+                    "maintenance.acquire" => {
+                        let gone = killed
+                            && exit_after_lists.is_some_and(|after| lists_since_kill >= after);
+                        if gone {
+                            json!({ "acquired": true })
+                        } else {
+                            json!({ "acquired": false, "evidence": { "activeTerminalSessions": 1 } })
+                        }
+                    }
+                    other => panic!("unexpected op {other}"),
+                };
+                let _ = writeln!(
+                    writer,
+                    "{}",
+                    json!({ "v": PROTOCOL, "ok": true, "id": id, "data": data })
+                );
+            }
+        });
+        (seen, handle)
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let home =
+            super::super::paths::home().join(format!(".junto-hold-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        home
+    }
+
+    #[test]
+    fn one_call_stops_a_session_that_takes_a_moment_to_exit() {
+        let home = scratch("moment");
+        let (seen, server) = incumbent(&home, Some(3));
+        let held = hold_with(&home, true, Duration::from_secs(5));
+        assert!(
+            matches!(held, Hold::Lease(_)),
+            "one call takes the lease, never the confirm again"
+        );
+        drop(held);
+        let operations = seen.lock().expect("seen").clone();
+        assert_eq!(operations.first().map(String::as_str), Some("auth"));
+        assert_eq!(
+            operations.iter().filter(|op| *op == "kill").count(),
+            1,
+            "the seat is killed once"
+        );
+        let acquire = operations
+            .iter()
+            .position(|op| op == "maintenance.acquire")
+            .expect("the lease was asked for");
+        assert!(
+            operations[..acquire]
+                .iter()
+                .filter(|op| *op == "list")
+                .count()
+                >= 4,
+            "the lease is asked only after the table showed the session gone: {operations:?}"
+        );
+        drop(server);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_seat_that_never_stops_refuses_with_its_own_words_and_never_asks_for_the_lease() {
+        let home = scratch("stubborn");
+        let (seen, server) = incumbent(&home, None);
+        let held = hold_with(&home, true, Duration::from_millis(300));
+        match held {
+            Hold::SeatsStillRunning(1) => {}
+            _ => panic!("a seat that never stops is its own refusal"),
+        }
+        let operations = seen.lock().expect("seen").clone();
+        assert!(
+            !operations.iter().any(|op| op == "maintenance.acquire"),
+            "a seat that did not go is not a lease: {operations:?}"
+        );
+        let refused = seats_did_not_stop(1);
+        assert!(
+            refused.message.contains("did not stop"),
+            "{}",
+            refused.message
+        );
+        assert!(
+            !refused.message.contains("Confirm to stop it"),
+            "the confirm was already given: {}",
+            refused.message
+        );
+        assert!(seats_did_not_stop(2).message.contains("2 seats"));
+        drop(server);
+        let _ = std::fs::remove_dir_all(&home);
+    }
 
     #[test]
     fn without_a_token_there_is_no_lease_and_no_guess() {

@@ -570,6 +570,9 @@ fn install_flow_with(
             Some(hold::Hold::Refused { running_seats }) => {
                 return Err(hold::running_seats_refusal(*running_seats));
             }
+            Some(hold::Hold::SeatsStillRunning(count)) => {
+                return Err(hold::seats_did_not_stop(*count));
+            }
             Some(hold::Hold::Unknown) => return Err(hold::running_seats_unknown()),
             Some(hold::Hold::Lease(_)) => {}
             None => {}
@@ -1535,6 +1538,7 @@ mod tests {
     enum Seats {
         Lease,
         Refused,
+        StillRunning,
         Unknown,
     }
 
@@ -1702,6 +1706,7 @@ mod tests {
                         running_seats: held.running_seats,
                     },
                     Seats::Unknown => hold::Hold::Unknown,
+                    Seats::StillRunning => hold::Hold::SeatsStillRunning(held.running_seats),
                 }
             }
         }));
@@ -2135,6 +2140,49 @@ mod tests {
             refused.message
         );
         assert_eq!(machine.fixture.borrow().stops, 0, "nothing was stopped");
+        assert!(machine.current().contains(&"a".repeat(64)));
+    }
+
+    #[test]
+    fn a_seat_that_does_not_stop_is_its_own_refusal_not_the_confirm_again() {
+        let machine = Machine::new("still-running", "a");
+        machine.fixture.borrow_mut().ready(&"a".repeat(64));
+        machine.install(None).expect("the first install");
+        {
+            let mut fixture = machine.fixture.borrow_mut();
+            fixture.seats = Seats::StillRunning;
+            fixture.running_seats = 1;
+        }
+        let bundle = machine.root.join("bundle-b");
+        let mut manifest = shipped_bundle(&bundle);
+        manifest.build = "b".repeat(64);
+        fs::write(
+            bundle.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("json"),
+        )
+        .expect("the manifest");
+        let mut input = machine.input(Some(true));
+        input.bundle = bundle.display().to_string();
+        let (refused, disposition, _) =
+            install_flow_with(input, &machinery(machine.fixture.clone()))
+                .err()
+                .expect("a seat that did not stop");
+        assert_eq!(disposition, Disposition::Staged);
+        assert!(
+            refused.message.contains("did not stop"),
+            "{}",
+            refused.message
+        );
+        assert!(
+            !refused.message.contains("Confirm to stop it"),
+            "the operator already confirmed: {}",
+            refused.message
+        );
+        assert_eq!(
+            machine.fixture.borrow().stops,
+            0,
+            "the incumbent is not stopped twice"
+        );
         assert!(machine.current().contains(&"a".repeat(64)));
     }
 
