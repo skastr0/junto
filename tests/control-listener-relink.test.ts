@@ -96,8 +96,8 @@ describe.skipIf(process.platform !== "linux")("a control listener under a relink
         await removeObservedSocket(lease);
         console.log("STARTED");
       } catch (error) { console.log("REFUSED " + error.message); }`;
-    const run = spawnSync("unshare", ["-rm", "sh", "-c", 'mount --bind "$1" "$2" && exec "$3" --experimental-strip-types --no-warnings --input-type=module -e "$4" "$2"', "sh",
-      join(base, "real"), join(base, "view"), process.execPath, child], { encoding: "utf8", timeout: 20_000 });
+    const run = spawnSync("unshare", ["-rm", "sh", "-c", 'mount --bind "$1" "$2" && exec "$3" -e "$4" "$2"', "sh",
+      join(base, "real"), join(base, "view"), "bun", child], { encoding: "utf8", timeout: 20_000 });
     expect(run.stderr).toBe("");
     expect(run.stdout.trim()).toBe("REFUSED refusing to replace control socket with a live listener");
   });

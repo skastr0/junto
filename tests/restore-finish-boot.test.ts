@@ -55,7 +55,8 @@ describe("restore-finish at boot", () => {
   });
 });
 
-describe("a core's boot under the home lock", () => {
+// A whole core boots in each: past vitest's default five seconds when the lane is busy.
+describe("a core's boot under the home lock", { timeout: 30_000 }, () => {
   const boot = async (finishRestore: () => Promise<"ready" | "updating" | "refused">) => {
     const home = await root();
     let lockHeldDuringRestore: boolean | undefined;
