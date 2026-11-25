@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   MsgPromptArgs, MsgSendArgs, decodeWorkRequest,
 } from "../src/shared/work-control";
-import { admitWorkTarget, connectedCapabilities } from "../src/core/work/authz";
+import { admitWorkTarget, connectedCapabilities, resolveWorkTarget } from "../src/core/work/authz";
 import { portForWorkOp } from "../src/shared/physics/work-ports";
 import { asNodeId, type Peer } from "../src/shared/model";
 import { OTHER_MACHINE } from "./support/machines";
@@ -112,5 +112,30 @@ describe("crew work wire contract", () => {
     }
     const site = admitWorkTarget(canvas, "author", "site", "thread.list");
     expect(Result.isFailure(site) && site.failure).toMatchObject({ type: "ScopeError", details: { missing: "compatible target kind" } });
+  });
+
+  it("resolves a wired seat by name whatever ports its edge carries, then judges the op; a name with no edge stays unknown", () => {
+    const canvas = canvasOf(
+      [seat("author"), seat("screen", { label: "Terminal only" }), seat("stranger", { label: "Stranger" })],
+      [wire("s", "author", "screen", "messages", { mask: ["terminal.read"] })],
+    );
+    for (const op of ["thread.list", "msg.send", "msg.prompt", "seat.wait"] as const) {
+      const named = resolveWorkTarget(canvas, "author", "Terminal only", op);
+      expect(Result.isSuccess(named) && named.success, op).toEqual({ nodeId: "screen" });
+      const refused = admitWorkTarget(canvas, "author", "screen", op);
+      expect(Result.isFailure(refused) && refused.failure.details, op).toMatchObject({ reason: "port_off", missing: portForWorkOp(op) });
+    }
+    const read = resolveWorkTarget(canvas, "author", "Terminal only", "seat.read");
+    expect(Result.isSuccess(read) && read.success).toEqual({ nodeId: "screen" });
+    const stranger = resolveWorkTarget(canvas, "author", "Stranger", "thread.list");
+    expect(Result.isFailure(stranger) && stranger.failure).toMatchObject({ type: "UnknownTarget", details: { target: "Stranger" } });
+  });
+
+  it("resolves a wired seat on another machine by name, and refuses it with other_machine", () => {
+    const canvas = canvasOf([seat("author"), peerSeat("away")], [wire("m", "author", "away", "messages")]);
+    const named = resolveWorkTarget(canvas, "author", "away", "thread.list");
+    expect(Result.isSuccess(named) && named.success).toEqual({ nodeId: "away" });
+    const refused = admitWorkTarget(canvas, "author", "away", "thread.list");
+    expect(Result.isFailure(refused) && refused.failure.details?.reason).toBe("other_machine");
   });
 });

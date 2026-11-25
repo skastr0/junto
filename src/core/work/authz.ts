@@ -852,10 +852,25 @@ export type TargetCandidates = (doc: Canvas, callerId: string, op: WorkOpName) =
 
 const candidateOf = (node: Node): TargetCandidate => ({ kind: node.kind, nodeId: node.id, name: titleOf(node) });
 
-/** Mail: every seat wired to the caller that this op admits. */
+/**
+ * Refusals of a node the caller holds an edge to whose kind takes the op: a
+ * port turned off on that edge, or a seat on another machine. A name still
+ * resolves to such a node, and the op's own admission says why it is refused.
+ */
+const WIRED_REFUSALS: ReadonlySet<string> = new Set(["port_off", "other_machine"]);
+
+/**
+ * Mail and seat ops: every node wired to the caller whose kind takes this op,
+ * whatever ports its edge carries. A name resolves to it as its id does, and
+ * the op is then judged, so a masked port is refused by its name either way.
+ * A name that matches only nodes with no edge to the caller resolves to none.
+ */
 export const wiredTargetCandidates: TargetCandidates = (doc, callerId, op) =>
   wiredNodes(doc, callerId)
-    .filter((node) => Result.isSuccess(admitWorkTarget(doc, callerId, node.id, op)))
+    .filter((node) => {
+      const admitted = admitWorkTarget(doc, callerId, node.id, op);
+      return Result.isSuccess(admitted) || WIRED_REFUSALS.has(admitted.failure.details?.reason ?? "");
+    })
     .map(candidateOf);
 
 /**
