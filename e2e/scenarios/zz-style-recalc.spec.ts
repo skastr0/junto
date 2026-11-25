@@ -1,32 +1,41 @@
 /**
- * Scratch probe (untracked, measurement only): what the top bar's
- * `html:has([role=dialog], [role=menu], …) .station-bar` rule costs in style
- * recalculation when an overlay opens and closes on a 100x factory board.
+ * Guard (formerly a scratch measurement): the top bar's drag region must leave
+ * while an overlay that crosses it is open, and must come back when it closes.
  *
- * One arm per build: run it at 853f9044d~1 (no rule) and at 853f9044d (the
- * rule), several runs each, and compare UpdateLayoutTree ms and elementCount
- * from the app's own trace (SIGUSR2, 30 s, src/app/observability/perf-trace.ts).
+ * History, because the numbers are the reason the rule exists: the first
+ * version keyed on `html:has([role=dialog], [role=menu], …) .station-bar`, and
+ * that invalidated the style of the whole document at every open and close.
+ * On a 2x factory board (904 nodes) a dialog open plus close went from 39.8 ms
+ * of layout-tree update to 838 ms, with 37,162 elements recalculated instead of
+ * 1,644 (measured with the app's own recorder and scripts/zz-style-recalc.ts).
+ * The replacement is one counted attribute on the root, `data-junto-overlay`,
+ * held by the modal stack and the floating menus (lib/overlay-open.ts); a
+ * stylesheet test forbids `:has()` on html, body or the root.
  *
- * The 100x board is the factory shape tiled 100 times: ~45k nodes, ~101k wires,
- * seeded once into a cached SQLite file under /tmp and copied in per launch.
+ * This spec proves the cascade on a real app: the attribute appears while a
+ * bar-crossing overlay is open and is gone after it closes, with the darwin
+ * marker set (the rule is darwin-only; the Linux display computes the same
+ * cascade, see top-bar-drag.spec.ts).
  *
- * usage on a VM: JUNTO_ARM=before scripts/run-e2e.sh e2e/scenarios/zz-style-recalc.spec.ts
+ * It never signals the app. A spec may only use process.kill as an existence
+ * probe (tests/tooling-process-safety-architecture.test.ts).
+ *
+ * usage: JUNTO_SCALE=2 scripts/run-e2e.sh e2e/scenarios/zz-style-recalc.spec.ts
  */
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cardIds } from "../harness/canvas";
-import { buildProofBoard, loadFactoryFixture, type ProofBoard } from "../harness/gpu-proof";
+import { buildProofBoard, loadFactoryFixture } from "../harness/gpu-proof";
 import { expect, test } from "../harness/launch";
 import { writeFixtureModel } from "../harness/sandbox";
 
 const ARM = process.env.JUNTO_ARM ?? "unlabelled";
-const SCALE = Number(process.env.JUNTO_SCALE ?? "100");
-const OUT = `${homedir()}/grid-attrib`;
+const SCALE = Number(process.env.JUNTO_SCALE ?? "2");
 const FIXTURE = process.env.JUNTO_FACTORY_JSON ?? "/tmp/factory-board.json";
 const CACHE = `${tmpdir()}/zz-style-${String(SCALE)}x.db`;
 
-const board: ProofBoard = buildProofBoard(loadFactoryFixture(FIXTURE), SCALE as 1 | 2 | 10 | 100);
+const board = buildProofBoard(loadFactoryFixture(FIXTURE), SCALE as 1 | 2 | 10 | 100);
 console.log(`arm ${ARM}: ${String(SCALE)}x board, ${String(board.model.nodes.length)} nodes, ${String(board.model.wires.length)} wires`);
 
 test.use({
@@ -44,51 +53,33 @@ test.use({
   },
 });
 
-test("style recalculation around an overlay on a large board", async ({ junto }) => {
+test("a bar-crossing overlay takes the bar out of the drag region and gives it back", async ({ junto }) => {
   test.setTimeout(900_000);
-  const { page, sandbox, app } = junto;
-  mkdirSync(OUT, { recursive: true });
+  const { page } = junto;
 
-  // The canvas is up when it lists cards; 45k nodes take a while to arrive.
   await expect.poll(async () => (await cardIds(page)).length, { timeout: 240_000 }).toBeGreaterThan(0);
-  // The rule is darwin-only, and the operator runs darwin; the Linux display
+  // The rule is darwin-only and the operator runs darwin; the Linux display
   // computes the same cascade when the marker says so (top-bar-drag.spec.ts).
-  // JUNTO_PLATFORM_MARKER=linux is the control: same build, rule present but
-  // its leftmost compound does not match, so it must not recalc the document.
   const marker = process.env.JUNTO_PLATFORM_MARKER ?? "darwin";
   await page.evaluate((platform: string) => {
     document.documentElement.dataset.juntoPlatform = platform;
   }, marker);
-  await page.waitForTimeout(8_000);
-
-  process.kill(app.process().pid ?? 0, "SIGUSR2");
-  await page.waitForTimeout(1_500);
-
-  const trigger = page.locator(".station-command-trigger").first();
-  await trigger.click();
-  const dialog = page.locator('[role="dialog"]').first();
-  await expect(dialog).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(3_000);
-  await page.keyboard.press("Escape");
-  await expect(dialog).toBeHidden({ timeout: 30_000 });
   await page.waitForTimeout(4_000);
 
-  const dir = `${sandbox.homeDir}/.junto/traces`;
-  const deadline = Date.now() + 90_000;
-  let trace = "";
-  while (Date.now() < deadline) {
-    const names = existsSync(dir) ? readdirSync(dir).filter((name) => name.endsWith(".json")) : [];
-    const newest = names
-      .map((name) => ({ name, at: statSync(`${dir}/${name}`).mtimeMs, size: statSync(`${dir}/${name}`).size }))
-      .sort((a, b) => b.at - a.at)[0];
-    if (newest && newest.size > 1_000_000 && Date.now() - newest.at > 2_000) {
-      trace = `${dir}/${newest.name}`;
-      break;
-    }
-    await page.waitForTimeout(2_000);
-  }
-  if (trace === "") throw new Error(`no finished trace under ${dir}`);
-  const target = `${OUT}/style-${ARM}.json`;
-  writeFileSync(target, readFileSync(trace));
-  console.log(`arm ${ARM}: trace -> ${target}`);
+  const attribute = (): Promise<string | null> =>
+    page.evaluate(() => document.documentElement.getAttribute("data-junto-overlay"));
+
+  expect(await attribute()).toBeNull();
+
+  // The command bar is a bar-crossing modal (CommandBar.tsx passes no
+  // belowBar), so the bar must stop being a drag region while it is open.
+  await page.locator(".station-command-trigger").first().click();
+  const dialog = page.locator('[role="dialog"]').first();
+  await expect(dialog).toBeVisible({ timeout: 30_000 });
+  expect(await attribute()).toBe("open");
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden({ timeout: 30_000 });
+  await expect.poll(attribute, { timeout: 30_000 }).toBeNull();
+  console.log(`arm ${ARM}: data-junto-overlay open and back to null, as the bar needs`);
 });
