@@ -423,6 +423,9 @@ Rules, from remote-security's term 5 and this doc:
 | `home-lock-refused` | `Its Junto home is held by another Junto or another account. Check it again.` |
 | `status-unreadable` | `Junto there did not report its status. Check it again.` |
 | `boat-key-not-placed` | `Its machine key could not be written there. Check it again.` |
+| `seats-did-not-stop` | `A seat there did not stop when asked. Check it again before you update.` |
+| `running-seats-unreported` | `Junto there did not say how many seats it runs. Check it again before you update.` |
+| `restore-finish-blocked` | `Junto could not finish restoring its data there. Check it again.` |
 
 **An outcome only the near side knows.** The code comes from the far
 machine, so a sentence never claims an outcome the near side did not
