@@ -506,6 +506,30 @@ its own.
   `could not finish setup` advice to choose another name is wrong there
   and goes.
 
+**takeover-remote, refused because the old install is still live there**
+(an open link, or heard from within 10 minutes; remote-security R3).
+
+- `That machine refused the take-over, because another Junto using this
+  machine's name is still live there. If that one is gone for good, try
+  again once it has been quiet for 10 minutes. If it is not, remove it on
+  that machine with junto machine remove <this>.`
+- No `nothing changed`: the refusal is that machine's word, not something
+  this one established. Two steps, since a live twin and a just-reinstalled
+  machine look the same from here: waiting fits the reinstall, removing
+  fits a twin. There is no Junto command to rename this machine, so the
+  sentence does not offer one.
+
+**takeover-remote, confirmed** (R6).
+
+- `That machine now trusts this one. Send Junto to it again to finish
+  setting it up.`
+
+**The take-over preview's last-heard line.**
+
+- Today: `It last heard from the old install at 09:12.`
+- Another day: `It last heard from the old install on 24 November.`
+- Never: `It has never heard from the old install.`
+
 **The send's own `pinned` step.** It shows, on a send only, as a sixth
 step after `Junto answers`, so a refused pin shows where it stopped
 instead of five done steps beside a failure. An update never pins and
