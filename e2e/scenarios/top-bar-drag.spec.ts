@@ -136,3 +136,46 @@ test("wide panels start under the bar: drag at rest under them, no overlap at th
     await junto.close();
   }
 });
+
+test("Needs you at the smallest window with five signals raised: whole rows and a scroll", async () => {
+  test.setTimeout(180_000);
+  const ada = modelSeat({ id: "seat-ada", label: "Ada", x: 60, y: 120 });
+  const bea = modelSeat({ id: "seat-bea", label: "Bea", x: 400, y: 120 });
+  const CANVAS = "needsyoushort";
+  const junto = await launchJunto({ seedModels: { [CANVAS]: modelFixture([ada, bea]) }, afterSeed: installCrewSeatHarness });
+  const { page } = junto;
+  try {
+    await canvasReady(page, { timeout: 30_000 });
+    await crewPlayFactory(page);
+    const seats = [crewSeat(junto.sandbox, CANVAS, ada.id), crewSeat(junto.sandbox, CANVAS, bea.id)] as const;
+    await crewOccupySeat(page, CANVAS, { id: ada.id }, seats[0]);
+    await crewOccupySeat(page, CANVAS, { id: bea.id }, seats[1]);
+    const texts = ["Which build ships?", "May I delete the cache?", "Pick a region", "Need the release notes", "Is Friday fine?"];
+    for (const [i, text] of texts.entries()) {
+      const raised = await seats[i % 2]!.op("signal.raise", { kind: i === 3 ? "blocked" : "escalate", text });
+      expect(raised.ok, JSON.stringify(raised)).toBe(true);
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    const min = await junto.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.getMinimumSize());
+    await junto.app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0]!.setSize(w!, h!), min as [number, number]);
+    await new Promise((r) => setTimeout(r, 800));
+    await page.getByTestId("operator-feed-trigger").click();
+    const cards = page.getByTestId("operator-feed-card");
+    await expect(cards.first()).toBeVisible({ timeout: 15_000 });
+    await new Promise((r) => setTimeout(r, 800));
+    const geo = await page.evaluate(() => {
+      const list = document.querySelector('[data-testid="operator-feed"]') as HTMLElement;
+      const box = list.getBoundingClientRect();
+      const cardEls = [...document.querySelectorAll('[data-testid="operator-feed-card"]')] as HTMLElement[];
+      const whole = cardEls.filter((c) => { const r = c.getBoundingClientRect(); return r.top >= box.top - 1 && r.bottom <= box.bottom + 1; }).length;
+      return { viewport: `${window.innerWidth}x${window.innerHeight}`, listTop: Math.round(box.top), listHeight: Math.round(box.height), scrollHeight: list.scrollHeight, clientHeight: list.clientHeight, cards: cardEls.length, whole, overflowY: getComputedStyle(list).overflowY };
+    });
+    await page.screenshot({ path: "test-results/needs-you-short.png" }).catch(() => undefined);
+    console.log(`NEEDSYOU SHORT ${JSON.stringify(geo)}`);
+    expect(geo.cards, JSON.stringify(geo)).toBeGreaterThanOrEqual(2);
+    expect(geo.whole, `whole rows visible: ${JSON.stringify(geo)}`).toBeGreaterThanOrEqual(2);
+    expect(geo.scrollHeight > geo.clientHeight || geo.cards === geo.whole, `it scrolls when rows do not all fit: ${JSON.stringify(geo)}`).toBe(true);
+  } finally {
+    await junto.close();
+  }
+});
