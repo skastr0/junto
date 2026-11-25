@@ -3,12 +3,20 @@ import type {
   FileEntry, FileImported, FilePath, FileRead, FilesCount, FilesNodeRef, FilesResult, FilesRoot,
   FilesSearchResult, FileStamp,
 } from "@shared/files";
+import { createHash } from "node:crypto";
+import { open as openFile } from "node:fs/promises";
+import { basename } from "node:path";
 import { FilesLinkClosed, FilesRefused, fitsOneFrame, type FilesEvent, type RemoteChange } from "@shared/files-link";
+import { decodeChunk, encodeChunk, FILE_BYTES_CHUNK_MAX, FILE_BYTES_IN_FLIGHT, FILE_BYTES_UPLOAD_MAX } from "@shared/files-bytes-link";
+import { FILE_TEXT_MAX_BYTES, isFileName } from "@shared/files";
+import { fileMime } from "@shared/file-url";
 import type { NodeId } from "@shared/physics/schema";
 import { linkClient } from "../link/contract";
 import type { LinkEventContext, MachineLinkError } from "../link/types";
 import { MachineRepository } from "../machines/repository";
 import { FilesLink } from "./link";
+import { FileBytesLink } from "./bytes-link";
+import type { FileBytesReader } from "./bytes";
 
 /**
  * The window machine's end of the `files` channel (0.12, X1d): one function
@@ -42,6 +50,7 @@ export type FilesRemoteOptions = { readonly now?: () => number };
 
 export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options: FilesRemoteOptions = {}) {
   const files = yield* linkClient(FilesLink);
+  const bytesLink = yield* linkClient(FileBytesLink);
   const machines = yield* MachineRepository;
   const context = yield* Effect.context<never>();
   const now = options.now ?? Date.now;
@@ -76,6 +85,135 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
 
   const ok = <A>(value: A): FilesResult<A> => ({ ok: true, value });
   const where = (ref: FilesNodeRef) => ({ canvas: ref.canvas, node: ref.node }) as const;
+
+  /**
+   * The window this end keeps on each machine's `file-bytes` channel: at most
+   * two byte requests out at once, the rest wait here in order. The host
+   * refuses a third, so this is what keeps a large read from being refused.
+   */
+  const lanes = new Map<string, { out: number; readonly waiting: Array<() => void> }>();
+  const inLane = async <A>(machine: string, call: () => Promise<A>): Promise<A> => {
+    let lane = lanes.get(machine);
+    if (lane === undefined) { lane = { out: 0, waiting: [] }; lanes.set(machine, lane); }
+    const held = lane;
+    if (held.out >= FILE_BYTES_IN_FLIGHT) await new Promise<void>((resume) => held.waiting.push(resume));
+    held.out += 1;
+    try {
+      return await call();
+    } finally {
+      held.out -= 1;
+      held.waiting.shift()?.();
+      if (held.out === 0 && held.waiting.length === 0 && lanes.get(machine) === held) lanes.delete(machine);
+    }
+  };
+  const bytesCall = <A>(machine: string, call: () => Effect.Effect<A, CallFailure>): Promise<FilesResult<A>> =>
+    inLane(machine, () => answer(machine, call()));
+
+  /** A reader of a file on another machine: each read one chunk over the link, at most 48 KiB. */
+  const bytes = async (machine: string, ref: FilesNodeRef, path: FilePath): Promise<FilesResult<FileBytesReader & { readonly stamp: FileStamp }>> => {
+    const opened = await bytesCall(machine, () => bytesLink.ReadOpen(machine, { ...where(ref), path }));
+    if (!opened.ok) return opened;
+    const { stream, size, stamp } = opened.value;
+    let closed = false;
+    return ok({
+      size, stamp,
+      read: async (offset, length) => {
+        if (closed) throw new Error("the stream is closed");
+        if (offset >= size) return new Uint8Array(0);
+        const asked = Math.max(1, Math.min(Math.trunc(length), FILE_BYTES_CHUNK_MAX, size - offset));
+        const chunk = await bytesCall(machine, () => bytesLink.ReadChunk(machine, { stream, offset, length: asked }));
+        if (!chunk.ok) throw new Error(`the file could not be read: ${chunk.error}`);
+        const data = decodeChunk(chunk.value.data);
+        // The host answers no more than it was asked; more is not this file.
+        if (data === undefined || data.byteLength > asked) throw new Error("the file's bytes are not what was asked");
+        return data;
+      },
+      close: async () => {
+        if (closed) return;
+        closed = true;
+        await bytesCall(machine, () => bytesLink.ReadClose(machine, { stream }));
+      },
+    });
+  };
+
+  /** A text too large for one frame, read whole in chunks; over the text bound it is too large, as here. */
+  const readLarge = async (machine: string, ref: FilesNodeRef, path: FilePath): Promise<FilesResult<FileRead>> => {
+    const reader = await bytes(machine, ref, path);
+    if (!reader.ok) return reader;
+    try {
+      const stamp = reader.value.stamp;
+      if (reader.value.size > FILE_TEXT_MAX_BYTES) return ok({ kind: "too-large", size: reader.value.size, stamp });
+      const parts: Uint8Array[] = [];
+      let offset = 0;
+      while (offset < reader.value.size) {
+        const part = await reader.value.read(offset, FILE_BYTES_CHUNK_MAX);
+        if (part.byteLength === 0) break;
+        parts.push(part);
+        offset += part.byteLength;
+      }
+      const whole = Buffer.concat(parts);
+      // As the host reads a text: a NUL or bytes that are not UTF-8 make it binary.
+      const binary = (): FilesResult<FileRead> => ok({ kind: "binary", mime: fileMime(path), stamp });
+      if (whole.includes(0)) return binary();
+      try {
+        return ok({ kind: "text", text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(whole), stamp });
+      } catch {
+        return binary();
+      }
+    } catch {
+      return failed;
+    } finally {
+      void reader.value.close().catch(() => undefined);
+    }
+  };
+
+  /**
+   * Files dropped on this machine, copied onto a node on another: each staged
+   * there in chunks and hashed as it goes, then imported there. A folder is
+   * refused `is-dir`. A file over the upload bound is refused `too-large`.
+   */
+  const importFiles = async (machine: string, ref: FilesNodeRef, into: FilePath, sources: ReadonlyArray<string>): Promise<FilesResult<ReadonlyArray<FileImported>>> => {
+    const imported: FileImported[] = [];
+    for (const source of sources) {
+      const one = await importOne(machine, ref, into, source);
+      if (!one.ok) return one;
+      imported.push(...one.value);
+    }
+    return ok(imported);
+  };
+  const importOne = async (machine: string, ref: FilesNodeRef, into: FilePath, source: string): Promise<FilesResult<ReadonlyArray<FileImported>>> => {
+    const name = basename(source);
+    if (!isFileName(name)) return { ok: false, error: "invalid-path" };
+    let handle;
+    try { handle = await openFile(source, "r"); } catch { return { ok: false, error: "not-found" }; }
+    try {
+      const info = await handle.stat();
+      if (info.isDirectory()) return { ok: false, error: "is-dir" };
+      if (!info.isFile()) return { ok: false, error: "denied" };
+      if (info.size > FILE_BYTES_UPLOAD_MAX) return { ok: false, error: "too-large" };
+      const opened = await bytesCall(machine, () => bytesLink.ImportOpen(machine, { ...where(ref), into, name, size: info.size }));
+      if (!opened.ok) return opened;
+      const upload = opened.value.upload;
+      const hash = createHash("sha256");
+      const buffer = Buffer.alloc(FILE_BYTES_CHUNK_MAX);
+      let offset = 0;
+      while (offset < info.size) {
+        const { bytesRead } = await handle.read(buffer, 0, Math.min(FILE_BYTES_CHUNK_MAX, info.size - offset), offset);
+        // Shorter than its stat: the file changed under the drop, and nothing is imported.
+        if (bytesRead === 0) return failed;
+        const part = buffer.subarray(0, bytesRead);
+        hash.update(part);
+        const sent = await bytesCall(machine, () => bytesLink.ImportChunk(machine, { upload, offset, data: encodeChunk(part) }));
+        if (!sent.ok) return sent;
+        offset += bytesRead;
+      }
+      return await bytesCall(machine, () => bytesLink.ImportEnd(machine, { upload, sha256: hash.digest("hex") }));
+    } catch {
+      return failed;
+    } finally {
+      await handle.close().catch(() => undefined);
+    }
+  };
 
   const open = async (machine: string, ref: FilesNodeRef): Promise<FilesResult<FilesRoot>> => {
     const result = await answer(machine, files.Open(machine, where(ref)));
@@ -151,8 +289,11 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
       answer(machine, files.Count(machine, where(ref))),
     list: (machine: string, ref: FilesNodeRef, dir: FilePath): Promise<FilesResult<ReadonlyArray<FileEntry>>> =>
       answer(machine, files.List(machine, { ...where(ref), dir })),
-    read: (machine: string, ref: FilesNodeRef, path: FilePath): Promise<FilesResult<FileRead>> =>
-      answer(machine, files.Read(machine, { ...where(ref), path })),
+    read: async (machine: string, ref: FilesNodeRef, path: FilePath): Promise<FilesResult<FileRead>> => {
+      const result = await answer(machine, files.Read(machine, { ...where(ref), path }));
+      // A text the host could not send in one frame comes in chunks; one over the text bound stays too large.
+      return result.ok && result.value.kind === "too-large" && result.value.size <= FILE_TEXT_MAX_BYTES ? readLarge(machine, ref, path) : result;
+    },
     write: async (machine: string, ref: FilesNodeRef, path: FilePath, text: string, base: FileStamp | null): Promise<FilesResult<FileStamp>> =>
       // A text over one frame is refused here, before the link: X3 sends it in chunks.
       fitsOneFrame(text)
@@ -166,8 +307,8 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
       answer(machine, files.Move(machine, { ...where(ref), path, into })),
     trash: (machine: string, ref: FilesNodeRef, path: FilePath): Promise<FilesResult<null>> =>
       answer(machine, files.Trash(machine, { ...where(ref), path })),
-    import: (machine: string, ref: FilesNodeRef, into: FilePath): Promise<FilesResult<ReadonlyArray<FileImported>>> =>
-      answer(machine, files.Import(machine, { ...where(ref), into })),
+    import: importFiles,
+    bytes,
     search: (machine: string, ref: FilesNodeRef, query: string, seq: number): Promise<FilesResult<FilesSearchResult>> =>
       answer(machine, files.Search(machine, { ...where(ref), query, seq })),
     /** The nodes opened here on a machine; for tests and the router. */
@@ -190,7 +331,7 @@ export const filesRemoteOff: FilesRemote = {
   onClosed: () => Effect.void,
   onChange: () => () => undefined,
   open: refusedOff, close: refusedOff, count: refusedOff, list: refusedOff, read: refusedOff, write: refusedOff,
-  create: refusedOff, rename: refusedOff, move: refusedOff, trash: refusedOff, import: refusedOff, search: refusedOff,
+  create: refusedOff, rename: refusedOff, move: refusedOff, trash: refusedOff, import: refusedOff, search: refusedOff, bytes: refusedOff,
   watched: () => [],
 };
 

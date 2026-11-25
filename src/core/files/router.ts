@@ -2,6 +2,8 @@ import { FILES_REMOTE_ENABLED } from "@shared/features";
 import type {
   FileEntry, FilePath, FileRead, FilesChanged, FilesCount, FilesNodeRef, FilesResult, FilesRoot, FilesSearchResult, FileStamp,
 } from "@shared/files";
+import type { FileImported } from "@shared/files";
+import { readerOfHandle, type FileBytesReader } from "./bytes";
 import type { FilesRemote } from "./link-client";
 import type { FilesNodeFacts, FilesService } from "./service";
 
@@ -11,16 +13,17 @@ import type { FilesNodeFacts, FilesService } from "./service";
  * before; another machine's goes to that machine's Junto over the link
  * (`link-client.ts`), which answers `unreachable` when there is no link.
  *
- * Open in default app, Reveal in Finder and imports are not routed: they act
- * on this machine, so the local service refuses another machine's node
- * `elsewhere` (imports cross with X3). With the feature off, or before the
- * link client is ready, every call goes to the local service, as in 0.11.
+ * Open in default app and Reveal in Finder are not routed: they act on this
+ * machine, so the local service refuses another machine's node `elsewhere`.
+ * Since X3 a file's bytes and a drop cross too, on the link's `file-bytes`
+ * channel. With the feature off, or before the link client is ready, every
+ * call goes to the local service, as in 0.11.
  */
 
 /** What the router asks of the link client. */
 export type FilesRemotePort = Pick<
   FilesRemote,
-  "open" | "close" | "count" | "list" | "read" | "write" | "create" | "rename" | "move" | "trash" | "search" | "onChange"
+  "open" | "close" | "count" | "list" | "read" | "write" | "create" | "rename" | "move" | "trash" | "search" | "onChange" | "import" | "bytes"
 >;
 
 export type FilesRouterDeps = {
@@ -152,6 +155,22 @@ export const makeFilesRouter = (deps: FilesRouterDeps) => {
       routed(ref, (remote, machine) => remote.move(machine, ref, path, intoDir), () => deps.local.move(ref, path, intoDir)),
     trash: (ref: FilesNodeRef, path: FilePath): Promise<FilesResult<null>> =>
       routed(ref, (remote, machine) => remote.trash(machine, ref, path), () => deps.local.trash(ref, path)),
+    /** Files dropped on this machine, copied under the node: on its machine, in chunks, when it is another. */
+    import: (ref: FilesNodeRef, intoDir: FilePath, sources: ReadonlyArray<string>): Promise<FilesResult<ReadonlyArray<FileImported>>> =>
+      routed(ref, (remote, machine) => remote.import(machine, ref, intoDir, sources), () => deps.local.import(ref, intoDir, sources)),
+    /**
+     * A file's bytes for `junto-file:`, by the node's id as its URL names it: a
+     * node a window here has open on another machine reads over the link, any
+     * other from the local service, as before.
+     */
+    bytes: async (node: string, path: FilePath): Promise<FilesResult<FileBytesReader>> => {
+      const remote = enabled ? deps.remote() : undefined;
+      const away = remote === undefined ? undefined
+        : [...sessions.values()].find((session) => session.subscribers.size > 0 && session.ref.node.toLowerCase() === node);
+      if (remote !== undefined && away !== undefined) return remote.bytes(away.machine, away.ref, path);
+      const found = await deps.local.bytes(node, path);
+      return found.ok ? { ok: true, value: readerOfHandle(found.value.handle, found.value.size) } : found;
+    },
   };
 };
 

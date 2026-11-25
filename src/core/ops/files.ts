@@ -34,7 +34,7 @@ import { workerRootIndex } from "../files/index-worker-host";
 import { peerSubscribers } from "../files/peer-subscribers";
 import { FilesRemoteService } from "../files/link-client";
 import { makeFilesRouter } from "../files/router";
-import { readerOfHandle, type FileBytesReader } from "../files/bytes";
+import type { FileBytesReader } from "../files/bytes";
 import { makeFilesService } from "../files/service";
 import { coreRunner } from "../core-runner";
 import { FILES_CHANGED, type FilesChangedPush } from "../../contract/core/channels";
@@ -158,7 +158,7 @@ export const FilesHandlers = FilesRpcs.toLayer(
         const seen = dropped.get(subscriber);
         if (seen === undefined || sources.some((source) => !seen.has(source))) return Effect.succeed(denied);
         for (const source of sources) seen.delete(source);
-        return ask(() => service.import(ref, into, sources));
+        return ask(() => router.import(ref, into, sources));
       },
       FilesOpenInDefaultApp: ({ ref, path }) => ask(() => service.openInDefaultApp(ref, path)),
       FilesReveal: ({ ref, path }) => ask(() => service.revealInFinder(ref, path)),
@@ -170,10 +170,10 @@ export const FilesHandlers = FilesRpcs.toLayer(
         }),
       FilesBytesOpen: ({ node, path }): Effect.Effect<FilesResult<FilesBytesOpened>> =>
         Effect.gen(function* () {
-          const found = yield* ask(() => service.bytes(node, path));
+          const found = yield* ask(() => router.bytes(node, path));
           if (!found.ok) return found;
           const token = randomUUID();
-          openBytes.set(token, readerOfHandle(found.value.handle, found.value.size));
+          openBytes.set(token, found.value);
           return { ok: true, value: { token, size: found.value.size } } as const;
         }),
       FilesBytesRead: ({ token, offset, length }) =>
