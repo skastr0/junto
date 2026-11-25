@@ -16,7 +16,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { mod } from "../harness/keys";
+import { MAC, mod } from "../harness/keys";
 import { card, canvasReady, cameraSettled } from "../harness/canvas";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { modelFixture, modelMessagesWire, modelRegion, modelSeat } from "../harness/model";
@@ -65,13 +65,15 @@ const installEars = (page: Page) =>
       for (const record of records) {
         for (const node of record.removedNodes) {
           if (!(node instanceof Element)) continue;
-          const dropped = node.matches('[data-testid="seat-threads-waiting"]') ? [node] : [...node.querySelectorAll('[data-testid="seat-threads-waiting"]')];
+          const dropSel = '[data-testid="seat-threads-waiting"], [data-testid="operator-threads-row-waiting"]';
+          const dropped = node.matches(dropSel) ? [node] : [...node.querySelectorAll(dropSel)];
           for (const _mark of dropped) w.__ears.gone.push({ t: performance.now() });
         }
         for (const node of record.addedNodes) {
           if (!(node instanceof Element)) continue;
           if (node.parentElement?.matches('[data-testid="seat-threads-said"]')) w.__ears.said.push({ text: node.textContent ?? "", t: performance.now() });
-          const marks = node.matches('[data-testid="seat-threads-waiting"]') ? [node] : [...node.querySelectorAll('[data-testid="seat-threads-waiting"]')];
+          const waitingSel = '[data-testid="seat-threads-waiting"], [data-testid="operator-threads-row-waiting"]';
+          const marks = node.matches(waitingSel) ? [node] : [...node.querySelectorAll(waitingSel)];
           for (const mark of marks) w.__ears.marks.push({ text: mark.textContent ?? "", t: performance.now() });
         }
       }
@@ -116,6 +118,8 @@ test("[fake-tui] Global threads", async () => {
       frames.push(await shot(`${id}-FAIL`).catch(() => "no frame"));
       lines.push({ id, pass: false, note: String(error instanceof Error ? error.message : error).slice(0, 900), frames });
       await closeThreads(page).catch(() => undefined);
+      // A failed line leaves no seat open over the next one.
+      for (let i = 0; i < 4 && (await page.getByRole("button", { name: "Close view" }).count()) > 0; i += 1) await page.getByRole("button", { name: "Close view" }).first().click().catch(() => undefined);
     }
     await writeFile(join(FRAMES, "results.json"), `${JSON.stringify(lines, null, 2)}\n`);
   };
@@ -165,20 +169,23 @@ test("[fake-tui] Global threads", async () => {
       frames.push(await shot("g1a-from-canvas"));
       await page.keyboard.press(mod("U"));
       await expect(modal(page)).toHaveCount(0, { timeout: 5_000 });
-      await card(page, s.bea.id).dblclick();
-      const surface = page.locator('[data-testid="native-terminal-surface"]:has(#seat-stage-seat-bea)');
-      await expect(surface).toBeVisible({ timeout: 20_000 });
-      await surface.locator(".xterm").first().click();
-      await openThreads(page);
-      frames.push(await shot("g1b-over-terminal"));
-      await closeThreads(page);
-      await surface.getByRole("button", { name: "Close view" }).first().click();
+      // Off macOS the key is Ctrl+U, a shell key: the key table leaves the terminal out of it, so there is no chord over a focused terminal there.
+      if (MAC) {
+        await card(page, s.bea.id).dblclick();
+        const surface = page.locator('[data-testid="native-terminal-surface"]:has(#seat-stage-seat-bea)');
+        await expect(surface).toBeVisible({ timeout: 20_000 });
+        await surface.locator(".xterm").first().click();
+        await openThreads(page);
+        frames.push(await shot("g1b-over-terminal"));
+        await closeThreads(page);
+        await surface.getByRole("button", { name: "Close view" }).first().click();
+      }
       await page.getByRole("button", { name: "Open settings" }).click();
       await openThreads(page);
       frames.push(await shot("g1c-over-settings"));
       await closeThreads(page);
       await page.keyboard.press("Escape");
-      return "Cmd+U opens it from the canvas, over a focused terminal and over Settings; Cmd+U again closes it";
+      return MAC ? "Cmd+U opens it from the canvas, over a focused terminal and over Settings; Cmd+U again closes it" : "Ctrl+U opens it from the canvas and over Settings, and again closes it; over a focused terminal there is no chord off macOS (a shell key), so that step is not run";
     });
 
     // 2. Only threads with the operator, across seats.
@@ -225,8 +232,9 @@ test("[fake-tui] Global threads", async () => {
       frames.push(await shot("g4-replied"));
       const heard = await ears(page);
       const said4 = heard.said.map((x) => x.text);
+      const lived4 = heard.marks.map((m, i) => `"${m.text}" drawn ${Math.round(m.t - sentAt)} ms after the press, gone ${heard.gone[i] ? `${Math.round(heard.gone[i]!.t - m.t)} ms later` : "never"}`);
       if (heard.marks.length > 0 || JSON.stringify(said4) !== JSON.stringify(["Dov has it."]))
-        throw new Error(`reply to a running seat: waiting marks ${JSON.stringify(heard.marks)}, said ${JSON.stringify(said4)}; wanted no mark and "Dov has it." once`);
+        throw new Error(`reply to a running seat: waiting mark ${lived4.join("; ")}, said ${JSON.stringify(said4)}, saidAt ${JSON.stringify(heard.said.map((x) => Math.round(x.t - sentAt)))} ms; wanted no mark and "Dov has it." once`);
       return "reply drawn in Dov's thread and stored in Dov's mailbox; no waiting mark drawn at any point (DOM watched from the press to 1.5 s after delivery); the chat said \"Dov has it.\" once";
     });
 
@@ -289,6 +297,7 @@ test("[fake-tui] Global threads", async () => {
       await input.click();
       await input.fill(text);
       await clearEars(page);
+      const sentAt7 = await page.evaluate(() => performance.now());
       await pane(page).getByTestId("thread-composer-send").click();
       await expect(pane(page).getByTestId("seat-threads-message").filter({ hasText: text })).toBeVisible({ timeout: 15_000 });
       await expect.poll(async () => (await ears(page)).said.map((x) => x.text), { timeout: 30_000 }).toEqual(["Eve has it."]);
@@ -298,7 +307,7 @@ test("[fake-tui] Global threads", async () => {
       const said = heard.said.map((x) => x.text);
       const mailed = (await readSeatMailbox(page, CANVAS, s.eve.id)).some((m) => JSON.stringify(m).includes(text));
       if (heard.marks.length > 0 || JSON.stringify(said) !== JSON.stringify(["Eve has it."]) || !mailed)
-        throw new Error(`waiting marks ${JSON.stringify(heard.marks)}; said ${JSON.stringify(said)}; in Eve's mailbox ${mailed}`);
+        throw new Error(`waiting mark ${heard.marks.map((m, i) => `"${m.text}" drawn ${Math.round(m.t - sentAt7)} ms after the press, gone ${heard.gone[i] ? `${Math.round(heard.gone[i]!.t - m.t)} ms later` : "never"}`).join("; ")}; said ${JSON.stringify(said)} at ${JSON.stringify(heard.said.map((x) => Math.round(x.t - sentAt7)))} ms; in Eve's mailbox ${mailed}`);
       return `Eve woke on the send: no waiting mark drawn, said ${JSON.stringify(said)} once, the reply is in Eve's mailbox. The 1 s waiting line is not reachable from the UI (no noWake send, no seat that cannot start), so it is not checked here.`;
     });
     await closeThreads(page).catch(() => undefined);
@@ -383,14 +392,20 @@ test("[fake-tui] Global threads", async () => {
 
     // 11. Opens Most urgent first in the urgent order, not newest first (4b62ed661).
     await check("g11-urgent-order-at-open", async (frames) => {
-      // Data on which the two orders must differ: Dov answers last, so Dov is newest, and Dov's thread is then read, while Ada's and Eve's older threads stay unread.
-      const dovAgain = await seat.dov.op("msg.reply", { target: "operator", inReplyTo: toDov.ok ? toDov.messageId : "", text: "Delta, one more thing." });
-      if (!dovAgain.ok) throw new Error(`reply refused ${JSON.stringify(dovAgain)}`);
-      await settle(600);
+      // Data on which the two orders must differ: the operator writes to Bea last, so Bea's thread is the newest but waits on nobody, while Ada's, Dov's and Eve's older threads wait on the operator.
+      // Most urgent first ranks by seat state (urgentSeatsFirst), so Ada must be in an urgent group: she raises a blocked signal.
+      const raised = await seat.ada.op("signal.raise", { kind: "blocked", text: "Ada cannot go on without the release notes" });
+      if (!raised.ok) throw new Error(`signal refused ${JSON.stringify(raised)}`);
+      await settle(1_000);
       await openThreads(page);
-      await rows(page).filter({ hasText: "Dov" }).first().click();
-      await expect(pane(page)).toContainText("Delta, one more thing.", { timeout: 10_000 });
-      await settle(800);
+      await rows(page).filter({ hasText: "Bea" }).first().click();
+      const note = "Bravo, anything else on the copy?";
+      const noteInput = pane(page).getByTestId("thread-composer-input");
+      await noteInput.click();
+      await noteInput.fill(note);
+      await pane(page).getByTestId("thread-composer-send").click();
+      await expect(pane(page).getByTestId("seat-threads-message").filter({ hasText: note })).toBeVisible({ timeout: 15_000 });
+      await settle(1_500);
       await closeThreads(page);
       const names = async () => (await rowTexts(page)).map((t) => t.match(/Ada|Bea|Dov|Eve/)?.[0] ?? "?");
       const pickOrder = async (label: string) => {

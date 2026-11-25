@@ -13,10 +13,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { mod } from "../harness/keys";
+import { MAC, mod } from "../harness/keys";
 import { card, canvasReady, cameraSettled, selectedIds } from "../harness/canvas";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
-import { modelFixture, modelRegion, modelSeat } from "../harness/model";
+import { modelFixture, modelRegion, modelSeat, modelMessagesWire } from "../harness/model";
 import { readSeatMailbox } from "../harness/work-mail";
 import { expect, launchJunto, test } from "../harness/launch";
 
@@ -33,7 +33,7 @@ const seats = {
 const doc = modelFixture([
   modelRegion({ id: "region-core", label: "Core", x: 0, y: 0, width: 760, height: 420 }),
   ...Object.values(seats),
-]);
+], [modelMessagesWire("e-ada-bea", seats.ada.id, seats.bea.id, [seats.ada, seats.bea])]);
 
 type Line = { readonly id: string; readonly pass: boolean; readonly note: string; readonly frames: string[] };
 
@@ -56,6 +56,12 @@ const openQuickThread = async (page: Page): Promise<void> => {
  */
 const openEmpty = async (page: Page): Promise<void> => {
   await openQuickThread(page);
+  // A draft outlives a close (text and files stay), so a line that needs none empties it first, while the message is on screen.
+  if ((await message(page).count()) > 0) {
+    await message(page).fill("");
+    for (let i = 0; i < 6 && (await frameOf(page).getByTestId("attachment-chip").count()) > 0; i += 1)
+      await frameOf(page).getByRole("button", { name: /^Remove / }).first().click().catch(() => undefined);
+  }
   for (let i = 0; i < 6 && (await chosen(page)).length > 0; i += 1) {
     await frameOf(page).getByTestId("quick-thread-seat").first().getByRole("button").first().click();
     await settle(150);
@@ -91,6 +97,7 @@ test("[fake-tui] Quick thread from the canvas", async () => {
       lines.push({ id, pass: false, note: String(error instanceof Error ? error.message : error).slice(0, 900), frames });
       // Leave nothing open for the next line.
       for (let i = 0; i < 3 && (await frameOf(page).count()) > 0; i += 1) await page.keyboard.press("Escape");
+      for (let i = 0; i < 4 && (await page.getByRole("button", { name: "Close view" }).count()) > 0; i += 1) await page.getByRole("button", { name: "Close view" }).first().click().catch(() => undefined);
     }
     await writeFile(join(FRAMES, "results.json"), `${JSON.stringify(lines, null, 2)}\n`);
   };
@@ -124,37 +131,41 @@ test("[fake-tui] Quick thread from the canvas", async () => {
       const width = box?.width ?? 0;
       await page.keyboard.press("Escape");
       await expect(frameOf(page)).toHaveCount(0);
-      // With a terminal focused.
-      await card(page, seats.ada.id).dblclick();
-      const surface = page.locator('[data-testid="native-terminal-surface"]:has(#seat-stage-seat-ada)');
-      await expect(surface).toBeVisible({ timeout: 20_000 });
-      await surface.locator(".xterm").first().click();
-      await openQuickThread(page);
-      // The open seat is the canvas selection, so line 7 applies: it may start chosen, keyboard in the message.
-      await settleMs(400);
-      const overTerminal = await page.evaluate(() => {
-        const frame = document.querySelector('[data-testid="quick-thread"]');
-        const active = document.activeElement;
-        return {
-          chosen: [...(frame?.querySelectorAll('[data-testid="quick-thread-seat"]') ?? [])].map((el) => el.getAttribute("data-seat")),
-          focus: active?.getAttribute("aria-label") ?? active?.getAttribute("placeholder") ?? active?.tagName ?? "",
-          inMessage: active?.matches("textarea") === true,
-        };
-      });
-      frames.push(await shot("q1b-opened-over-terminal"));
-      const fieldFocused = await field(page).evaluate((el) => el === document.activeElement).catch(() => false);
-      const asLine7 = overTerminal.chosen.join() === seats.ada.id && overTerminal.inMessage;
-      if (!fieldFocused && !asLine7) throw new Error(`over a focused terminal: ${JSON.stringify(overTerminal)}`);
-      // Leave no draft: take the seat off, then close.
-      if (overTerminal.chosen.length > 0) await frameOf(page).getByTestId("quick-thread-seat").first().getByRole("button").first().click();
-      await page.keyboard.press("Escape");
-      if ((await frameOf(page).count()) > 0) await page.keyboard.press("Escape");
-      await expect(frameOf(page)).toHaveCount(0);
-      await surface.getByRole("button", { name: "Close view" }).first().click();
+      // Off macOS the key is Ctrl+Shift+U and the key table leaves the terminal out of it (a shell key): no chord over a focused terminal there.
+      let terminalNote = "off macOS there is no chord over a focused terminal, so that step is not run";
+      if (MAC) {
+        // With a terminal focused.
+        await card(page, seats.ada.id).dblclick();
+        const surface = page.locator('[data-testid="native-terminal-surface"]:has(#seat-stage-seat-ada)');
+        await expect(surface).toBeVisible({ timeout: 20_000 });
+        await surface.locator(".xterm").first().click();
+        await openQuickThread(page);
+        // The open seat is the canvas selection, so line 7 applies: it may start chosen, keyboard in the message.
+        await settleMs(400);
+        const overTerminal = await page.evaluate(() => {
+          const frame = document.querySelector('[data-testid="quick-thread"]');
+          const active = document.activeElement;
+          return {
+            chosen: [...(frame?.querySelectorAll('[data-testid="quick-thread-seat"]') ?? [])].map((el) => el.getAttribute("data-seat")),
+            focus: active?.getAttribute("aria-label") ?? active?.getAttribute("placeholder") ?? active?.tagName ?? "",
+            inMessage: active?.matches("textarea") === true,
+          };
+        });
+        frames.push(await shot("q1b-opened-over-terminal"));
+        const fieldFocused = await field(page).evaluate((el) => el === document.activeElement).catch(() => false);
+        const asLine7 = overTerminal.chosen.join() === seats.ada.id && overTerminal.inMessage;
+        terminalNote = asLine7 ? "over a focused terminal it opens with that seat already chosen (it is the canvas selection, line 7) and the keyboard in the message" : "over a focused terminal the keyboard is in Seat or region";
+        if (!fieldFocused && !asLine7) throw new Error(`over a focused terminal: ${JSON.stringify(overTerminal)}`);
+        // Leave no draft: take the seat off, then close.
+        if (overTerminal.chosen.length > 0) await frameOf(page).getByTestId("quick-thread-seat").first().getByRole("button").first().click();
+        await page.keyboard.press("Escape");
+        if ((await frameOf(page).count()) > 0) await page.keyboard.press("Escape");
+        await expect(frameOf(page)).toHaveCount(0);
+        await surface.getByRole("button", { name: "Close view" }).first().click();
+      }
       await emptyCanvas();
       const top = box?.y ?? -1;
       if (Math.abs(width - 560) > 24) throw new Error(`frame is ${width}px wide`);
-      const terminalNote = asLine7 ? "over a focused terminal it opens with that seat already chosen (it is the canvas selection, line 7) and the keyboard in the message" : "over a focused terminal the keyboard is in Seat or region";
       return `opens from the canvas (keyboard in Seat or region) and ${terminalNote}; ${Math.round(width)}px wide, top at ${Math.round(top)}px`;
     });
 
@@ -169,11 +180,11 @@ test("[fake-tui] Quick thread from the canvas", async () => {
       const kinds = await options.evaluateAll((all) => all.map((o) => `${o.getAttribute("data-kind")}:${(o.textContent ?? "").trim().slice(0, 20)}`));
       notes.push(`"Co" offers ${JSON.stringify(kinds.slice(0, 5))}`);
       frames.push(await shot("q2a-ranked"));
-      // Enter on the region narrows and adds nobody.
+      // The narrow key on a region (Cmd+Enter, Ctrl+Enter off macOS) shows only its seats and adds nobody; plain Enter picks the region as a recipient (broadcast, ec46c767e).
       await field(page).fill("Core");
-      await page.keyboard.press("Enter");
+      await page.keyboard.press(mod("Enter"));
       await expect(frameOf(page).getByTestId("quick-thread-narrowed")).toBeVisible();
-      if ((await chosen(page)).length !== 0) throw new Error("Enter on a region chose seats");
+      if ((await chosen(page)).length !== 0) throw new Error("the narrow key on a region chose seats");
       const narrowed = await options.evaluateAll((all) => all.map((o) => o.getAttribute("data-seat")).filter(Boolean));
       notes.push(`region narrows to ${JSON.stringify(narrowed)}, nobody added`);
       frames.push(await shot("q2b-region-narrowed"));
@@ -213,7 +224,8 @@ test("[fake-tui] Quick thread from the canvas", async () => {
 
     // 3. The message is the thread input: @ list not clipped, files attach.
     await check("q3-thread-input", async (frames) => {
-      await openQuickThread(page);
+      await emptyCanvas();
+      await openEmpty(page);
       await field(page).fill("Ada");
       await page.keyboard.press("Enter");
       await expect(message(page)).toBeFocused();
@@ -305,18 +317,19 @@ test("[fake-tui] Quick thread from the canvas", async () => {
       const text = "Quick thread to a stopped seat";
       await message(page).fill(text);
       await frameOf(page).getByTestId("thread-composer-send").click();
-      const receipt = frameOf(page).getByTestId("quick-thread-receipt");
+      // The receipt replaces the frame: its root is quick-thread-receipt, not a child of quick-thread.
+      const receipt = page.getByTestId("quick-thread-receipt");
       await expect(receipt).toBeVisible({ timeout: 15_000 });
       const sentLine = ((await receipt.locator(".quick-thread__sent").textContent()) ?? "").trim();
-      const waitingLine = ((await frameOf(page).getByTestId("quick-thread-waiting-line").textContent()) ?? "").trim();
+      const waitingLine = ((await receipt.getByTestId("quick-thread-waiting-line").textContent()) ?? "").trim();
       const clock = await receipt.getByTestId("quick-thread-sent-seat").locator("svg").count();
-      const done = frameOf(page).getByTestId("quick-thread-done");
+      const done = receipt.getByTestId("quick-thread-done");
       await expect(done).toBeFocused();
       const doneDescription = await done.evaluate((el) => {
         const ids = (el.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean);
         return ids.map((id) => document.getElementById(id)?.textContent?.trim() ?? "").join(" ");
       });
-      const spoken = ((await page.getByTestId("quick-thread-spoken").textContent()) ?? "").trim();
+      const spoken = ((await page.getByTestId("quick-thread-spoken").first().textContent()) ?? "").trim();
       frames.push(await shot("q5a-receipt"));
       await done.click();
       await expect(frameOf(page)).toHaveCount(0);
@@ -367,7 +380,7 @@ test("[fake-tui] Quick thread from the canvas", async () => {
     await check("q7-canvas-selection", async (frames) => {
       await card(page, seats.ada.id).click();
       await card(page, seats.dov.id).click({ modifiers: ["Shift"] });
-      await expect.poll(async () => page.evaluate(() => window.__juntoCanvas?.selection() ?? [])).toHaveLength(2);
+      await expect.poll(async () => (await selectedIds(page)).length).toBe(2);
       await openQuickThread(page);
       const picked = await chosen(page);
       frames.push(await shot("q7-selection-chosen"));
@@ -381,9 +394,7 @@ test("[fake-tui] Quick thread from the canvas", async () => {
     await check("q8-escape-ladder", async (frames) => {
       await emptyCanvas();
       await page.getByRole("button", { name: "Fit all nodes" }).focus();
-      await openQuickThread(page);
-      // Clear any seats line 7 left chosen.
-      for (let i = 0; i < 4 && (await chosen(page)).length > 0; i += 1) await page.keyboard.press("Backspace");
+      await openEmpty(page);
       await field(page).fill("Ada");
       await page.keyboard.press("Enter");
       await expect(message(page)).toBeFocused();
