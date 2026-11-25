@@ -554,8 +554,8 @@ describe("Quick thread in a pane of its host's", () => {
     expect(q("quick-thread-receipt")).toBeNull();
     expect(sent).toEqual([
       [
-        { seatId: "s-pty", threadId: "t-s-pty", arrival: "waiting" },
-        { seatId: "s-cli", threadId: "t-s-cli", arrival: "arrived" },
+        { seatId: "s-pty", threadId: "t-s-pty", arrival: "waiting", messageId: "m-s-pty", text: "status?", at: expect.any(Number) },
+        { seatId: "s-cli", threadId: "t-s-cli", arrival: "arrived", messageId: "m-s-cli", text: "status?", at: expect.any(Number) },
       ],
     ]);
     // Sent: it is ready for the next one, the seat field back.

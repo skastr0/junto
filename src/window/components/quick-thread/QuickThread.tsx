@@ -393,7 +393,7 @@ export function QuickThread({
 
   const handOver = (all: ReadonlyArray<Settled>): void => {
     setReceiptOf(undefined);
-    onSent?.(all);
+    onSent?.(all.map(({ seatId, threadId, arrival, messageId, text, at }) => ({ seatId, threadId, arrival, messageId, text, at })));
   };
 
   // A send with a region is over: nothing of its choice is kept, the words stay.
