@@ -403,6 +403,15 @@ confirm, never that `<removed>` still accepts the key.
   once remote-core fixes its MEDIUM on 09a3755af (no key and no saved
   holder answers `clear`).
 
+**Remove, when the link key this machine holds for `<removed>` cannot be
+deleted.** A `linkKeyKept` field, `ownWords: true`, as remote-security
+asked that a failed delete be answered in words.
+
+- `<removed> is removed, but Junto could not delete the link key <this>
+  holds for it. Add <removed> again, then remove it.`
+- Not `Remove it again`: the machine is gone, so a second remove answers
+  not found. Adding it, then removing it, reaches the delete by name.
+
 **Remove, when the list of removed machines that still accept the key
 cannot be read.** Junto sets the file aside and does not overwrite it.
 
