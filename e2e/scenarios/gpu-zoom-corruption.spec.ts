@@ -70,7 +70,14 @@ const CYCLE = [2.5, 0.52, 1.6, 0.3, 2.0, 0.9] as const;
 
 type Rect = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
 type Audit = { checked: number; heldCells: number; counts: Record<string, number>; samples: Array<Record<string, unknown>> };
-type TexelAudit = { checked: number; skipped: Record<string, number>; mismatches: Array<Record<string, unknown>>; worst: number };
+type TexelAudit = {
+  checked: number;
+  truncated?: boolean;
+  skipped: Record<string, number>;
+  undrawn?: Record<string, number>;
+  mismatches: Array<Record<string, unknown>>;
+  worst: number;
+};
 
 const failures: string[] = [];
 const report: Record<string, unknown>[] = [];
@@ -107,7 +114,7 @@ const texelCoverage = (t: TexelAudit): { compared: number; notCompared: Record<s
   const notCompared = Object.fromEntries(Object.entries(t.skipped).filter(([, n]) => n > 0));
   // canvas-lead's ruling: `truncated` (stopped at the limit with comparable cells left) where the build has it;
   // only a build without it falls back to `checked >= limit`. A board with exactly 600 comparable cells passes.
-  const truncated = (t as { truncated?: boolean }).truncated;
+  const truncated = t.truncated;
   const stoppedAtLimit = truncated === undefined ? t.checked >= TEXEL_LIMIT : truncated;
   const gaps: string[] = [];
   if (stoppedAtLimit) gaps.push(`stopped at its limit of ${String(TEXEL_LIMIT)} cells`);

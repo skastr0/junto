@@ -25,9 +25,11 @@
  *       scale: the block and the count scale with devicePixelRatio, so the
  *       2x arm has the 1x arm's sensitivity). The diff is saved on failure;
  *   (b) `atlasAudit()` and the texel readback (`atlasAuditTexels`) are clean,
- *       and the readback is whole: it fails when it stopped at its limit or
- *       passed any cell over, and each stop logs what it compared and what
- *       it did not;
+ *       and the readback is whole: it fails when `truncated` says the limit
+ *       stopped it with comparable cells left, or `skipped` counts any cell a
+ *       quad can draw that it did not compare; each stop logs what it compared,
+ *       what it skipped and the `undrawn` cells no quad can draw (information,
+ *       never a failure);
  *   (c) no GPU error since the last stop.
  *
  * Each leg between two stops (each crosses one bucket boundary) pinches to a
@@ -163,7 +165,14 @@ type Rect = { readonly x: number; readonly y: number; readonly width: number; re
 type Camera = { readonly x: number; readonly y: number; readonly zoom: number };
 type Place = { readonly name: string; readonly x: number; readonly y: number };
 type Audit = { checked: number; heldCells: number; counts: Record<string, number>; samples: Array<Record<string, unknown>> };
-type TexelAudit = { checked: number; skipped: Record<string, number>; mismatches: Array<Record<string, unknown>>; worst: number };
+type TexelAudit = {
+  checked: number;
+  truncated?: boolean;
+  skipped: Record<string, number>;
+  undrawn?: Record<string, number>;
+  mismatches: Array<Record<string, unknown>>;
+  worst: number;
+};
 
 const failures: string[] = [];
 const proof: Record<string, unknown>[] = [];
@@ -283,21 +292,23 @@ const audit = (page: Page): Promise<Audit | null> =>
 const TEXEL_LIMIT = 600;
 
 /**
- * What the texel check compared and what it did not. It covers landed,
- * referenced sprite cells on full-size pages (canvas-nodes' read): the gate
- * fails when it stopped at the limit or passed anything over by name, so a
- * clean result is never a partial one.
+ * What the texel check compared and what it did not (the shape canvas-services
+ * shipped in 8166e6de8): every cell a quad can draw is either compared or
+ * counted in `skipped` by why, and the gate fails on either kind of gap. Cells
+ * no quad can draw are `undrawn`, by why: information, never a failure.
+ * `truncated` says the limit stopped it with comparable cells left.
  */
-const texelCoverage = (t: TexelAudit): { compared: number; notCompared: Record<string, number>; stoppedAtLimit: boolean; gaps: string[] } => {
+const texelCoverage = (t: TexelAudit): { compared: number; notCompared: Record<string, number>; undrawn: Record<string, number>; stoppedAtLimit: boolean; gaps: string[] } => {
   const notCompared = Object.fromEntries(Object.entries(t.skipped).filter(([, n]) => n > 0));
-  // canvas-lead's ruling: `truncated` (stopped at the limit with comparable cells left) where the build has it;
+  const undrawn = Object.fromEntries(Object.entries(t.undrawn ?? {}).filter(([, n]) => n > 0));
+  // `truncated` (stopped at the limit with comparable cells left) where the build has it;
   // only a build without it falls back to `checked >= limit`. A board with exactly 600 comparable cells passes.
-  const truncated = (t as { truncated?: boolean }).truncated;
+  const truncated = t.truncated;
   const stoppedAtLimit = truncated === undefined ? t.checked >= TEXEL_LIMIT : truncated;
   const gaps: string[] = [];
   if (stoppedAtLimit) gaps.push(`stopped at its limit of ${String(TEXEL_LIMIT)} cells`);
   for (const [why, n] of Object.entries(notCompared)) gaps.push(`passed over ${String(n)} cell(s): ${why}`);
-  return { compared: t.checked, notCompared, stoppedAtLimit, gaps };
+  return { compared: t.checked, notCompared, undrawn, stoppedAtLimit, gaps };
 };
 
 const auditTexels = (page: Page): Promise<TexelAudit | null> =>
@@ -335,7 +346,12 @@ const checkStop = async (page: Page, where: string, seen: { errors: number; sinc
   else if (failedCells !== undefined && failedCells > 0) fail(`${where}: ${String(failedCells)} atlas slot(s) failed and wait for a retry at a settled stop`);
   const t = await auditTexels(page);
   if (t === null) fail(`${where}: the build has no atlasAuditTexels hook`);
-  else if (t.mismatches.length > 0) fail(`${where}: ${String(t.mismatches.length)} landed sprite cell(s) hold another drawing`, { first: t.mismatches.slice(0, 6) });
+  // A readout this gate does not know would pass every check below by being empty.
+  else if (typeof t.checked !== "number" || typeof t.skipped !== "object" || !Array.isArray(t.mismatches)) {
+    fail(`${where}: the texel audit answers a shape this gate does not read`, { readout: t });
+  } else if (t.mismatches.length > 0) {
+    fail(`${where}: ${String(t.mismatches.length)} landed sprite cell(s) hold another drawing`, { first: t.mismatches.slice(0, 6) });
+  }
   const coverage = t === null ? null : texelCoverage(t);
   if (coverage !== null && coverage.gaps.length > 0) fail(`${where}: the texel check is partial: ${coverage.gaps.join("; ")}`, { compared: coverage.compared, notCompared: coverage.notCompared });
   return {
@@ -354,7 +370,7 @@ const checkStop = async (page: Page, where: string, seen: { errors: number; sinc
     landed: atlas?.landed,
     gpuErrors: errors,
     audit: a === null ? null : { checked: a.checked, counts: a.counts },
-    texels: t === null || coverage === null ? null : { compared: coverage.compared, notCompared: coverage.notCompared, stoppedAtLimit: coverage.stoppedAtLimit, mismatches: t.mismatches.length, worst: Math.round(t.worst * 10) / 10 },
+    texels: t === null || coverage === null ? null : { compared: coverage.compared, notCompared: coverage.notCompared, undrawn: coverage.undrawn, stoppedAtLimit: coverage.stoppedAtLimit, mismatches: t.mismatches.length, kinds: [...new Set(t.mismatches.map((m) => String((m as { kind?: unknown }).kind ?? "?")))], worst: Math.round(t.worst * 10) / 10 },
   };
 };
 
