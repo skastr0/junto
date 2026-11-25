@@ -602,7 +602,8 @@ export const sendOperatorThreadMail = (send: OperatorThreadSendDecoded) =>
     if (files.length > 0) {
       const content = yield* Effect.serviceOption(ContentService);
       if (Option.isNone(content)) return refused("failed", "The content store is unavailable.");
-      const claimed = yield* Effect.result(claimOperatorAttachments(content.value, canvasName, files, owner));
+      // The staged files stay staged: one send reaches several seats, one mail each, and a send again after a partial one is the same upload.
+      const claimed = yield* Effect.result(claimOperatorAttachments(content.value, canvasName, files, owner, { keepStaged: true }));
       if (claimed._tag === "Failure") return refused("invalid", claimed.failure.message);
       claimedFiles = claimed.success;
     }

@@ -135,12 +135,15 @@ export type ContentServiceShape = {
    * Hand a reference from one owner to another in one transaction: the new
    * owner is bound to the reference as the old owner holds it, then the old
    * owner lets go. Answers undefined, and changes nothing, when `from` holds
-   * no reference to those bytes.
+   * no reference to those bytes. With `keepFrom` the old owner keeps its
+   * hold too, so the same reference can be handed to several owners: the
+   * bytes stay held by the old owner until it is released on its own clock.
    */
   readonly moveRef: (input: {
     readonly ref: { readonly sha256: string; readonly byteLength: number };
     readonly from: (owner: ContentOwner) => boolean;
     readonly to: ContentOwner;
+    readonly keepFrom?: true;
   }) => Effect.Effect<
     ContentRefRow | undefined,
     ContentManifestError | SqlError.SqlError
@@ -335,7 +338,7 @@ const makeContentService = (
         ),
       ),
 
-  moveRef: ({ ref, from, to }) =>
+  moveRef: ({ ref, from, to, keepFrom }) =>
     sql
       .withTransaction(
         Effect.gen(function* () {
@@ -344,7 +347,7 @@ const makeContentService = (
           );
           if (held === undefined) return undefined;
           const moved = yield* manifest.recordContentRef({ ref: held.ref, owner: to });
-          yield* manifest.releaseContentRefsForOwner(held.owner);
+          if (keepFrom !== true) yield* manifest.releaseContentRefsForOwner(held.owner);
           return moved;
         }),
       )

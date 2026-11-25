@@ -134,6 +134,12 @@ export const claimOperatorAttachments = (
   canvasName: string,
   refs: ReadonlyArray<Pick<ContentRef, "sha256" | "byteLength">>,
   owner: ContentOwner,
+  /**
+   * `keepStaged`: the staged files stay staged, so the same upload can ride on
+   * the next mail of a send to several seats, or on a send again after a
+   * partial one. Without it a file rides on one mail only (a signal's answer).
+   */
+  options: { readonly keepStaged?: true } = {},
 ): Effect.Effect<ReadonlyArray<ContentRef>, OperatorAttachmentRefusal> => {
   if (refs.length > OPERATOR_ATTACHMENTS_MAX) {
     return Effect.fail({ message: `A mail carries at most ${OPERATOR_ATTACHMENTS_MAX} files.` });
@@ -147,7 +153,7 @@ export const claimOperatorAttachments = (
       if (identity.byteLength > OPERATOR_ATTACHMENT_MAX_BYTES) {
         return yield* Effect.fail({ message: `A file is at most ${MAX_MB} MB.` });
       }
-      const row = yield* claimStagedContent(content, { ...operatorStager(canvasName), ref: identity, owner }).pipe(
+      const row = yield* claimStagedContent(content, { ...operatorStager(canvasName), ref: identity, owner, ...(options.keepStaged === true ? { keepStaged: true as const } : {}) }).pipe(
         Effect.mapError(() => ({ message: "A file was not uploaded, or it was already sent. Attach it again." })),
       );
       const name = attachmentName(row.ref.displayName ?? "") || "file";

@@ -121,6 +121,12 @@ export const claimStagedContent = (
     /** Which bytes. A `ContentRef` fits; its type and name are not trusted. */
     readonly ref: { readonly sha256: string; readonly byteLength: number };
     readonly owner: ContentOwner;
+    /**
+     * Leave the stage owner holding the reference, so the same staged bytes
+     * can be claimed again by another owner (one file sent to several
+     * seats). The stage lets go on its own sweep, as for any staged file.
+     */
+    readonly keepStaged?: true;
   },
 ) =>
   content
@@ -128,6 +134,7 @@ export const claimStagedContent = (
       ref: input.ref,
       from: stagedBy({ canvasName: input.canvasName, nodeId: input.nodeId }),
       to: input.owner,
+      ...(input.keepStaged === true ? { keepFrom: true as const } : {}),
     })
     .pipe(
       Effect.flatMap(

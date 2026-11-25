@@ -74,9 +74,9 @@ const boot = async () => {
     if (!answer.ok || !("ref" in answer.result)) throw new Error(answer.ok ? "the upload did not close" : answer.message);
     return answer.result.ref;
   };
-  const owner = operatorMailOwner("factory", "atlas", "m1");
-  const claim = (refs: ReadonlyArray<Pick<ContentRef, "sha256" | "byteLength">>) =>
-    Effect.runPromise(Effect.result(claimOperatorAttachments(content, "factory", refs, owner)));
+  /** One mail's claim of staged files, held under the seat that gets it; each mail has its own record id. */
+  const claim = (refs: ReadonlyArray<Pick<ContentRef, "sha256" | "byteLength">>, mail = "m1", options: { readonly keepStaged?: true } = {}) =>
+    Effect.runPromise(Effect.result(claimOperatorAttachments(content, "factory", refs, operatorMailOwner("factory", "atlas", mail), options)));
   const owners = async (bytes: Buffer) =>
     (await Effect.runPromise(content.listRefs(sha(bytes)))).map((row) => row.owner.recordId);
   return { content, put, claim, owners };
@@ -91,6 +91,26 @@ describe("operator attachments, main", () => {
       { sha256: sha(PNG), byteLength: PNG.length, mediaType: "image/png", displayName: "shot.png" },
       { sha256: sha(notes), byteLength: notes.length, mediaType: "text/markdown", displayName: "plan.md" },
     ]);
+    expect(await owners(PNG)).toEqual(["m1"]);
+  });
+
+  it("gives each mail of one send its own hold on the one staged file, when the send keeps it staged", async () => {
+    const { put, claim, owners } = await boot();
+    const staged = await put("shot.png", PNG);
+    // One upload, three seats, claimed at once as a send to several does.
+    const results = await Promise.all(["m1", "m2", "m3"].map((mail) => claim([staged], mail, { keepStaged: true })));
+    expect(results.map((result) => Result.isSuccess(result))).toEqual([true, true, true]);
+    expect((await owners(PNG)).filter((id) => id.startsWith("m")).sort()).toEqual(["m1", "m2", "m3"]);
+    // And a send again after a partial one still finds the file staged.
+    expect(Result.isSuccess(await claim([staged], "m4", { keepStaged: true }))).toBe(true);
+  });
+
+  it("lets a file ride on one mail only unless the send keeps it staged (a signal's answer)", async () => {
+    const { put, claim, owners } = await boot();
+    const staged = await put("shot.png", PNG);
+    expect(Result.isSuccess(await claim([staged], "m1"))).toBe(true);
+    const again = await claim([staged], "m2");
+    expect(Result.isFailure(again) && again.failure).toEqual({ message: "A file was not uploaded, or it was already sent. Attach it again." });
     expect(await owners(PNG)).toEqual(["m1"]);
   });
 
