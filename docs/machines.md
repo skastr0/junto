@@ -816,36 +816,40 @@ git show --stat --oneline HEAD
   path from `$PARENT` (`git restore --source="$PARENT" -- <path>`), redo your
   edit on it, and run the block again. A deliberate return to an older copy
   goes in `REVERTS`.
-- A seat that lands from a linked worktree, a VM or by `update-ref` leaves
-  the shared checkout behind on every path it landed. Right after landing, it
-  brings those paths in the shared checkout up to main, each only if the
-  checkout file equals an older committed copy (the same guard as above, so
-  nobody's own edit is touched), and the shared index entry is main's, the
-  file's, or absent. From the shared checkout's root:
+- The shared checkout follows main by itself. `scripts/git-hooks/reference-transaction`
+  runs after every update of `refs/heads/main` in this repository, from the
+  main checkout, a linked worktree or a bundle. The landing never waits for
+  it: the follower is detached, runs one at a time, and gives up after 5 s
+  (`JUNTO_FOLLOW_BUDGET`). It remembers the last commit it followed in
+  `.git/junto-follow.head` and follows from there to the tip of main, a commit
+  at a time, so a landing it missed is followed by the next one. For each path
+  that changed it writes main's copy into the checkout, or removes the file,
+  only where the checkout file equals the old committed copy, and moves the
+  index entry along when it equals the old one; the index is left alone while
+  its lock is held. Anything else is someone's own work: left alone and named
+  in `.git/junto-follow.log`, one line per step. A path it names as kept is
+  not yours to reset: find its owner. The hook does not replace the stale-path
+  check above, which stops a stale copy from being added.
+  It runs through `.git/hooks`, which every linked worktree shares, with
+  `core.hooksPath` unset. Install it once, from the shared checkout's root:
 
 ```text
-# From the shared checkout's root, with OLD and NEW the main you landed over and onto:
-OLD=<main before your landing>; NEW=<main after it>
-PARENT=$(git rev-parse HEAD)
-git diff --name-only -z "$OLD" "$NEW" | while IFS= read -r -d '' p; do
-  hp=$(git rev-parse -q --verify "$PARENT:$p")             # empty: main no longer has the path
-  [ -e "$p" ] || { [ -z "$hp" ] || echo "absent here: $p"; continue; }
-  w=$(git hash-object -- "$p")
-  [ "$w" = "$hp" ] && continue                             # already main's copy
-  [ -n "$(git log --format=%h -n1 --find-object="$w" "$PARENT" -- "$p")" ] \
-    || { echo "kept, not an older copy of main's (someone's own edit): $p"; continue; }
-  i=$(git ls-files -s -- "$p" | awk '$3=="0"{print $2}')
-  [ -z "$i" ] || [ "$i" = "$w" ] || [ "$i" = "$hp" ] \
-    || { echo "kept, the shared index holds other content: $p"; continue; }
-  if [ -n "$hp" ]; then git restore --source="$PARENT" --staged --worktree -- "$p"
-  else rm -f -- "$p"; git rm -q --cached --ignore-unmatch -- "$p"; fi
-  echo "restored to main: $p"
-done
+cat > .git/hooks/reference-transaction <<'EOF'
+#!/bin/sh
+[ "$1" = committed ] || exit 0
+f="$(git rev-parse --path-format=absolute --git-common-dir)/../scripts/git-hooks/reference-transaction"
+[ -x "$f" ] && "$f" "$@"
+exit 0
+EOF
+chmod +x .git/hooks/reference-transaction
 ```
 
-  A path it prints as `kept` is someone's own edit or staged content: leave it
-  and name its owner. A path main deleted is removed from the checkout under
-  the same guard.
+  The stub runs the tracked hook for state `committed` only and ignores its
+  status, so a missing or broken tracked file can never block a landing, and a
+  fix to the hook needs no reinstall. To remove it, delete
+  `.git/hooks/reference-transaction`; `JUNTO_FOLLOW=0` turns the follow off for
+  one landing. `scripts/test-reference-transaction.sh` proves it in throwaway
+  repos; run it on a VM.
 - For a deletion, name the deleted paths or their directory.
 - For only your lines of a shared file: write a patch with just your hunks
   and use `git apply --cached` on the private index in place of `git add`.
