@@ -54,7 +54,7 @@ const KNOWN = ["you", "pty-lead"];
 describe("a signal message", () => {
   it("says its kind and that it is open, round the message as it reads", async () => {
     await render(
-      <SignalFrame author="pty-lead" signal={signal()} onHandIn={() => undefined}>
+      <SignalFrame author="pty-lead" known={KNOWN} signal={signal()} onHandIn={() => undefined}>
         <p data-testid="message">The migration number is taken.</p>
       </SignalFrame>,
     );
@@ -73,7 +73,7 @@ describe("a signal message", () => {
   it("names each kind a seat raises as the feed's card does, never by its command", async () => {
     for (const [kind, word] of [["blocked", "Blocked"], ["escalate", "Waiting on you"], ["feedback", "Ready for review"]] as const) {
       await render(
-        <SignalFrame author="pty-lead" signal={signal({ kind })} onHandIn={() => undefined}>
+        <SignalFrame author="pty-lead" known={KNOWN} signal={signal({ kind })} onHandIn={() => undefined}>
           <p>text</p>
         </SignalFrame>,
       );
@@ -87,7 +87,7 @@ describe("a signal message", () => {
   it("says a closed signal's state in a word with its glyph, and keeps what was asked", async () => {
     for (const [state, word] of [["answered", "Answered"], ["dismissed", "Dismissed"], ["withdrawn", "Withdrawn"]] as const) {
       await render(
-        <SignalFrame author="pty-lead" signal={signal({ state })} onHandIn={() => undefined}>
+        <SignalFrame author="pty-lead" known={KNOWN} signal={signal({ state })} onHandIn={() => undefined}>
           <p data-testid="message">What was asked.</p>
         </SignalFrame>,
       );
@@ -101,17 +101,19 @@ describe("a signal message", () => {
   it("carries Hand in while it is open and asks for work, and opens that signal", async () => {
     const handIn = vi.fn();
     await render(
-      <SignalFrame author="pty-lead" signal={signal({ signalId: "s7", asks: "document" })} onHandIn={handIn}>
+      <SignalFrame author="pty-lead" known={KNOWN} signal={signal({ signalId: "s7", asks: "document" })} onHandIn={handIn}>
         <p>Write the plan.</p>
       </SignalFrame>,
     );
     expect(words(q("seat-threads-signal-hand-in"))).toBe("Hand in");
+    // Several can be open at once, so each button names its signal.
+    expect(q("seat-threads-signal-hand-in")?.getAttribute("aria-label")).toBe("Hand in: The migration number is taken.");
     press(q("seat-threads-signal-hand-in"));
     expect(handIn.mock.calls).toEqual([["s7"]]);
 
     // Handed in, the signal is answered and the button is gone.
     await render(
-      <SignalFrame author="pty-lead" signal={signal({ signalId: "s7", asks: "document", state: "answered" })} onHandIn={handIn}>
+      <SignalFrame author="pty-lead" known={KNOWN} signal={signal({ signalId: "s7", asks: "document", state: "answered" })} onHandIn={handIn}>
         <p>Write the plan.</p>
       </SignalFrame>,
     );
@@ -122,7 +124,7 @@ describe("a signal message", () => {
 describe("a signal withdrawn as the answer was on its way", () => {
   it("says so under its body, in plain words, and only then", async () => {
     await render(
-      <SignalFrame author="pty-lead" signal={signal({ state: "withdrawn", crossed: true })} onHandIn={() => undefined}>
+      <SignalFrame author="pty-lead" known={KNOWN} signal={signal({ state: "withdrawn", crossed: true })} onHandIn={() => undefined}>
         <p>What was asked.</p>
       </SignalFrame>,
     );
@@ -131,7 +133,7 @@ describe("a signal withdrawn as the answer was on its way", () => {
 
     // Withdrawn with no answer on its way: the state word is the whole of it.
     await render(
-      <SignalFrame author="pty-lead" signal={signal({ state: "withdrawn" })} onHandIn={() => undefined}>
+      <SignalFrame author="pty-lead" known={KNOWN} signal={signal({ state: "withdrawn" })} onHandIn={() => undefined}>
         <p>What was asked.</p>
       </SignalFrame>,
     );
@@ -237,8 +239,14 @@ describe("what a reply will answer", () => {
     expect(words(q("thread-composer-answers-work"))).toBe(
       "Stays open until a document is handed in: The migration number is taken. Hand in",
     );
+    expect(q("thread-composer-answers-hand-in")!.getAttribute("aria-label")).toBe("Hand in: The migration number is taken.");
     press(q("thread-composer-answers-hand-in"));
     expect(handIn.mock.calls).toEqual([["s4"]]);
+  });
+
+  it("carries the id the reply field is described by", async () => {
+    await render(<ReplyAnswers id="answers-1" open={[signal()]} known={KNOWN} onShow={show} onHandIn={handIn} />);
+    expect(q("thread-composer-answers")!.id).toBe("answers-1");
   });
 
   it("says each kind of work in its own words", async () => {
