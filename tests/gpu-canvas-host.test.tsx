@@ -45,6 +45,10 @@ const toggle = async (on: boolean): Promise<void> => {
   });
 };
 
+// The first beforeEach imports the canvas host cold after vi.resetModules,
+// past the default 10 s hook limit even on a quiet VM. The later ones are fast.
+const COLD_IMPORT_MS = 60_000;
+
 beforeEach(async () => {
   vi.resetModules();
   vi.stubEnv("JUNTO_GPU_CANVAS", "experimental");
@@ -85,12 +89,13 @@ beforeEach(async () => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-});
+}, COLD_IMPORT_MS);
 
 afterEach(() => {
-  act(() => root.unmount());
-  host.remove();
-  modules.device.resetPageDeviceKeeperForTest();
+  // A beforeEach that failed leaves these unset: say nothing more than its own error.
+  if (root !== undefined) act(() => root.unmount());
+  host?.remove();
+  modules?.device.resetPageDeviceKeeperForTest();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
