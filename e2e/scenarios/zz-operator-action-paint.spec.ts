@@ -178,8 +178,17 @@ const stageTable = (name: string, click: number, painted: number, events: Readon
     }
     return false;
   };
-  const filtered = events
-    .filter((event) => event.t >= click - 5 && event.t <= painted + 500 && wanted(event))
+  const inWindow = events.filter((event) => event.t >= click - 5 && event.t <= painted + 500);
+  const requestIds = new Set(
+    inWindow
+      .filter((event) => wanted(event) && event.id !== undefined)
+      .map((event) => event.id),
+  );
+  const filtered = inWindow
+    .filter((event) =>
+      wanted(event) ||
+      ((event.stage === "main-reply" || event.stage === "rpc-reply-arrived") && event.id !== undefined && requestIds.has(event.id)),
+    )
     .sort((a, b) => a.t - b.t);
   const rows = filtered.map((event) => ({
     stage: `${event.process} ${event.stage}${event.op === undefined ? "" : ` ${event.op}`}`,
