@@ -158,7 +158,7 @@ mod tests {
 
     use super::*;
     use crate::commands::Root;
-    use corpus::CORPUS;
+    use corpus::DOCS;
 
     fn registered() -> Vec<String> {
         Root::augment_subcommands(clap::Command::new("junto"))
@@ -167,15 +167,21 @@ mod tests {
             .collect()
     }
 
-    /// The onboard lock (tests/seat-onboarding.test.ts): every root command
-    /// onboard can teach is one this binary registers.
+    /// The onboard lock: every root command onboard can teach in this build
+    /// (src/contract/docs/published/<features>/taught-roots.json) is one the
+    /// command tree has, and so, by every_root_command_is_registered, one
+    /// this binary parses. The docs do not vary by the machine build: there
+    /// onboard teaches no browser command (commands/seat_discovery.rs), and
+    /// main.rs answers one with where the browser runs.
     #[test]
-    fn every_taught_root_is_registered() {
-        let registered = registered();
-        for root in &CORPUS.taught_roots {
+    fn every_taught_root_is_a_command_of_this_build() {
+        for root in &DOCS.taught_roots {
+            if crate::features::MACHINE_BUILD && root == "browser" {
+                continue;
+            }
             assert!(
-                registered.contains(root),
-                "onboard teaches junto {root}, which this binary does not register"
+                TREE.subcommand(root).is_some(),
+                "onboard teaches junto {root}, which corpus/commands.json does not have in this build"
             );
         }
     }

@@ -1,6 +1,6 @@
 //! `docs` (src/cli/commands/docs.ts): the doctrine, the node catalog, the
 //! concepts, the overseer's surface and the command surface, answered from
-//! the built-in corpus with nothing running; the overseer topic is the
+//! the built-in docs with nothing running; the overseer topic is the
 //! overseer command's own (commands/overseer/offline.rs).
 
 use std::process::ExitCode;
@@ -9,9 +9,9 @@ use clap::{Args, Subcommand};
 
 use super::Run;
 use super::overseer::docs_topic;
-use crate::envelope::{self, Answer, Reply};
+use crate::envelope::{self, Answer};
 use crate::error::Failure;
-use crate::help::corpus::CORPUS;
+use crate::help::corpus::DOCS;
 
 /// Junto documentation — the full doctrine and node catalog
 #[derive(Args)]
@@ -47,22 +47,20 @@ impl Command {
     }
 
     fn answer(&self) -> Answer {
-        let docs = &CORPUS.docs;
         let data = match self {
-            Command::List => &docs.list,
-            Command::Doctrine => &docs.doctrine,
-            Command::Nodes => &docs.nodes,
-            Command::Concepts => &docs.concepts,
+            Command::List => DOCS.list(),
+            Command::Doctrine => DOCS.doctrine(),
+            Command::Nodes => DOCS.nodes(),
+            Command::Concepts => DOCS.concepts(),
             Command::Overseer => return docs_topic(),
-            Command::Contract => &docs.contract,
-            Command::Node { kind } => docs
-                .node
-                .get(kind)
+            Command::Contract => DOCS.contract(),
+            Command::Node { kind } => DOCS
+                .node(kind)
                 .ok_or_else(|| Failure::input(format!("unknown node kind {kind}"), "kind"))?,
             Command::Show { topic } => match topic.as_str() {
-                "doctrine" => &docs.doctrine,
-                "nodes" => &docs.nodes,
-                "concepts" => &docs.concepts,
+                "doctrine" => DOCS.doctrine(),
+                "nodes" => DOCS.nodes(),
+                "concepts" => DOCS.concepts(),
                 "overseer" => return docs_topic(),
                 "contract" => {
                     return Err(Failure::input(
@@ -78,7 +76,7 @@ impl Command {
                 }
             },
         };
-        Ok(Reply::from(data.clone()))
+        envelope::ok(&data)
     }
 }
 

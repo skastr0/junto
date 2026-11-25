@@ -1,0 +1,27 @@
+[
+  {
+    "id": "doctrine",
+    "title": "Full doctrine",
+    "description": "The complete doctrine: the laws, the CLI contract, and expansions."
+  },
+  {
+    "id": "nodes",
+    "title": "Node catalog",
+    "description": "Every node kind, its role, and the ports it offers."
+  },
+  {
+    "id": "node",
+    "title": "Node kind in depth",
+    "description": "Role, ports, data model, events, and contract for one kind."
+  },
+  {
+    "id": "concepts",
+    "title": "Concepts",
+    "description": "Seats, grants, edges, honest reporting, identity, errors, the ladder."
+  },
+  {
+    "id": "contract",
+    "title": "CLI contract",
+    "description": "The full command surface with schemas and examples."
+  }
+]

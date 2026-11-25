@@ -1,50 +1,28 @@
-//! Builds the corpus `junto` answers with nothing running (help, completions,
-//! schema, examples, docs) from the TypeScript that defines it today, through
-//! scripts/native-cli-corpus.ts, under this build's feature set: the shipped
-//! profile's defines (scripts/build-features.ts), with each one this crate
-//! reads (`JUNTO_<NAME>_ENABLED`, src/features.rs) taken from the build's
-//! environment. `JUNTO_NATIVE_CORPUS` names a corpus built elsewhere instead.
+//! Embeds what `junto` answers with nothing running that is published
+//! outside this crate, read at build time with no TypeScript run: the schemas
+//! corpus/schemas.json names (src/contract/work/published), and the docs for
+//! this build's features (src/contract/docs/published/<features>/), each
+//! written to OUT_DIR as JSON.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 fn main() {
     schemas();
-    let out =
-        PathBuf::from(std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR")).join("corpus.json");
-    println!("cargo::rerun-if-env-changed=JUNTO_NATIVE_CORPUS");
-    if let Some(given) = std::env::var_os("JUNTO_NATIVE_CORPUS") {
-        println!("cargo::rerun-if-changed={}", Path::new(&given).display());
-        std::fs::copy(&given, &out)
-            .unwrap_or_else(|e| panic!("JUNTO_NATIVE_CORPUS {}: {e}", Path::new(&given).display()));
-        return;
-    }
+    docs();
+}
 
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    for watched in [
-        "src/cli",
-        "src/shared",
-        "scripts/native-cli-corpus.ts",
-        "scripts/build-features.ts",
-        "package.json",
-        "bun.lock",
-    ] {
-        println!("cargo::rerun-if-changed={}", root.join(watched).display());
-    }
-    println!("cargo::rerun-if-env-changed=JUNTO_FEATURE_PROFILE");
-    println!("cargo::rerun-if-env-changed=JUNTO_MACHINE_BUILD");
+fn out_dir() -> PathBuf {
+    PathBuf::from(std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR"))
+}
 
-    let profile = bun(&root, &["scripts/build-features.ts", "--bun-define-args"]);
-    let mut args: Vec<String> = String::from_utf8_lossy(&profile)
-        .lines()
-        .map(|line| define(line.trim()))
-        .collect();
-    if on(std::env::var("JUNTO_MACHINE_BUILD").ok().as_deref()) {
-        args.push("--define=__JUNTO_MACHINE_BUILD__=true".into());
-    }
-    args.push("scripts/native-cli-corpus.ts".into());
-    args.push(out.display().to_string());
-    bun(&root, &args.iter().map(String::as_str).collect::<Vec<_>>());
+fn read(path: &Path) -> String {
+    std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// src/features.rs: `1` or `true` turns a feature on.
+fn on(name: &str) -> bool {
+    println!("cargo::rerun-if-env-changed={name}");
+    matches!(std::env::var(name).ok().as_deref(), Some("1" | "true"))
 }
 
 /// A schema corpus/schemas.json names: a work op's, an overseer operation's,
@@ -92,9 +70,6 @@ fn schemas() {
     ] {
         println!("cargo::rerun-if-changed={}", watched.display());
     }
-    let read = |path: &Path| {
-        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
-    };
     let named: Vec<Named> = serde_json::from_str(&read(&catalog))
         .unwrap_or_else(|e| panic!("corpus/schemas.json: {e}"));
     let mut sources = std::collections::BTreeMap::new();
@@ -124,46 +99,66 @@ fn schemas() {
         let schema = parsed.unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         sources.insert(key, schema);
     }
-    let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR"));
     let text = serde_json::to_string(&sources).expect("raw schemas serialize");
-    std::fs::write(out.join("schemas.json"), text).expect("OUT_DIR is writable");
+    std::fs::write(out_dir().join("schemas.json"), text).expect("OUT_DIR is writable");
 }
 
-/// One profile define, overridden by this crate's variable of the same name.
-fn define(line: &str) -> String {
-    let Some((key, _)) = line.trim_start_matches("--define=").split_once('=') else {
-        return line.to_string();
+#[derive(serde::Serialize)]
+struct Docs {
+    topics: Box<serde_json::value::RawValue>,
+    doctrine: String,
+    nodes: String,
+    concepts: String,
+    node: std::collections::BTreeMap<String, String>,
+    taught_roots: Box<serde_json::value::RawValue>,
+}
+
+/// Writes OUT_DIR/docs.json: the docs published for this build's tasks,
+/// artifacts, browser and authority features (src/contract/docs/publish.ts
+/// names a directory by the ones on, or `none`).
+fn docs() {
+    let gates = [
+        ("tasks", "JUNTO_TASKS_ENABLED"),
+        ("artifacts", "JUNTO_ARTIFACTS_ENABLED"),
+        ("browser", "JUNTO_BROWSER_ENABLED"),
+        ("authority", "JUNTO_AUTHORITY_ENABLED"),
+    ];
+    let named: Vec<&str> = gates
+        .iter()
+        .filter(|(_, env)| on(env))
+        .map(|(name, _)| *name)
+        .collect();
+    let variant = if named.is_empty() {
+        "none".to_string()
+    } else {
+        named.join("-")
     };
-    let name = key.trim_matches('_');
-    if !name.ends_with("_ENABLED") {
-        return line.to_string();
-    }
-    println!("cargo::rerun-if-env-changed={name}");
-    match std::env::var(name) {
-        Ok(value) => format!("--define={key}={}", on(Some(&value))),
-        Err(_) => line.to_string(),
-    }
-}
-
-/// src/features.rs: `1` or `true` turns a feature on.
-fn on(value: Option<&str>) -> bool {
-    matches!(value, Some("1" | "true"))
-}
-
-fn bun(root: &Path, args: &[&str]) -> Vec<u8> {
-    let run = Command::new("bun")
-        .args(args)
-        .current_dir(root)
-        .output()
-        .unwrap_or_else(|e| {
-            panic!("the native CLI's corpus needs bun on PATH (or JUNTO_NATIVE_CORPUS): {e}")
-        });
-    if !run.status.success() {
-        panic!(
-            "bun {}: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&run.stderr)
-        );
-    }
-    run.stdout
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../src/contract/docs/published")
+        .join(&variant);
+    println!("cargo::rerun-if-changed={}", dir.display());
+    let raw = |name: &str| {
+        let path = dir.join(name);
+        serde_json::from_str(&read(&path)).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    };
+    let node_dir = dir.join("node");
+    println!("cargo::rerun-if-changed={}", node_dir.display());
+    let node = std::fs::read_dir(&node_dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", node_dir.display()))
+        .map(|entry| entry.expect("a readable node page").path())
+        .filter_map(|path| {
+            let kind = path.file_name()?.to_str()?.strip_suffix(".md")?.to_string();
+            Some((kind, read(&path)))
+        })
+        .collect();
+    let docs = Docs {
+        topics: raw("topics.json"),
+        doctrine: read(&dir.join("doctrine.md")),
+        nodes: read(&dir.join("nodes.md")),
+        concepts: read(&dir.join("concepts.md")),
+        node,
+        taught_roots: raw("taught-roots.json"),
+    };
+    let text = serde_json::to_string(&docs).expect("docs serialize");
+    std::fs::write(out_dir().join("docs.json"), text).expect("OUT_DIR is writable");
 }

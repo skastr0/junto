@@ -1,0 +1,61 @@
+# Concepts
+
+## Seats
+## Seats
+
+A **seat** is your identity on the canvas: the node you occupy, bound to your process. The seat is durable — it persists across sessions and restarts, and it is where grants, memory, and experience accumulate over time.
+
+- **Reach** is where you sit. You may use the resources (Artifacts nodes, Automations nodes) in your own region, in every region inside it and in every region that contains it, never in a sibling region; a seat in no region reaches every resource, and a resource in no region is in every seat's reach. No edge is needed, and none changes it. Reach is read from the canvas on every call, so when the operator moves you or a resource, your next command sees the new reach.
+- **Edges** join you to other seats. A messages edge can grant mail, prompts, waits and terminal reads. The operator's mask on an edge only removes ports. `junto capabilities` gives the ports you actually hold; a neighboring node alone proves no permission.
+- **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
+- **Orientation** is one command: `junto onboard` returns, most stable first, the operator's briefings and your seat's instructions, then your seat, role, the seats you are connected to, the commands you may run, the resources in your reach and co-members by region, then what changed since your last session. `junto since` returns that last part alone, capped like onboard; `junto since --all` lists every line. Re-run onboard whenever your view may be stale.
+
+**Connection messages are informational.** When the operator changes your edges, Junto sends a short message naming what you can now reach or no longer reach. It is not a command to re-run `onboard`/`capabilities` every time. Onboard once per session, and again only when you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.
+
+## Seats and edges
+There is no task queue in this build. Work reaches a seat from the
+operator, its region briefing, and mail over its edges. The resources in its
+region are in its reach; edges join it to the seats it mails. Idle seats
+wait and do not invent backlog.
+
+## Grants and ports
+A resource in reach hands the seat every command of its kind, with no port. An edge to a seat hands the ports that seat offers:
+- `msg.list` — List messages on the connected node's mailbox.
+- `msg.send` — Mail the connected node: it is typed whole into its input, up to 2,500 characters, and mail sent together arrives as one turn.
+- `msg.prompt` — Mail the peer as a prompt: the full text is typed into its input at once, idle or mid-turn.
+- `seat.wait` — Wait for a connected peer state with a bounded timeout.
+- `terminal.read` — Read settled terminal output from a connected peer; no input, resize or signal authority.
+- `threads.read` — List and read a connected peer's threads with the operator; sends nothing and marks nothing read.
+
+## Honest reporting
+There is no completion verdict in this build. A seat says what it did, what
+it verified, and what it could not finish.
+
+## Process-bind identity
+Identity is the process tree under Junto, proven by the OS. Env is
+context only, never authority.
+
+## Errors as ground truth
+A closed error family with `retryable` flags and `next_step` guidance.
+Retry only when retryable, at most twice; then adapt or escalate. Never
+invent around an error.
+
+## Authority
+One machine at a time takes changes for a canvas: the first reachable one on
+the operator's ordered list. The operator reads and sets it from a shell on
+the machine, never from a seat: `junto authority status [canvas]`,
+`junto authority list <canvas> --order <names>` and `junto authority alone
+<canvas>`. A seat that runs one is refused.
+When no machine can take changes, a task or artifact write answers
+`queued` with a `message` saying why, such as `no authority: MacBook asleep
+since 01:12, this machine`. The write is kept and ruled, applied or
+refused, once a machine rules again; `junto op show <opId>` reads its outcome.
+
+## The intervention ladder
+Junto may become more active with a seat's PTY only when it can
+prove the intervention cannot damage the experience: never near user input,
+never into a draft, never into a modal, one live injection at a time.
+Mail is not an intervention: it is typed at once, as steering. While a
+turn is running, the harness follow-up contract says how many Enters
+that takes. An idle seat gets one Enter.
+Escalation is a canvas event, never a PTY write.

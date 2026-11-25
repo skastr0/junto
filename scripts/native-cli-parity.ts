@@ -221,6 +221,13 @@ const catalogCases: ReadonlyArray<Case> = [
   { name: "examples show of nothing", argv: ["examples", "show", "nope"] },
 ];
 
+// Every docs answer, each node kind's page, and the topics no page answers.
+const docsCases: ReadonlyArray<Case> = [
+  ...["list", "doctrine", "nodes", "concepts", "contract"].map((topic) => ["docs", topic]),
+  ...["agent", "artifacts", "automations", "files", "page", "task", "terminal", "nope"].map((kind) => ["docs", "node", kind]),
+  ...["doctrine", "nodes", "concepts", "contract", "nope"].map((topic) => ["docs", "show", topic]),
+].map((argv) => ({ name: argv.join(" "), argv }));
+
 // --cases <file>: argv arrays to run instead, such as calls agents made, each
 // answered as delivered.
 const casesFlag = process.argv.indexOf("--cases");
@@ -233,7 +240,7 @@ const given: ReadonlyArray<Case> | undefined =
         answer: staged,
       }));
 
-const cases = (given ?? [...handCases, ...exampleCases, ...helpCases, ...catalogCases]).filter((c) => only === undefined || c.argv.join(" ").startsWith(only));
+const cases = (given ?? [...handCases, ...exampleCases, ...helpCases, ...catalogCases, ...docsCases]).filter((c) => only === undefined || c.argv.join(" ").startsWith(only));
 
 // --list prints each case's name and argv, for coverage reports, and runs none.
 if (process.argv.includes("--list")) {

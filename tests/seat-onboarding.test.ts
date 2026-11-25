@@ -339,8 +339,8 @@ describe("the reference onboard leaves out is reachable from junto docs", () => 
   });
 
   // Every command onboard can teach is a root command the native binary
-  // registers: that lock is native/cli/src/help.rs every_taught_root_is_registered,
-  // over the roots scripts/native-cli-corpus.ts exports.
+  // has: that lock is native/cli/src/help.rs every_taught_root_is_a_command_of_this_build,
+  // over the roots src/contract/docs/publish.ts publishes.
 
   it("every command onboard can teach appears in its kind's junto docs node page", () => {
     for (const family of Object.keys(COMMAND_FAMILIES) as CommandFamily[]) {
