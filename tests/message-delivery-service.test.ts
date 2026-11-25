@@ -11,7 +11,6 @@ import {
   MAIL_HELD_RETRY_MS,
   MAIL_PASS_CHUNK,
   MAIL_UNRESOLVED_MAX,
-  MAIL_WAKE_RETRY_MS,
   MessageDeliveryService,
   type MailBatching,
   type MessageDeliveryStore,
@@ -63,8 +62,6 @@ const rig = (
     held?: () => "draft" | "dialog" | "unreadable" | undefined;
     /** Wake result; the default leaves the seat down (paused canvas). */
     wake?: () => boolean;
-    /** Whether the canvas plays; absent, delivery is not told. */
-    playing?: () => boolean;
     /** The supervisor's answer to "did this seat run junto onboard". */
     onboarded?: (bindingId: string) => boolean;
     /** How mail gathers; a short window unless the test is about gathering. */
@@ -131,7 +128,6 @@ const rig = (
       seatLive: (id) => id === bindingId && live,
       ...(options.quietReady ? { seatReadyForQuiet: (id) => id === bindingId && options.quietReady!() } : {}),
       ...(options.onboarded ? { seatOnboarded: options.onboarded } : {}),
-      ...(options.playing ? { canvasPlaying: () => options.playing!() } : {}),
       wakeSeat: async (id, wakeCanvas, wakeNode) => {
         wakes.push({ bindingId: id, canvas: wakeCanvas, nodeId: wakeNode });
         await new Promise((resolve) => setTimeout(resolve, 1));
@@ -694,100 +690,6 @@ describe("mail delivery", () => {
     expect(seat.wakes).toEqual([{ bindingId, canvas, nodeId }]);
   });
 
-  describe("a seat whose start fails", () => {
-    const spent = MAIL_WAKE_RETRY_MS.reduce((sum, ms) => sum + ms, 0);
-
-    it("is started again on a backoff, and its mail is told unstarted once the tries are spent", async () => {
-      vi.useFakeTimers();
-      const seat = rig({ live: false, wake: () => false });
-      const facts: MailWaitingFact[] = [];
-      seat.service.subscribeMailWaiting((fact) => facts.push(fact));
-      seat.append(mail("01A", "for a seat that will not start"));
-      void seat.service.deliver(canvas, nodeId, "01A");
-      await vi.advanceTimersByTimeAsync(50);
-      expect(seat.wakes).toHaveLength(1);
-      for (const [index, ms] of MAIL_WAKE_RETRY_MS.entries()) {
-        // Each step adds up to exactly its backoff, so the checks keep their place.
-        await vi.advanceTimersByTimeAsync(ms - 400);
-        expect(seat.wakes).toHaveLength(index + 1);
-        await vi.advanceTimersByTimeAsync(400);
-        expect(seat.wakes).toHaveLength(index + 2);
-      }
-      expect(facts.at(-1)).toMatchObject({ canvasName: canvas, nodeId, count: 1, hold: "unstarted" });
-      expect(seat.service.mailWaiting()).toEqual([facts.at(-1)]);
-
-      // Spent: nothing asks again by itself.
-      await vi.advanceTimersByTimeAsync(spent * 2);
-      expect(seat.wakes).toHaveLength(MAIL_WAKE_RETRY_MS.length + 1);
-
-      // The seat comes up some other way: the mail is typed and the mark clears.
-      seat.setLive(true);
-      seat.service.onSeatLive(bindingId);
-      await vi.advanceTimersByTimeAsync(500);
-      expect(seat.writes).toHaveLength(1);
-      expect(facts.at(-1)).toEqual({ canvasName: canvas, nodeId, count: 0 });
-      vi.useRealTimers();
-    });
-
-    it("types its mail when a retry starts it, with no mark", async () => {
-      vi.useFakeTimers();
-      let starts = 0;
-      const seat = rig({ live: false, wake: () => (starts += 1) > 1 });
-      seat.append(mail("01A", "second try"));
-      void seat.service.deliver(canvas, nodeId, "01A");
-      await vi.advanceTimersByTimeAsync(MAIL_WAKE_RETRY_MS[0]! + 100);
-      expect(seat.wakes).toHaveLength(2);
-      seat.setLive(true);
-      seat.service.onSeatLive(bindingId);
-      await vi.advanceTimersByTimeAsync(500);
-      expect(seat.writes).toHaveLength(1);
-      expect(seat.service.mailWaiting()).toEqual([]);
-      vi.useRealTimers();
-    });
-
-    it("spends no try on more mail during its backoff", async () => {
-      vi.useFakeTimers();
-      const seat = rig({ live: false, wake: () => false });
-      seat.append(mail("01A", "first"));
-      seat.append(mail("01B", "second"));
-      void seat.service.deliver(canvas, nodeId, "01A");
-      await vi.advanceTimersByTimeAsync(50);
-      void seat.service.deliver(canvas, nodeId, "01B");
-      await vi.advanceTimersByTimeAsync(50);
-      expect(seat.wakes).toHaveLength(1);
-      vi.useRealTimers();
-    });
-
-    it("is not a failed start on a paused canvas: play asks again, at once", async () => {
-      vi.useFakeTimers();
-      let playing = false;
-      const seat = rig({ live: false, wake: () => playing, playing: () => playing });
-      seat.append(mail("01A", "after play"));
-      void seat.service.deliver(canvas, nodeId, "01A");
-      await vi.advanceTimersByTimeAsync(spent * 2);
-      expect(seat.wakes).toHaveLength(1);
-      expect(seat.service.mailWaiting()).toEqual([]);
-      playing = true;
-      seat.service.onResumed(canvas);
-      await vi.advanceTimersByTimeAsync(50);
-      expect(seat.wakes).toHaveLength(2);
-      vi.useRealTimers();
-    });
-
-    it("is started at once when play resumes, whatever backoff stood", async () => {
-      vi.useFakeTimers();
-      const seat = rig({ live: false, wake: () => false });
-      seat.append(mail("01A", "play"));
-      void seat.service.deliver(canvas, nodeId, "01A");
-      await vi.advanceTimersByTimeAsync(50);
-      expect(seat.wakes).toHaveLength(1);
-      seat.service.onResumed(canvas);
-      await vi.advanceTimersByTimeAsync(50);
-      expect(seat.wakes).toHaveLength(2);
-      vi.useRealTimers();
-    });
-  });
-
   it("keeps mail queued while paused and starts the seat when play resumes", async () => {
     // A paused canvas refuses the wake; play retries the waiting mail.
     const seat = rig({ live: false, wake: () => false });
@@ -842,8 +744,7 @@ describe("mail delivery", () => {
     };
 
     it("tries only its oldest mail while it is starting, so its start is not held behind the rest", async () => {
-      // Its start is asked for and taken; the seat is not up yet.
-      const seat = rig({ live: false, wake: () => true });
+      const seat = rig({ live: false, wake: () => false });
       await indexed(seat, backlog(2_000));
       const before = seat.modelReads();
 
@@ -857,7 +758,7 @@ describe("mail delivery", () => {
     });
 
     it("tries its oldest mail that may wake it, past held-back mail, so the mail behind still starts it", async () => {
-      const seat = rig({ live: false, wake: () => true });
+      const seat = rig({ live: false, wake: () => false });
       const ids = backlog(3);
       seat.service.holdWake(ids[0]!);
       await indexed(seat, ids);

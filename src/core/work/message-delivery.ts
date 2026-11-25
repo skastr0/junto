@@ -22,10 +22,7 @@
  * pause law, so a paused canvas or seat keeps its mail queued until play
  * (`onResumed`). A sender may opt one message out of the wake: `noWake` on
  * its row, which holds across a restart and on the seat's own machine, or
- * `holdWake` in this process. A start that fails is tried again on a
- * backoff (`MAIL_WAKE_RETRY_MS`); once those tries are spent, the seat's
- * waiting mail is told on it as `unstarted`. A paused canvas is not a failed
- * start: play asks again.
+ * `holdWake` in this process.
  *
  * Mail is typed only into an available input box. While the operator is
  * composing there, a dialog is up, or the box cannot be read, typing would
@@ -135,15 +132,6 @@ export const MAIL_QUIET_IDLE_MS = 250;
 export const MAIL_PASS_CHUNK = 64;
 
 /**
- * How long a down seat whose start failed waits before its mail asks to start
- * it again, one step per failed start in a row. Past the last step the seat's
- * waiting mail is told as `unstarted` at once, and only new mail, play or a
- * restart asks again. A start that works, or the seat coming up some other
- * way, begins the count again.
- */
-export const MAIL_WAKE_RETRY_MS: ReadonlyArray<number> = [10_000, 30_000, 120_000, 600_000];
-
-/**
  * The most mail held unresolved (its seat could not be read). Past it the
  * oldest leaves, said in the log; the boot scan is the net for it.
  */
@@ -186,12 +174,6 @@ export type MessageDeliveryTransport = {
     canvas: string,
     nodeId: string,
   ) => Promise<boolean>;
-  /**
-   * Whether the canvas plays. A start refused on a paused canvas is not a
-   * failed start: play tries again (`onResumed`). Absent = every refusal
-   * counts toward `MAIL_WAKE_RETRY_MS`.
-   */
-  readonly canvasPlaying?: (canvas: string) => boolean;
   /**
    * Type the text into the seat's input and submit it. A hold reason when
    * the input box was not available and nothing was typed; "lost" when the
@@ -361,10 +343,6 @@ export class MessageDeliveryService {
   private readonly noWake = new Set<string>();
   /** One wake in flight per seat. */
   private readonly waking = new Set<string>();
-  /** Failed starts in a row, per seat binding (`MAIL_WAKE_RETRY_MS`). */
-  private readonly wakeFailures = new Map<string, number>();
-  /** One timer per seat binding whose next start waits out its backoff. */
-  private readonly wakeRetries = new Map<string, ReturnType<typeof setTimeout>>();
   /** Seats with a seat-live pass walking their mail; true asks for one more pass after it. */
   private readonly passes = new Map<string, boolean>();
   /** Mail whose failed write was already told; cleared once it lands. */
@@ -421,9 +399,6 @@ export class MessageDeliveryService {
     this.seatChains.clear();
     this.noWake.clear();
     this.waking.clear();
-    for (const timer of this.wakeRetries.values()) clearTimeout(timer);
-    this.wakeRetries.clear();
-    this.wakeFailures.clear();
     this.passes.clear();
     this.failedTold.clear();
     this.heldTold.clear();
@@ -502,8 +477,7 @@ export class MessageDeliveryService {
   /** Tell a seat's mail-waiting fact when it starts, changes or clears. */
   private recountWaiting(canvas: string, nodeId: string, now: number): void {
     const long = [...this.heldTold.values()]
-      // A seat that could not be started is told at once: no wait ends it by itself.
-      .filter((told) => told.canvas === canvas && told.nodeId === nodeId && (told.reason === "unstarted" || now - told.since >= MAIL_WAITING_AFTER_MS))
+      .filter((told) => told.canvas === canvas && told.nodeId === nodeId && now - told.since >= MAIL_WAITING_AFTER_MS)
       .sort((a, b) => a.since - b.since);
     const seat = mailKey(canvas, nodeId, "");
     const prior = this.waitingFacts.get(seat);
@@ -919,8 +893,6 @@ export class MessageDeliveryService {
     if (transport.wakeSeat === undefined || this.waking.has(bindingId)) {
       return transport.wakeSeat === undefined ? "wake transport missing" : "wake already in flight";
     }
-    // A failed start waits out its backoff: more mail meanwhile spends no try.
-    if (this.wakeRetries.has(bindingId)) return "wake retry scheduled";
     this.waking.add(bindingId);
     void transport
       .wakeSeat(bindingId, canvas, nodeId)
@@ -928,65 +900,10 @@ export class MessageDeliveryService {
         console.error(`[delivery] wake failed for ${canvas}/${nodeId}/${messageId} (${bindingId}): ${String(error)}`);
         return false;
       })
-      .then((started) => {
-        if (!this.active(generation)) return;
-        this.waking.delete(bindingId);
-        if (started) this.wakeFailures.delete(bindingId);
-        // A paused canvas keeps its mail for play, which asks again.
-        else if (transport.canvasPlaying?.(canvas) !== false) this.wakeFailed(bindingId, canvas, nodeId, generation);
+      .finally(() => {
+        if (this.active(generation)) this.waking.delete(bindingId);
       });
     return "wake requested";
-  }
-
-  /**
-   * A start for this seat's mail failed. Try again after the next backoff
-   * step; once the steps are spent, tell its waiting mail as `unstarted`.
-   */
-  private wakeFailed(bindingId: string, canvas: string, nodeId: string, generation: number): void {
-    const failures = (this.wakeFailures.get(bindingId) ?? 0) + 1;
-    this.wakeFailures.set(bindingId, failures);
-    const delayMs = MAIL_WAKE_RETRY_MS[failures - 1];
-    if (delayMs === undefined) {
-      console.error(
-        `[delivery] ${canvas}/${nodeId}: the seat did not start in ${String(failures)} tries; its mail waits for new mail, play or a restart`,
-      );
-      this.tellUnstarted(bindingId);
-      return;
-    }
-    console.info(`[delivery] ${canvas}/${nodeId}: the seat did not start, try ${String(failures + 1)} in ${String(delayMs)} ms`);
-    const timer = setTimeout(() => {
-      this.wakeRetries.delete(bindingId);
-      if (!this.active(generation)) return;
-      const first = this.firstWaking(bindingId);
-      if (first === undefined) {
-        this.wakeFailures.delete(bindingId);
-        return;
-      }
-      void this.deliver(first.canvas, first.nodeId, first.messageId);
-    }, delayMs);
-    timer.unref?.();
-    this.wakeRetries.set(bindingId, timer);
-  }
-
-  /** The oldest mail waiting on this seat that may start it. */
-  private firstWaking(bindingId: string): PendingMail | undefined {
-    return [...this.waiting.values()]
-      .filter((pending) => pending.bindingId === bindingId && !pending.noWake && !this.noWake.has(pending.messageId))
-      .sort((a, b) => a.messageId.localeCompare(b.messageId))[0];
-  }
-
-  /** Every mail waiting on this seat is told as waiting on a seat that could not be started. */
-  private tellUnstarted(bindingId: string): void {
-    const now = Date.now();
-    let seat: PendingMail | undefined;
-    for (const [key, pending] of this.waiting) {
-      if (pending.bindingId !== bindingId) continue;
-      const told = this.heldTold.get(key);
-      this.heldTold.set(key, { reason: "unstarted", at: now, since: told?.since ?? now, canvas: pending.canvas, nodeId: pending.nodeId });
-      seat ??= pending;
-    }
-    // One binding is one seat: its fact is counted once.
-    if (seat !== undefined) this.recountWaiting(seat.canvas, seat.nodeId, now);
   }
 
   /**
@@ -1001,13 +918,6 @@ export class MessageDeliveryService {
     const mail = [...this.waiting.values()]
       .filter((pending) => pending.canvas === canvas)
       .sort((a, b) => a.messageId.localeCompare(b.messageId));
-    // Play is a new reason to start these seats: no backoff stands in its way.
-    for (const pending of mail) {
-      const retry = this.wakeRetries.get(pending.bindingId);
-      if (retry !== undefined) clearTimeout(retry);
-      this.wakeRetries.delete(pending.bindingId);
-      this.wakeFailures.delete(pending.bindingId);
-    }
     for (const pending of mail) {
       void this.deliver(pending.canvas, pending.nodeId, pending.messageId);
     }
@@ -1042,11 +952,6 @@ export class MessageDeliveryService {
       .filter((pending) => pending.bindingId === bindingId)
       .sort((a, b) => a.messageId.localeCompare(b.messageId));
     if (this.transport?.seatLive(bindingId) === true) {
-      // The seat is up, however it started: its failed starts are behind it.
-      this.wakeFailures.delete(bindingId);
-      const retry = this.wakeRetries.get(bindingId);
-      if (retry !== undefined) clearTimeout(retry);
-      this.wakeRetries.delete(bindingId);
       this.walk(bindingId, mail);
     } else {
       const first = mail.find((pending) => !pending.noWake && !this.noWake.has(pending.messageId)) ?? mail[0];

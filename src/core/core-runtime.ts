@@ -151,7 +151,7 @@ const machineCoreMailLayer = Layer.effect(MachineCoreMail, Effect.gen(function* 
   const pause = yield* PausePlane;
   const kernel = yield* KernelService;
   messageDelivery.configure({
-    transport: { ...seats.transport, canvasPlaying: (canvas) => pause.stateFor(canvas).playing },
+    transport: seats.transport,
     store: {
       ...store,
       acceptMessageDelivery: (canvas, nodeId, messageId, read) =>

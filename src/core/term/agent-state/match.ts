@@ -65,35 +65,6 @@ export const regionLines = (
 export const regionText = (lines: readonly string[]): string =>
   lines.join("\n");
 
-type RegionView = { readonly lines: readonly string[]; readonly text: string };
-
-/**
- * A region's lines and joined text, read once per snapshot. Every rule of an
- * evaluation reads its region off the same snapshot, and a snapshot is
- * immutable, so the dozens of rules that share a region share one extraction.
- */
-const regionViews = new WeakMap<ObserverGridSnapshot, Map<string, RegionView>>();
-
-const regionView = (
-  snapshot: ObserverGridSnapshot,
-  region: SeatRuleRegion,
-  regionN: number,
-): RegionView => {
-  let views = regionViews.get(snapshot);
-  if (views === undefined) {
-    views = new Map();
-    regionViews.set(snapshot, views);
-  }
-  const key = `${region}:${regionN}`;
-  let view = views.get(key);
-  if (view === undefined) {
-    const lines = regionLines(snapshot, region, regionN);
-    view = { lines, text: regionText(lines) };
-    views.set(key, view);
-  }
-  return view;
-};
-
 const hasPositiveMatcher = (m: SeatMatcher): boolean => {
   if (m.contains && m.contains.length > 0) return true;
   if (m.regex && m.regex.length > 0) return true;
@@ -118,10 +89,18 @@ export const matcherMatches = (
     }
   }
 
-  if (matcher.contains && matcher.contains.length > 0) {
-    const lower = text.toLowerCase();
+  const lower = text.toLowerCase();
+
+  if (matcher.contains) {
     for (const needle of matcher.contains) {
       if (!lower.includes(needle.toLowerCase())) return false;
+    }
+  }
+
+  if (matcher.regex) {
+    for (const source of matcher.regex) {
+      const re = compileRegex(source);
+      if (!re || !re.test(text)) return false;
     }
   }
 
@@ -163,17 +142,6 @@ export const matcherMatches = (
     }
   }
 
-  // Last: every gate is a pure test ANDed together, so the order never moves
-  // a verdict, and the whole-region regexes (the capture patterns, which scan
-  // the region greedily) are the dearest gate. A cheap gate that fails first
-  // spares them, which is nearly every snapshot.
-  if (matcher.regex) {
-    for (const source of matcher.regex) {
-      const re = compileRegex(source);
-      if (!re || !re.test(text)) return false;
-    }
-  }
-
   return true;
 };
 
@@ -184,7 +152,8 @@ export const ruleMatches = (
   rule: RegionRule,
   snapshot: ObserverGridSnapshot,
 ): boolean => {
-  const { lines, text } = regionView(snapshot, rule.region, rule.regionN ?? 5);
+  const lines = regionLines(snapshot, rule.region, rule.regionN ?? 5);
+  const text = regionText(lines);
   // OSC regions with empty payload never match positive rules.
   if (
     (rule.region === "osc_title" || rule.region === "osc9") &&
@@ -219,7 +188,8 @@ export const ruleCaptures = (
   rule: RegionRule,
   snapshot: ObserverGridSnapshot,
 ): RuleCaptures => {
-  const { lines, text } = regionView(snapshot, rule.region, rule.regionN ?? 5);
+  const lines = regionLines(snapshot, rule.region, rule.regionN ?? 5);
+  const text = regionText(lines);
   const groups: Record<string, string> = {};
   let matched: string | null = null;
   const take = (hit: RegExpExecArray | null): void => {

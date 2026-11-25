@@ -35,13 +35,6 @@ import {
   hermesRefusesMultilinePaste,
   payloadMayChip,
 } from "./typing";
-import {
-  MAIL_TURN_START_BOUND_MS,
-  MailTurnWatch,
-  type MailTurnHandle,
-  type MailTurnMiss,
-  type MailTurnStats,
-} from "./mail-turn-watch";
 import { MAIL_MODE_ASKED, mailSubmits, type MailAdmission } from "./mail-admission";
 import {
   createPtyDeliveryTracer,
@@ -258,11 +251,6 @@ export type ManagedTerminalDriveOptions = {
    * Tests set 0 so write counts stay paste+CR without fake timers.
    */
   readonly pasteToCrSettleMs?: number;
-  /**
-   * How long mail typed into an idle seat has to start a turn before it is
-   * recorded as a miss (default MAIL_TURN_START_BOUND_MS).
-   */
-  readonly mailTurnBoundMs?: number;
   /** Evidence-gated acknowledgement (see PromptTextLookup). */
   readonly pendingText?: PromptTextLookup;
   /**
@@ -353,8 +341,6 @@ export class ManagedTerminalDrive {
    */
   private readonly idleInterrupts = new Map<string, symbol>();
   private readonly pendingTurns = new Map<string, PendingTurn>();
-  /** Mail written against turns started, per seat; see mail-turn-watch.ts. */
-  private readonly mailTurns: MailTurnWatch;
   private readonly turnStartCounts = new Map<string, number>();
   private readonly compactNoopCounts = new Map<string, number>();
   /** bindingId → earliest write time (Grok post-spawn, etc.). */
@@ -423,24 +409,6 @@ export class ManagedTerminalDrive {
     this.queueTimeoutMs = options.queueTimeoutMs ?? DEFAULT_QUEUE_TIMEOUT_MS;
     this.stallWatch = options.stallWatch ?? true;
     this.pasteToCrSettleMs = options.pasteToCrSettleMs ?? PASTE_TO_CR_SETTLE_MS;
-    this.mailTurns = new MailTurnWatch({
-      boundMs: options.mailTurnBoundMs ?? MAIL_TURN_START_BOUND_MS,
-      now: this.now,
-      onMiss: (miss) => {
-        this.traceState(miss.bindingId, "mail.turn.missed", {
-          boundMs: miss.boundMs,
-          chars: miss.chars,
-          lines: miss.lines,
-          chipOnScreen: miss.chipOnScreen,
-          textOnScreen: miss.textOnScreen,
-        });
-        console.warn(
-          `[drive] mail written to ${miss.bindingId} but no turn started within ${miss.boundMs} ms: ` +
-            `${miss.lines} lines, ${miss.chars} chars, chip on screen: ${String(miss.chipOnScreen)}, ` +
-            `text on screen: ${String(miss.textOnScreen)}`,
-        );
-      },
-    });
     this.pendingText = options.pendingText === undefined ? undefined : (bindingId, text) => {
       const pending = options.pendingText!(bindingId, text);
       this.tracer?.event(bindingId, "evidence", { probe: "pending-text", value: pending });
@@ -878,10 +846,8 @@ export class ManagedTerminalDrive {
     const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
     this.writing.add(bindingId);
     this.traceState(bindingId, "mail.begin");
-    // A holder, not a bare let: the closure below assigns it.
-    const turnWatch: { handle?: MailTurnHandle } = {};
     try {
-      const outcome = await this.withOperatorHold(bindingId, async () => {
+      return await this.withOperatorHold(bindingId, async () => {
         // Checked inside the hold and before the first await: operator bytes
         // that arrive from here on are parked until the CR, so no keystroke
         // can fall between this check and the paste.
@@ -898,11 +864,10 @@ export class ManagedTerminalDrive {
         // Counted before the first Enter. A submit that settles the seat
         // must not cancel a second Enter this running turn already owed.
         const admission = this.mailAdmission?.(bindingId);
-        const idleAtWrite = this.isSeatIdle(bindingId);
         const followUpSubmits = mailSubmits(
           this.harnessFor?.(bindingId),
           admission?._tag === "Admitted" ? admission.mode : MAIL_MODE_ASKED,
-          idleAtWrite,
+          this.isSeatIdle(bindingId),
         );
         const [paste, cr] = buildMailWriteSequence(
           body,
@@ -921,9 +886,6 @@ export class ManagedTerminalDrive {
           this.interlock.resizeActive(bindingId) &&
           !(await this.awaitResizeQuiet(bindingId, generation, bindingGeneration))
         ) return "lost";
-        // Opened before the first Enter: a turn start can land before this
-        // write resolves. Only an idle seat is owed a turn by this mail.
-        turnWatch.handle = this.mailTurns.open(bindingId, { expectTurn: idleAtWrite, text: body });
         if (!(await Promise.resolve(this.writeTraced(bindingId, cr, "submit-cr")))) {
           return "lost";
         }
@@ -947,17 +909,7 @@ export class ManagedTerminalDrive {
         }
         return "written";
       });
-      if (turnWatch.handle !== undefined) {
-        if (outcome === "written") {
-          this.mailTurns.arm(turnWatch.handle, () => ({
-            chipOnScreen: this.chipVisible(bindingId),
-            textOnScreen: this.pendingOnScreen(bindingId),
-          }));
-        } else this.mailTurns.discard(turnWatch.handle);
-      }
-      return outcome;
     } finally {
-      if (turnWatch.handle !== undefined) this.mailTurns.discard(turnWatch.handle);
       this.traceState(bindingId, "mail.end");
       if ((this.bindingGenerations.get(bindingId) ?? 0) === bindingGeneration) {
         this.writing.delete(bindingId);
@@ -1291,7 +1243,6 @@ export class ManagedTerminalDrive {
       (this.turnStartCounts.get(bindingId) ?? 0) + 1,
     );
     this.traceState(bindingId, "turn.start.accepted");
-    this.mailTurns.turnStarted(bindingId);
     this.resolvePendingTurn(bindingId, true);
   }
 
@@ -1330,7 +1281,6 @@ export class ManagedTerminalDrive {
     this.lastIdleInterruptAt.clear();
     this.idleInterrupts.clear();
     this.turnStartCounts.clear();
-    this.mailTurns.forgetAll();
     this.compactNoopCounts.clear();
     this.readyAfter.clear();
     this.lastWrittenText.clear();
@@ -1363,7 +1313,6 @@ export class ManagedTerminalDrive {
     this.lastIdleInterruptAt.delete(bindingId);
     this.idleInterrupts.delete(bindingId);
     this.turnStartCounts.delete(bindingId);
-    this.mailTurns.forget(bindingId);
     this.compactNoopCounts.delete(bindingId);
     this.readyAfter.delete(bindingId);
     this.lastWrittenText.delete(bindingId);
@@ -1378,26 +1327,7 @@ export class ManagedTerminalDrive {
   resetForTest(): void {
     this.lifecycleGeneration += 1;
     this.clearTransientState("cancelled");
-    this.mailTurns.reset();
     this.suspended = false;
-  }
-
-  /**
-   * Mail typed into a seat against turns started on it (one seat), or summed
-   * over every seat. `expected` counts only mail typed into an idle seat.
-   */
-  mailTurnStats(bindingId?: string): MailTurnStats {
-    return bindingId === undefined ? this.mailTurns.allStats().total : this.mailTurns.stats(bindingId);
-  }
-
-  /** Every seat's mail-turn counts. */
-  mailTurnStatsBySeat(): ReadonlyMap<string, MailTurnStats> {
-    return this.mailTurns.allStats().seats;
-  }
-
-  /** Mail typed into an idle seat with no turn start inside the bound, oldest first. */
-  mailTurnMisses(bindingId?: string): ReadonlyArray<MailTurnMiss> {
-    return this.mailTurns.misses(bindingId);
   }
 
   /** Queued prompt count for one binding (tests / diagnostics). */

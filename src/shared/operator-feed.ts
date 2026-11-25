@@ -198,7 +198,6 @@ const MAIL_WAIT_REASON = {
   busy: "the seat is busy starting, compacting or retrying",
   stopped: "the seat has stopped",
   unsupported: "the seat's harness cannot take mail right now",
-  unstarted: "the seat could not be started",
 } as const satisfies Record<MailHold, string>;
 
 /** "45 min", "2 h", "3 d": how long, rounded down, never less than a minute. */

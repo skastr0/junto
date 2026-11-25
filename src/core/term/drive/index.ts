@@ -34,12 +34,6 @@ export {
 } from "./managed-terminal-drive";
 
 export {
-  MAIL_TURN_START_BOUND_MS,
-  type MailTurnMiss,
-  type MailTurnStats,
-} from "./mail-turn-watch";
-
-export {
   PASTE_CHIP_TEXT,
   promptHasPasteChip,
   promptStillPending,
