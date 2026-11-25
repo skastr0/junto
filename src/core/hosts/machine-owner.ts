@@ -222,7 +222,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     return { ...status, installationId: pin.installationId };
   });
   type TakeoverCounts = { readonly seats: number; readonly automations: number; readonly files: number };
-  const takeoverPreview = new Map<string, { readonly expectedInstallationId: InstallationId } & TakeoverCounts>();
+  const takeoverPreview = new Map<string, { readonly expectedInstallationId: InstallationId; readonly previousRetiredAt?: string } & TakeoverCounts>();
   const countTakeover = (name: string) => options.takeoverCounts === undefined
     ? Effect.succeed({ seats: 0, automations: 0, files: 0 })
     : options.takeoverCounts(name).pipe(Effect.mapError(() => new RemoteHostsError("io", "This machine's take-over counts could not be read")));
@@ -248,6 +248,33 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
   const REMOTE_CHANGED_WORDS = "That machine now answers as a different install of Junto than the preview showed. Send Junto to it again to see where it stands.";
   const REMOTE_CONFIRMED_WORDS = "That machine now trusts this one. Send Junto to it again to finish setting it up.";
   const LIVE_WINDOW_MS = 10 * 60_000;
+  const retiredTakeoverPreview = new Map<string, InstallationId>();
+  const retiredTakeoverWords = "The old link key is removed; the pin was not replaced. Preview the take-over again.";
+  const checkRetiredFar = (name: string, installationId: InstallationId): Effect.Effect<void, RemoteHostsError> => Effect.gen(function* () {
+    // T2: a retired row has no install receipt behind it, so both steps read
+    // the far's own status over the route and require the installation the
+    // take-over names. A pin-only peer has no route to prove it on.
+    const host = yield* hosts.get(name).pipe(Effect.orElseSucceed(() => undefined));
+    if (host === undefined || host.isThisMachine || host.juntoHome === undefined || host.installRoot === undefined) {
+      return yield* Effect.fail(new RemoteHostsError("conflict", "Send Junto to it first."));
+    }
+    const route = yield* parseHostSshRoute(host).pipe(Effect.mapError(() => new RemoteHostsError("conflict", "Send Junto to it first.")));
+    const statusProgram = yield* machineStatusProgram(route, { juntoHome: host.juntoHome, installRoot: host.installRoot }).pipe(
+      Effect.mapError(() => new RemoteHostsError("io", "The take-over status could not be prepared")),
+    );
+    const statusAnswer = yield* ssh.run(statusProgram).pipe(
+      Effect.mapError((cause) => new RemoteHostsError("io", `The take-over could not reach ${name}: ${cause instanceof Error ? cause.message : String(cause)}`)),
+    );
+    const status = yield* decodeMachineOwnStatus(statusAnswer.stdout).pipe(
+      Effect.mapError(() => new RemoteHostsError("io", `${name} answered its status outside its contract`)),
+    );
+    if (status.machineName !== name) {
+      return yield* Effect.fail(new RemoteHostsError("conflict", "The machine that answered is not the machine this take-over was for"));
+    }
+    if (status.installationId !== installationId) {
+      return yield* Effect.fail(new RemoteHostsError("conflict", "That machine now answers as a different install of Junto than the take-over names. Preview the take-over again."));
+    }
+  });
   const takeover = (input: MachineTakeoverInput): Effect.Effect<MachineTakeoverData, RemoteHostsError> => Effect.gen(function* () {
     const name = input.machineName;
     const ownName = yield* machines.machineName.pipe(Effect.mapError(() => new RemoteHostsError("io", "This machine's name could not be read")));
@@ -259,13 +286,46 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     }
     const confirmed = input.confirm === undefined ? undefined : yield* confirmedCounts(input.confirm);
     const pin = yield* machines.peer(name).pipe(Effect.mapError(() => new RemoteHostsError("io", "The machine pin could not be read")));
-    if (pin === undefined) return yield* Effect.fail(new RemoteHostsError("not_found", `${name} is not pinned on this machine`));
-    const previous = input.expectedInstallationId ?? pin.installationId;
-    if (pin.installationId !== previous) {
+    // A name this machine removed still has its retired row; it is the
+    // previous installation a take-over names (T1).
+    let retired: { readonly installationId: InstallationId; readonly retiredAt: string } | undefined;
+    if (pin === undefined) {
+      const rows = yield* sql`SELECT installation_id, retired_at FROM machine_peers WHERE machine_name = ${name} AND retired_at IS NOT NULL`.pipe(
+        Effect.mapError(() => new RemoteHostsError("io", "The machine pin could not be read")),
+      );
+      const row = rows[0] as { readonly installation_id: InstallationId; readonly retired_at: string } | undefined;
+      if (row !== undefined) retired = { installationId: row.installation_id, retiredAt: row.retired_at };
+    }
+    if (pin === undefined && retired === undefined) return yield* Effect.fail(new RemoteHostsError("not_found", `${name} is not pinned on this machine`));
+    const previous = input.expectedInstallationId ?? pin?.installationId ?? retired!.installationId;
+    const currentPrevious = pin?.installationId ?? retired!.installationId;
+    if (currentPrevious !== previous) {
       return yield* Effect.fail(new RemoteHostsError("conflict", "The pin changed before the take-over; nothing was changed"));
     }
     if (input.installationId === previous) {
       return yield* Effect.fail(new RemoteHostsError("validation", "The new installation is the one already pinned"));
+    }
+    // A preview of a retired row makes the retired state part of the confirm:
+    // if the row was revived or replaced in the meantime, preview again (T1).
+    if (input.confirm !== undefined) {
+      const expectedRetired = retiredTakeoverPreview.get(name);
+      if (expectedRetired !== undefined && (retired === undefined || retired.installationId !== expectedRetired || previous !== expectedRetired)) {
+        return yield* Effect.fail(new RemoteHostsError("conflict", "The pin changed before the take-over; preview the take-over again"));
+      }
+    }
+    // The preview prints previousRetiredAt; a confirm may echo that name or
+    // use expectedRetiredAt. Two different times are ambiguous, never a CAS.
+    if (input.previousRetiredAt !== undefined && input.expectedRetiredAt !== undefined
+      && input.previousRetiredAt !== input.expectedRetiredAt) {
+      return yield* Effect.fail(new RemoteHostsError("validation", "The take-over confirm names two different removed times. Preview the take-over again"));
+    }
+    const removedTime = input.previousRetiredAt ?? input.expectedRetiredAt;
+    if (input.confirm !== undefined && retired !== undefined && removedTime === undefined) {
+      return yield* Effect.fail(new RemoteHostsError("validation", "The take-over confirm needs the removed time the preview showed. Preview the take-over again"));
+    }
+    if (removedTime !== undefined
+      && (retired === undefined || retired.installationId !== previous || retired.retiredAt !== removedTime)) {
+      return yield* Effect.fail(new RemoteHostsError("conflict", "The pin changed before the take-over; preview the take-over again"));
     }
     const other = yield* sql`SELECT machine_name FROM machine_peers WHERE installation_id = ${input.installationId}`.pipe(
       Effect.mapError(() => new RemoteHostsError("io", "The machine pins could not be read")),
@@ -274,10 +334,18 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       return yield* Effect.fail(new RemoteHostsError("conflict", `That installation is already pinned as ${String((other[0] as { readonly machine_name: string }).machine_name)}`));
     }
     const seen = yield* machines.peersSeen.pipe(Effect.mapError(() => new RemoteHostsError("io", "This machine's peer history could not be read")));
-    const previousSeenAt = seen.find(row => row.installationId === previous)?.seenAt;
-    if (input.checkLive === true) {
+    let previousSeenAt = seen.find(row => row.installationId === previous)?.seenAt;
+    if (retired !== undefined) {
+      // The retired row's last-live time, when the store still has it.
+      const seenRows = yield* sql`SELECT seen_at FROM machine_peer_seen WHERE installation_id = ${previous} LIMIT 1`.pipe(
+        Effect.mapError(() => new RemoteHostsError("io", "This machine's peer history could not be read")),
+      );
+      previousSeenAt = (seenRows[0] as { readonly seen_at: string } | undefined)?.seen_at;
+    }
+    if (input.checkLive === true && retired === undefined) {
       // A remote take-over refuses a pin whose old installation is still live
       // here: an open link, or a hello this machine heard within 10 minutes.
+      // A retired pin refuses that install's links already (T4).
       const live = options.peerInstallation === undefined ? undefined
         : yield* options.peerInstallation(name).pipe(Effect.orElseSucceed(() => undefined));
       const heardAt = previousSeenAt === undefined ? Number.NaN : Date.parse(previousSeenAt);
@@ -285,6 +353,11 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         && (Number.isNaN(heardAt) || (options.now ?? (() => new Date()))().getTime() - heardAt < LIVE_WINDOW_MS);
       if (live === previous || recent) return yield* Effect.fail(new RemoteHostsError("conflict", liveWords(name)));
     }
+    // T2 on a local take-over: the retired row has no receipt behind it, so
+    // both steps read the far over this machine's route. A remote take-over
+    // already proved the far from the near; the far has no route back to the
+    // caller to prove, and a one-way setup must still succeed.
+    if (retired !== undefined && input.checkLive !== true) yield* checkRetiredFar(name, input.installationId);
     const counts = yield* countTakeover(name);
     const answer = {
       machineName: name,
@@ -294,9 +367,14 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       automations: counts.automations,
       files: counts.files,
       ...(previousSeenAt === undefined ? {} : { previousSeenAt }),
+      ...(retired === undefined ? {} : { previousRetiredAt: retired.retiredAt }),
       takenOver: input.confirm !== undefined,
     } satisfies MachineTakeoverData;
-    if (input.confirm === undefined) return answer;
+    if (input.confirm === undefined) {
+      if (retired === undefined) retiredTakeoverPreview.delete(name);
+      else retiredTakeoverPreview.set(name, previous);
+      return answer;
+    }
     if (confirmed === undefined || confirmed.seats !== counts.seats || confirmed.automations !== counts.automations || confirmed.files !== counts.files) {
       return yield* Effect.fail(new RemoteHostsError("conflict", `This machine counts ${countsWords(counts)}; confirm those counts`));
     }
@@ -305,33 +383,50 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     // its link, and the same command finishes its removal.
     if (options.takeoverForget !== undefined) yield* options.takeoverForget(name, previous).pipe(Effect.mapError(() => new RemoteHostsError("io", "The old link key could not be removed; nothing was changed")));
     yield* options.disconnect(name).pipe(Effect.ignore);
-    const committed = yield* sql.withTransaction(Effect.gen(function* () {
-      const current = yield* machines.peer(name);
-      if (current?.installationId !== previous) return false;
-      const atCommit = yield* countTakeover(name);
-      if (atCommit.seats !== counts.seats || atCommit.automations !== counts.automations || atCommit.files !== counts.files) return false;
-      const at = new Date().toISOString();
-      yield* sql`INSERT INTO known_installations(installation_id, registered_at) VALUES (${input.installationId}, ${at}) ON CONFLICT(installation_id) DO NOTHING`;
-      yield* sql`DELETE FROM machine_peers WHERE machine_name = ${name} AND installation_id = ${previous} AND retired_at IS NULL`;
-      yield* sql`DELETE FROM machine_peer_seen WHERE installation_id = ${previous}`;
-      // Old delete debt and vault scope belong to the installation that left.
-      yield* sql`DELETE FROM terminal_delete_owed WHERE machine_name = ${name}`;
-      yield* sql`DELETE FROM machine_vault_tokens WHERE machine_name = ${name}`;
-      yield* sql`INSERT INTO machine_peers(machine_name, installation_id, bound_at, retired_at, binding) VALUES (${name}, ${input.installationId}, ${at}, NULL, NULL)`;
-      return true;
-    })).pipe(Effect.provideService(StateTransactionOperation, "machine.takeover"), Effect.mapError((cause) => new RemoteHostsError(cause instanceof RemoteHostsError ? cause.code : "io", "The old link key is removed; the pin was not replaced. Run the take-over again")));
+    const committed = retired !== undefined
+      ? yield* sql.withTransaction(Effect.gen(function* () {
+        const rows = yield* sql`SELECT installation_id, retired_at FROM machine_peers WHERE machine_name = ${name}`;
+        const row = rows[0] as { readonly installation_id: InstallationId; readonly retired_at: string | null } | undefined;
+        // T1: the row is still retired under the id the preview named.
+        if (row === undefined || row.retired_at === null || row.installation_id !== previous
+          || (removedTime !== undefined && row.retired_at !== removedTime)) return false;
+        const atCommit = yield* countTakeover(name);
+        if (atCommit.seats !== counts.seats || atCommit.automations !== counts.automations || atCommit.files !== counts.files) return false;
+        // The same sweep and plain pin as a first send (T3), in this transaction.
+        const replaced = yield* machines.replaceRetiredPin({ machineName: name, previous, installationId: input.installationId });
+        return replaced !== undefined;
+      })).pipe(Effect.provideService(StateTransactionOperation, "machine.takeover"), Effect.mapError((cause) => new RemoteHostsError(cause instanceof RemoteHostsError ? cause.code : "io", "The old link key is removed; the pin was not replaced. Preview the take-over again")))
+      : yield* sql.withTransaction(Effect.gen(function* () {
+        const current = yield* machines.peer(name);
+        if (current?.installationId !== previous) return false;
+        const atCommit = yield* countTakeover(name);
+        if (atCommit.seats !== counts.seats || atCommit.automations !== counts.automations || atCommit.files !== counts.files) return false;
+        const at = new Date().toISOString();
+        yield* sql`INSERT INTO known_installations(installation_id, registered_at) VALUES (${input.installationId}, ${at}) ON CONFLICT(installation_id) DO NOTHING`;
+        yield* sql`DELETE FROM machine_peers WHERE machine_name = ${name} AND installation_id = ${previous} AND retired_at IS NULL`;
+        yield* sql`DELETE FROM machine_peer_seen WHERE installation_id = ${previous}`;
+        // Old delete debt and vault scope belong to the installation that left.
+        yield* sql`DELETE FROM terminal_delete_owed WHERE machine_name = ${name}`;
+        yield* sql`DELETE FROM machine_vault_tokens WHERE machine_name = ${name}`;
+        yield* sql`INSERT INTO machine_peers(machine_name, installation_id, bound_at, retired_at, binding) VALUES (${name}, ${input.installationId}, ${at}, NULL, NULL)`;
+        return true;
+      })).pipe(Effect.provideService(StateTransactionOperation, "machine.takeover"), Effect.mapError((cause) => new RemoteHostsError(cause instanceof RemoteHostsError ? cause.code : "io", "The old link key is removed; the pin was not replaced. Run the take-over again")));
     if (!committed) {
-      return yield* Effect.fail(new RemoteHostsError("conflict", "The old link key is removed; the pin was not replaced. Run the take-over again"));
+      retiredTakeoverPreview.delete(name);
+      return yield* Effect.fail(new RemoteHostsError("conflict", retired === undefined
+        ? "The old link key is removed; the pin was not replaced. Run the take-over again"
+        : retiredTakeoverWords));
     }
+    retiredTakeoverPreview.delete(name);
     console.info("[machine-takeover]", JSON.stringify({ machineName: name, previousInstallationId: previous, installationId: input.installationId }));
     return answer;
   });
 
   const takeoverRemote = (input: MachineTakeoverRemoteInput): Effect.Effect<MachineTakeoverData, RemoteHostsError> => Effect.gen(function* () {
     const confirmed = input.confirm === undefined ? undefined : yield* confirmedCounts(input.confirm);
+    const preview = input.confirm === undefined ? undefined : takeoverPreview.get(input.name);
     if (input.confirm !== undefined) {
       if (input.expectedInstallationId === undefined) return yield* Effect.fail(new RemoteHostsError("validation", "A take-over confirm must name the installation it replaces"));
-      const preview = takeoverPreview.get(input.name);
       if (preview === undefined) return yield* Effect.fail(new RemoteHostsError("conflict", "Preview the take-over before confirming it"));
       if (confirmed === undefined || preview.expectedInstallationId !== input.expectedInstallationId
         || preview.seats !== confirmed.seats || preview.automations !== confirmed.automations || preview.files !== confirmed.files) {
@@ -385,6 +480,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       installationId: self.installationId,
       checkLive: true as const,
       ...(input.expectedInstallationId === undefined ? {} : { expectedInstallationId: input.expectedInstallationId }),
+      ...(preview?.previousRetiredAt === undefined ? {} : { previousRetiredAt: preview.previousRetiredAt }),
       ...(confirmed === undefined ? {} : { confirm: confirmed }),
     };
     const program = yield* takeoverMachine(route, { juntoHome: host.juntoHome, installRoot: host.installRoot }, payload).pipe(
@@ -418,6 +514,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         seats: decoded.data.seats,
         automations: decoded.data.automations,
         files: decoded.data.files,
+        ...(decoded.data.previousRetiredAt === undefined ? {} : { previousRetiredAt: decoded.data.previousRetiredAt }),
       });
       return decoded.data;
     }

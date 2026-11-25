@@ -578,6 +578,98 @@ it("takes over a pin by installation id, sweeps its old debt, and closes its lin
   expect(await f.call("machine.setup", { machineName: "mini", installationId: "new-install" })).toMatchObject({ ok: true, op: "machine.setup" });
 });
 
+it("takes over a retired pin by its id, reads the far over the route at both steps, and shows when it was removed", async () => {
+  let dials = 0;
+  const forgotten: Array<{ readonly name: string; readonly installationId: string }> = [];
+  const status = { build: "a".repeat(64), installationId: "new-install", machineName: "mini", juntoHome: "/home/probe", pid: 71, ready: true, form: "mac-mini" };
+  const f = await fixture({
+    takeoverCounts: () => Effect.succeed({ seats: 2, automations: 1, files: 1 }),
+    takeoverForget: (name, installationId) => Effect.sync(() => { forgotten.push({ name, installationId }); }),
+  }, () => { dials += 1; return Effect.succeed({ stdout: JSON.stringify({ ok: true, command: "machine status", data: status }), stderr: "", exitCode: 0 }); });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini", juntoHome: "/home/probe", installRoot: "/home/probe/install" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  f.database.exec("INSERT INTO terminal_delete_owed(lease_id, binding_id, machine_name, canvas_name, seat_id, reason, created_at) VALUES ('lease', 'binding', 'mini', 'canvas', 'seat', 'unreachable', 1)");
+  f.database.exec("INSERT INTO machine_vault_tokens(machine_name, vault, permissions, origin, account_name, set_at_epoch_ms) VALUES ('mini', 'vault', 'read_items', 'pasted', NULL, 1)");
+  expect((await f.call("machine.remove", { name: "mini" })).ok).toBe(true);
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini", juntoHome: "/home/probe", installRoot: "/home/probe/install" });
+  f.database.exec("INSERT INTO machine_peer_seen(installation_id, build, version, built_at, seen_at) VALUES ('mini-install', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', NULL, NULL, '2026-11-24T09:12:00.000Z')");
+
+  const preview = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install" });
+  expect(preview).toMatchObject({ ok: true, op: "machine.takeover", data: {
+    previousInstallationId: "mini-install", previousRetiredAt: expect.any(String), previousSeenAt: "2026-11-24T09:12:00.000Z",
+    seats: 2, automations: 1, files: 1, takenOver: false } });
+  expect(dials).toBe(1);
+  expect(f.database.prepare("SELECT installation_id, retired_at IS NOT NULL AS retired FROM machine_peers WHERE machine_name='mini'").get()).toEqual({ installation_id: "mini-install", retired: 1 });
+  const removedAt = preview.ok && preview.op === "machine.takeover" ? preview.data.previousRetiredAt : undefined;
+  expect(removedAt).toBeTypeOf("string");
+  const noTime = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install", confirm: { seats: 2, automations: 1, files: 1 } });
+  expect(noTime).toMatchObject({ ok: false, error: { type: "validation", message: "The take-over confirm needs the removed time the preview showed. Preview the take-over again" } });
+
+  const confirmed = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install", previousRetiredAt: removedAt, confirm: { seats: 2, automations: 1, files: 1 } });
+  expect(confirmed).toMatchObject({ ok: true, op: "machine.takeover", data: { previousInstallationId: "mini-install", previousRetiredAt: expect.any(String), takenOver: true } });
+  expect(dials).toBe(2);
+  expect(forgotten).toEqual([{ name: "mini", installationId: "mini-install" }]);
+  expect(f.database.prepare("SELECT installation_id, retired_at, binding FROM machine_peers WHERE machine_name='mini'").get()).toEqual({ installation_id: "new-install", retired_at: null, binding: null });
+  expect(f.database.prepare("SELECT count(*) AS count FROM terminal_delete_owed WHERE machine_name='mini'").get()).toEqual({ count: 0 });
+  expect(f.database.prepare("SELECT count(*) AS count FROM machine_vault_tokens WHERE machine_name='mini'").get()).toEqual({ count: 0 });
+  expect(f.database.prepare("SELECT count(*) AS count FROM machine_peer_seen WHERE installation_id='mini-install'").get()).toEqual({ count: 0 });
+});
+
+it("refuses a retired take-over with no route", async () => {
+  const f = await fixture();
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  await f.call("machine.remove", { name: "mini" });
+  const noRoute = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install" });
+  expect(noRoute).toMatchObject({ ok: false, error: { type: "conflict", message: "Send Junto to it first." } });
+});
+
+it("takes over a retired pin remotely with no route from the far back to this machine", async () => {
+  const f = await fixture();
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  expect((await f.call("machine.remove", { name: "mini" })).ok).toBe(true);
+  const preview = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", checkLive: true });
+  expect(preview).toMatchObject({ ok: true, op: "machine.takeover", data: {
+    previousInstallationId: "mini-install", previousRetiredAt: expect.any(String), takenOver: false } });
+  const removedAt = preview.ok && preview.op === "machine.takeover" ? preview.data.previousRetiredAt : undefined;
+  const confirmed = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install",
+    expectedInstallationId: "mini-install", previousRetiredAt: removedAt, checkLive: true, confirm: { seats: 0, automations: 0, files: 0 } });
+  expect(confirmed).toMatchObject({ ok: true, op: "machine.takeover", data: { takenOver: true } });
+  expect(f.database.prepare("SELECT installation_id, retired_at, binding FROM machine_peers WHERE machine_name='mini'").get())
+    .toEqual({ installation_id: "new-install", retired_at: null, binding: null });
+});
+
+it("refuses a retired take-over when the far answers as another installation", async () => {
+  const wrong = await fixture({}, () => Effect.succeed({ stdout: JSON.stringify({ ok: true, command: "machine status", data: {
+    build: "a".repeat(64), installationId: "other-install", machineName: "mini", juntoHome: "/home/probe", pid: 71, ready: true, form: "mac-mini" } }), stderr: "", exitCode: 0 }));
+  await wrong.call("machine.add", { name: "mini", sshTarget: "mac-mini", juntoHome: "/home/probe", installRoot: "/home/probe/install" });
+  await wrong.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  expect((await wrong.call("machine.remove", { name: "mini" })).ok).toBe(true);
+  await wrong.call("machine.add", { name: "mini", sshTarget: "mac-mini", juntoHome: "/home/probe", installRoot: "/home/probe/install" });
+  const changed = await wrong.call("machine.takeover", { machineName: "mini", installationId: "new-install" });
+  expect(changed).toMatchObject({ ok: false, error: { type: "conflict", message: "That machine now answers as a different install of Junto than the take-over names. Preview the take-over again." } });
+});
+
+it("refuses a retired take-over confirm when the row was re-pinned live after the preview", async () => {
+  const forgotten: string[] = [];
+  const f = await fixture({
+    takeoverCounts: () => Effect.succeed({ seats: 0, automations: 0, files: 0 }),
+    takeoverForget: (_name, installationId) => Effect.sync(() => { forgotten.push(installationId); }),
+  }, () => Effect.succeed({ stdout: JSON.stringify({ ok: true, command: "machine status", data: {
+    build: "a".repeat(64), installationId: "new-install", machineName: "mini", juntoHome: "/home/probe", pid: 71, ready: true, form: "mac-mini" } }), stderr: "", exitCode: 0 }));
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini", juntoHome: "/home/probe", installRoot: "/home/probe/install" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  await f.call("machine.remove", { name: "mini" });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini", juntoHome: "/home/probe", installRoot: "/home/probe/install" });
+  expect(await f.call("machine.takeover", { machineName: "mini", installationId: "new-install" })).toMatchObject({ ok: true });
+  // The retired row comes back live under the old id before the confirm.
+  expect(await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" })).toMatchObject({ ok: true });
+  const refused = await f.call("machine.takeover", { machineName: "mini", installationId: "new-install", expectedInstallationId: "mini-install", confirm: { seats: 0, automations: 0, files: 0 } });
+  expect(refused).toMatchObject({ ok: false, error: { type: "conflict", message: "The pin changed before the take-over; preview the take-over again" } });
+  expect(forgotten).toEqual([]);
+  expect(f.database.prepare("SELECT installation_id, retired_at FROM machine_peers WHERE machine_name='mini'").get()).toEqual({ installation_id: "mini-install", retired_at: null });
+});
+
 it("refuses a take-over before the commit when the old key cannot be removed", async () => {
   const f = await fixture({
     takeoverCounts: () => Effect.succeed({ seats: 0, automations: 0, files: 0 }),
@@ -596,7 +688,7 @@ it("previews and confirms a remote take-over through the far owner command", asy
   let dials = 0;
   const far = {
     machineName: "mini", installationId: "old-mini", previousInstallationId: "mini-install",
-    seats: 4, automations: 5, files: 2, takenOver: false,
+    seats: 4, automations: 5, files: 2, previousRetiredAt: "2026-11-20T09:00:00.000Z", takenOver: false,
   };
   const f = await fixture({}, () => Effect.succeed({ stdout: JSON.stringify({ ok: true, command: "machine status", data: {
     build: "a".repeat(64), installationId: "mini-install", machineName: "mini", juntoHome: "/home/probe", pid: 71, ready: true, form: "mac-mini",
@@ -614,7 +706,7 @@ it("previews and confirms a remote take-over through the far owner command", asy
   expect(dials).toBe(0);
 
   const preview = await f.call("machine.takeover-remote", { name: "mini" });
-  expect(preview).toMatchObject({ ok: true, op: "machine.takeover-remote", data: { seats: 4, automations: 5, files: 2, takenOver: false } });
+  expect(preview).toMatchObject({ ok: true, op: "machine.takeover-remote", data: { seats: 4, automations: 5, files: 2, previousRetiredAt: "2026-11-20T09:00:00.000Z", takenOver: false } });
   const refused = await f.call("machine.takeover-remote", { name: "mini", expectedInstallationId: "mini-install", confirm: { seats: 0, automations: 0, files: 0 } });
   expect(refused).toMatchObject({ ok: false, error: { type: "conflict" } });
   expect(dials).toBe(1);

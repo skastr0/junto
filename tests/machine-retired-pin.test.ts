@@ -10,7 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime, Schema, Stream } from "effect";
+import { Effect, Layer, ManagedRuntime, Result, Schema, Stream } from "effect";
 import { Reactivity } from "effect/reactivity";
 import { SqlClient } from "effect/sql";
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,10 +25,18 @@ import { MachineLink } from "../src/core/link/service";
 import { LinkClosed } from "../src/core/link/types";
 import { SshTransport, type SshLease, type SshTransportShape } from "../src/core/ssh/service";
 import { makeStateEngineLive } from "../src/core/state/engine";
+import { HostsServiceLive } from "../src/core/hosts/service";
+import { HostRegistryRows, resetDefaultHostsRegistryForTests } from "../src/core/hosts/registry";
+import { makeMachineOwnerActions } from "../src/core/hosts/machine-owner";
+import { MachineOwnStatus, type MachinePeerStatus } from "../src/shared/machine-control";
+import { MachineInstallResult, MachineSetupError } from "../src/shared/machine-install";
+import { RETIRED_PLACED_WORDS } from "../src/core/hosts/machine-copy";
+import { OPERATOR_PROTOCOL_VERSION, decodeOperatorRequest } from "../src/shared/operator-control";
 import { InstallationId } from "../src/shared/installation-id";
 import { RemoteHost } from "../src/shared/remote-hosts";
 import { allChannels } from "./support/link-channels";
 import { noBoatRoutesLayer } from "./support/no-boat";
+import { makeTestLog } from "./support/test-log";
 
 const id = Schema.decodeUnknownSync(InstallationId);
 const OLD = id("mini-old-install");
@@ -36,7 +44,8 @@ const NEW = id("mini-new-install");
 const NONE = { seats: 0, automations: 0, files: 0 };
 
 const cleanups: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
+const testLog = makeTestLog();
+afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); resetDefaultHostsRegistryForTests(); });
 
 /** This machine, macbook, with mini pinned under OLD and then removed, and what OLD left here. */
 const fixture = async () => {
@@ -163,8 +172,8 @@ describe("a live pin under another installation", () => {
 });
 
 /** An SSH double whose dial reaches the peer's owner socket, as `junto link` relays it. */
-const relayTo = (peerHome: () => string): SshTransportShape => SshTransport.of({
-  run: () => Effect.die("no one-shot commands in this test"),
+const relayTo = (peerHome: () => string, status?: string): SshTransportShape => SshTransport.of({
+  run: () => status === undefined ? Effect.die("no one-shot commands in this test") : Effect.succeed({ stdout: status, stderr: "", exitCode: 0 }),
   transfer: () => Effect.die("no transfers in this test"),
   forward: () => Effect.die("no forwards in this test"),
   warm: () => Effect.void,
@@ -191,15 +200,21 @@ const relayTo = (peerHome: () => string): SshTransportShape => SshTransport.of({
 
 describe("a first send to a reinstalled machine", () => {
   /** macbook, which pinned mini under OLD and removed it; mini, a fresh install that trusts macbook. */
-  const machines = async () => {
+  const machines = async (placed = NONE) => {
     let miniHome = "";
-    const machine = async (name: string, installationId?: InstallationId) => {
+    const machine = async (name: string, installationId?: InstallationId, owned = false) => {
       const home = await mkdtemp(`/tmp/junto-retired-pin-${name}-`);
-      const runtime = ManagedRuntime.make(Layer.provideMerge(machineLinkLayer("c".repeat(64), home), Layer.mergeAll(
-        noBoatRoutesLayer,
-        Layer.provide(makeMachineRepositoryLive({ defaultName: () => name, ...(installationId === undefined ? {} : { makeInstallationId: () => installationId }) }), makeStateEngineLive(join(home, "junto.db"))),
-        Layer.succeed(SshTransport, relayTo(() => miniHome)),
-      )));
+      const status = name === "macbook" ? JSON.stringify({ ok: true, command: "machine status", data: {
+        build: "c".repeat(64), installationId: NEW, machineName: "mini", juntoHome: "/home/mini/junto", pid: 72, ready: true, form: "mac-mini" } }) : undefined;
+      const machines = makeMachineRepositoryLive({ defaultName: () => name, ...(installationId === undefined ? {} : { makeInstallationId: () => installationId }) })
+        .pipe(Layer.provideMerge(makeStateEngineLive(join(home, "junto.db"))));
+      const ssh = Layer.succeed(SshTransport, relayTo(() => miniHome, status));
+      const ownedServices = Layer.mergeAll(HostRegistryRows.layer, HostsServiceLive)
+        .pipe(Layer.provideMerge(testLog.log.loggerLayer), Layer.provideMerge(machines), Layer.provideMerge(ssh));
+      const runtime = ManagedRuntime.make(Layer.mergeAll(
+        machineLinkLayer("c".repeat(64), home),
+        ...(owned ? [ownedServices] : []),
+      ).pipe(Layer.provideMerge(machines), Layer.provideMerge(ssh), Layer.provideMerge(noBoatRoutesLayer)));
       cleanups.push(async () => { await runtime.dispose(); await rm(home, { recursive: true, force: true }); });
       const self = await runtime.runPromise(Effect.flatMap(MachineRepository, (repository) => repository.installationId));
       await runtime.runPromise(Effect.gen(function* () {
@@ -209,7 +224,7 @@ describe("a first send to a reinstalled machine", () => {
       }));
       return { name, home, runtime, self };
     };
-    const macbook = await machine("macbook");
+    const macbook = await machine("macbook", undefined, true);
     const mini = await machine("mini", NEW);
     miniHome = mini.home;
     await macbook.runtime.runPromise(Effect.gen(function* () {
@@ -222,13 +237,82 @@ describe("a first send to a reinstalled machine", () => {
     const host = Schema.decodeUnknownSync(RemoteHost)({ id: "mini", label: "mini", isThisMachine: false, sshEndpoint: "mac-mini", capabilities: ["terminal"],
       juntoHome: "/home/mini/junto", installRoot: "/home/mini/.local/junto" });
     const forgotten: Array<readonly [string, string]> = [];
+    const receipt = Schema.decodeUnknownSync(MachineInstallResult)({
+      build: "c".repeat(64), juntoHome: "/home/mini/junto", installRoot: "/home/mini/.local/junto",
+      directory: "/home/mini/.local/junto/builds/current", serviceLabel: "test", provider: "launchd",
+      updated: false, disposition: "ready", installationId: NEW, machineName: "mini", pid: 72,
+      transitions: [{ step: "ready", pid: 72 }],
+    });
+    const macbookLink = await macbook.runtime.runPromise(MachineLink);
+    const macbookMachines = await macbook.runtime.runPromise(MachineRepository);
+    const owner = await macbook.runtime.runPromise(makeMachineOwnerActions({
+      ownStatus: Effect.succeed(Schema.decodeUnknownSync(MachineOwnStatus)({ build: "c".repeat(64), installationId: macbook.self, machineName: "macbook", juntoHome: macbook.home, pid: 71, ready: true, form: "mac-mini" })),
+      ownHarnesses: Effect.succeed({ machineName: "macbook", reachable: true, keychain: "available", harnesses: [] }),
+      peerStatus: (name: string) => Effect.succeed({ machineName: name, reachable: false, harnesses: [], missingSecrets: [] } satisfies MachinePeerStatus),
+      peerBuild: () => Effect.succeed(undefined),
+      ownLogs: () => Effect.die("own logs not part of this test"),
+      peerLogs: () => Effect.die("peer logs not part of this test"),
+      copy: (host) => Effect.gen(function* () {
+        const retired = yield* macbookMachines.retiredPin(host.id).pipe(Effect.orElseSucceed(() => undefined));
+        const peer = yield* macbookLink.connectSetup(host, NEW, {
+          forget: (name, previous) => Effect.sync(() => { forgotten.push([name, previous]); }),
+          placements: () => Effect.succeed(placed),
+        }).pipe(Effect.catch((cause): Effect.Effect<never, MachineSetupError> => cause instanceof LinkClosed && retired !== undefined
+          ? Effect.fail(new MachineSetupError({ message: RETIRED_PLACED_WORDS, retryable: false, installed: receipt, ownWords: true,
+            takeover: { machineName: "mini", installationId: NEW, previousInstallationId: retired } }))
+          : Effect.die(cause)));
+        return { ...receipt, installationId: peer.installationId, machineName: host.id,
+          transitions: [...receipt.transitions, { step: "pinned" as const }] };
+      }),
+      disconnect: () => Effect.void,
+      takeoverCounts: () => Effect.succeed(placed),
+      takeoverForget: (name, previous) => Effect.sync(() => { forgotten.push([name, previous]); }),
+      now: () => new Date("2026-11-25T20:00:00.000Z"),
+    }));
+    const call = (op: string, args: unknown) => {
+      const request = decodeOperatorRequest({ protocol: OPERATOR_PROTOCOL_VERSION, id: "test", op, args });
+      if (Result.isFailure(request)) throw new Error(request.failure.message);
+      return macbook.runtime.runPromise(owner.dispatch(request.success));
+    };
     const send = (placed = NONE) => macbook.runtime.runPromise(Effect.flatMap(MachineLink, (link) => link.connectSetup(host, NEW, {
       forget: (name, previous) => Effect.sync(() => { forgotten.push([name, previous]); }),
       placements: () => Effect.succeed(placed),
     })));
     const pinOfMini = () => macbook.runtime.runPromise(Effect.flatMap(MachineRepository, (repository) => repository.peer("mini")));
-    return { macbook, mini, send, forgotten, pinOfMini };
+    return { macbook, mini, send, forgotten, pinOfMini, call };
   };
+
+  it("closes the whole way: remove, reinstall, add, send refused, take over, send ready", async () => {
+    const placed = { seats: 1, automations: 0, files: 0 };
+    const { call, send, forgotten, pinOfMini } = await machines(placed);
+    expect(await call("machine.add", { name: "mini", sshTarget: "mac-mini",
+      juntoHome: "/home/mini/junto", installRoot: "/home/mini/.local/junto" })).toMatchObject({ ok: true, op: "machine.add" });
+
+    const refused = await call("machine.send", { name: "mini" });
+    expect(refused.ok).toBe(false);
+    let farId: InstallationId = NEW;
+    if (!refused.ok) {
+      const hint = refused.error.details?.takeover as { readonly machineName: string; readonly installationId: InstallationId; readonly previousInstallationId: InstallationId } | undefined;
+      expect(hint).toMatchObject({ machineName: "mini", installationId: NEW, previousInstallationId: OLD });
+      farId = hint!.installationId;
+    }
+    expect(await pinOfMini()).toBeUndefined();
+
+    const preview = await call("machine.takeover", { machineName: "mini", installationId: farId });
+    expect(preview).toMatchObject({ ok: true, op: "machine.takeover", data: {
+      previousInstallationId: OLD, previousRetiredAt: expect.any(String), seats: 1, automations: 0, files: 0, takenOver: false } });
+    const removedAt = preview.ok && preview.op === "machine.takeover" ? preview.data.previousRetiredAt : undefined;
+    expect(removedAt).toBeTypeOf("string");
+    const confirmed = await call("machine.takeover", { machineName: "mini", installationId: farId,
+      expectedInstallationId: OLD, previousRetiredAt: removedAt, confirm: placed });
+    expect(confirmed).toMatchObject({ ok: true, op: "machine.takeover", data: { takenOver: true } });
+    expect(await pinOfMini()).toMatchObject({ machineName: "mini", installationId: NEW });
+    expect(forgotten).toEqual([["mini", OLD]]);
+
+    const ready = await call("machine.send", { name: "mini" });
+    expect(ready).toMatchObject({ ok: true, op: "machine.send", data: { machineName: "mini", installationId: NEW } });
+    expect(await pinOfMini()).toMatchObject({ installationId: NEW });
+  });
 
   it("pins the new installation at the checked hello, in place of the retired row", async () => {
     const { send, forgotten, pinOfMini } = await machines();
