@@ -380,7 +380,7 @@ judgment, not a measurement; the look test is what settles it.
 | Changing text | A seat's line changes with each report (30 a second in the probes). The run is redrawn into its own cell. |
 | Truncation | Ellipsis, head truncation (paths), and the two-line clamp are computed with `measureText`, once per text and width. |
 | Halo | Spine cards, notes and labels have a ground-coloured `text-shadow`, painted twice at a 5px radius. The engine lays it down as its own quad behind the glyphs, soft, in the ground's ink, on a cell padded by three sigmas: one colour per cell, so the text path's single tint stays exact and the halo follows a theme switch with everything else. Its cell keys on the blurred run, so it never shares the sharp glyphs' coverage. |
-| Memory | Evict by least recent use against a byte cap. |
+| Memory | The atlas is the cache built in the engine: square array pages in two pools, colour sprites in RGBA pages and text coverage in R8 pages. A cell is shared by key, is never moved once placed, and survives unreferenced as a cache entry until its space is needed. An idle page whose cells are all unreferenced is destroyed after an idle delay and its page index is reused, so a large board gives page memory back without evicting pixels a quad still draws. Cells larger than a page live in standalone textures outside the arrays. There is no byte cap. |
 
 Notes are the one place with real layout: headings, lists, fenced code, quotes,
 rules, links and images. Write one pure layout function over `parseBlocks` and
