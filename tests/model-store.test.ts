@@ -213,6 +213,30 @@ describe("model store", () => {
     expect(store.canvas$(canvas).nodeIds.peek()).toEqual([]);
   });
 
+  it("lets go of a canvas a watcher still holds without handing it a hole", async () => {
+    // The window shows the next canvas before the feed that watched the last one is taken down:
+    // that watcher reads the closed canvas's ids once more, and they must still be a list.
+    const { store } = harness(() => ({ canvas, seq: 1, nodes: [seat("a"), seat("b")], wires: [wire("w", "a", "b")] }));
+    const release = store.open(canvas);
+    await store.ready(canvas);
+    const model = store.canvas$(canvas);
+    const seen: unknown[] = [];
+    const errors: unknown[] = [];
+    const stop = observe(() => {
+      try {
+        const ids = model.nodeIds.get();
+        seen.push([...ids]);
+        for (const id of ids) void model.nodes[id].kind.get();
+      } catch (error) {
+        errors.push(error);
+      }
+    });
+    release();
+    stop();
+    expect(errors).toEqual([]);
+    expect(seen.at(-1)).toEqual([]);
+  });
+
   it("hands out the same canvas until the canvas changes, so a memo on it holds", async () => {
     const { store, emit } = harness(() => ({ canvas, seq: 1, nodes: [seat("a"), seat("b")], wires: [wire("w", "a", "b")] }));
     store.open(canvas);

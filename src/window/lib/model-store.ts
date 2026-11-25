@@ -271,7 +271,10 @@ export const createModelStore = (getApi: () => ModelApi | undefined) => {
     held.delete(canvas);
     opening.delete(canvas);
     views.delete(canvas);
-    canvases$[canvas].delete();
+    // Emptied, not deleted: the window shows the next canvas before the feed that watched this one is taken
+    // down, and that watcher reads this canvas's ids once more. A deleted entry hands it nothing to walk
+    // ("ids is not iterable", the render error that took the window down when a new canvas was made).
+    canvases$[canvas].set(emptyCanvas());
   };
 
   const keptListeners = new Set<(canvas: string, count: number) => void>();
