@@ -524,7 +524,7 @@ const conditionLine = (
       return { headline: "Added. Junto is not on it yet.", advice: "Send Junto to set it up." };
     case "installed-not-linked":
       return {
-        headline: "Not connected to this Mac",
+        headline: "Not connected to this machine",
         advice: "Junto is already installed there. Reconnect and update it to run its seats.",
       };
     case "sending":
@@ -564,7 +564,7 @@ const conditionLine = (
     case "peer-newer":
       return {
         headline: "Runs a newer build of Junto",
-        advice: "Update Junto on this Mac to connect to it.",
+        advice: "Update Junto on this machine to connect to it.",
       };
     case "checking":
       return { headline: "Checking" };
@@ -998,7 +998,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         id,
         label,
         severity: MachineRowUrgency.group["needs-you"],
-        status: "Runs a newer build of Junto. Update this Mac to connect.",
+        status: "Runs a newer build of Junto. Update this machine to connect.",
         action: { kind: "check-updates", label: "Check for updates", danger: false },
         condition,
         listed,

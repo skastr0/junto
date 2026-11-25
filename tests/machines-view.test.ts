@@ -512,8 +512,13 @@ describe("Slice 1 conditions, TopBar summary, and copy law", () => {
     const notLinked: MachineListItem = { ...listed({ setUp: false }), setupState: "installed-not-linked" };
     expect(machineCondition(notLinked, undefined, undefined)).toBe("installed-not-linked");
     expect(machineActionLabel("send", "installed-not-linked")).toBe("Reconnect");
+    const notLinkedSummary = machineSummary(notLinked, undefined, undefined);
+    expect(notLinkedSummary.headline).toBe("Not connected to this machine");
+    expect(notLinkedSummary.advice).toBe("Junto is already installed there. Reconnect and update it to run its seats.");
 
     const peerNewer: MachineListItem = { ...listed({ needsUpdate: true }), updateDirection: "this-older" };
+    const peerNewerSummary = machineSummary(peerNewer, undefined, undefined);
+    expect(peerNewerSummary.advice).toBe("Update Junto on this machine to connect to it.");
     expect(machineCondition(peerNewer, undefined, undefined)).toBe("peer-newer");
     expect(machineActions("peer-newer")).toEqual(["check-updates", "check", "remove"]);
 
@@ -643,7 +648,7 @@ describe("Slice 1 conditions, TopBar summary, and copy law", () => {
       [status(listed(), { read: peer({ reachable: false, harnesses: [] }) }), "Cannot be reached. Check that it is on."],
       [status({ ...listed({ needsUpdate: true }), runningSeats: 1 }, { read: undefined }), "Runs a different build of Junto. Had 1 seat running."],
       [status({ ...listed({ needsUpdate: true }), updateDirection: "this-older" }, { read: undefined }),
-        "Runs a newer build of Junto. Update this Mac to connect."],
+        "Runs a newer build of Junto. Update this machine to connect."],
       [status(listed({ setUp: false }), { read: undefined }), "Junto is not on it yet."],
       [status({ ...listed({ setUp: false }), setupState: "installed-not-linked" }, { read: undefined }), "Junto is installed there, but not connected."],
       [status(listed(), { read: peer(), placed: { seats: 1, harnesses: ["codex"] } }), "Codex is missing there."],
@@ -682,7 +687,7 @@ describe("Slice 1 conditions, TopBar summary, and copy law", () => {
       .toBe("bundle must be a directory, not a link");
   });
 
-  it("enforces Copy Law across all states: no middots, no mechanics jargon, no move-seat, no this-machine for remotes", () => {
+  it("enforces Copy Law across all states: no middots, no mechanics jargon, no move-seat, and this machine only in the peer-newer fix", () => {
     const boat = (power: MachineBoat["power"], listedFlag = true): MachineBoat => ({
       machineName: OTHER_MACHINE,
       sandboxId: "bx_1",
@@ -723,7 +728,12 @@ describe("Slice 1 conditions, TopBar summary, and copy law", () => {
       expect(text, row.condition).not.toContain("\u00B7");
       expect(text, row.condition).not.toMatch(mechanics);
       expect(text, row.condition).not.toMatch(/move (this seat|those seats)/iu);
-      expect(text, row.condition).not.toMatch(/this machine/iu);
+      // The peer-newer row names the near on purpose: the fix is on this machine, whatever it runs.
+      if (row.condition === "peer-newer") {
+        expect(text, row.condition).toContain("Update this machine to connect.");
+      } else {
+        expect(text, row.condition).not.toMatch(/this machine/iu);
+      }
     }
   });
 });
