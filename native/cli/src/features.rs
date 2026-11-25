@@ -12,6 +12,8 @@ pub const ARTIFACTS: bool = on(option_env!("JUNTO_ARTIFACTS_ENABLED"));
 pub const TASKS: bool = on(option_env!("JUNTO_TASKS_ENABLED"));
 pub const AUTHORITY: bool = on(option_env!("JUNTO_AUTHORITY_ENABLED"));
 pub const VAULT: bool = on(option_env!("JUNTO_VAULT_ENABLED"));
+/// Code steps in automations, as `__JUNTO_CODE_STEPS_ENABLED__`.
+pub const CODE_STEPS: bool = on(option_env!("JUNTO_CODE_STEPS_ENABLED"));
 /// The machine bundle's CLI, as `__JUNTO_MACHINE_BUILD__`: no browser there.
 pub const MACHINE_BUILD: bool = on(option_env!("JUNTO_MACHINE_BUILD"));
 

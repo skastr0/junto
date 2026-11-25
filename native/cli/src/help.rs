@@ -6,7 +6,10 @@
 //! named with no subcommand shows its help and fails as ShowHelp, and a shell
 //! outside the choices fails as InvalidValue.
 
+mod completions;
 pub mod corpus;
+mod page;
+mod tree;
 
 use std::io::{IsTerminal, Write};
 use std::process::ExitCode;
@@ -15,10 +18,8 @@ use serde_json::{Value, json};
 
 use crate::envelope;
 use crate::error::{ErrorType, Failure};
-use corpus::CORPUS;
-
-/// The shells `--completions` takes.
-const SHELLS: [&str; 4] = ["bash", "zsh", "fish", "sh"];
+use page::{SHELLS, Style};
+use tree::TREE;
 
 /// What the words ask for before any command runs.
 enum Asked<'a> {
@@ -48,12 +49,11 @@ fn asked_for<'a>(words: &[&'a str]) -> Option<Asked<'a>> {
         Some(shell) if !shell.is_empty() => Some(Asked::UnknownShell(shell)),
         Some(_) => None,
         None => {
-            let (path, named) = walk(words);
-            let group = CORPUS
-                .help
-                .get(path.as_str())
-                .is_some_and(|page| !page.subcommands.is_empty());
-            (named == words.len() && group).then_some(Asked::Group)
+            let path = walk(words);
+            let group = TREE
+                .at(path.iter().copied())
+                .is_some_and(|command| command.is_group());
+            (path.len() == words.len() && group).then_some(Asked::Group)
         }
     }
 }
@@ -65,17 +65,11 @@ pub fn asked(words: &[&str]) -> bool {
 pub fn show(words: &[&str]) -> ExitCode {
     match asked_for(words) {
         Some(Asked::Help) => {
-            print(page(&walk(words).0));
+            print(&page(&walk(words)));
             ExitCode::SUCCESS
         }
         Some(Asked::Completions(shell)) => {
-            print(
-                CORPUS
-                    .completions
-                    .get(shell)
-                    .map(String::as_str)
-                    .unwrap_or_default(),
-            );
+            print(&completions::script(shell, &TREE).unwrap_or_default());
             ExitCode::SUCCESS
         }
         Some(Asked::UnknownShell(shell)) => {
@@ -88,11 +82,9 @@ pub fn show(words: &[&str]) -> ExitCode {
             envelope::refuse(None, &failure)
         }
         Some(Asked::Group) => {
-            let path = walk(words).0;
-            print(page(&path));
-            let command_path: Vec<&str> = std::iter::once("junto")
-                .chain(path.split_whitespace())
-                .collect();
+            let path = walk(words);
+            print(&page(&path));
+            let command_path: Vec<&str> = std::iter::once("junto").chain(path).collect();
             let failure = Failure::new(ErrorType::ShowHelp, "Help requested")
                 .with(json!({ "commandPath": command_path, "errors": [] }));
             envelope::refuse(None, &failure)
@@ -105,12 +97,10 @@ pub fn show(words: &[&str]) -> ExitCode {
 /// command's help on stdout, then the error under ERROR and a ShowHelp
 /// envelope carrying `error` (its `_tag` and fields) on stderr.
 pub fn refuse_usage(words: &[&str], message: &str, error: Value) -> ExitCode {
-    let path = walk(words).0;
-    print(page(&path));
+    let path = walk(words);
+    print(&page(&path));
     let _ = write!(std::io::stderr(), "\nERROR\n  {message}\n");
-    let command_path: Vec<&str> = std::iter::once("junto")
-        .chain(path.split_whitespace())
-        .collect();
+    let command_path: Vec<&str> = std::iter::once("junto").chain(path).collect();
     let failure = Failure::new(ErrorType::ShowHelp, "Help requested")
         .with(json!({ "commandPath": command_path, "errors": [error] }));
     envelope::refuse(None, &failure)
@@ -118,21 +108,23 @@ pub fn refuse_usage(words: &[&str], message: &str, error: Value) -> ExitCode {
 
 /// The command path the words name, as `junto task show`.
 pub fn command_line(words: &[&str]) -> String {
-    let path = walk(words).0;
-    if path.is_empty() {
-        "junto".into()
-    } else {
-        format!("junto {path}")
-    }
+    std::iter::once("junto")
+        .chain(walk(words))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
-/// The help of one command path, colored as Effect's formatter would color it here.
-fn page(path: &str) -> &'static str {
-    // walk only names paths the corpus lists, so a page is always found.
-    CORPUS
-        .help
-        .get(path)
-        .map_or("", |page| if colored() { &page.color } else { &page.plain })
+/// The help of one command path, colored on a terminal.
+fn page(path: &[&str]) -> String {
+    let style = if colored() {
+        Style::COLORED
+    } else {
+        Style::PLAIN
+    };
+    // walk only names paths the tree has, so a command is always found.
+    TREE.at(path.iter().copied())
+        .map(|command| page::render(command, path, style))
+        .unwrap_or_default()
 }
 
 fn print(text: &str) {
@@ -140,27 +132,19 @@ fn print(text: &str) {
     let _ = std::io::stdout().write_all(text.as_bytes());
 }
 
-/// The deepest command path the words name, and how many words named it:
-/// flags are passed over, and the first word that names no subcommand ends
-/// the walk.
-fn walk(words: &[&str]) -> (String, usize) {
-    let mut path = String::new();
-    let mut named = 0;
-    for word in words.iter().filter(|w| !w.starts_with('-')) {
-        let next = CORPUS
-            .help
-            .get(path.as_str())
-            .is_some_and(|page| page.subcommands.iter().any(|s| s == word));
-        if !next {
+/// The deepest command path the words name: flags are passed over, and the
+/// first word that names no subcommand of this build ends the walk.
+fn walk<'a>(words: &[&'a str]) -> Vec<&'a str> {
+    let mut command = &*TREE;
+    let mut path = Vec::new();
+    for &word in words.iter().filter(|w| !w.starts_with('-')) {
+        let Some(next) = command.subcommand(word) else {
             break;
-        }
-        if !path.is_empty() {
-            path.push(' ');
-        }
-        path.push_str(word);
-        named += 1;
+        };
+        command = next;
+        path.push(word);
     }
-    (path, named)
+    path
 }
 
 /// Effect's formatter colors help on a terminal unless NO_COLOR is 1.
@@ -174,6 +158,7 @@ mod tests {
 
     use super::*;
     use crate::commands::Root;
+    use corpus::CORPUS;
 
     fn registered() -> Vec<String> {
         Root::augment_subcommands(clap::Command::new("junto"))
@@ -199,17 +184,18 @@ mod tests {
     #[test]
     fn every_root_command_is_registered() {
         let registered = registered();
-        for root in &CORPUS.root_commands {
+        for root in TREE.subcommands() {
             assert!(
-                registered.contains(root),
-                "junto {root} has help but no command"
+                registered.contains(&root.name),
+                "junto {} has help but no command",
+                root.name
             );
         }
     }
 
     #[test]
     fn help_follows_subcommands_past_flags_and_stops_at_an_argument() {
-        let path = |words: &[&str]| walk(words).0;
+        let path = |words: &[&str]| walk(words).join(" ");
         assert_eq!(path(&["msg", "send", "{}", "--help"]), "msg send");
         assert_eq!(path(&["-h", "docs", "list"]), "docs list");
         assert_eq!(path(&["docs", "--timeout", "5", "list", "-h"]), "docs");

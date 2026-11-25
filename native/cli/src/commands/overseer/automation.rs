@@ -7,9 +7,10 @@ use std::path::Path;
 
 use serde_json::{Map, Value, json};
 
-use super::catalog::{CHANGE_FIELDS, CODE_STEPS, Write};
+use super::catalog::{CHANGE_FIELDS, Write};
 use crate::attach;
 use crate::error::{ErrorType, Failure, Result};
+use crate::features::CODE_STEPS;
 use crate::wire::{OpId, Timeout};
 
 /// DEFAULT_AUTOMATION_LIMITS (src/shared/automation.ts).

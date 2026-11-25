@@ -1,0 +1,18 @@
+[1mDESCRIPTION[0m
+  Message ops
+
+[1mUSAGE[0m
+  [36mjunto msg <subcommand> [flags][0m
+
+[1mGLOBAL FLAGS[0m
+  [32m--help[0m, [32m-h[0m                          Show help information
+  [32m--version[0m, [32m-v[0m                       Show version information
+  [32m--completions[0m [2m<bash|zsh|fish|sh>[0m    Print shell completion script (choices: bash, zsh, fish, sh)
+
+[1mSUBCOMMANDS[0m
+  [36mlist[0m     List this seat's inbox (marks listed mail read unless peek) or a connected peer's mailbox; filter by threadId, from, unread, since and text. One page, newest first: limit (default 50), more and remaining in the answer, before (the last id listed) for the next page, sentBefore for the next page of sent mail
+  [36msend[0m     Send mail, typed into the seat's input: whole up to 2,500 characters, with mail sent together as one turn, or with --prompt the full text at once, as its own turn (batch-capable)
+  [36msent[0m     Read sent mail and recipient receipts without marking their mailbox read
+  [36mread[0m     Read a complete mailbox message and mark it read (own seat; batch-capable)
+  [36mreply[0m    Reply to mail and mark inReplyTo read (batch-capable)
+  [36mreact[0m    Acknowledge mailbox mail without a reply (own seat; batch-capable)

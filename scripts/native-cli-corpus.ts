@@ -1,24 +1,21 @@
 /**
- * The native CLI's built-in corpus (0.11.6 native CLI, N5): everything
- * `junto` answers with nothing running, exported from the TypeScript that
- * defines it, so the two never drift. native/cli/build.rs runs this at build
- * time with the build's feature defines and embeds the file it writes.
+ * The native CLI's built-in corpus (0.11.6 native CLI, N5): the schema,
+ * examples and docs `junto` answers with nothing running, exported from the
+ * TypeScript that defines them, so the two never drift. native/cli/build.rs
+ * runs this at build time with the build's feature defines and embeds the
+ * file it writes. Help and completions are the native CLI's own
+ * (native/cli/corpus/commands.json).
  *
  *   bun $(bun scripts/build-features.ts --bun-define-args) scripts/native-cli-corpus.ts [out.json]
  *
  * Without a path it prints the corpus to stdout. Each answer is kept as the
- * TypeScript command would print it: help text as Console.log writes it (plain
- * and colored), completion scripts per shell, and the `data` of every schema,
- * examples and docs answer, keyed by each target a lookup accepts.
+ * TypeScript command would print it: the `data` of every schema, examples and
+ * docs answer, keyed by each target a lookup accepts.
  *
  * `examples` is the raw examples catalog (args and input), which the parity
  * guard runs through both CLIs.
  */
 import { writeFileSync } from "node:fs";
-import { Console, Effect, Layer } from "effect";
-import { CliOutput, Command } from "effect/cli";
-import * as BunServices from "@effect/platform-bun/BunServices";
-import { loadRootCommand, rootCommandNames } from "../src/cli/command-runner";
 import { CLI_VERSION } from "../src/cli/core/constants";
 import { allExamples, allSchemas, commandCapabilities, renderSchemaContract } from "../src/cli/core/discovery";
 import { COMMAND_FAMILIES, compileReach, type CommandFamily } from "../src/shared/seat-onboarding";
@@ -30,8 +27,6 @@ import {
   DOC_TOPICS,
   NODE_DOCS,
 } from "../src/shared/junto-docs";
-
-const SHELLS = ["bash", "zsh", "fish", "sh"] as const;
 
 /**
  * Every root command onboard can teach in this build (a family gated off
@@ -48,49 +43,6 @@ const taughtRoots = (): ReadonlyArray<string> => {
   }
   return [...roots].sort();
 };
-
-const root = await loadRootCommand([]);
-
-/** What the TypeScript CLI writes to stdout for these words, as Console.log writes it. */
-const printed = (words: ReadonlyArray<string>, colors: boolean): Promise<string> => {
-  const lines: string[] = [];
-  const capture: Console.Console = Object.assign(Object.create(console), {
-    log: (...parts: ReadonlyArray<unknown>) => void lines.push(`${parts.map(String).join(" ")}\n`),
-  });
-  // Help and completions are action flags: no command handler runs, so no
-  // command's service (the work socket) is reached, as runCli casts it.
-  return Effect.runPromise(
-    Command.runWith(root, { version: CLI_VERSION })(words).pipe(
-      Effect.provideService(Console.Console, capture),
-      Effect.provide(Layer.mergeAll(BunServices.layer, CliOutput.layer(CliOutput.defaultFormatter({ colors })))),
-    ) as Effect.Effect<void, unknown, never>,
-  ).then(() => lines.join(""));
-};
-
-/** Every command path under the root, the root itself as "". */
-const paths = (command: Command.Command.Any, prefix: ReadonlyArray<string>): ReadonlyArray<ReadonlyArray<string>> => [
-  prefix,
-  ...command.subcommands.flatMap((group) => group.commands.flatMap((sub) => paths(sub, [...prefix, sub.name]))),
-];
-
-const help: Record<string, { readonly plain: string; readonly color: string; readonly subcommands: ReadonlyArray<string> }> = {};
-const subcommandsOf = (path: ReadonlyArray<string>): ReadonlyArray<string> => {
-  let command: Command.Command.Any = root;
-  for (const word of path) {
-    command = command.subcommands.flatMap((g) => g.commands).find((c) => c.name === word)!;
-  }
-  return command.subcommands.flatMap((g) => g.commands.map((c) => c.name));
-};
-for (const path of paths(root, [])) {
-  help[path.join(" ")] = {
-    plain: await printed([...path, "--help"], false),
-    color: await printed([...path, "--help"], true),
-    subcommands: subcommandsOf(path),
-  };
-}
-
-const completions: Record<string, string> = {};
-for (const shell of SHELLS) completions[shell] = await printed(["--completions", shell], false);
 
 /** First entry wins a key, as Array.find takes the first match in order. */
 const keysOf = (entry: { readonly command_id: string; readonly command: string; readonly schema_id?: string }) =>
@@ -136,10 +88,7 @@ for (const key of new Set(allExamples.flatMap(keysOf))) {
 
 const corpus = {
   version: CLI_VERSION,
-  root_commands: rootCommandNames(),
   taught_roots: taughtRoots(),
-  help,
-  completions,
   schema: {
     list: {
       schemas: allSchemas.map((schema) => ({

@@ -1,0 +1,19 @@
+[1mDESCRIPTION[0m
+  Send mail, typed into the seat's input: whole up to 2,500 characters, with mail sent together as one turn, or with --prompt the full text at once, as its own turn (batch-capable)
+
+[1mUSAGE[0m
+  [36mjunto msg send [flags] <input> [<text>][0m
+
+[1mARGUMENTS[0m
+  [32minput[0m [2mstring[0m    JSON object, @file path, raw JSON string, or - for stdin
+  [32mtext[0m [2mstring[0m     [2m (optional)[0m
+
+[1mFLAGS[0m
+  [32m--prompt[0m                 
+  [32m--concurrency[0m [2minteger[0m    Max concurrent mutations (default 5); reject <= 0
+  [32m--timeout[0m [2minteger[0m        Socket call timeout in ms (default 30000)
+
+[1mGLOBAL FLAGS[0m
+  [32m--help[0m, [32m-h[0m                          Show help information
+  [32m--version[0m, [32m-v[0m                       Show version information
+  [32m--completions[0m [2m<bash|zsh|fish|sh>[0m    Print shell completion script (choices: bash, zsh, fish, sh)

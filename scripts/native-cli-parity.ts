@@ -173,6 +173,37 @@ const exampleCases: ReadonlyArray<Case> = allExamples.flatMap((example) =>
         answer: staged,
       }]);
 
+/**
+ * The native CLI answers three global flags of its own: --help, --version and
+ * --completions (bash, zsh, fish, sh). Effect's --wizard, --log-level and
+ * powershell are the TypeScript CLI's alone, so its GLOBAL FLAGS table is laid
+ * out again with the native rows, by Effect's table rule, before the compare:
+ * any help page, asked for or printed over a refused command line.
+ */
+const NATIVE_GLOBALS: ReadonlyArray<readonly [string, string]> = [
+  ["--help, -h", "Show help information"],
+  ["--version, -v", "Show version information"],
+  ["--completions <bash|zsh|fish|sh>", "Print shell completion script (choices: bash, zsh, fish, sh)"],
+];
+const nativeGlobals = (stdout: string): string => {
+  const column = Math.max(...NATIVE_GLOBALS.map(([left]) => left.length)) + 4;
+  const table = NATIVE_GLOBALS.map(([left, right]) => `  ${left.padEnd(Math.max(column, left.length + 1))}${right}`).join("\n");
+  return stdout.replace(/GLOBAL FLAGS\n(?: {2}--.*\n?)+/, (block) => `GLOBAL FLAGS\n${table}${block.endsWith("\n") ? "\n" : ""}`);
+};
+
+// Every help page and completion script, as the shipped TypeScript tree has them.
+const helpPaths = JSON.parse(
+  spawnSync("bun", [...shipDefines, "-e", `
+    const { loadRootCommand } = await import("./src/cli/command-runner");
+    const walk = (command, prefix) => [prefix, ...command.subcommands.flatMap((group) => group.commands.flatMap((sub) => walk(sub, [...prefix, sub.name])))];
+    console.log(JSON.stringify(walk(await loadRootCommand([]), [])));
+  `], { cwd: root, encoding: "utf8" }).stdout,
+) as ReadonlyArray<ReadonlyArray<string>>;
+const helpCases: ReadonlyArray<Case> = [
+  ...helpPaths.map((path) => ({ name: `help ${path.join(" ") || "junto"}`, argv: [...path, "--help"] })),
+  ...["bash", "zsh", "fish", "sh"].map((shell) => ({ name: `completions ${shell}`, argv: ["--completions", shell] })),
+];
+
 // --cases <file>: argv arrays to run instead, such as calls agents made, each
 // answered as delivered.
 const casesFlag = process.argv.indexOf("--cases");
@@ -185,7 +216,7 @@ const given: ReadonlyArray<Case> | undefined =
         answer: staged,
       }));
 
-const cases = (given ?? [...handCases, ...exampleCases]).filter((c) => only === undefined || c.argv.join(" ").startsWith(only));
+const cases = (given ?? [...handCases, ...exampleCases, ...helpCases]).filter((c) => only === undefined || c.argv.join(" ").startsWith(only));
 
 // --list prints each case's name and argv, for coverage reports, and runs none.
 if (process.argv.includes("--list")) {
@@ -258,7 +289,8 @@ for (const c of cases) {
   const native = await runOne([bin], c);
   const diffs: string[] = [];
   for (const key of ["stdout", "stderr", "exit", "frames"] as const) {
-    const pick = (run: typeof ts) => (key === "stderr" ? acted(run.stderr) : key === "stdout" ? actedOut(run.stdout) : run[key]);
+    const pick = (run: typeof ts) =>
+      key === "stderr" ? acted(run.stderr) : key === "stdout" ? actedOut(run === ts ? nativeGlobals(run.stdout) : run.stdout) : run[key];
     const a = normal(JSON.stringify(pick(ts)), keep);
     const b = normal(JSON.stringify(pick(native)), keep);
     if (a !== b) diffs.push(`  ${key}\n    ts:     ${a}\n    native: ${b}`);

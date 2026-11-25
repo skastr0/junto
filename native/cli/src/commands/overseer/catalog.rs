@@ -5,9 +5,6 @@
 
 use crate::features::{ARTIFACTS, BROWSER, TASKS};
 
-/// Code steps in automations (CODE_STEPS_ENABLED), as crate::features reads a gate.
-pub const CODE_STEPS: bool = matches!(option_env!("JUNTO_CODE_STEPS_ENABLED"), Some(v) if matches!(v.as_bytes(), b"1" | b"true"));
-
 /// Which automation write: where its steps sit and which ids it is given.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Write {
