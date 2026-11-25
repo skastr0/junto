@@ -666,7 +666,8 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
               ...(cause.takeover === undefined ? {} : { takeover: cause.takeover }),
             } : {}),
             ...(cause instanceof MachineSetupError ? { installed: cause.installed, ...(cause.ownWords === true ? { ownWords: true as const } : {}),
-              ...(cause.takeoverRemote === undefined ? {} : { takeoverRemote: cause.takeoverRemote }) } : {}),
+              ...(cause.takeoverRemote === undefined ? {} : { takeoverRemote: cause.takeoverRemote }),
+              ...(cause.takeover === undefined ? {} : { takeover: cause.takeover }) } : {}),
             // The sender of a setup reads which pin rule refused it from here, closed, never from the words.
             ...pinRuleOf(cause),
             ...(failure === undefined ? {} : { failure }),

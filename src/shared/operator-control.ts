@@ -298,7 +298,7 @@ export const OperatorErrorBody = Schema.Struct({
     runningSeatsUnknown: MachineInstallError.fields.runningSeatsUnknown,
     /** The message is the core's own fixed words (MachineInstallError.ownWords); a failed-copy row may show it. */
     ownWords: MachineInstallError.fields.ownWords,
-    /** A pinned machine answers as another installation: the CLI prints its take-over preview from these, after the message. */
+    /** A pinned machine answers as another installation, or a removed name still has work placed on it: the CLI prints its take-over preview from these, after the message. */
     takeover: MachineInstallError.fields.takeover,
     /** The far already trusts another install under this machine's name: the CLI prints its take-over-remote preview from this. */
     takeoverRemote: MachineSetupError.fields.takeoverRemote,

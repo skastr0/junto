@@ -12,7 +12,7 @@ import { MACHINE_REGISTRY_STATE_SCHEMA_SQL } from "../src/core/hosts/state-schem
 import { HostRegistryRows, resetDefaultHostsRegistryForTests } from "../src/core/hosts/registry";
 import { HostsService, HostsServiceLive } from "../src/core/hosts/service";
 import { makeMachineOwnerActions, type MachineOwnerOptions } from "../src/core/hosts/machine-owner";
-import { MachineInstallError, MachineSetupError, MachineInstallResult } from "../src/shared/machine-install";
+import { MachineInstallError, MachineSetupError, MachineInstallResult, MachineTakeoverHint } from "../src/shared/machine-install";
 import { RemoteHostsError } from "../src/shared/remote-hosts";
 import { SshTransport } from "../src/core/ssh";
 import type { MachineSetupRefusal, MachineUpdateLatch } from "../src/core/install-ops/service";
@@ -297,6 +297,17 @@ it("returns the installed receipt when setup failed after a successful copy", as
   const response = await f.call("machine.send", { name: "mini" });
   expect(response.ok).toBe(false);
   if (!response.ok) expect(response.error.details).toEqual({ retryable: false, installed, failure: expect.objectContaining({ tag: "MachineSetupError", machine: "macbook" }) });
+  expect(Result.isSuccess(decodeOperatorResponse(response))).toBe(true);
+});
+
+it("carries the take-over line on a setup refused for work still placed on a removed name (P2), so the CLI prints it", async () => {
+  const installed = readyInstall();
+  const takeover = Schema.decodeUnknownSync(MachineTakeoverHint)({ machineName: "mini", installationId: "new-install", previousInstallationId: "old-install" });
+  const f = await fixture({ copy: () => Effect.fail(new MachineSetupError({ message: "placed", retryable: false, installed, ownWords: true, takeover })) });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  const response = await f.call("machine.send", { name: "mini" });
+  expect(response.ok).toBe(false);
+  if (!response.ok) expect(response.error.details).toMatchObject({ retryable: false, installed, ownWords: true, takeover });
   expect(Result.isSuccess(decodeOperatorResponse(response))).toBe(true);
 });
 

@@ -213,6 +213,12 @@ export class MachineSetupError extends Schema.TaggedError<MachineSetupError>()("
   ownWords: Schema.optionalKey(Schema.Literal(true)),
   /** The far trusts another install under this machine's name: what the CLI prints its take-over-remote preview from. */
   takeoverRemote: Schema.optionalKey(MachineTakeoverRemoteHint),
+  /**
+   * This machine removed the name and work here is still placed on it (P2):
+   * the take-over line the CLI prints, as on MachineInstallError. The new id is
+   * the install receipt's, the previous one this machine's own retired pin.
+   */
+  takeover: Schema.optionalKey(MachineTakeoverHint),
 }) {}
 
 export const MachineSendInput = Schema.Struct({

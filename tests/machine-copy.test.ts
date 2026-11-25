@@ -24,6 +24,7 @@ import { RemoteHost } from "../src/shared/remote-hosts";
 import { MachineInstallResult, MachineInstallError, MachineSetupError } from "../src/shared/machine-install";
 import type { MachineBundleAcquirer } from "../src/core/hosts/machine-bundle-download";
 import { makeTestLog } from "./support/test-log";
+import { InstallationId } from "../src/shared/installation-id";
 
 const testLog = makeTestLog();
 
@@ -240,8 +241,22 @@ it("says work here is still placed on a removed name when this machine's own pin
     expect(error.message).toBe(RETIRED_PLACED_WORDS);
     expect(error).toMatchObject({ ownWords: true, retryable: false, installed: f.receipt });
     expect(error.takeoverRemote).toBeUndefined();
+    // No retired pin here to name: no take-over line, rather than one with a made-up id.
+    expect(error.takeover).toBeUndefined();
   }
   expect(await f.runtime.runPromise(f.repository.peer("mini"))).toBeUndefined();
+});
+
+it("names the take-over of the removed name on that refusal: the receipt's installation and this machine's own retired pin", async () => {
+  const f = await fixture({ helloClose: "retired-placed-here" });
+  await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: Schema.decodeUnknownSync(InstallationId)("old-install") }));
+  await f.runtime.runPromise(f.repository.retirePeer("mini"));
+  const error = await f.error("send");
+  expect(error).toBeInstanceOf(MachineSetupError);
+  if (error instanceof MachineSetupError) {
+    expect(error.message).toBe(RETIRED_PLACED_WORDS);
+    expect(error.takeover).toEqual({ machineName: "mini", installationId: f.receipt.installationId, previousInstallationId: "old-install" });
+  }
 });
 
 it("never takes the placed-work words from a close the far sent", async () => {

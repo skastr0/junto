@@ -1,6 +1,6 @@
 import { Effect, Option, Schema, Stream } from "effect";
 import { MachineBuild, MachineConfigured, MachinePeerPin, type MachineCopyInput } from "@shared/machine-control";
-import { MachineFarInstallResult, MachineInstallError, MachinePinRefused, MachineSetupError, MachineTakeoverRemoteHint } from "@shared/machine-install";
+import { MachineFarInstallResult, MachineInstallError, MachinePinRefused, MachineSetupError, MachineTakeoverHint, MachineTakeoverRemoteHint } from "@shared/machine-install";
 import type { MachineSendEvent } from "@shared/machine-progress";
 import type { InstallationId } from "@shared/installation-id";
 import type { RemoteHost } from "@shared/remote-hosts";
@@ -285,12 +285,16 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
           Effect.andThen(Effect.fail(new LinkNotOpened({ message: "refused" }))))));
       // The result lists the send's own step after the install's, as the CLI and the window read it (receipt 24).
       return { ...receipt, machineName: host.id, ...(pinned ? { transitions: [...receipt.transitions, { step: "pinned" as const }] } : {}) };
-    }).pipe(Effect.mapError(cause => cause instanceof LinkOutlivedRemove
+    }).pipe(Effect.catch(cause => retiredPlaced(cause, host.id)
+      // The take-over line's ids: the receipt's, and this machine's own retired pin, never the far's words.
+      ? machines.retiredPin(host.id).pipe(Effect.orElseSucceed(() => undefined), Effect.flatMap((previousInstallationId) => Effect.fail(new MachineSetupError({
+        message: RETIRED_PLACED_WORDS, retryable: false, installed: receipt, ownWords: true,
+        ...Option.match(Schema.decodeUnknownOption(MachineTakeoverHint)({ machineName: host.id, installationId: receipt.installationId, previousInstallationId }),
+          { onNone: () => ({}), onSome: (takeover) => ({ takeover }) }) }))))
+      : Effect.fail(cause instanceof LinkOutlivedRemove
       ? new MachineSetupError({ message: cause.message, retryable: false, installed: receipt, ownWords: true })
       : cause instanceof LinkNotOpened
       ? new MachineSetupError({ message: LINK_NOT_OPENED_WORDS, retryable: true, installed: receipt, ownWords: true })
-      : retiredPlaced(cause, host.id)
-      ? new MachineSetupError({ message: RETIRED_PLACED_WORDS, retryable: false, installed: receipt, ownWords: true })
       : cause instanceof PinnedElsewhere
       ? new MachineSetupError({ message: PINNED_ELSEWHERE_WORDS, retryable: false, installed: receipt, ownWords: true,
         // The name is the selected host's id, checked closed; never a far string.
@@ -298,6 +302,6 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
       : new MachineSetupError({
         message: `Junto is installed, but could not ${pin === undefined ? "finish setup" : "connect"}: ${cause instanceof Error ? cause.message : String(cause)}. Check this machine before sending again`,
         retryable: false, installed: receipt,
-      })));
+      }))));
   }));
 });

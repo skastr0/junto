@@ -66,6 +66,8 @@ export class MachineRepository extends Context.Service<MachineRepository, {
    */
   readonly replaceRetiredPin: (input: { readonly machineName: string; readonly previous: InstallationId; readonly installationId: InstallationId }) => Effect.Effect<MachinePeer | undefined, MachinePersistenceError>;
   readonly peer: (machineName: string) => Effect.Effect<MachinePeer | undefined, MachinePersistenceError>;
+  /** The installation a retired name was last pinned to, for the take-over line a refusal prints: it decides nothing. */
+  readonly retiredPin: (machineName: string) => Effect.Effect<InstallationId | undefined, MachinePersistenceError>;
   readonly peers: Effect.Effect<ReadonlyArray<MachinePeer>, MachinePersistenceError>;
   readonly retirePeer: (machineName: string) => Effect.Effect<void, MachinePersistenceError>;
   /** Names a peer was pinned under and later retired, and not pinned again. */
@@ -141,6 +143,9 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
   const peer = Effect.fn("MachineRepository.peer")((name: string) =>
     withSqlRead(sql, findPeer(name)).pipe(Effect.map((row) =>
       Option.isSome(row) && row.value.retired_at === null ? peerFromRow(row.value) : undefined), Effect.mapError(failure("peer"))));
+  const retiredPin = Effect.fn("MachineRepository.retiredPin")((name: string) =>
+    withSqlRead(sql, findPeer(name)).pipe(Effect.map((row) =>
+      Option.isSome(row) && row.value.retired_at !== null ? row.value.installation_id : undefined), Effect.mapError(failure("peer"))));
   const peers = withSqlRead(sql, SqlSchema.findAll({ Request: Schema.Void, Result: PeerRow,
     execute: () => sql`SELECT machine_name, installation_id, bound_at, retired_at, binding FROM machine_peers WHERE retired_at IS NULL ORDER BY machine_name`,
   })(undefined)).pipe(Effect.map((rows) => rows.map(peerFromRow)), Effect.mapError(failure("peers")));
@@ -294,7 +299,7 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
       Effect.tap((stored) => Effect.sync(() => options.log?.setMachine(stored.configuration.name))));
   }, Effect.mapError(failure("configure-name")));
   return MachineRepository.of({ installationId: Effect.succeed(installationId), configuration,
-    machineName: configuration.pipe(Effect.map((stored) => stored.configuration.name)), configureName, pinPeer, peer, peers, retirePeer,
+    machineName: configuration.pipe(Effect.map((stored) => stored.configuration.name)), configureName, pinPeer, peer, retiredPin, peers, retirePeer,
     retiredPeers, notePeerHello, peersSeen, retirePeerInstallation, replaceRetiredPin });
 });
 
