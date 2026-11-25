@@ -481,6 +481,49 @@ const fromRow = (row: typeof SignalRow.Type): AgentSignal => {
   };
 };
 
+/**
+ * A deleted seat's open signals close with it, and a deleted canvas's close with
+ * each of its seats: the same pass for both (`nodeIds` absent is the whole
+ * canvas). They end `withdrawn` with their record kept, and let go of their
+ * files as a seat's own clear does. It runs in the model delete's transaction
+ * over `SqlClient` alone, so the model seam can call it without the stores, and
+ * it announces each closed signal once that transaction commits. A signal that
+ * is not open, or sits on a node that stays, is never touched.
+ */
+export const withdrawOpenSignalsOf = (
+  sql: SqlClient.SqlClient,
+  canvasName: string,
+  nodeIds?: ReadonlyArray<string>,
+): Effect.Effect<ReadonlyArray<AgentSignal>, SqlError.SqlError | Schema.SchemaError> =>
+  Effect.gen(function* () {
+    if (nodeIds?.length === 0) return [];
+    const nodeClause = nodeIds === undefined ? "" : ` AND node_id IN (${nodeIds.map(() => "?").join(", ")})`;
+    const bindings = [canvasName, ...(nodeIds ?? [])];
+    const open = yield* SqlSchema.findAll({
+      Request: Schema.Array(Schema.String),
+      Result: Schema.Struct({ signal_id: Schema.String }),
+      execute: (values) => sql.unsafe(`SELECT signal_id FROM agent_signals
+        WHERE canvas_name = ?${nodeClause} AND state = 'open'`, [...values]),
+    })(bindings);
+    if (open.length === 0) return [];
+    const ids = open.map((row) => row.signal_id);
+    const marks = ids.map(() => "?").join(", ");
+    yield* sql.unsafe(`UPDATE agent_signals SET state = 'withdrawn', closed_at = ?
+      WHERE state = 'open' AND signal_id IN (${marks})`, [Date.now(), ...ids]);
+    // The files the signals held are let go; the store collects them after its grace.
+    yield* sql.unsafe(`DELETE FROM content_refs
+      WHERE owner_kind = 'signal' AND owner_canvas = ? AND owner_record_id IN (${marks})`, [canvasName, ...ids]);
+    const rows = yield* SqlSchema.findAll({
+      Request: Schema.Array(Schema.String),
+      Result: SignalRow,
+      execute: (values) => sql.unsafe(`SELECT ${COLUMNS} FROM agent_signals
+        WHERE signal_id IN (${marks}) ORDER BY created_at, signal_id`, [...values]),
+    })(ids);
+    const closed = rows.map(fromRow);
+    for (const signal of closed) yield* afterSqlCommit(sql, () => emitAgentSignalChanged(signal));
+    return closed;
+  });
+
 const notFound = (signalId: string, message: string) =>
   AgentSignalNotFound.make({ signalId, message });
 

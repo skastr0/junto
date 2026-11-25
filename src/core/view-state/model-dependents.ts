@@ -1,7 +1,8 @@
 /**
- * The model delete seam's two dependents (0.11, 04): Work's materializations
- * and the operator's view rows. Both go in the model's transaction, so a
- * node or canvas delete never leaves a row pointing at what it removed.
+ * The model delete seam's dependents (0.11, 04): Work's materializations,
+ * the operator's view rows, and the open signals of what went, which close.
+ * All go in the model's transaction, so a node or canvas delete never leaves a
+ * row pointing at what it removed.
  *
  * The view rows use the same delete pass as `ViewStateRepository`, over
  * `SqlClient`, so there is no cycle: `ModelLive` is provided *to* the stores,
@@ -12,6 +13,7 @@ import { SqlClient } from "effect/sql";
 import { ModelDependents } from "../model/dependents";
 import { CorePushes } from "../push";
 import { afterSqlCommit } from "../state/sql-commit";
+import { withdrawOpenSignalsOf } from "../signals/repository";
 import { makeWorkModelDependents } from "../work/model-dependents";
 import { publishViewStateChange } from "./changes";
 import { removeViewCanvas, removeViewNodes } from "./remove";
@@ -27,6 +29,7 @@ export const ProductModelDependentsLive = Layer.effect(
       removeCanvas: (canvas) =>
         Effect.gen(function* () {
           yield* work.removeCanvas(canvas);
+          yield* withdrawOpenSignalsOf(sql, canvas);
           yield* removeViewCanvas(sql, canvas);
           // A window still showing the canvas must drop its rows.
           yield* afterSqlCommit(sql, announce);
@@ -34,6 +37,7 @@ export const ProductModelDependentsLive = Layer.effect(
       removeNodes: (canvas, ids) =>
         Effect.gen(function* () {
           yield* work.removeNodes(canvas, ids);
+          yield* withdrawOpenSignalsOf(sql, canvas, ids);
           yield* removeViewNodes(sql, canvas, ids);
           yield* afterSqlCommit(sql, announce);
         }),
