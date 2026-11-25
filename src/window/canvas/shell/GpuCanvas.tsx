@@ -42,6 +42,8 @@ import { installCanvasFocusChain } from "./focus-chain";
 import { canvasHands } from "./pointer-host";
 import { CanvasMenus } from "./CanvasMenus";
 import { CardOverlays } from "./CardOverlays";
+import { ClusterHoverList } from "./ClusterHoverList";
+import { bindClusterHover, clusterHover$, createClusterHoverController } from "./cluster-hover";
 import { CanvasMagnifier } from "../../components/CanvasMagnifier";
 import { ImpactSeedChip } from "../../components/ImpactSeedChip";
 import { clipboardHasImage, dropPoint, pastePoint, useImagePlacement } from "../../lib/canvas-images";
@@ -320,18 +322,45 @@ export function GpuCanvas({ onUnavailable }: Props) {
     visibility();
 
     // The pointer names the card under it for the native title, as the DOM did.
+    // The far badge's hover list: the pointer on a badge opens it after a
+    // steady hover; the camera moving, or a press, closes it.
+    const clusterHover = createClusterHoverController({
+      timers: { set: (run, ms) => setTimeout(run, ms), clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>) },
+      show: (target) => {
+        const rect = target === null ? undefined : engine.badgeScreenRect?.(target.key);
+        if (target === null || rect === undefined) {
+          clusterHover$.set(null);
+          return;
+        }
+        // The engine's points are relative to the canvas element; the list is placed in page pixels.
+        const origin = canvas.getBoundingClientRect();
+        clusterHover$.set({ ...target, rect: { x: rect.x + origin.left, y: rect.y + origin.top, width: rect.width, height: rect.height } });
+      },
+    });
+    bindClusterHover(clusterHover);
+    let lastCamera = engine.camera();
+    const offClusterCamera = engine.onFrame((facts) => {
+      const moved = facts.camera.x !== lastCamera.x || facts.camera.y !== lastCamera.y || facts.camera.zoom !== lastCamera.zoom;
+      lastCamera = facts.camera;
+      if (moved && clusterHover$.peek() !== null) clusterHover.dismiss();
+    });
+    const clusterPress = (): void => clusterHover.dismiss();
     const hover = (event: PointerEvent): void => {
       const hit = api.pick({ x: event.clientX, y: event.clientY });
+      const part = hit?.part;
+      clusterHover.pointer(part?.kind === "cluster" ? { key: part.key, memberIds: part.memberIds } : null);
       wires?.setHover(hit?.wireId);
       const title = hit?.nodeId === undefined ? "" : mirror.card(hit.nodeId)?.text ?? "";
       if (canvas.title !== title) canvas.title = title;
     };
     const leave = (): void => {
+      clusterHover.pointer(null);
       wires?.setHover(undefined);
       canvas.title = "";
     };
     canvas.addEventListener("pointermove", hover, { passive: true });
     canvas.addEventListener("pointerleave", leave, { passive: true });
+    canvas.addEventListener("pointerdown", clusterPress, { passive: true });
 
     // Images: a file dropped on the field, or pasted with nothing typing, is a
     // content-store image at the board point the gesture names. That point comes
@@ -413,6 +442,11 @@ export function GpuCanvas({ onUnavailable }: Props) {
       offViewport();
       canvas.removeEventListener("pointermove", hover);
       canvas.removeEventListener("pointerleave", leave);
+      canvas.removeEventListener("pointerdown", clusterPress);
+      offClusterCamera();
+      bindClusterHover(undefined);
+      clusterHover.dispose();
+      clusterHover$.set(null);
       canvas.removeEventListener("dragover", onDragOver);
       canvas.removeEventListener("drop", onDrop);
       window.removeEventListener("paste", onPaste);
@@ -450,6 +484,7 @@ export function GpuCanvas({ onUnavailable }: Props) {
       />
       <div ref={marqueeRef} className="junto-marquee" data-testid="canvas-marquee" aria-hidden />
       <CardOverlays mirror={mirror} api={api} />
+      <ClusterHoverList />
       <ImpactSeedChip />
       <CanvasMagnifier />
       <CanvasMenus />

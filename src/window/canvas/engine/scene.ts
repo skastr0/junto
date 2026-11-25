@@ -3220,6 +3220,11 @@ export const createScene = (options: {
     clusterAt: (at: Point) => clusterSlotAt(at)?.members,
     /** The key of the badge under a board point: the hover list opens on it. */
     clusterKeyAt: (at: Point) => clusterSlotAt(at)?.key,
+    /** A built badge's drawn disc in board units (what the pointer hits), by its key. */
+    badgeDiscOf: (key: string): Rect | undefined => {
+      const slot = clusterSlots.get(key);
+      return slot === undefined || slot.ordered.length === 0 ? undefined : drawnBadgeRect(slot);
+    },
     prepare,
     prefetch,
     partsOf,

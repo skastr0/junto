@@ -1062,6 +1062,12 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     pick,
     rectOf: (id) => scene.rectOf(id),
     surfaceOf: (id) => scene.surfaceOf(id),
+    badgeScreenRect: (key) => {
+      const disc = scene.badgeDiscOf(key);
+      if (disc === undefined) return undefined;
+      const corner = toScreen(camera, { x: disc.x, y: disc.y });
+      return { x: corner.x, y: corner.y, width: disc.width * camera.zoom, height: disc.height * camera.zoom };
+    },
     gatheredInto: (id) => scene.gatheredInto(id),
     gatheringChanged: () => scene.gatheringChanged(),
     anchor: (id) => {

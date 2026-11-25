@@ -843,6 +843,11 @@ export interface Engine {
    */
   readonly surfaceOf?: (id: NodeId) => Rect | undefined;
   /**
+   * A drawn badge's rectangle on screen (canvas-element pixels), by its key:
+   * where the hover list anchors. Undefined for a badge that is not built.
+   */
+  readonly badgeScreenRect?: (key: string) => Rect | undefined;
+  /**
    * The badge a seat is gathered into and its disc, at far and overview.
    * Undefined at near and mid, and for a seat nothing gathers. It reads the
    * last frame's plan, which `prepare` runs before the wire frame.

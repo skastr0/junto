@@ -1,0 +1,13 @@
+/* The far-zoom badge's hover list (ClusterHoverList.tsx). The seats are the
+   canvas's own AgentSeatView rows, placed by actor-rail.css; this file only
+   fits them into a popover that has no padding of its own, so the pointer
+   is inside the list from its first pixel. */
+.junto-popover.cluster-hover-popover {
+  padding: 0;
+}
+.cluster-hover {
+  max-height: min(60vh, 420px);
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+}
