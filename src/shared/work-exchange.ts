@@ -192,6 +192,15 @@ export const CanvasRemovalRefusedFrame = Schema.Struct({
 export type CanvasRemovalRefusedFrame = typeof CanvasRemovalRefusedFrame.Type;
 
 /**
+ * The operator's words for a copy refused as `a-canvas-of-that-name`
+ * (remote-design, docs/plans/0.11/machines-attention-look.md section 7,
+ * fbdc27bac). It goes again once that machine's other canvas of the name is
+ * gone there, so the words say "does not take", never "will not".
+ */
+export const COPY_REFUSED_THAT_NAME_WORDS =
+  "That machine does not take this canvas, because it already holds a different canvas of the same name. A canvas with a new name reaches it: make one with New canvas and place the work from it.";
+
+/**
  * The operator's words for a copy refused as `removed` (remote-design,
  * docs/plans/0.11/machines-attention-look.md section 7).
  */

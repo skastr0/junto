@@ -52,7 +52,7 @@ import { makeMemoryTerminalNodeDeleteStore } from "../src/core/term/node-delete-
 import type { CanvasCopy } from "../src/shared/canvas-copy";
 import { CANVAS_REMOVED_EARLIER_FILL_SQL } from "../src/core/work/exchange/state-schema";
 import { makeMachineExchangeQuery } from "../src/core/work/exchange/queries";
-import { COPY_REFUSED_REMOVED_WORDS } from "../src/shared/work-exchange";
+import { COPY_REFUSED_REMOVED_WORDS, COPY_REFUSED_THAT_NAME_WORDS } from "../src/shared/work-exchange";
 import { SqlClient as Sql } from "effect/sql";
 import { makeTestLog } from "./support/test-log";
 
@@ -359,6 +359,12 @@ describe("a canvas removed on its editor reaches every machine that held a copy 
     await macbook.runtime.runPromise(seedCanvas("base", [files("folder", { x: 400, y: 0, host: "mini" as never, root: ROOT })]));
     await link(macbook, mini);
     expect(await rows(mini, "SELECT canvas_id, editor_installation_id AS editor FROM canvases WHERE canvas_name = 'base'")).toEqual([{ canvas_id: studioId, editor: STUDIO }]);
+    // The macbook's operator reads why, in words, on the exchange row for the mini.
+    const query = await macbook.runtime.runPromise(makeMachineExchangeQuery(macbook.exchange));
+    const data = await macbook.runtime.runPromise(query({ canvas: "base" as never }));
+    expect(data.canvases[0]!.links.find((row) => row.installationId === MINI)?.refused).toEqual({
+      reason: "a-canvas-of-that-name", message: COPY_REFUSED_THAT_NAME_WORDS, ownWords: true,
+    });
     const nodesBefore = await rows(mini, "SELECT * FROM seats WHERE canvas_name = 'base'");
     // The macbook removes its base: whatever it owes the mini reaches a canvas it does not edit there.
     await operator(macbook, { _tag: "RemoveCanvas", canvas: "base" });
