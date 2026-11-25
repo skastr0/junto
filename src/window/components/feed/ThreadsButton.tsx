@@ -1,7 +1,9 @@
 /**
  * The top bar's Threads button: the operator's threads with every seat, and
- * how many have something unread. Pressing it opens Global threads, or
- * closes it when it is open, the same as its key (threads.open).
+ * how many have something unread. Pressing it opens Global threads; its key
+ * (threads.open) opens and closes it. With Global threads open the modal sits
+ * under the bar and its dim covers the bar, so a press on this button lands on
+ * the backdrop and closes it: the same result, reached by the dim.
  *
  * The icon stays steel: amber on an icon belongs to Needs you. The count is
  * the same pill the feed's button wears (one colour, one meaning, unread; an
