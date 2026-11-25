@@ -34,6 +34,11 @@ let root: Root;
 let gpu: FakeGpu;
 let commits = 0;
 
+// The first beforeEach imports the whole GPU canvas shell cold after
+// vi.resetModules: about 9 s on a quiet VM, more in a loaded lane, past the
+// default 10 s hook limit. The later ones reuse the transforms and are fast.
+const COLD_IMPORT_MS = 60_000;
+
 beforeEach(async () => {
   vi.resetModules();
   gpu = fakeGpu();
@@ -78,12 +83,13 @@ beforeEach(async () => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-});
+}, COLD_IMPORT_MS);
 
 afterEach(() => {
-  act(() => root.unmount());
-  host.remove();
-  modules.device.resetPageDeviceKeeperForTest();
+  // A beforeEach that failed leaves these unset: say nothing more than its own error.
+  if (root !== undefined) act(() => root.unmount());
+  host?.remove();
+  modules?.device.resetPageDeviceKeeperForTest();
   delete (window as { __juntoCanvas?: unknown }).__juntoCanvas;
   vi.unstubAllGlobals();
 });

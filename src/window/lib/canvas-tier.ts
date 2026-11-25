@@ -281,6 +281,7 @@ const easeSeatRings = (host: HTMLElement, tier: CanvasTier, from: SeatScales, to
   // new size under an animation at t=0, which is the old size.
   for (const [mark, ratio] of started) {
     runningEases.get(mark)?.cancel();
+    if (typeof mark.animate !== "function") continue;
     runningEases.set(mark, mark.animate([{ transform: `scale(${String(ratio)})` }, { transform: "none" }], {
       id: SEAT_EASE_ID,
       duration: SEAT_EASE_MS,

@@ -303,6 +303,27 @@ describe("level-of-detail properties wait for the camera to rest", () => {
     await rest();
     expect(written).not.toHaveBeenCalled();
   });
+
+  it("skips the ring ease when Element.animate is absent", async () => {
+    delete (Element.prototype as unknown as { animate?: unknown }).animate;
+    const mark = addMark(2);
+    await gesture([0.2]);
+    await rest();
+    expect(mark.style.getPropertyValue("--seat-s")).not.toBe("");
+    expect(eases).toHaveLength(0);
+  });
+
+  it("clears the pending settle timer on unmount", async () => {
+    const mark = addMark(2);
+    const settledBefore = cameraSettled$.peek();
+    await gesture([0.2]);
+    await act(async () => {
+      root.unmount();
+    });
+    await rest();
+    expect(cameraSettled$.peek()).toBe(settledBefore);
+    expect(mark.style.getPropertyValue("--seat-s")).toBe("");
+  });
 });
 
 describe("ring size easing", () => {

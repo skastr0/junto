@@ -48,9 +48,11 @@ export function CanvasTierGate() {
     let zoom = store.getState().transform[2];
     publishCanvasTier(zoom);
     publishFarSeatScale(store.getState().domNode, zoom, canvasTier$.peek(), cameraOf(store.getState()));
+    let disposed = false;
     let [x, y] = store.getState().transform;
     let settle: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = store.subscribe((state) => {
+      if (disposed) return;
       if (state.transform[0] !== x || state.transform[1] !== y || state.transform[2] !== zoom) {
         [x, y] = state.transform;
         // One rest when the camera stops (cameraSettled$), never one a frame.
@@ -59,6 +61,8 @@ export function CanvasTierGate() {
         // once.
         clearTimeout(settle);
         settle = setTimeout(() => {
+          settle = undefined;
+          if (disposed) return;
           const rested = store.getState();
           publishFarSeatScale(rested.domNode, rested.transform[2], canvasTier$.peek(), cameraOf(rested));
           cameraSettled$.set(cameraSettled$.peek() + 1);
@@ -70,8 +74,10 @@ export function CanvasTierGate() {
       easeSeatScaleOnTierEntry(state.domNode, was, publishCanvasTier(zoom), cameraOf(state));
     });
     return () => {
+      disposed = true;
       unsubscribe();
       clearTimeout(settle);
+      settle = undefined;
       clearCanvasTier();
     };
   }, [store]);
