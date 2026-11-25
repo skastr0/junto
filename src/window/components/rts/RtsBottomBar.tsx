@@ -384,9 +384,10 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   // The seat's connections list: it and Connect share the one pop, each replacing the other.
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const connections = useRtsValue(() => {
-    // A wire whose other end is gone is not listed, so the count follows nodes too.
+    // A wire whose other end is gone is not listed, so the count follows node ids:
+    // adds and removes, never a node's position during a drag.
     modelStore.canvas$(canvasName).wires.get();
-    modelStore.canvas$(canvasName).nodes.get();
+    modelStore.canvas$(canvasName).nodeIds.get();
     return connectionCount(modelStore.canvasOf(canvasName), nodeId);
   });
   const rename = useRename(nodeId);

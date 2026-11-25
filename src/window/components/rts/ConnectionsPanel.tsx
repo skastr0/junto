@@ -87,6 +87,9 @@ export function ConnectionsPanel({ nodeId, onClose }: { readonly nodeId: string;
   const [adding, setAdding] = useState(false);
   const [search, setSearch] = useState("");
   const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
+  // The set as the last toggle left it: two presses in one batch build on each other, not on the last render.
+  const chosenNow = useRef<ReadonlySet<string>>(chosen);
+  chosenNow.current = chosen;
   const [asking, setAsking] = useState(false);
   const [current, setCurrent] = useState<string | null>(null);
   const [spoken, setSpoken] = useState("");
@@ -162,9 +165,10 @@ export function ConnectionsPanel({ nodeId, onClose }: { readonly nodeId: string;
   }
 
   const toggle = (wireId: string): void => {
-    const next = new Set(chosen);
+    const next = new Set(chosenNow.current);
     if (next.has(wireId)) next.delete(wireId);
     else next.add(wireId);
+    chosenNow.current = next;
     setChosen(next);
     const count = [...next].filter((id) => live.has(id)).length;
     setSpoken(count === 0 ? "" : `${count} chosen`);
@@ -280,7 +284,7 @@ export function ConnectionsPanel({ nodeId, onClose }: { readonly nodeId: string;
         {count === 0 ? (
           <div className="connections-panel__empty">
             <span>No connections yet</span>
-            <Button size="sm" variant="chrome" onClick={() => setAdding(true)}>Add</Button>
+            <Button size="sm" variant="chrome" aria-label="Add a connection" onClick={() => setAdding(true)}>Add</Button>
           </div>
         ) : groups.length === 0 ? (
           <div className="connections-panel__empty">
@@ -301,7 +305,10 @@ export function ConnectionsPanel({ nodeId, onClose }: { readonly nodeId: string;
                 <span className="connections-panel__rule" aria-hidden />
                 <span className="connections-panel__group-count">{group.rows.length}</span>
               </header>
-              <div role="list" aria-label={`${group.name}, ${group.rows.length}`}>
+              <div
+                role="list"
+                aria-label={`${group.name}, ${group.rows.length}${group.outer.length > 0 ? `, in ${group.outer.join(" / ")}` : ""}`}
+              >
                 {group.rows.map((row) => (
                   <ConnectionRow
                     key={row.wireId}
@@ -395,7 +402,6 @@ function ConnectionRow({
   return (
     <div
       role="listitem"
-      aria-label={row.sentence}
       onFocus={onFocus}
       className="connections-panel__row"
       data-connection-row

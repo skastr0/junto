@@ -78,6 +78,7 @@ const open = async (wires = [
   fixtures.wire("w-design", "lead", "design", "messages"),
 ]) => {
   openCanvas(`connections-${++counter}`, [
+    fixtures.region("junto", { x: 0, y: 0, width: 2000, height: 1000 }, { label: "Junto" }),
     fixtures.region("cli-region", { x: 1000, y: 0, width: 900, height: 400 }, { label: "CLI" }),
     fixtures.seat("lead", { label: "product-lead", x: 10, y: 2010 }),
     fixtures.seat("design", { label: "product-design", x: 300, y: 2010 }),
@@ -119,8 +120,10 @@ it("lists every wire on the seat, grouped by the other end's region, each said a
   expect(one('[data-wire-id="w-cli"] button[data-row-remove]').getAttribute("aria-label")).toBe("Remove: product-lead messages cli-lead");
   // Each group is a named list, not a landmark per region; each row has a name of its own.
   expect(document.querySelectorAll("section")).toHaveLength(0);
-  expect(one('[role="list"]').getAttribute("aria-label")).toBe("CLI, 2");
-  expect(one('[data-wire-id="w-cli"]').getAttribute("aria-label")).toBe("product-lead messages cli-lead");
+  expect(one('[role="list"]').getAttribute("aria-label")).toBe("CLI, 2, in Junto");
+  // The checkbox names the row; the listitem does not say it twice.
+  expect(one('[data-wire-id="w-cli"]').getAttribute("aria-label")).toBeNull();
+  expect(checkbox("w-cli").getAttribute("aria-label")).toBe("Choose: product-lead messages cli-lead");
   // The count is the number, and " connections" is there for a screen reader.
   expect(one(".connections-panel__count").textContent).toBe("3 connections");
 });
@@ -177,6 +180,18 @@ it("removes several chosen after asking in the foot how many, and Cancel keeps t
   expect(status()).toContain("Removed 2 connections");
 });
 
+it("keeps both choices when two land in one batch", async () => {
+  await open();
+  await act(async () => {
+    checkbox("w-cli").click();
+    checkbox("w-design").click();
+    await flush();
+  });
+  expect(checkbox("w-cli").checked).toBe(true);
+  expect(checkbox("w-design").checked).toBe(true);
+  expect(status()).toBe("2 chosen");
+});
+
 it("removes one chosen from the foot without the question, and stays at that place", async () => {
   await open();
   await pressFocused(checkbox("w-pty"));
@@ -217,6 +232,8 @@ it("searches by name and region path, and says when nothing matches", async () =
 it("says a seat has no connections yet, takes the keyboard at Add, and Escape closes the pop", async () => {
   await open([]);
   expect(document.body.textContent).toContain("No connections yet");
+  // The header Add and the empty one are two controls with two names.
+  expect(one(".connections-panel__empty button").getAttribute("aria-label")).toBe("Add a connection");
   expect(document.activeElement).toBe(one('[data-testid="connections-add"]'));
   await key(document.activeElement as HTMLElement, "Escape");
   expect(closed).toBe(1);
