@@ -287,7 +287,9 @@ test("[fake-tui] operator signal and thread actions paint on the factory shape",
     results.push(await measureAction(app, page, "signal-answer", async () => {
       await page.getByRole("button", { name: "Send reply" }).click();
     }, async () => {
-      await expect(card).toHaveCount(0, { timeout: 15_000 });
+      // The visible result is the card starting its leave, not the end of the
+      // feed's intentional 280 ms fade.
+      await expect(card.locator("xpath=..")).toHaveClass(/operator-feed__slot--leaving/, { timeout: 15_000 });
     }));
     await page.keyboard.press("Escape");
 
