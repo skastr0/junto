@@ -32,6 +32,8 @@ enum Answer {
     ErrorWith(&'static str, &'static str, Value),
     /// Anything else, written as it is (a non-JSON body, or a malformed one).
     Raw(&'static str),
+    /// A body built by the test, such as one past the frame cap.
+    RawOwned(String),
     /// The socket closes with no answer.
     Close,
     /// The request is read and held past the client's bound, then dropped.
@@ -197,6 +199,9 @@ fn serve(
             writeln!(stream, "{envelope}").ok();
         }
         Answer::Raw(text) => {
+            writeln!(stream, "{text}").ok();
+        }
+        Answer::RawOwned(text) => {
             writeln!(stream, "{text}").ok();
         }
         Answer::Close => {}
@@ -1053,30 +1058,56 @@ fn a_runtime_refusal_passes_through_as_the_runtime_words_it() {
 
 #[test]
 fn a_dispatched_mail_that_loses_its_answer_never_invites_replay() {
-    for answer in [Answer::Close, Answer::Raw("garbage"), Answer::Silent] {
-        let work = Work::start(vec![answer]);
-        let output = work.run(&["msg", "send", "peer", "hi", "--timeout", "200"]);
-        assert_eq!(code(&output), 1);
-        let printed = stderr_json(&output);
-        assert_eq!(printed["error"]["type"], "UncertainCompletion", "{printed}");
-        assert_eq!(printed["error"]["details"]["retryable"], false, "{printed}");
-        assert_eq!(
-            printed["error"]["details"]["operation"], "msg.send",
-            "{printed}"
-        );
-        assert!(
-            printed["error"]["details"]["next_step"]
-                .as_str()
-                .unwrap()
-                .contains("inspect msg sent"),
-            "{printed}"
-        );
+    for (args, operation) in [
+        (
+            vec!["msg", "send", "peer", "hi", "--timeout", "200"],
+            "msg.send",
+        ),
+        (
+            vec!["msg", "send", "--prompt", "peer", "hi", "--timeout", "200"],
+            "msg.prompt",
+        ),
+        (
+            vec![
+                "msg",
+                "reply",
+                r#"{"target":"peer","text":"hi","inReplyTo":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}"#,
+                "--timeout",
+                "200",
+            ],
+            "msg.reply",
+        ),
+    ] {
+        for answer in [Answer::Close, Answer::Raw("garbage"), Answer::Silent] {
+            let work = Work::start(vec![answer]);
+            let output = work.run(&args);
+            assert_eq!(code(&output), 1, "{args:?}");
+            let printed = stderr_json(&output);
+            assert_eq!(printed["error"]["type"], "UncertainCompletion", "{printed}");
+            assert_eq!(printed["error"]["details"]["retryable"], false, "{printed}");
+            assert_eq!(
+                printed["error"]["details"]["operation"], operation,
+                "{printed}"
+            );
+            assert!(
+                printed["error"]["details"]["next_step"]
+                    .as_str()
+                    .unwrap()
+                    .contains("inspect msg sent"),
+                "{printed}"
+            );
+        }
     }
 }
 
 #[test]
 fn an_overseer_mutation_that_loses_its_answer_says_it_may_have_applied() {
-    for answer in [Answer::Close, Answer::Raw("garbage"), Answer::Silent] {
+    for answer in [
+        Answer::Close,
+        Answer::Raw("garbage"),
+        Answer::RawOwned("x".repeat(8 * 1024 * 1024 + 2)),
+        Answer::Silent,
+    ] {
         let work = Work::start(vec![answer]);
         let output = work.run(&[
             "overseer",
