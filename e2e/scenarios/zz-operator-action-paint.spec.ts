@@ -280,7 +280,11 @@ const stageTable = (name: string, click: number, painted: number, events: Readon
     }
     return false;
   };
-  const inWindow = events.filter((event) => event.t >= click - 5 && event.t <= painted);
+  // Stages are collected a little past the paint too: the RPC answer and a
+  // canonical reread may finish after the optimistic result is already drawn,
+  // and the table still has to name them. Only the stages through the paint
+  // take part in the largest-gap calculation below.
+  const inWindow = events.filter((event) => event.t >= click - 5 && event.t <= painted + 160);
   const requestIds = new Set(
     inWindow
       .filter((event) => wanted(event) && event.id !== undefined)
@@ -296,9 +300,11 @@ const stageTable = (name: string, click: number, painted: number, events: Readon
     stage: `${event.process} ${event.stage}${event.op === undefined ? "" : ` ${event.op}`}`,
     atMs: Math.round((event.t - click) * 100) / 100,
   }));
+  const throughPaint = filtered.filter((event) => event.t <= painted);
+  const labels = new Map(filtered.map((event, index) => [event, rows[index]!.stage] as const));
   const timeline = [
     { stage: "click handler start", t: click },
-    ...filtered.map((event, index) => ({ stage: rows[index]!.stage, t: event.t })),
+    ...throughPaint.map((event) => ({ stage: labels.get(event)!, t: event.t })),
     { stage: "first painted frame", t: painted },
   ];
   let largest = { from: "click handler start", to: "first painted frame", ms: painted - click };
