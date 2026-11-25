@@ -104,6 +104,9 @@ if [[ "$REPLACE" -eq 1 ]]; then
 fi
 # No-clobber publication rejects every existing destination, including dangling
 # symlinks. The EXIT trap can only clean this attempt directory.
+# The source maps ride with the release, never inside the app: one archive named
+# by version and commit, published beside the package (docs/source-maps.md).
+bun "$SCRIPT_DIR/collect-sourcemaps.ts" --out "$ATTEMPT_DIR" >/dev/null
 bun "$SCRIPT_DIR/finalize-linux-package.ts" publish-attempt \
   --attempt-dir "$ATTEMPT_DIR" \
   --release-dir "$RELEASE_DIR" >/dev/null

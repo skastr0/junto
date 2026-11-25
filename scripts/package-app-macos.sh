@@ -119,6 +119,9 @@ if [[ "$SIGN" -eq 1 ]]; then
   bun "$SCRIPT_DIR/machine-release-publication.ts" "$APP_SRC" "$REPO_ROOT/dist/machine-release" "$ATTEMPT_DIR"
 fi
 
+# The source maps ride with the release, never inside the app: one archive named
+# by version and commit, published beside the package (docs/source-maps.md).
+bun "$SCRIPT_DIR/collect-sourcemaps.ts" --out "$ATTEMPT_DIR" >/dev/null
 bun "$SCRIPT_DIR/finalize-linux-package.ts" publish-attempt \
   --attempt-dir "$ATTEMPT_DIR" \
   --release-dir "$RELEASE_DIR" >/dev/null

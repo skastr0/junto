@@ -3,7 +3,7 @@ import { writeBuildSourceStamp } from "./scripts/build-source-stamp";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
-import { buildContext, mainBuildSection } from "./scripts/vite-sections";
+import { buildContext, mainBuildSection, releaseSourceMaps } from "./scripts/vite-sections";
 import { overlayDepsPlugin } from "./scripts/overlay";
 import { preloadBundleGuard } from "./scripts/preload-bundle-guard";
 
@@ -47,6 +47,7 @@ export default defineConfig(({ command, mode }) => {
       resolve: { alias },
       define: productDefines,
       build: {
+        ...releaseSourceMaps(command),
         rollupOptions: {
           input: { index: resolve("src/window/preload/index.ts") },
           output: {
@@ -68,6 +69,8 @@ export default defineConfig(({ command, mode }) => {
       // The dev server may serve overlay files from outside this repository.
       ...(overlay.kind === "official" ? { server: { fs: { allow: [".", overlay.dir] } } } : {}),
       build: {
+        ...releaseSourceMaps(command),
+        // A perf build keeps visible maps, so a CPU profile resolves in the browser.
         ...(PERF_BUILD ? { sourcemap: true } : {}),
         rollupOptions: {
           input: resolve("index.html"),

@@ -48,6 +48,18 @@ export const buildContext = ({ command, mode }: BuildContext) => {
   return { preview, overlay, alias, productDefines };
 };
 
+/**
+ * Source maps for every program a release builds: the window, the preload, main,
+ * the core process, the terminal process and the overseer host. Hidden: the
+ * `.map` files are written beside the bundles but the bundles carry no
+ * `sourceMappingURL` comment, and packaging leaves every `.map` out of the app
+ * (package.json `files`, and the package audit fails if one slips in). The release
+ * keeps them as an archive named by version and commit (scripts/collect-sourcemaps.ts),
+ * so a bundle line in a log maps back to source (scripts/sourcemap-resolve.ts,
+ * docs/source-maps.md). A dev server serves its own maps.
+ */
+export const releaseSourceMaps = (command: "build" | "serve") => (command === "build" ? { sourcemap: "hidden" as const } : {});
+
 export type MainBuildSection = BuildContext & {
   readonly input: Record<string, string>;
   /** The core's build runs second over the same out/main; it must not clear it. */
@@ -83,6 +95,7 @@ export const mainBuildSection = ({ command, mode, input, emptyOutDir, stampBuild
     resolve: { alias },
     define: productDefines,
     build: {
+      ...releaseSourceMaps(command),
       ...(emptyOutDir === undefined ? {} : { emptyOutDir }),
       rollupOptions: { input },
     },

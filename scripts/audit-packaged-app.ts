@@ -982,6 +982,24 @@ export const auditRendererAssetTypes = (asarPath: string): number => {
   return files.length;
 };
 
+/**
+ * A source map never ships inside the app. The release keeps every map as an
+ * archive named by version and commit (scripts/collect-sourcemaps.ts), and a
+ * bundle line in a log maps back to source with it (docs/source-maps.md). The
+ * build writes hidden maps, so no shipped script carries a `sourceMappingURL`
+ * comment either. Fails by name on a `.map` entry, and on a script under out/
+ * whose tail points at a map. Returns how many scripts it read.
+ */
+export const auditNoSourceMaps = (asarPath: string): number => {
+  const files = listPackage(asarPath, { isPack: false }).filter((entry) => !("files" in statFile(asarPath, entry.slice(1), false)));
+  const maps = files.filter((entry) => entry.endsWith(".map"));
+  if (maps.length > 0) throw new Error(`source maps inside the app: ${maps.join(", ")}`);
+  const scripts = files.filter((entry) => entry.startsWith("/out/") && /\.(?:c|m)?js$/u.test(entry));
+  const pointing = scripts.filter((entry) => extractFile(asarPath, entry.slice(1)).subarray(-1024).toString("utf8").includes("sourceMappingURL="));
+  if (pointing.length > 0) throw new Error(`scripts that point at a source map: ${pointing.join(", ")}`);
+  return scripts.length;
+};
+
 export const auditPackagedApp = async (
   requestedPath: string,
 ): Promise<PackageAuditReceipt> => {
@@ -1019,6 +1037,7 @@ export const auditPackagedApp = async (
     workCliPath,
   });
   auditRendererAssetTypes(appAsarPath);
+  auditNoSourceMaps(appAsarPath);
 
   runFixedCommand("/usr/bin/codesign", [
     "--verify",
@@ -1078,6 +1097,7 @@ export const auditSourcePackagedApp = async (requestedPath: string) => {
   await validateRawAsarArchive(asarPath);
   await auditRetiredStateRuntimeBundle({ asarPath, workCliPath });
   auditRendererAssetTypes(asarPath);
+  auditNoSourceMaps(asarPath);
   const plist = JSON.parse(runFixedCommand("/usr/bin/plutil", [
     "-convert", "json", "-o", "-", path.join(appPath, "Contents", "Info.plist"),
   ]));
