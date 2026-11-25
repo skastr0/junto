@@ -504,8 +504,66 @@ const makeThreadShowCommand = (entry: OverseerCatalogEntry) =>
       sendThreadArgs(entry, { ...threadArgs({ canvas, seat, limit, before }), threadId }, timeout),
   ).pipe(Command.withDescription(THREAD_SHOW_DESCRIPTION));
 
+// Broadcast ----------------------------------------------------------------
+// `msg audience` and `msg broadcast` take one set: each --region is one region
+// by its name or node id, never a path (unlike `thread list --region`), and
+// several add up; --doing and --needs narrow every region pick; each --seat is
+// one seat beside them.
+
+export const MSG_AUDIENCE_DESCRIPTION =
+  "Say who a broadcast would reach, and send nothing: every seat in each --region <name or id> and the regions inside it, narrowed by --doing working|idle|off and --needs blocked|escalate|feedback, and each --seat <seat>, never this seat. Each --region is one region, not a path. Answers the seats by name, the count and each pick's, how many are not running or on another machine, the seats with unread mail, and the set's digest";
+export const MSG_BROADCAST_DESCRIPTION =
+  "One way: every seat in the set is told not to reply or acknowledge. Use it only when it is really needed. Sends one notice to each seat, in a new thread of its own, as this seat: <text>, the picks msg audience took, --expect <count> [--set <digest>] as it answered them. A set that differs is refused whole and nothing is sent. It never starts a seat that is not running";
+
+const setFlags = {
+  region: Flag.String("region").pipe(
+    Flag.atLeast(0),
+    Flag.withDescription("One region by its name or node id, with the regions inside it; not a path. Repeat to add regions"),
+  ),
+  doing: Flag.String("doing").pipe(
+    Flag.atLeast(0),
+    Flag.withDescription("On every --region pick, only seats doing this: working, idle or off. Repeat to allow several"),
+  ),
+  needs: Flag.String("needs").pipe(
+    Flag.atLeast(0),
+    Flag.withDescription("On every --region pick, only seats needing this: blocked, escalate or feedback. Repeat to allow several"),
+  ),
+  seat: Flag.String("seat").pipe(
+    Flag.atLeast(0),
+    Flag.withDescription("One seat by its name, node id or ref, beside the regions, with no limit. Repeat to add seats"),
+  ),
+};
+
+const setArgs = (picks: Readonly<Record<keyof typeof setFlags, ReadonlyArray<string>>>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(picks).filter(([, values]) => values.length > 0));
+
+const makeMsgAudienceCommand = (entry: OverseerCatalogEntry) =>
+  Command.make(
+    entry.verb,
+    { ...setFlags, timeout: timeoutOption },
+    ({ region, doing, needs, seat, timeout }) => sendThreadArgs(entry, setArgs({ region, doing, needs, seat }), timeout),
+  ).pipe(Command.withDescription(MSG_AUDIENCE_DESCRIPTION));
+
+const makeMsgBroadcastCommand = (entry: OverseerCatalogEntry) =>
+  Command.make(
+    entry.verb,
+    {
+      text: Argument.String("text").pipe(Argument.withDescription("The message, one way: no seat replies to it")),
+      ...setFlags,
+      expect: Flag.Int("expect").pipe(Flag.withDescription("The count msg audience answered; required")),
+      set: textFlag("set", "The set's digest msg audience answered; a set with another is refused"),
+      timeout: timeoutOption,
+    },
+    ({ text, region, doing, needs, seat, expect, set, timeout }) =>
+      sendThreadArgs(entry, { ...setArgs({ region, doing, needs, seat }), text, expect, ...threadArgs({ set }) }, timeout),
+  ).pipe(Command.withDescription(MSG_BROADCAST_DESCRIPTION));
+
 const makeFamilyVerbCommand = (entry: OverseerCatalogEntry) =>
-  entry.operation === "thread.list"
+  entry.operation === "msg.audience"
+    ? makeMsgAudienceCommand(entry)
+    : entry.operation === "msg.broadcast"
+    ? makeMsgBroadcastCommand(entry)
+    : entry.operation === "thread.list"
     ? makeThreadListCommand(entry)
     : entry.operation === "thread.show"
     ? makeThreadShowCommand(entry)
@@ -737,6 +795,10 @@ export const overseerSchemas: ReadonlyArray<CommandSchemaContract> = OVERSEER_CA
       ? `${THREAD_LIST_DESCRIPTION}. Overseer; edges not required.`
       : entry.operation === "thread.show"
       ? `${THREAD_SHOW_DESCRIPTION}. Overseer; edges not required.`
+      : entry.operation === "msg.audience"
+      ? `${MSG_AUDIENCE_DESCRIPTION}. Overseer; edges not required.`
+      : entry.operation === "msg.broadcast"
+      ? `${MSG_BROADCAST_DESCRIPTION}. Overseer; edges not required.`
       : `${describeEntry(entry)}. Overseer; edges not required.`,
     // `secret put` documents what the command takes, which is not what the
     // wire carries: the value never is an argument.
@@ -754,7 +816,9 @@ export const overseerSchemas: ReadonlyArray<CommandSchemaContract> = OVERSEER_CA
     accepts_batch: false,
     input_modes: entry.operation === "secret.put"
       ? secretPutInputModes
-      : entry.family === "thread" ? ["argv"] : inputModes,
+      : entry.family === "thread" || entry.operation === "msg.audience" || entry.operation === "msg.broadcast"
+        ? ["argv"]
+        : inputModes,
   }),
 );
 
@@ -1158,6 +1222,22 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     description: "The newest messages of the thread, oldest first; --before <older> reads the page above. The thread id comes from thread list; the seat is the one whose list held it.",
     args: ["overseer", "thread", "show", "01M852PMBH4TE0XVAJJ82N70HA", "--seat", "cli-lead", "--limit", "50"],
     input: { threadId: "01M852PMBH4TE0XVAJJ82N70HA", seat: "cli-lead", limit: 50 },
+  },
+  {
+    command_id: commandIdFor("msg.audience"),
+    command: "overseer msg audience",
+    name: "say who a broadcast would reach",
+    description: "The seats in the region Junto and the regions inside it that are working or idle, and cli-lead beside them, never this seat; nothing is sent. The answer's count and set go to msg broadcast as --expect and --set.",
+    args: ["overseer", "msg", "audience", "--region", "Junto", "--doing", "working", "--doing", "idle", "--seat", "cli-lead"],
+    input: { region: ["Junto"], doing: ["working", "idle"], seat: ["cli-lead"] },
+  },
+  {
+    command_id: commandIdFor("msg.broadcast"),
+    command: "overseer msg broadcast",
+    name: "tell every seat in a region one thing, one way",
+    description: "Only when it is really needed: one notice to each seat in the set, each told not to reply or acknowledge, written by this seat in a new thread of its own. When the set is no longer 12 seats with digest 3f9a0c21b7de4a65, nothing is sent and the refusal gives the set as it is now.",
+    args: ["overseer", "msg", "broadcast", "Stop and commit what you have.", "--region", "Junto", "--doing", "working", "--doing", "idle", "--seat", "cli-lead", "--expect", "12", "--set", "3f9a0c21b7de4a65"],
+    input: { region: ["Junto"], doing: ["working", "idle"], seat: ["cli-lead"], text: "Stop and commit what you have.", expect: 12, set: "3f9a0c21b7de4a65" },
   },
   {
     command_id: commandIdFor("briefing.read"),
