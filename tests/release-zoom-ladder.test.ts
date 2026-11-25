@@ -143,6 +143,18 @@ describe("the zoom ladder's judge", () => {
     expect(faulted.faults.join(" ")).toContain("screenshots are missing");
   });
 
+  it("quotes the arm's own evictions, not a count nested in what a stop measured", () => {
+    const out = passing();
+    const records = [
+      { line: "display", devicePixelRatio: 1, shot: { width: 1440, height: 900 } },
+      { line: "stop", evictions: 311, texels: { compared: 104, evictions: 9000 } },
+      { line: "stop", evictions: 837, thrash: { count: 4 } },
+    ];
+    writeFileSync(join(out, "mini", "proof.json"), JSON.stringify(records, null, 2));
+    const judged = judgeArms(out);
+    expect(judged.arms[0]?.evictions).toBe(837);
+  });
+
   it("refuses a run that never evicted", () => {
     const out = passing();
     arm(out, "mini", { devicePixelRatio: 1, evictions: 0 });

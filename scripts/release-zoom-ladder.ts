@@ -117,24 +117,18 @@ const displayOf = (records: ReadonlyArray<Readonly<Record<string, unknown>>>) =>
         : undefined,
     }));
 
-/** The greatest `evictions` any record (or the spec's summary) reports. */
+/**
+ * The greatest `evictions` the arm's own lines report. A stop line carries the
+ * arm's cumulative count at its top level, and that is the number the receipt
+ * quotes; a nested one belongs to something the stop measured (a texel read, a
+ * thrash record) and is not the atlas's count, so recursing found 118 and 2442
+ * where the arms really evicted 837 and 1367.
+ */
 const evictionsOf = (records: ReadonlyArray<Readonly<Record<string, unknown>>>): number | undefined => {
-  let greatest: number | undefined;
-  const visit = (value: unknown): void => {
-    if (Array.isArray(value)) {
-      for (const item of value) visit(item);
-      return;
-    }
-    if (!isRecord(value)) return;
-    for (const [key, inner] of Object.entries(value)) {
-      if (key === "evictions" && typeof inner === "number" && Number.isFinite(inner)) {
-        greatest = greatest === undefined ? inner : Math.max(greatest, inner);
-      }
-      visit(inner);
-    }
-  };
-  visit(records);
-  return greatest;
+  const top = records
+    .map((record) => record["evictions"])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return top.length === 0 ? undefined : Math.max(...top);
 };
 
 /** What the arm's own console said it evicted, when the proof does not name it. */
