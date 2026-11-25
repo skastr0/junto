@@ -105,6 +105,36 @@ export const CANVAS_FILES_CARRIED_STATE_SCHEMA_SQL = `
 `;
 
 /**
+ * A canvas removed across machines (0.12.1, remote-security terms 1 to 4).
+ *
+ * `canvas_removals_owed`, on the machine that edited the canvas: each
+ * machine it had sent a copy of that canvas id to, written in the removal's
+ * own transaction before the copy history and departure marks go, and kept
+ * until that machine says it took the removal.
+ *
+ * `canvas_removed`, on the machine that held the copy: the canvas id its
+ * editor removed, so a copy of that id, or of an older one under the name
+ * from that editor, never brings it back. Added by state migration 81 -> 82.
+ */
+export const CANVAS_REMOVALS_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS canvas_removals_owed (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    canvas_id TEXT NOT NULL CHECK (length(canvas_id) BETWEEN 1 AND 128),
+    target TEXT NOT NULL CHECK (length(target) BETWEEN 1 AND 128),
+    removed_at TEXT NOT NULL CHECK (length(removed_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (canvas_id, target)
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TABLE IF NOT EXISTS canvas_removed (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    canvas_id TEXT NOT NULL CHECK (length(canvas_id) BETWEEN 1 AND 128),
+    editor TEXT NOT NULL CHECK (length(editor) BETWEEN 1 AND 128),
+    removed_at TEXT NOT NULL CHECK (length(removed_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (canvas_name, canvas_id)
+  ) STRICT, WITHOUT ROWID;
+`;
+
+/**
  * Which machine each automation was on from which count to which, as the
  * machine that edits a canvas sent it in its copies: an automation is judged
  * as a seat is (`canvas_placements`), by its Automations node and its id,

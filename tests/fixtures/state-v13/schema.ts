@@ -480,3 +480,9 @@ export const STATE_SCHEMA_V81_SQL = stepped(
   STATE_SCHEMA_V80_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 81)!.migrate,
 );
+
+/** Step 82 adds `canvas_removals_owed` and `canvas_removed`, a canvas removed across machines. */
+export const STATE_SCHEMA_V82_SQL = stepped(
+  STATE_SCHEMA_V81_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 82)!.migrate,
+);

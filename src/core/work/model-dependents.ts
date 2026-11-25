@@ -50,8 +50,32 @@ export const makeWorkModelDependents = Effect.gen(function* () {
       // So do its purged comment shots (shot-purge-schema.ts). A removed page keeps
       // them: the shot stays unreadable whatever copy comes back.
       yield* sql`DELETE FROM content_purges WHERE canvas_name=${canvas}`;
+      // Every machine this one sent a copy of the canvas it edits is owed the
+      // removal (0.12.1, remote-security terms 1 and 2): read from the copy
+      // history and the departure marks before either goes below, kept until
+      // that machine says it took it. A copy of another machine's canvas owes
+      // nobody: only its editor removes it.
+      yield* sql`
+        INSERT OR IGNORE INTO canvas_removals_owed (canvas_name, canvas_id, target, removed_at)
+        SELECT c.canvas_name, c.canvas_id, t.target, ${new Date().toISOString()}
+        FROM canvases c
+        JOIN (
+          SELECT target FROM canvas_copies_sent WHERE canvas_name = ${canvas}
+          UNION SELECT target FROM canvas_files_carried WHERE canvas_name = ${canvas}
+          UNION SELECT machine AS target FROM canvas_placements WHERE canvas_name = ${canvas} AND until_seq IS NULL
+          UNION SELECT machine AS target FROM automation_placements WHERE canvas_name = ${canvas} AND until_seq IS NULL
+        ) t
+        WHERE c.canvas_name = ${canvas}
+          AND (c.editor_installation_id IS NULL
+            OR c.editor_installation_id = (SELECT installation_id FROM installation WHERE singleton = 1))
+          AND t.target <> (SELECT installation_id FROM installation WHERE singleton = 1)`;
       // And its departure marks (X6, C2): a canvas made later under the name owes no machine a departure copy.
       yield* sql`DELETE FROM canvas_files_carried WHERE canvas_name=${canvas}`;
+      // Its copy history goes too: a canvas made later under the name was sent nothing yet.
+      yield* sql`DELETE FROM canvas_copies_sent WHERE canvas_name=${canvas}`;
+      yield* sql`DELETE FROM canvas_placements WHERE canvas_name=${canvas}`;
+      yield* sql`DELETE FROM automation_placements WHERE canvas_name=${canvas}`;
+      yield* sql`DELETE FROM work_exchange_cursors WHERE canvas_name=${canvas}`;
     }
     yield* afterSqlCommit(sql, () => {
       for (const sink of affected)

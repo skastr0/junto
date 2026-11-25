@@ -195,6 +195,35 @@ export class ModelService extends Context.Service<ModelService>()(
           .pipe(Effect.mapError((cause) => modelError("installCopy", cause)));
       });
       /**
+       * Drop a copy of a canvas another machine edited and removed (0.12.1):
+       * its nodes, wires and every row keyed to it, as a removal here takes
+       * them. Only the canvas of that id, and only from the machine recorded
+       * as its editor; anything else changes nothing. Run inside the
+       * caller's transaction, so what else the removal drops goes with it.
+       */
+      const removeCopy = Effect.fn("ModelService.removeCopy")(function* (input: {
+        readonly canvas: CanvasName;
+        readonly canvasId: string;
+        readonly editor: string;
+      }) {
+        return yield* Effect.gen(function* () {
+          const header = yield* records.getCanvas(input.canvas);
+          if (header === undefined || header.canvas_id !== input.canvasId) return "not-held" as const;
+          const editor = yield* records.canvasEditor(input.canvas);
+          if (editor !== input.editor || input.editor === (yield* records.thisInstallation())) return "not-the-editor" as const;
+          yield* dependents.removeCanvas(input.canvas);
+          yield* records.removeCanvas(input.canvas);
+          yield* stage(input.canvas, null);
+          yield* afterSqlCommit(sql, () => {
+            held.delete(input.canvas);
+            const event: CanvasesChanged = { _tag: "Removed", canvas: input.canvas };
+            notify(canvasListeners, event);
+            PubSub.publishUnsafe(canvasChanges, event);
+          });
+          return "removed" as const;
+        }).pipe(Effect.mapError((cause) => modelError("removeCopy", cause)));
+      });
+      /**
        * A canvas's count alone, never its rows. A receipt names the count it
        * was made against, so a mail typed into a seat costs no canvas load.
        * Staged and held copies answer first, as `canvas` does.
@@ -781,6 +810,7 @@ export class ModelService extends Context.Service<ModelService>()(
         command,
         fold,
         installCopy,
+        removeCopy,
         advanceCount,
         listCanvases: records.listCanvases,
         listCanvasSummaries: records.listCanvasSummaries,

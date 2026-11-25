@@ -215,6 +215,12 @@ export class TerminalNodeDeleteService {
     return [...this.heldDeletes.values()].filter((held) => held.canvas === canvas);
   }
 
+  /** Every held delete, for the sweep that finishes those whose canvas this machine no longer holds. */
+  allHeldDeletes(): readonly HeldDelete[] {
+    this.gcExpired();
+    return [...this.heldDeletes.values()];
+  }
+
   /** One held delete by its create-fence key. */
   heldDelete(key: string): HeldDelete | undefined {
     this.gcExpired();

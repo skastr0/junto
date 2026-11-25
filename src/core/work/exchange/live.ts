@@ -687,6 +687,9 @@ export const makeLiveRowExchange = (
 
     const installCopy = (copy: CanvasCopy): Effect.Effect<CopyInstalled, unknown> =>
       Effect.gen(function* () {
+        // A copy never brings back a canvas its editor removed (0.12.1,
+        // remote-security term 4): not that id, nor an older one under the name.
+        if (yield* removedBy(copy.canvasName, copy.canvasId, copy.editor)) return { refused: "removed" };
         const head = yield* records.getCanvas(copy.canvasName);
         const heldCopy = yield* records.canvasCopyList(copy.canvasName);
         const committedRow = yield* records.canvasListPosition(copy.canvasName);
@@ -789,6 +792,132 @@ export const makeLiveRowExchange = (
         return { installed: outcome.installed, seq: outcome.seq };
       });
 
+
+    /**
+     * A canvas removed across machines (0.12.1, remote-security terms 1 to 4).
+     * Canvas ids are ULIDs, so an older id sorts below a newer one; an id of
+     * another shape is judged by itself alone.
+     */
+    const isUlid = (id: string): boolean => /^[0-9A-HJKMNP-TV-Z]{26}$/.test(id);
+    /** Did that editor remove this canvas id, or a newer one under the name, here. */
+    const removedBy = (canvasName: string, canvasId: string, editor: string): Effect.Effect<boolean, unknown> =>
+      Effect.map(
+        sql<{ canvas_id: string }>`SELECT canvas_id FROM canvas_removed WHERE canvas_name = ${canvasName} AND editor = ${editor}`,
+        (rows) => rows.some((row) => row.canvas_id === canvasId || (isUlid(row.canvas_id) && isUlid(canvasId) && canvasId < row.canvas_id)),
+      );
+
+    const removalsOwed = (peer: InstallationId) =>
+      Effect.map(
+        sql<{ canvas_name: string; canvas_id: string }>`
+          SELECT canvas_name, canvas_id FROM canvas_removals_owed WHERE target = ${peer} ORDER BY removed_at, canvas_id`,
+        (rows) => rows.map((row) => ({ canvasName: row.canvas_name, canvasId: row.canvas_id })),
+      );
+
+    /**
+     * That machine holds a canvas of this name and id that this machine does
+     * not: one it edited and removed. Owed to it now, or removed by an
+     * earlier build, which kept the copy history by name and owed nobody the
+     * removal. The receiver's own check, that this machine is the recorded
+     * editor of that id, is what decides.
+     */
+    const removedHere = (peer: InstallationId, canvasName: string, canvasId: string): Effect.Effect<boolean, unknown> =>
+      Effect.gen(function* () {
+        const owed = yield* sql`SELECT 1 AS owed FROM canvas_removals_owed WHERE canvas_id = ${canvasId} AND target = ${peer}`;
+        if (owed.length > 0) return true;
+        const header = yield* records.getCanvas(canvasName);
+        if (header !== undefined && header.canvas_id === canvasId) return false;
+        const sent = yield* sql`SELECT 1 AS sent FROM canvas_copies_sent WHERE canvas_name = ${canvasName} AND target = ${peer} LIMIT 1`;
+        return sent.length > 0;
+      });
+
+    const removalTaken = (peer: InstallationId, canvasName: string, canvasId: string): Effect.Effect<void, unknown> =>
+      sql`DELETE FROM canvas_removals_owed WHERE canvas_id = ${canvasId} AND canvas_name = ${canvasName} AND target = ${peer}`.pipe(
+        Effect.asVoid,
+        sql.withTransaction,
+        Effect.provideService(StateTransactionOperation, "exchange.removal-taken"),
+      );
+
+    /**
+     * The machine that edits a canvas removed it: drop this machine's copy of
+     * that id (term 3). Only from the recorded editor, over the link it came
+     * on (term 1): anything else is refused and changes nothing. Each seat
+     * and terminal the copy placed here is fenced first by a durable delete
+     * hold, so nothing starts it again from here on, through a restart; then
+     * the copy and every row keyed to it go in one transaction, with the
+     * tombstone that keeps it from coming back (term 4); then each seat gets
+     * the finish a dropped seat gets. App-wide state, the briefing and the
+     * app's references, is not the canvas's and stays. A teardown that is
+     * not proven keeps its hold, for the sweep on the next link.
+     */
+    const takeRemoval = (peer: InstallationId, canvasName: string, canvasId: string): Effect.Effect<"removed" | "not-held" | "refused", unknown> =>
+      Effect.gen(function* () {
+        const header = yield* records.getCanvas(canvasName);
+        if (header === undefined || header.canvas_id !== canvasId) return "not-held" as const;
+        const editor = yield* records.canvasEditor(canvasName);
+        if (editor !== peer || peer === self) {
+          yield* Effect.logWarning("canvas removal refused").pipe(Effect.annotateLogs({ area: "exchange", canvas: canvasName, reason: "not-the-editor" }));
+          return "refused" as const;
+        }
+        const here = yield* machines.machineName;
+        const nodes = yield* records.listNodes(canvasName);
+        const placed = nodes.flatMap((node) =>
+          (node.kind === "agent" || node.kind === "terminal") && node.host === here
+            ? [{ seatId: node.id as string, bindingId: node.bindingId as string }]
+            : [],
+        );
+        const holds: Array<{ readonly seat: { readonly seatId: string; readonly bindingId: string }; readonly held: HeldDelete }> = [];
+        for (const seat of placed) {
+          const held = yield* Effect.tryPromise({
+            try: () => termPlane.nodeDelete.holdDelete(seat.bindingId, here, {
+              canvas: canvasName, seatId: seat.seatId, editorInstallationId: peer, editorCanvasSeq: header.seq,
+            }),
+            catch: () => new Error("the delete hold could not be written"),
+          });
+          holds.push({ seat, held });
+        }
+        const removed = yield* Effect.gen(function* () {
+          for (const node of nodes) {
+            if (node.kind === "agent" && (yield* guidance.get(node.id)) !== null) yield* guidance.set(node.id, null);
+          }
+          yield* references.removeCanvas(canvasName);
+          const outcome = yield* model.removeCopy({ canvas: asCanvasName(canvasName), canvasId, editor: peer });
+          if (outcome !== "removed") return outcome;
+          yield* sql`
+            INSERT OR IGNORE INTO canvas_removed (canvas_name, canvas_id, editor, removed_at)
+            VALUES (${canvasName}, ${canvasId}, ${peer}, ${new Date().toISOString()})`;
+          if (pause.stateFor(canvasName).playing) yield* pause.setPlaying(canvasName, false);
+          return outcome;
+        }).pipe(sql.withTransaction, Effect.provideService(StateTransactionOperation, "exchange.canvas-removed"));
+        if (removed !== "removed") {
+          // The canvas changed under the removal: the holds it took go back as they were taken.
+          for (const { held } of holds) {
+            yield* Effect.tryPromise(() => termPlane.nodeDelete.releaseHeldDelete(held.key, {
+              canvas: held.canvas, seatId: held.seatId, editorInstallationId: held.editorInstallationId, editorCanvasSeq: held.editorCanvasSeq,
+            })).pipe(Effect.ignore);
+          }
+          return removed === "not-held" ? "not-held" as const : "refused" as const;
+        }
+        yield* Effect.logInfo("canvas removed here").pipe(Effect.annotateLogs({ area: "exchange", canvas: canvasName, seats: placed.length }));
+        for (const { seat, held } of holds) yield* finishDroppedSeat(canvasName, seat, held, here).pipe(Effect.ignore);
+        return "removed" as const;
+      });
+
+    /**
+     * A delete hold on a canvas this machine no longer holds can be decided
+     * by no copy: it gets the finish a dropped seat gets. This is how a hold
+     * an earlier build left, behind a canvas removed from under it, settles.
+     */
+    const sweepOrphanHolds: Effect.Effect<void, never> = Effect.gen(function* () {
+      const here = yield* machines.machineName;
+      const canvases = new Set<string>(yield* records.listCanvases());
+      for (const held of termPlane.nodeDelete.allHeldDeletes()) {
+        if (held.hostId !== here || canvases.has(held.canvas)) continue;
+        yield* finishDroppedSeat(held.canvas, { seatId: held.seatId, bindingId: held.bindingId }, held, here).pipe(Effect.ignore);
+      }
+    }).pipe(Effect.catchCause((cause) => Effect.logWarning("held deletes could not be swept").pipe(
+      Effect.annotateLogs({ area: "exchange", error: Cause.pretty(cause) }),
+    )));
+
     return makeRowExchange({
       self,
       repository,
@@ -823,6 +952,10 @@ export const makeLiveRowExchange = (
               ),
           }),
       ...(options.linkFailed === undefined ? {} : { linkFailed: options.linkFailed }),
+      linkOpened: () => {
+        void Effect.runFork(sweepOrphanHolds);
+      },
+      removals: { owed: removalsOwed, removedHere, taken: removalTaken, take: takeRemoval },
       cutCopy,
       copySent,
       departed,
@@ -896,6 +1029,10 @@ export const followLocalCommits = (
       model.subscribeChanges((event) => {
         push(event.canvas, "canvas");
         sweep(event.canvas);
+      }),
+      // A canvas removed here: every machine it was sent to is owed the removal.
+      model.subscribeCanvasesChanges((event) => {
+        if (event._tag === "Removed") Effect.runFork(exchange.removed(event.canvas));
       }),
       repository.subscribeChanges((canvasName) => {
         push(canvasName, "rows");

@@ -275,15 +275,19 @@ replaces was in memory and the upgrade's restart lost it.
 Removing the canvas takes its marks in the same transaction, so a canvas made
 later under the name owes no machine a departure copy.
 
-**Open before `filesRemote` is on by default: a removed canvas stays on the
-other machines.** Removing a canvas on the editor sends no machine anything:
-a machine that held a copy keeps it whole, seat or Files node, and a Files
-node keeps its root there (seen in `tests/files-remote-departure.test.ts`'s
-harness, for a seated machine and for one with only a Files-only copy). The
-node is never served from there, since the editor's router reads the node's
-host on every call, but the root stays written on that machine until the
-canvas is removed there too. Closing this needs a canvas removal that crosses
-machines, which is not a Files change.
+**A removed canvas leaves the other machines (0.12.1, remote-work, to
+remote-security's terms).** Removing a canvas on the editor records, in the
+same transaction and before the departure marks and copy history go, the
+removal owed to every machine it sent a copy: `canvas_removals_owed` (state
+step 82). The removal crosses as `canvas-removed`, is sent again on each link
+until that machine answers `canvas-removed-taken`, and is admitted only from
+the canvas's recorded editor with the canvas id it holds. That machine fences
+each seat it runs there with a durable delete hold, drops the copy whole in
+one transaction, Files nodes and their roots included, keeps the removed id in
+`canvas_removed` so no copy brings it back, then stops each seat through the
+dropped-seat finish. A canvas an earlier build removed is found by the have
+the other machine states, and a hold left behind a canvas no longer held is
+finished on the next link (`tests/canvas-removal-across-machines.test.ts`).
 
 **For remote-window.**
 - The add and edit choice shows only with `filesRemote` on, on the operator

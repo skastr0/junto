@@ -145,16 +145,39 @@ export type CopyFrame = typeof CopyFrame.Type;
 
 /**
  * The answer to a copy this machine will not hold: it already has a canvas of
- * that name which is not this one, its own or another machine's.
+ * that name which is not this one, its own or another machine's; or its
+ * editor removed that canvas, or a newer one under the name, so the copy
+ * would bring a removed canvas back (0.12.1, remote-security term 4).
  */
 export const CopyRefusedFrame = Schema.Struct({
   kind: Schema.Literal("copy-refused"),
   canvasName: WorkCanvasName,
   canvasId: CanvasId,
   seq: Seq,
-  reason: Schema.Literal("a-canvas-of-that-name"),
+  reason: Schema.Literals(["a-canvas-of-that-name", "removed"]),
 });
 export type CopyRefusedFrame = typeof CopyRefusedFrame.Type;
+
+/**
+ * The machine that edits a canvas removed it (0.12.1, remote-security terms
+ * 1 and 2): the copy of that canvas id the receiver holds goes whole, and the
+ * seats it placed stop. Sent to every machine that was sent a copy, again on
+ * each link, until that machine answers it taken.
+ */
+export const CanvasRemovedFrame = Schema.Struct({
+  kind: Schema.Literal("canvas-removed"),
+  canvasName: WorkCanvasName,
+  canvasId: CanvasId,
+});
+export type CanvasRemovedFrame = typeof CanvasRemovedFrame.Type;
+
+/** The answer to a removal: this machine holds nothing of that canvas id now. */
+export const CanvasRemovedTakenFrame = Schema.Struct({
+  kind: Schema.Literal("canvas-removed-taken"),
+  canvasName: WorkCanvasName,
+  canvasId: CanvasId,
+});
+export type CanvasRemovedTakenFrame = typeof CanvasRemovedTakenFrame.Type;
 
 export const EXCHANGE_MAX_SIGNALS_PER_FRAME = 32;
 /** What one signal may name when it crosses: more than this, and the rest stay where it was raised. */
@@ -251,7 +274,7 @@ export const SignalsFrame = Schema.Struct({
 });
 export type SignalsFrame = typeof SignalsFrame.Type;
 
-export const ExchangeFrame = Schema.Union([HaveFrame, RowsFrame, CopyFrame, CopyRefusedFrame, SignalsFrame]);
+export const ExchangeFrame = Schema.Union([HaveFrame, RowsFrame, CopyFrame, CopyRefusedFrame, SignalsFrame, CanvasRemovedFrame, CanvasRemovedTakenFrame]);
 export type ExchangeFrame = typeof ExchangeFrame.Type;
 
 export const decodeExchangeFrame = Schema.decodeUnknownResult(ExchangeFrame, { onExcessProperty: "error" });

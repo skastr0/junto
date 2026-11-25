@@ -38,6 +38,8 @@ import {
   entitledTo,
   signalStatedTo,
   type CanvasPlacement,
+  type CanvasRemovedFrame,
+  type CanvasRemovedTakenFrame,
   type CopyRefusedFrame,
   type ExchangeFrame,
   type ExchangeSignal,
@@ -104,6 +106,27 @@ export type RowExchangeDeps = {
    * that name which is not this one. Fails for a copy no honest machine sends.
    */
   readonly installCopy: (copy: CanvasCopy) => Effect.Effect<CopyInstalled, unknown>;
+  /**
+   * A canvas removed across machines (0.12.1, remote-security terms 1 to 4).
+   * Absent: this machine neither sends nor takes a removal.
+   */
+  readonly removals?: {
+    /** The removals this machine owes that machine: canvases it edited, removed, and sent it a copy of. */
+    readonly owed: (peer: InstallationId) => Effect.Effect<ReadonlyArray<{ readonly canvasName: string; readonly canvasId: string }>, unknown>;
+    /**
+     * That machine states it holds a canvas this machine does not hold under
+     * that id: is it one this machine edited and removed, from an earlier
+     * build that owed nobody the removal. Then it is sent the removal too.
+     */
+    readonly removedHere: (peer: InstallationId, canvasName: string, canvasId: string) => Effect.Effect<boolean, unknown>;
+    /** That machine took the removal: owed no more. */
+    readonly taken: (peer: InstallationId, canvasName: string, canvasId: string) => Effect.Effect<void, unknown>;
+    /**
+     * A removal arrived from that machine. `removed` or `not-held` is answered
+     * taken; `refused` changes nothing here and is not answered.
+     */
+    readonly take: (peer: InstallationId, canvasName: string, canvasId: string) => Effect.Effect<"removed" | "not-held" | "refused", unknown>;
+  };
   /** The signals this machine holds for the seats of one canvas, as they stand. */
   readonly signals: (canvasName: string) => Effect.Effect<ReadonlyArray<ExchangeSignal>, unknown>;
   /**
@@ -114,6 +137,8 @@ export type RowExchangeDeps = {
   readonly takeSignal: (canvasName: string, signal: ExchangeSignal, raises: boolean) => Effect.Effect<void, unknown>;
   /** A push to a linked machine failed: the exchange on that link is over. */
   readonly linkFailed?: (peer: InstallationId, cause: ExchangeClosed) => void;
+  /** A link opened to that machine: for work this machine owes itself on each link. */
+  readonly linkOpened?: (peer: InstallationId) => void;
 };
 
 export type CopyInstalled =
@@ -172,6 +197,10 @@ type Owed = {
   /** Canvases committed to here: their copy when the canvas changed, then their rows and signals. */
   readonly canvases: Map<string, ExchangeChange>;
   readonly refusals: Array<CopyRefusedFrame>;
+  /** Every removal this machine owes the peer, again: a canvas it edits was removed. */
+  removals: boolean;
+  /** Removals a peer's have called for, and the answers to removals taken. */
+  readonly answers: Array<CanvasRemovedFrame | CanvasRemovedTakenFrame>;
 };
 
 /**
@@ -181,10 +210,11 @@ type Owed = {
  */
 export type ExchangeChange = "canvas" | "rows";
 
-const nothingOwed = (): Owed => ({ hello: false, have: false, offerAll: false, canvases: new Map(), refusals: [] });
+const nothingOwed = (): Owed => ({ hello: false, have: false, offerAll: false, canvases: new Map(), refusals: [], removals: false, answers: [] });
 
 const owesNothing = (owed: Owed): boolean =>
-  !owed.hello && !owed.have && !owed.offerAll && owed.canvases.size === 0 && owed.refusals.length === 0;
+  !owed.hello && !owed.have && !owed.offerAll && owed.canvases.size === 0 && owed.refusals.length === 0 &&
+  !owed.removals && owed.answers.length === 0;
 
 /**
  * What a copy carries beside the canvas rows: guidance, the briefing,
@@ -240,6 +270,15 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
       state.copies.set(canvasName, { canvasId: copy.canvasId, seq: copy.seq, carried });
       state.refused.delete(canvasName);
       return true;
+    });
+
+  /** Every removal this machine owes the peer, each until the peer answers it taken. */
+  const sendRemovals = (state: LinkState): Effect.Effect<void, ExchangeClosed> =>
+    Effect.gen(function* () {
+      if (deps.removals === undefined) return;
+      for (const removal of yield* deps.removals.owed(state.link.peer).pipe(Effect.mapError(closed))) {
+        yield* send(state, { kind: "canvas-removed", canvasName: removal.canvasName, canvasId: removal.canvasId });
+      }
     });
 
   const sendHave = (state: LinkState): Effect.Effect<void, ExchangeClosed> =>
@@ -413,11 +452,15 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
   /** One round of a link's worker: send everything that was owed when it woke. */
   const sendOwed = (state: LinkState, owed: Owed): Effect.Effect<void, ExchangeClosed> =>
     Effect.gen(function* () {
+      // A removal goes before any copy: a copy of a canvas made since under
+      // the name is refused while the removed one is still held there.
+      if (owed.hello || owed.removals) yield* sendRemovals(state);
       if (owed.hello) {
         for (const canvasName of yield* deps.canvases) yield* sendCopy(state, canvasName);
         yield* sendHave(state);
       }
       for (const refusal of owed.refusals) yield* send(state, refusal);
+      for (const answer of owed.answers) yield* send(state, answer);
       if (owed.have) yield* sendHave(state);
       for (const [canvasName, change] of owed.canvases) {
         if (change === "canvas" && (yield* sendCopy(state, canvasName))) yield* sendHave(state);
@@ -447,10 +490,11 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
         // a turn to be owed too, so they go in this one round.
         yield* Effect.sleep(0);
         state.wake.closeUnsafe();
-        const owed = { ...state.owed, canvases: new Map(state.owed.canvases), refusals: [...state.owed.refusals] };
-        state.owed.hello = state.owed.have = state.owed.offerAll = false;
+        const owed = { ...state.owed, canvases: new Map(state.owed.canvases), refusals: [...state.owed.refusals], answers: [...state.owed.answers] };
+        state.owed.hello = state.owed.have = state.owed.offerAll = state.owed.removals = false;
         state.owed.canvases.clear();
         state.owed.refusals.length = 0;
+        state.owed.answers.length = 0;
         yield* sendOwed(state, owed);
         if (owesNothing(state.owed)) state.quiet.openUnsafe();
       }
@@ -476,8 +520,19 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
         // offered nothing of it and is never reported caught up on it.
         const have = new Map<string, Map<InstallationId, string>>();
         const departing = new Map<string, CanvasPlacement>();
+        const removals: Array<CanvasRemovedFrame> = [];
         for (const canvas of frame.canvases) {
           const placement = yield* deps.placement(canvas.canvasName);
+          // A canvas the peer holds and this machine edited and removed: the
+          // peer is sent the removal, though an earlier build owed it none.
+          if (
+            (placement === undefined || placement.canvasId !== canvas.canvasId) &&
+            deps.removals !== undefined &&
+            (yield* deps.removals.removedHere(peer, canvas.canvasName, canvas.canvasId).pipe(Effect.mapError(closed)))
+          ) {
+            removals.push({ kind: "canvas-removed", canvasName: canvas.canvasName, canvasId: canvas.canvasId });
+            continue;
+          }
           if (placement === undefined || !placement.holds(peer)) continue;
           // The same name on two machines can be two canvases.
           if (placement.canvasId !== canvas.canvasId) continue;
@@ -496,6 +551,32 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
         }
         owe(state, (owed) => {
           owed.offerAll = true;
+          owed.answers.push(...removals);
+        });
+        return;
+      }
+      if (frame.kind === "canvas-removed") {
+        if (deps.removals === undefined) return yield* Effect.fail(new ExchangeClosed({ message: "this machine takes no removal" }));
+        const outcome = yield* deps.removals.take(peer, frame.canvasName, frame.canvasId).pipe(Effect.mapError(closed));
+        // A removal not from the canvas's editor changes nothing and is not
+        // answered: the copy stays, and the link with it.
+        if (outcome === "refused") return;
+        if (outcome === "removed") state.have.delete(frame.canvasName);
+        owe(state, (owed) => {
+          owed.answers.push({ kind: "canvas-removed-taken", canvasName: frame.canvasName, canvasId: frame.canvasId });
+          if (outcome === "removed") owed.have = true;
+        });
+        return;
+      }
+      if (frame.kind === "canvas-removed-taken") {
+        if (deps.removals === undefined) return;
+        yield* deps.removals.taken(peer, frame.canvasName, frame.canvasId).pipe(Effect.mapError(closed));
+        // A copy of a canvas made since under the name was refused while the
+        // removed one was held there: it goes again now.
+        state.copies.delete(frame.canvasName);
+        state.refused.delete(frame.canvasName);
+        owe(state, (owed) => {
+          owed.canvases.set(frame.canvasName, "canvas");
         });
         return;
       }
@@ -614,11 +695,23 @@ export const makeRowExchange = (deps: RowExchangeDeps) => {
           owed.hello = true;
         });
         state.worker = yield* Effect.forkDetach(work(state));
+        deps.linkOpened?.(link.peer);
       }),
     closed: stop,
     receive,
     committed: (canvasName: string, change: ExchangeChange = "canvas"): Effect.Effect<void> =>
       Effect.sync(() => committed(canvasName, change)),
+    /** A canvas this machine edits was removed: every link is owed its removals again. */
+    removed: (canvasName: string): Effect.Effect<void> =>
+      Effect.sync(() => {
+        for (const state of links.values()) {
+          state.copies.delete(canvasName);
+          state.have.delete(canvasName);
+          owe(state, (owed) => {
+            owed.removals = true;
+          });
+        }
+      }),
     /** Every link's worker has sent all it owes. */
     quiet: Effect.suspend(() => Effect.forEach([...links.values()], (state) => state.quiet.await, { discard: true })),
     /** Is a link open to that machine right now. */

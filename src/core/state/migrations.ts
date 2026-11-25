@@ -25,6 +25,7 @@ import {
   AUTOMATION_PLACEMENTS_STATE_SCHEMA_SQL,
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
   CANVAS_FILES_CARRIED_STATE_SCHEMA_SQL,
+  CANVAS_REMOVALS_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL,
 } from "../work/exchange/state-schema";
 import {
@@ -1012,6 +1013,19 @@ export const STATE_SCHEMA_V81_IDENTITY = {
     "eddb39905becafb2b32f5d5bfc5163e0a35fe3d4b49fecdf6889158cc0a5cd5b",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+/**
+ * Version 82 (0.12.1, remote-security terms 1 to 4): `canvas_removals_owed`
+ * keeps, on the machine that edited a removed canvas, each machine still owed
+ * the removal; `canvas_removed` keeps, on the machine that held the copy, the
+ * canvas ids their editor removed, so no copy brings one back. Empty at the
+ * step: a canvas removed before it reaches the other machines through the
+ * have those machines state. Expand only.
+ */
+export const STATE_SCHEMA_V82_IDENTITY = {
+  actualSchemaSha256:
+    "dff012b01c2943f5ad2a94ed632ef95edf089f1e4f111caf0330f4e152990f9d",
+} as const satisfies VerifiedStateSchemaIdentity;
+
 import { CURRENT_STATE_SCHEMA_VERSION } from "../../node/state/schema-version";
 
 export { CURRENT_STATE_SCHEMA_VERSION };
@@ -1674,6 +1688,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V80_IDENTITY,
     migrate: (database) => database.exec(CANVAS_FILES_CARRIED_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 81,
+    toVersion: 82,
+    name: "keep a removed canvas owed to every machine that held a copy, and never revive it there",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V81_IDENTITY,
+    migrate: (database) => database.exec(CANVAS_REMOVALS_STATE_SCHEMA_SQL),
   },
 ];
 
