@@ -415,6 +415,23 @@ describe("signals in a thread", () => {
     expect(q("thread-composer-answers")).toBeNull();
   });
 
+  it("says beside an answer its seat never received, in the fixed words, with no waiting mark and none on other answers", async () => {
+    const fixture = fake();
+    fixture.state.messages.notes = [
+      mine,
+      raised({ ...ask, state: "withdrawn", crossed: true }),
+      { messageId: "m3", author: "you", mine: true, text: "junto.db holds them.", at: at(1, 9), answers: ref, held: true },
+      { messageId: "m4", author: "you", mine: true, text: "Thanks.", at: at(1, 10), answers: ref },
+    ];
+    await openOn(fixture);
+    const [, , held, plain] = all("seat-threads-message");
+    expect(held!.querySelector('[data-testid="seat-threads-answer-held"]')?.textContent).toBe("withdrawn before the answer arrived");
+    expect(held!.querySelector('[data-testid="seat-threads-waiting"]')).toBeNull();
+    // The words are the signal-note's own style, not a new look.
+    expect(held!.querySelector('[data-testid="seat-threads-answer-held"]')?.className).toBe("seat-threads__signal-note");
+    expect(plain!.querySelector('[data-testid="seat-threads-answer-held"]')).toBeNull();
+  });
+
   it("heads a thread an answer started with the signal that began it, once the thread's start is read", async () => {
     const fixture = fake();
     const headSignal: ThreadHeadSignal = { signalId: "s0", kind: "blocked", state: "answered", text: "The store is locked.", at: at(1, 0) };

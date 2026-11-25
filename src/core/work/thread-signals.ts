@@ -16,6 +16,7 @@
  */
 import { Effect, Option } from "effect";
 import { mailThreadOf } from "@shared/crew";
+import { answerHeld } from "@shared/signal-answer-held";
 import { crossedClosing } from "@shared/signal-crossing";
 import { isSeatRaiseKind, type AgentSignal, type SeatRaiseKind, type SignalForm } from "@shared/wire/agent-signals";
 import type { MailThreadMessage, ThreadHeadSignal, ThreadSignal, ThreadSignalAsks, ThreadSignalRef } from "@shared/wire/mail-threads";
@@ -181,6 +182,18 @@ const faceOf = (signal: AgentSignal & { readonly kind: SeatRaiseKind }): ThreadS
 };
 
 /**
+ * The operator's answer is held from its seat: it names a withdrawn signal of
+ * the seat it went to and has no receipt, by the one rule delivery runs
+ * (`answerHeld`), so the thread says what delivery decided.
+ */
+export const heldIn = (entry: MailThreadMessage, signals: ThreadSignals, rowOf: RowOf): boolean => {
+  const answered = answeredIn(entry, signals, rowOf);
+  const nodeId = seatTo(entry);
+  const row = nodeId === undefined ? undefined : rowOf(nodeId, entry.messageId);
+  return answered !== undefined && nodeId !== undefined && row !== undefined && answerHeld({ canvasName: answered.canvasName, nodeId }, row, answered);
+};
+
+/**
  * The operator's mail still waits for its seat. An answer whose signal
  * crossed a withdrawal is held on the seat's machine, never typed, so its
  * receipt never comes: it waits for nothing, and the thread never promises
@@ -189,7 +202,7 @@ const faceOf = (signal: AgentSignal & { readonly kind: SeatRaiseKind }): ThreadS
 export const waits = (entry: MailThreadMessage, signals: ThreadSignals, rowOf: RowOf): boolean => {
   if (entry.waiting !== true) return false;
   const answered = answeredIn(entry, signals, rowOf);
-  return answered === undefined || !crossedClosing(answered);
+  return answered === undefined || !(crossedClosing(answered) || heldIn(entry, signals, rowOf));
 };
 
 /** The entry with no waiting mark, when it waits for nothing. */
@@ -211,7 +224,11 @@ export const withSignals = (
     const answered = answeredIn(entry, signals, rowOf);
     return answered === undefined
       ? entry
-      : { ...settled(entry, signals, rowOf), answers: { signalId: answered.signalId, kind: answered.kind, text: answered.text } };
+      : {
+          ...settled(entry, signals, rowOf),
+          answers: { signalId: answered.signalId, kind: answered.kind, text: answered.text },
+          ...(heldIn(entry, signals, rowOf) ? { held: true as const } : {}),
+        };
   });
 
 /** The signal whose answer is the thread's root, when the root is held. */

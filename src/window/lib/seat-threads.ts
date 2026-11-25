@@ -72,6 +72,8 @@ export type SeatThreadMessage = {
   readonly signal?: ThreadSignal;
   /** The operator's mail that answered a signal: the signal it answered. */
   readonly answers?: ThreadSignalRef;
+  /** The operator's answer its seat never received: the signal was withdrawn first. Only with `answers`. */
+  readonly held?: true;
 };
 
 /** Threads in a page: the first on open, and each older page as the list nears its end. */
@@ -144,6 +146,7 @@ const messageOf = (message: MailThreadMessage): SeatThreadMessage => ({
   ...(message.waiting === true ? { waiting: true as const } : {}),
   ...(message.signal === undefined ? {} : { signal: message.signal }),
   ...(message.answers === undefined ? {} : { answers: message.answers }),
+  ...(message.held === true ? { held: true as const } : {}),
 });
 
 /** The source over main's threads IPC, or undefined while the bridge lacks it. */

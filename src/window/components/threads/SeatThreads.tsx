@@ -46,6 +46,7 @@ import {
   WaitingMark,
   type Said,
 } from "./ThreadSignal";
+import { ANSWER_HELD_WORDS } from "@shared/signal-answer-held";
 import { ThreadTime } from "./ThreadTime";
 import { rehypeThreadCodeWells, rehypeThreadInlineIds } from "./thread-inline-ids";
 import "./seat-threads.css";
@@ -806,6 +807,10 @@ export function ThreadChat({
                     {files}
                     {/* The operator's own mail that its seat does not have yet. */}
                     {message.mine && message.waiting && !heldBack.includes(message.messageId) ? <WaitingMark name={name} /> : null}
+                    {/* An answer its seat withdrew the signal before it arrived: kept from the seat, said in the crossed note's own style. */}
+                    {message.mine && message.held ? (
+                      <p className="seat-threads__signal-note" data-testid="seat-threads-answer-held">{ANSWER_HELD_WORDS}</p>
+                    ) : null}
                   </>
                 )}
               </article>

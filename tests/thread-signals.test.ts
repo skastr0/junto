@@ -10,8 +10,10 @@ import { describe, expect, it } from "vitest";
 import type { AgentSignal } from "../src/shared/wire/agent-signals";
 import type { MailThreadMessage } from "../src/shared/wire/mail-threads";
 import type { Message } from "../src/shared/work-model";
+import { OPERATOR_SEAT_ID } from "../src/shared/work-reference";
 import {
   answeredIn,
+  heldIn,
   headSignalOf,
   pairedIn,
   settled,
@@ -139,6 +141,48 @@ describe("an answer whose signal crossed a withdrawal", () => {
     expect(withSignals([sent], signalsOf(answered), rowOf)[0]?.waiting).toBe(true);
     // Mail that answers nothing waits as it always did.
     expect(waits({ ...sent, messageId: "M09" }, signalsOf(crossedHere), rowOf)).toBe(true);
+  });
+});
+
+describe("an answer held from its seat", () => {
+  /** The operator's answer as the seat's mailbox holds it: stamped with the operator's own seat, no receipt. */
+  const heldRow = (metadata: Record<string, unknown> = {}) => operatorRow("M05", { fromSeat: OPERATOR_SEAT_ID, agentSignalId: "S01", ...metadata });
+  const sent = { ...operatorEntry("M05"), waiting: true as const };
+  const withdrawn = signal("S01", { state: "withdrawn" });
+
+  it("is named held, with no waiting mark, by the one rule delivery runs, when its signal is withdrawn", () => {
+    const rowOf = rows({ [SEAT]: [heldRow()] });
+    expect(heldIn(sent, signalsOf(withdrawn), rowOf)).toBe(true);
+    const [read] = withSignals([sent], signalsOf(withdrawn), rowOf);
+    expect(read).toMatchObject({ held: true, answers: { signalId: "S01" } });
+    expect(read?.waiting).toBeUndefined();
+    expect(waits(sent, signalsOf(withdrawn), rowOf)).toBe(false);
+  });
+
+  it("is held on the seat's machine's face too, a withdrawn signal that holds the late answer", () => {
+    const rowOf = rows({ [SEAT]: [heldRow()] });
+    const late = signal("S01", { state: "withdrawn", response: { text: "go", at: 5 } });
+    expect(withSignals([sent], signalsOf(late), rowOf)[0]).toMatchObject({ held: true });
+  });
+
+  it("is not held on the editing machine's face: an answered signal with withdrawnAt is told by the signal, not by the mail", () => {
+    const rowOf = rows({ [SEAT]: [heldRow()] });
+    const answered = signal("S01", { state: "answered", response: { text: "go", at: 5 }, withdrawnAt: 6 });
+    expect(heldIn(sent, signalsOf(answered), rowOf)).toBe(false);
+    expect(withSignals([sent], signalsOf(answered), rowOf)[0]?.held).toBeUndefined();
+  });
+
+  it("is never held for an open signal, another seat's signal, an automation's, a mail with a receipt, or a mail that is not the operator's", () => {
+    const rowOf = rows({ [SEAT]: [heldRow()] });
+    expect(heldIn(sent, signalsOf(signal("S01", { state: "open" })), rowOf)).toBe(false);
+    expect(heldIn(sent, signalsOf(signal("S01", { state: "withdrawn", nodeId: OTHER })), rowOf)).toBe(false);
+    expect(heldIn(sent, signalsOf(signal("S01", { state: "withdrawn", source: { kind: "automation" } as never })), rowOf)).toBe(false);
+    expect(heldIn(sent, signalsOf(withdrawn), rows({ [SEAT]: [heldRow({ deliveredAt: 7 })] }))).toBe(false);
+    expect(heldIn(sent, signalsOf(withdrawn), rows({ [SEAT]: [heldRow({ readAt: 7 })] }))).toBe(false);
+    // Stamped by another seat: no seat may silence mail by naming a signal.
+    expect(heldIn(sent, signalsOf(withdrawn), rows({ [SEAT]: [heldRow({ fromSeat: `seat_${"d".repeat(64)}` })] }))).toBe(false);
+    // A seat's own mail is never an answer.
+    expect(heldIn(seatEntry("M01"), signalsOf(withdrawn), rows({ [SEAT]: [seatRow("M01", { agentSignalId: "S01" })] }))).toBe(false);
   });
 });
 

@@ -79,6 +79,12 @@ export const MailThreadMessage = Schema.Struct({
   signal: Schema.optionalKey(ThreadSignal),
   /** The operator's mail that answered a signal of the seat it went to (`metadata.agentSignalId`). */
   answers: Schema.optionalKey(ThreadSignalRef),
+  /**
+   * The operator's answer kept from its seat: the seat withdrew the signal
+   * before the answer arrived, so it is never typed (`answerHeld`). The window
+   * says `ANSWER_HELD_WORDS` beside it. Present only with `answers`.
+   */
+  held: Schema.optionalKey(Schema.Literal(true)),
 });
 export type MailThreadMessage = typeof MailThreadMessage.Type;
 

@@ -8,5 +8,5 @@ import type { AgentSignal } from "./wire/agent-signals";
  */
 export const crossedClosing = (signal: AgentSignal): boolean =>
   signal.crossed === true ||
-  (signal.state === "answered" && typeof (signal as { readonly withdrawnAt?: unknown }).withdrawnAt === "number") ||
+  (signal.state === "answered" && signal.withdrawnAt !== undefined) ||
   (signal.state === "withdrawn" && signal.response !== undefined);

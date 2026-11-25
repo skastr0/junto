@@ -719,6 +719,12 @@
                       "text"
                     ],
                     "additionalProperties": false
+                  },
+                  "held": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
                   }
                 },
                 "required": [
