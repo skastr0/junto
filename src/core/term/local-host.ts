@@ -920,7 +920,9 @@ export const resolveLaunch = (
           ),
         );
       }
-      return Result.succeed({ file: host.file, args: [...host.args, ...argv.slice(1)], cwd, env: { ...env, ...host.env } });
+      // The Node's own variables go first: the seat's environment, its
+      // credential included, is never replaced by what makes a Node a Node.
+      return Result.succeed({ file: host.file, args: [...host.args, ...argv.slice(1)], cwd, env: { ...host.env, ...env } });
     }
     // Path-like argv (`./tool`, `dir/tool`) resolves against the seat cwd so
     // resolution and spawn name the same target.
