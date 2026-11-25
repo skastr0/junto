@@ -780,3 +780,34 @@ a73fbf1e7).
   the canvas and the machine.
 - Nothing in the window shows this refusal yet: it lives only in the exchange
   link status (`session.ts` :765, `refused`).
+
+**A copy refused as `a-canvas-of-that-name`** (remote-lead, receipt 35).
+A machine holds one canvas per name. When it already holds a different
+canvas under the name, it refuses this one (`service.ts` :169). Usually
+that is another machine's copy, as when two Macs both have a canvas of the
+same name; it can also be its own canvas, once that canvas has changed. Placing
+a seat, automation or Files node there from this canvas is refused, and
+today the exchange row carries the reason with no message and no
+`ownWords` (`queries.ts` :39 fills words for `removed` only).
+
+Core's words, `ownWords: true`, beside `COPY_REFUSED_REMOVED_WORDS`:
+`That machine does not take this canvas, because it already holds a
+different canvas of the same name. A canvas with a new name reaches it:
+make one with New canvas and place the work from it.`
+
+- `does not take`, not section 7's `will not take`: the refusal lasts only
+  while that machine holds the other canvas. Once that canvas's removal is
+  taken there, the copy goes again (`session.ts`, `canvas-removed-taken`).
+  So the sentence makes no claim that it is permanent. The step still
+  works in every case.
+- `a different canvas`, not `another machine's canvas`: it can be that
+  machine's own.
+- No step that removes the other canvas: that would delete someone's work,
+  on the machine that edits it, and the operator here may not be the one
+  who edits it.
+- `place the work from it` covers seats, automations and Files nodes. As
+  in section 7, the sentence does not claim this canvas's work moves.
+- No canvas name, machine name or path (term 5).
+- Where it shows: nowhere in the window. No window code reads
+  `machine.exchange`, so for now these words reach the operator only on
+  that row of `junto machine exchange`.
