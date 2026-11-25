@@ -108,16 +108,10 @@ export const fakeAtlasDevice = () => {
       ) => {
         copies.push({ width: size.width, height: size.height, x: destination.origin?.x ?? 0, y: destination.origin?.y ?? 0, layer: destination.origin?.z ?? 0 });
       },
-      writeTexture: (
-        destination: { readonly origin?: { readonly x?: number; readonly y?: number; readonly z?: number } },
-        _data: unknown,
-        _layout: unknown,
-        size: { readonly width: number; readonly height: number },
-      ) => {
-        copies.push({ width: size.width, height: size.height, x: destination.origin?.x ?? 0, y: destination.origin?.y ?? 0, layer: destination.origin?.z ?? 0 });
-      },
-      submit: () => undefined,
-      writeBuffer: () => undefined,
+      // No writeTexture here: GPUCommandEncoder has no such method in WebGPU,
+      // and a fake that offers one lets code compile a path the device would
+      // refuse. Pixels go through the queue below.
+      finish: () => ({ token: "fake-command-buffer" }),
     }),
     // The atlas uploads pixels through the device queue, not the encoder.
     queue: {
