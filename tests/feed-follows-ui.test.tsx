@@ -303,6 +303,35 @@ it("keeps a half-typed reply, shown and locked, when the seat plainly withdraws 
   );
 });
 
+it("keeps a reply that holds only an attached file when the seat plainly withdraws its card", async () => {
+  const open4 = signal(4);
+  live.set(twoOpen(open4));
+  operatorModal$.open.set("feed");
+  await act(async () =>
+    root.render(
+      <WindowRuntimeContext.Provider value={feedRuntime as never}>
+        <OperatorFeed />
+      </WindowRuntimeContext.Provider>,
+    ),
+  );
+  await act(async () => {
+    q(".operator-modal__frame")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  const picker = q('[data-testid="attach-files-input"]') as HTMLInputElement;
+  Object.defineProperty(picker, "files", { value: [new File([new Uint8Array(8)], "shot.png", { type: "image/png" })], configurable: true });
+  await act(async () => {
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(q('[data-testid="attachment-chip"]')).not.toBeNull();
+  await act(async () => {
+    agentSignals$.s4.set({ ...open4, state: "withdrawn" });
+    live.set(twoOpen(undefined));
+  });
+  expect(q('[data-testid="operator-feed-detail"]')?.dataset.itemId).toBe("signal:s4");
+  expect(q('[data-testid="attachment-chip"]')).not.toBeNull();
+  expect(q('[data-testid="feed-crossed"]')?.textContent).toBe("atlas withdrew this signal. Your draft was not sent.");
+});
+
 it("lets a withdrawn card go at once when no reply was being written", async () => {
   const open4 = signal(4);
   live.set(twoOpen(open4));

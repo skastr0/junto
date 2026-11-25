@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AgentSignalAnswerOptions } from "@shared/ipc";
 import { AGENT_SIGNAL_MAX_RESPONSE_LENGTH } from "@shared/agent-signals";
 import { MAIL_TEXT_INLINE_MAX_BYTES, type TextBound } from "@shared/mail-text-bound";
@@ -75,6 +75,7 @@ export function SignalReply({
   onDone,
   className = "seat-signal-popover__reply",
   locked = false,
+  onWork,
 }: {
   readonly signalId: string;
   /** The signal's canvas: attached files are uploaded for a mail on it. */
@@ -102,6 +103,8 @@ export function SignalReply({
    * sending is, not the field, so the keyboard can still reach the words.
    */
   readonly locked?: boolean;
+  /** Told each time the reply starts or stops holding the operator's work (words or an attached file), from its own state. */
+  readonly onWork?: (held: boolean) => void;
 }) {
   const [reply, setReply] = useState("");
   const quickReplies = useQuickReplies();
@@ -112,6 +115,10 @@ export function SignalReply({
   const wired = useConnectedSeats(seat);
   const inReach = useResourcesInReach(canvasName, seatNodeId as NodeId, useMentionItems(canvasName));
   const candidates = useMemo(() => [...wired, ...inReach], [wired, inReach]);
+  const holdsWork = reply.trim().length > 0 || attachments.items.length > 0;
+  useEffect(() => {
+    onWork?.(holdsWork);
+  }, [holdsWork, onWork]);
   const { pending, error, act } = useSignalAction(() => {
     attachments.clear();
     onDone();

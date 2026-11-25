@@ -272,6 +272,7 @@ function FeedDetail({
   onOpenThread,
   crossed = false,
   plainWithdrawal = false,
+  onDraft,
 }: {
   readonly item: FeedItem;
   readonly node: Node | undefined;
@@ -297,6 +298,8 @@ function FeedDetail({
   readonly crossed?: boolean;
   /** The held card was withdrawn with no answer on its way: the note says that, not a crossing. */
   readonly plainWithdrawal?: boolean;
+  /** The reply under this card holds the operator's work (words or a file), or no longer does: from the reply's own state. */
+  readonly onDraft?: (held: boolean) => void;
 }) {
   const closedWords = plainWithdrawal ? withdrawnWords : crossedWords;
   const runtime = useWindowRuntime();
@@ -454,6 +457,7 @@ function FeedDetail({
               onDone={() => onReply(false)}
               className="operator-feed__reply"
               locked={crossed}
+              onWork={onDraft}
             />
           </>
         ) : (
@@ -778,6 +782,8 @@ const feed = useOperatorFeed();
       claimFocus(frame?.querySelector<HTMLElement>('[data-testid="feed-crossed"]') ?? frame, "gesture");
     }
   }, [crossed]);
+  // The card whose open reply holds words or files, kept by the reply's own state.
+  const draftFor = useRef<string | null>(null);
   const replyForRef = useRef(replyFor);
   replyForRef.current = replyFor;
   useEffect(() => {
@@ -785,8 +791,9 @@ const feed = useOperatorFeed();
     if (before?.signalId !== undefined && !items.some((item) => item.itemId === before.itemId)) {
       const closed = agentSignals$[before.signalId].peek();
       const drafting = replyForRef.current === before.itemId;
-      const draft = scrollRef.current?.closest(".operator-modal__frame")?.querySelector<HTMLTextAreaElement>('.operator-feed__answer [data-testid="signal-reply"] textarea');
-      const plain = closed !== undefined && withdrawnPlain(closed) && drafting && (draft?.value.trim().length ?? 0) > 0;
+      // Words or files in the reply, as the reply itself reports them: either is the operator's work, and either is lost with the card.
+      const written = draftFor.current === before.itemId;
+      const plain = closed !== undefined && withdrawnPlain(closed) && drafting && written;
       if (closed !== undefined && (crossedClosing(closed) || plain)) {
         setHeldPlain(plain);
         setCrossed(before);
@@ -1308,6 +1315,10 @@ const feed = useOperatorFeed();
               onGoTo={goTo}
               crossed={crossed !== null}
               plainWithdrawal={crossed !== null && heldPlain}
+              onDraft={(held) => {
+                if (held) draftFor.current = paneItem.itemId;
+                else if (draftFor.current === paneItem.itemId) draftFor.current = null;
+              }}
               onOpenThread={(threadId) => {
                 askThread(threadId);
                 openOperatorModalFrom("feed", "threads", {
