@@ -376,12 +376,19 @@ cannot be read.** A resend fails the same way, so the step is not `Send
 Junto again`.
 
 - Core's words, `ownWords: true`: `This machine's link key for that
-  machine cannot be read. Remove that machine, then add it again.`
+  machine cannot be read. Remove that machine, then add it again and send
+  Junto to it.` The clear runs only in a send, so the step names it.
 - Not `junto machine link`: this refusal comes from a send whose setup
   failed before the machine was saved, and link then answers `Set up ...
   from this machine before linking it` (remote-verify, receipt 15).
   Remove deletes the key directory without reading it (`removeLinkKey`),
   and the next send, with no key here, clears the stale link itself.
+- True only once remote-core's fix lands: today `machine.remove` calls
+  `forget`, the one caller of `removeLinkKey`, only when a pin exists
+  (`machine-owner.ts:336-338`), and here there is none, so the key stays
+  and the next send refuses the same way. The fix: remove deletes the key
+  for the host's name whether or not a pin exists, and a failed delete is
+  answered in words (remote-security, on 23a7b0735).
 
 **Remove, when Junto cannot confirm `<removed>` stopped accepting the
 link.** This machine holds no link key for it, and the far end could not
@@ -392,7 +399,9 @@ confirm, never that `<removed>` still accepts the key.
 - Core's words, `ownWords: true`, a `linkKept` message beside the one
   above, naming both machines as it does: `<removed> is removed, but Junto
   could not confirm it stopped accepting links from <this>. To clear that,
-  add it again and send Junto to it.`
+  add it again and send Junto to it.` Approved by remote-security; true
+  once remote-core fixes its MEDIUM on 09a3755af (no key and no saved
+  holder answers `clear`).
 
 **Remove, when the list of removed machines that still accept the key
 cannot be read.** Junto sets the file aside and does not overwrite it.
