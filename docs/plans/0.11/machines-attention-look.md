@@ -158,7 +158,7 @@ so the popover and the window say the same thing.
 | `unreachable`, no seats | needs you | `Cannot be reached. Check that it is on.` | `Check again` |
 | `check-failed`, no seats | needs you | `Could not be checked.` | `Check again` |
 | `needs-update` | needs you | `Runs a different build of Junto.` + seats clause | `Update Junto` |
-| `peer-newer` | needs you | `Runs a newer build of Junto. Update this Mac to connect.` | `Check for updates` |
+| `peer-newer` | needs you | `Runs a newer build of Junto. Update this machine to connect.` | `Check for updates` |
 | `not-set-up` | needs you | `Junto is not on it yet.` | `Send Junto` |
 | `installed-not-linked` | needs you | `Junto is installed there, but not connected.` | `Reconnect` |
 | `boat-unfinished` | needs you | `Made on Boat, not added yet.` | `Finish adding` |
@@ -191,8 +191,9 @@ Machines window card.
 
 Longest rows, counted against the 64 limit with a two-digit count:
 `needs-update` with its clause (63), the keychain line (62), `peer-newer`
-(56). `peer-newer` is the one sentence that names a fix, because the fix
-is on this Mac, not on the machine in the row.
+(60). `peer-newer` is the one sentence that names a fix, because the fix
+is on this machine, the one the operator sits at (a Mac or Linux), not on
+the machine in the row.
 
 ## 3. The recovery card in a terminal
 
