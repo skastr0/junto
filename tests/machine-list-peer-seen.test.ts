@@ -139,6 +139,28 @@ it("keeps a hello only for an active peer under its pinned installation, and for
   expect(await f.repo((machines) => machines.retiredPeers)).toEqual(["mini"]);
 });
 
+it("keeps a true last-live time for an unchanged build, moving a stale one and not a fresh one", async () => {
+  const f = await owner();
+  await f.call("machine.add", { name: "mini", sshTarget: "mini" });
+  await f.pin("mini");
+  const hello = { machineName: "mini", installationId: "mini-install" as InstallationId, build: OLD };
+  const seen = async () => (await f.repo((machines) => machines.peersSeen))[0]?.seenAt;
+  await f.repo((machines) => machines.notePeerHello(hello));
+  const first = await seen();
+  expect(first).toBeDefined();
+
+  f.database.prepare("UPDATE machine_peer_seen SET seen_at = ? WHERE installation_id = 'mini-install'").run("2026-11-25T10:00:00.000Z");
+  await f.repo((machines) => machines.notePeerHello(hello));
+  const moved = await seen();
+  expect(moved).not.toBe("2026-11-25T10:00:00.000Z");
+  await f.repo((machines) => machines.notePeerHello(hello));
+  expect(await seen()).toBe(moved);
+
+  f.database.prepare("UPDATE machine_peer_seen SET seen_at = ? WHERE installation_id = 'mini-install'").run("2026-11-25T10:00:00.000Z");
+  await f.repo((machines) => machines.notePeerHello({ ...hello, build: NEWER }));
+  expect(await seen()).not.toBe("2026-11-25T10:00:00.000Z");
+});
+
 it("keys what a peer said by its installation, never its name: a retired installation's hello writes nothing, and its words go with it", async () => {
   const f = await owner();
   expect(f.database.prepare("SELECT name FROM pragma_table_info('machine_peer_seen') ORDER BY cid").all().map((row) => String(row.name)))

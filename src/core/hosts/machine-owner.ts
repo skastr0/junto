@@ -1,10 +1,10 @@
 import { Context, Effect, Fiber, Option, Result, Schema, Semaphore, Stream } from "effect";
 import { SqlClient } from "effect/sql";
 import {
-  OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse,
+  OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse, OperatorErrorBody,
   type OperatorRequestEnvelope, type OperatorResponseEnvelope,
 } from "@shared/operator-control";
-import { MachineBuild, MachinePeerStatus, machineUpdateDirection, type MachineRelease, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput, type MachineAutoUpdateView, type MachineTakeoverInput, MachineTakeoverData, type MachineTakeoverRemoteInput } from "@shared/machine-control";
+import { MachineBuild, MachinePeerStatus, machineUpdateDirection, type MachineRelease, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput, type MachineAutoUpdateView, type MachineTakeoverInput, type MachineTakeoverConfirm, MachineTakeoverData, type MachineTakeoverRemoteInput } from "@shared/machine-control";
 import { decideMachineUpdate } from "@shared/machine-updates";
 import type { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
 import type { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "@shared/machine-seat";
@@ -18,10 +18,12 @@ import { MachineRefused } from "../machines/configuration";
 import { MachinePersistenceError, MachineRepository } from "../machines/repository";
 import { StateTransactionOperation } from "../state/service";
 import { HostsService } from "./service";
+import { machineRouteFingerprint } from "./machine-route";
 import { parseHostSshRoute } from "../ssh/domain";
 import { noteMachinesChanged } from "./machine-changes";
-import type { InstallOpsServiceShape } from "../install-ops/service";
+import type { InstallOpsServiceShape, MachineSetupRefusal } from "../install-ops/service";
 import { SshTransport } from "../ssh";
+import { SshTransferExitError } from "../ssh/service";
 import { machineStatusProgram, takeoverMachine } from "../ssh/machine-owner-commands";
 import { decodeMachineOwnStatus } from "./machine-status";
 import { HostRegistryRows } from "./registry";
@@ -63,6 +65,16 @@ export interface MachineOwnerOptions {
   readonly takeoverCounts?: (machineName: string) => Effect.Effect<{ readonly seats: number; readonly automations: number; readonly files: number }, unknown>;
   /** Remove this machine's key material for a peer and revoke its line. */
   readonly takeoverForget?: (machineName: string, installationId: InstallationId) => Effect.Effect<void, unknown>;
+  /** The install-local S4 record: a send that ended with the far's pin rule. */
+  readonly setupRefusal?: {
+    readonly read: (machineName: string) => Effect.Effect<MachineSetupRefusal | undefined, unknown>;
+    readonly record: (refusal: MachineSetupRefusal) => Effect.Effect<void, unknown>;
+    readonly clear: (machineName: string) => Effect.Effect<void, unknown>;
+  };
+  /** The installation of the peer's currently admitted link, when one is open. */
+  readonly peerInstallation?: (machineName: string) => Effect.Effect<InstallationId | undefined, unknown>;
+  /** The clock the 10-minute live-install window reads; tests inject it. */
+  readonly now?: () => Date;
 }
 export class SeatControlUnavailable extends Schema.TaggedError<SeatControlUnavailable>()("SeatControlUnavailable", {
   message: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
@@ -209,10 +221,33 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     }
     return { ...status, installationId: pin.installationId };
   });
-  const takeoverPreview = new Map<string, { readonly expectedInstallationId: InstallationId; readonly seats: number; readonly automations: number }>();
+  type TakeoverCounts = { readonly seats: number; readonly automations: number; readonly files: number };
+  const takeoverPreview = new Map<string, { readonly expectedInstallationId: InstallationId } & TakeoverCounts>();
   const countTakeover = (name: string) => options.takeoverCounts === undefined
     ? Effect.succeed({ seats: 0, automations: 0, files: 0 })
     : options.takeoverCounts(name).pipe(Effect.mapError(() => new RemoteHostsError("io", "This machine's take-over counts could not be read")));
+  const CONFIRM_FIELDS = new Set(["seats", "automations", "files"]);
+  const countValue = (value: unknown): number | undefined =>
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+  const confirmedCounts = (confirm: MachineTakeoverConfirm): Effect.Effect<TakeoverCounts, RemoteHostsError> => {
+    if (Object.keys(confirm).some(key => !CONFIRM_FIELDS.has(key))) {
+      return Effect.fail(new RemoteHostsError("validation", "The take-over confirm carries a field Junto does not know. Preview the take-over again"));
+    }
+    const seats = countValue(confirm.seats);
+    const automations = countValue(confirm.automations);
+    const files = countValue(confirm.files);
+    if (seats === undefined || automations === undefined || files === undefined) {
+      return Effect.fail(new RemoteHostsError("validation", "The take-over confirm needs the seat, automation and Files counts it will replace. Preview the take-over again"));
+    }
+    return Effect.succeed({ seats, automations, files });
+  };
+  const countsWords = (counts: TakeoverCounts): string =>
+    `${String(counts.seats)} seats, ${String(counts.automations)} automations and ${String(counts.files)} Files nodes`;
+  const liveWords = (name: string): string =>
+    `That machine refused the take-over, because another Junto using this machine's name is still live there. If that one is gone for good, try again once it has been quiet for 10 minutes. If it is not, remove it on that machine with junto machine remove ${name}.`;
+  const REMOTE_CHANGED_WORDS = "That machine now answers as a different install of Junto than the preview showed. Send Junto to it again to see where it stands.";
+  const REMOTE_CONFIRMED_WORDS = "That machine now trusts this one. Send Junto to it again to finish setting it up.";
+  const LIVE_WINDOW_MS = 10 * 60_000;
   const takeover = (input: MachineTakeoverInput): Effect.Effect<MachineTakeoverData, RemoteHostsError> => Effect.gen(function* () {
     const name = input.machineName;
     const ownName = yield* machines.machineName.pipe(Effect.mapError(() => new RemoteHostsError("io", "This machine's name could not be read")));
@@ -222,6 +257,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     if (input.confirm !== undefined && input.expectedInstallationId === undefined) {
       return yield* Effect.fail(new RemoteHostsError("validation", "A take-over confirm must name the installation it replaces"));
     }
+    const confirmed = input.confirm === undefined ? undefined : yield* confirmedCounts(input.confirm);
     const pin = yield* machines.peer(name).pipe(Effect.mapError(() => new RemoteHostsError("io", "The machine pin could not be read")));
     if (pin === undefined) return yield* Effect.fail(new RemoteHostsError("not_found", `${name} is not pinned on this machine`));
     const previous = input.expectedInstallationId ?? pin.installationId;
@@ -237,6 +273,18 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     if (other.length > 0) {
       return yield* Effect.fail(new RemoteHostsError("conflict", `That installation is already pinned as ${String((other[0] as { readonly machine_name: string }).machine_name)}`));
     }
+    const seen = yield* machines.peersSeen.pipe(Effect.mapError(() => new RemoteHostsError("io", "This machine's peer history could not be read")));
+    const previousSeenAt = seen.find(row => row.installationId === previous)?.seenAt;
+    if (input.checkLive === true) {
+      // A remote take-over refuses a pin whose old installation is still live
+      // here: an open link, or a hello this machine heard within 10 minutes.
+      const live = options.peerInstallation === undefined ? undefined
+        : yield* options.peerInstallation(name).pipe(Effect.orElseSucceed(() => undefined));
+      const heardAt = previousSeenAt === undefined ? Number.NaN : Date.parse(previousSeenAt);
+      const recent = previousSeenAt !== undefined
+        && (Number.isNaN(heardAt) || (options.now ?? (() => new Date()))().getTime() - heardAt < LIVE_WINDOW_MS);
+      if (live === previous || recent) return yield* Effect.fail(new RemoteHostsError("conflict", liveWords(name)));
+    }
     const counts = yield* countTakeover(name);
     const answer = {
       machineName: name,
@@ -245,11 +293,12 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       seats: counts.seats,
       automations: counts.automations,
       files: counts.files,
+      ...(previousSeenAt === undefined ? {} : { previousSeenAt }),
       takenOver: input.confirm !== undefined,
     } satisfies MachineTakeoverData;
     if (input.confirm === undefined) return answer;
-    if (input.confirm.seats !== counts.seats || input.confirm.automations !== counts.automations) {
-      return yield* Effect.fail(new RemoteHostsError("conflict", `This machine counts ${String(counts.seats)} seats and ${String(counts.automations)} automations; confirm those counts`));
+    if (confirmed === undefined || confirmed.seats !== counts.seats || confirmed.automations !== counts.automations || confirmed.files !== counts.files) {
+      return yield* Effect.fail(new RemoteHostsError("conflict", `This machine counts ${countsWords(counts)}; confirm those counts`));
     }
     // Key material and live links go first: setup must never mint a key the
     // old pin still holds. A failed commit leaves the old pin active without
@@ -260,7 +309,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       const current = yield* machines.peer(name);
       if (current?.installationId !== previous) return false;
       const atCommit = yield* countTakeover(name);
-      if (atCommit.seats !== counts.seats || atCommit.automations !== counts.automations) return false;
+      if (atCommit.seats !== counts.seats || atCommit.automations !== counts.automations || atCommit.files !== counts.files) return false;
       const at = new Date().toISOString();
       yield* sql`INSERT INTO known_installations(installation_id, registered_at) VALUES (${input.installationId}, ${at}) ON CONFLICT(installation_id) DO NOTHING`;
       yield* sql`DELETE FROM machine_peers WHERE machine_name = ${name} AND installation_id = ${previous} AND retired_at IS NULL`;
@@ -279,20 +328,54 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
   });
 
   const takeoverRemote = (input: MachineTakeoverRemoteInput): Effect.Effect<MachineTakeoverData, RemoteHostsError> => Effect.gen(function* () {
+    const confirmed = input.confirm === undefined ? undefined : yield* confirmedCounts(input.confirm);
     if (input.confirm !== undefined) {
       if (input.expectedInstallationId === undefined) return yield* Effect.fail(new RemoteHostsError("validation", "A take-over confirm must name the installation it replaces"));
       const preview = takeoverPreview.get(input.name);
       if (preview === undefined) return yield* Effect.fail(new RemoteHostsError("conflict", "Preview the take-over before confirming it"));
-      if (preview.expectedInstallationId !== input.expectedInstallationId || preview.seats !== input.confirm.seats || preview.automations !== input.confirm.automations) {
-        return yield* Effect.fail(new RemoteHostsError("conflict", `This machine last counted ${String(preview.seats)} seats and ${String(preview.automations)} automations; preview again before confirming`));
+      if (confirmed === undefined || preview.expectedInstallationId !== input.expectedInstallationId
+        || preview.seats !== confirmed.seats || preview.automations !== confirmed.automations || preview.files !== confirmed.files) {
+        return yield* Effect.fail(new RemoteHostsError("conflict", `This machine last counted ${countsWords(preview)}; preview again before confirming`));
       }
     }
     const host = yield* selected(input.name);
     if (host.isThisMachine) return yield* Effect.fail(new RemoteHostsError("conflict", "This machine holds its own pin"));
     const pin = yield* machines.peer(input.name).pipe(Effect.mapError(() => new RemoteHostsError("io", "The machine pin could not be read")));
-    if (pin === undefined) return yield* Effect.fail(new RemoteHostsError("not_found", `Set up ${input.name} before taking it over`));
+    // A host added by a send whose setup the far refused is not set up here:
+    // its route and the far's id from that send's receipt are the record that
+    // lets a take-over finish what setup could not (R1).
+    let record: MachineSetupRefusal | undefined;
+    if (pin === undefined) {
+      const held = options.setupRefusal === undefined ? undefined
+        : yield* options.setupRefusal.read(input.name).pipe(Effect.orElseSucceed(() => undefined));
+      if (held !== undefined && held.route === machineRouteFingerprint(host)) record = held;
+      else if (held !== undefined && options.setupRefusal !== undefined) yield* options.setupRefusal.clear(input.name).pipe(Effect.ignore);
+      if (record === undefined) return yield* Effect.fail(new RemoteHostsError("not_found", `Set up ${input.name} before taking it over`));
+    }
     if (host.juntoHome === undefined || host.installRoot === undefined) return yield* Effect.fail(new RemoteHostsError("conflict", `Send Junto to ${input.name} before taking it over`));
     const route = yield* parseHostSshRoute(host).pipe(Effect.mapError(() => new RemoteHostsError("io", "The machine route could not be read")));
+    // R2: both steps read the far's own status over this route first, and the
+    // installation that answers must be the one the record or pin names.
+    const expectedFar = record?.installationId ?? pin?.installationId;
+    if (expectedFar !== undefined) {
+      const statusProgram = yield* machineStatusProgram(route, { juntoHome: host.juntoHome, installRoot: host.installRoot }).pipe(
+        Effect.mapError(() => new RemoteHostsError("io", "The take-over status could not be prepared")),
+      );
+      const statusAnswer = yield* ssh.run(statusProgram).pipe(
+        Effect.mapError((cause) => new RemoteHostsError("io", `The take-over could not reach ${input.name}: ${cause instanceof Error ? cause.message : String(cause)}`)),
+      );
+      const status = yield* decodeMachineOwnStatus(statusAnswer.stdout).pipe(
+        Effect.mapError(() => new RemoteHostsError("io", `${input.name} answered its status outside its contract`)),
+      );
+      if (status.installationId !== expectedFar) {
+        if (record !== undefined && options.setupRefusal !== undefined) yield* options.setupRefusal.clear(input.name).pipe(Effect.ignore);
+        takeoverPreview.delete(input.name);
+        return yield* Effect.fail(new RemoteHostsError("conflict", REMOTE_CHANGED_WORDS));
+      }
+      if (status.machineName !== input.name) {
+        return yield* Effect.fail(new RemoteHostsError("conflict", "The machine that answered is not the machine this take-over was for"));
+      }
+    }
     const self = {
       machineName: yield* machines.machineName.pipe(Effect.mapError(() => new RemoteHostsError("io", "This machine's name could not be read"))),
       installationId: yield* machines.installationId.pipe(Effect.mapError(() => new RemoteHostsError("io", "This machine's installation id could not be read"))),
@@ -300,14 +383,29 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
     const payload = {
       machineName: self.machineName,
       installationId: self.installationId,
+      checkLive: true as const,
       ...(input.expectedInstallationId === undefined ? {} : { expectedInstallationId: input.expectedInstallationId }),
-      ...(input.confirm === undefined ? {} : { confirm: input.confirm }),
+      ...(confirmed === undefined ? {} : { confirm: confirmed }),
     };
     const program = yield* takeoverMachine(route, { juntoHome: host.juntoHome, installRoot: host.installRoot }, payload).pipe(
       Effect.mapError(() => new RemoteHostsError("io", "The take-over command could not be prepared")),
     );
     const far = yield* ssh.transfer(program, Stream.empty, 30_000).pipe(
-      Effect.mapError((cause) => new RemoteHostsError("io", `The take-over could not reach ${input.name}: ${cause instanceof Error ? cause.message : String(cause)}`)),
+      Effect.catch((cause): Effect.Effect<never, RemoteHostsError> => {
+        if (cause instanceof SshTransferExitError) {
+          const said = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Struct({
+            ok: Schema.Literal(false), command: Schema.Literal("machine takeover"), error: OperatorErrorBody,
+          })), { onExcessProperty: "error" })(cause.stderr.trim().split("\n").at(-1) ?? "");
+          if (said._tag === "Success") {
+            const type = said.success.error.type;
+            return Effect.fail(new RemoteHostsError(
+              type === "validation" || type === "not_found" || type === "conflict" ? type : "io",
+              scrubMessage(said.success.error.message),
+            ));
+          }
+        }
+        return Effect.fail(new RemoteHostsError("io", `The take-over could not reach ${input.name}: ${cause instanceof Error ? cause.message : String(cause)}`));
+      }),
     );
     const decoded = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Struct({
       ok: Schema.Literal(true), command: Schema.Literal("machine takeover"), data: MachineTakeoverData,
@@ -319,11 +417,13 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         expectedInstallationId: decoded.data.previousInstallationId,
         seats: decoded.data.seats,
         automations: decoded.data.automations,
+        files: decoded.data.files,
       });
       return decoded.data;
     }
     takeoverPreview.delete(input.name);
-    return decoded.data;
+    if (record !== undefined && options.setupRefusal !== undefined) yield* options.setupRefusal.clear(input.name).pipe(Effect.ignore);
+    return { ...decoded.data, message: REMOTE_CONFIRMED_WORDS };
   });
 
   const run = (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void): Effect.Effect<unknown, unknown> => Effect.gen(function* () {
@@ -376,7 +476,13 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
           ...(input.juntoHome === undefined ? {} : { juntoHome: input.juntoHome }),
           ...(input.installRoot === undefined ? {} : { installRoot: input.installRoot }),
         });
-        return yield* selected(input.name);
+        const configured = yield* selected(input.name);
+        // R1: a route change drops the S4 record; it named the old route.
+        if (previous !== undefined && options.setupRefusal !== undefined
+          && machineRouteFingerprint(previous) !== machineRouteFingerprint(configured)) {
+          yield* options.setupRefusal.clear(input.name).pipe(Effect.ignore);
+        }
+        return configured;
       }
       case "machine.configure": {
         yield* machines.configureName(request.args.name);
@@ -452,32 +558,44 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         if (setup === undefined) return yield* Effect.fail(new RemoteHostsError("conflict", "This Junto process places no vault tokens"));
         return request.op === "machine.vault-token" ? yield* setup.place(request.args) : yield* setup.receive(request.args);
       }
-      case "machine.send":
-      case "machine.update": return yield* options.copy(yield* other(request.args.name), request.args, request.op === "machine.send" ? "send" : "update", onTransition);
+      case "machine.send": {
+        // R1: every send drops the last refusal first; a new S4 writes it again.
+        const host = yield* other(request.args.name);
+        if (options.setupRefusal !== undefined) yield* options.setupRefusal.clear(request.args.name).pipe(Effect.ignore);
+        return yield* options.copy(host, request.args, "send", onTransition);
+      }
+      case "machine.update": return yield* options.copy(yield* other(request.args.name), request.args, "update", onTransition);
       case "machine.remove": {
         const name = request.args.name;
         const removed = yield* machines.peer(name);
         const removedHost = yield* Effect.uninterruptible(sql.withTransaction(Effect.gen(function* () {
           const current = yield* rows.read;
           const host = current.hosts.find(row => row.id === name);
-          if (host === undefined) return yield* Effect.fail(notFound(name));
-          if (host.isThisMachine) return yield* Effect.fail(new RemoteHostsError("conflict", "cannot remove this machine"));
+          // A peer pinned by an admitted link has no route here: removing it
+          // still retires the pin and its line, which is trust, not a route.
+          if (host === undefined && removed === undefined) return yield* Effect.fail(notFound(name));
+          if (host?.isThisMachine === true) return yield* Effect.fail(new RemoteHostsError("conflict", "cannot remove this machine"));
           yield* machines.retirePeer(name);
-          yield* rows.delete(name);
-          // The owed finishes it was named in go with it: a machine that is
-          // removed is never "next seen", so the debt is no longer owed to it.
-          yield* sql`DELETE FROM terminal_delete_owed WHERE machine_name = ${name}`;
+          if (host !== undefined) {
+            yield* rows.delete(name);
+            // The owed finishes it was named in go with it: a machine that is
+            // removed is never "next seen", so the debt is no longer owed to it.
+            yield* sql`DELETE FROM terminal_delete_owed WHERE machine_name = ${name}`;
+          }
           return host;
         })).pipe(Effect.provideService(StateTransactionOperation, "machine.remove"),
           Effect.tap(() => options.disconnect(name))));
+        if (options.setupRefusal !== undefined) yield* options.setupRefusal.clear(name).pipe(Effect.ignore);
         // The removed machine first lets go of this machine's link key, over the
         // operator's route while it is still known; one it cannot reach now is
         // kept and cleared the next time Junto reaches it. Then its key comes off
         // here and off every machine this one reaches; one it cannot reach stays listed.
-        let cleared: "clear" | "kept" | "unconfirmed" = "clear";
+        let cleared: "clear" | "kept" | "unconfirmed" = removedHost === undefined ? "unconfirmed" : "clear";
         if (options.linkSetup !== undefined) {
           yield* options.linkSetup.settleRemoved().pipe(Effect.ignore);
-          cleared = yield* options.linkSetup.clearRemoved(removedHost, removed?.installationId).pipe(Effect.orElseSucceed(() => "unconfirmed" as const));
+          if (removedHost !== undefined) {
+            cleared = yield* options.linkSetup.clearRemoved(removedHost, removed?.installationId).pipe(Effect.orElseSucceed(() => "unconfirmed" as const));
+          }
         }
         // The key goes with or without a pin: a send that failed before the machine was saved left a key and no pin.
         let keyDropped = true;

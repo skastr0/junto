@@ -249,13 +249,24 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
     machine counts the seats, unarchived automations and Files nodes its own
     canvases place on the replacing installation's name; the preview answers
     those counts, and the confirm, which must name the installation it replaces,
-    shows the seats and automations, zero included. A mismatched count is refused before any key is removed. The
+    shows the seats, automations and Files nodes, zero included. A mismatched
+    count is refused before any key is removed. The
     take-over removes the old link key and closes the old live sessions, then
     one retire transaction recounts and refuses a changed count, sweeps the old
     pin's owed deletes by name, deletes its vault token and last-seen rows,
     writes a plain new pin, and returns. Nothing runs for the new installation
     until that transaction commits, and the old pin's owed deletes are never
     delivered to the installation that follows it.
+    A take-over of a far that still trusts this machine's earlier installation
+    needs no pin here: the last send that its setup refused with the pin rule
+    leaves, install-locally, that send's far installation id and route. The
+    preview and confirm each read the far's status over that route first; a
+    different installation, an open link to the old one, or a last live time
+    within 10 minutes (a hello or a link close) refuses. The confirm carries
+    the same seats, automations and Files counts and the old installation id,
+    the far retires its old pin and line in one transaction, and this machine
+    pins nothing: the operator sends again, and that send runs the first-send
+    path.
     An update whose machine reports any running seat, or no seat count at all,
     changes nothing unless the operator confirmed stopping them: the install
     takes the maintenance lease on the incumbent's term control socket and

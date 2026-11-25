@@ -206,11 +206,21 @@ export const MachineRemoved = Schema.Struct({
 });
 export type MachineRemoved = typeof MachineRemoved.Type;
 export const MachineEmptyInput = Schema.Struct({});
-/** The operator's confirm counts: zero is still shown and still confirmed. */
-export const MachineTakeoverConfirm = Schema.Struct({
-  seats: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
-  automations: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+/**
+ * The operator's confirm counts: zero is still shown and still confirmed.
+ * The wire admits any field inside `confirm` so the core can refuse an
+ * unknown, missing or mismatched one in its own words, never as a decode
+ * failure that the CLI only sees as a broken operator response.
+ */
+const MachineTakeoverConfirmFields = Schema.Struct({
+  seats: Schema.optionalKey(Schema.Unknown),
+  automations: Schema.optionalKey(Schema.Unknown),
+  files: Schema.optionalKey(Schema.Unknown),
 });
+export const MachineTakeoverConfirm = Schema.StructWithRest(
+  MachineTakeoverConfirmFields,
+  [Schema.Record(Schema.String, Schema.Unknown)],
+);
 export type MachineTakeoverConfirm = typeof MachineTakeoverConfirm.Type;
 /**
  * Replace the active pin named `machineName` on this machine, held by
@@ -223,6 +233,12 @@ export const MachineTakeoverInput = Schema.Struct({
   /** Omitted on a preview: the far end answers the id it holds now. */
   expectedInstallationId: Schema.optionalKey(InstallationId),
   confirm: Schema.optionalKey(MachineTakeoverConfirm),
+  /**
+   * Set by a remote take-over: refuse while the old install is still live on
+   * the far machine (an open link, or a hello heard from it recently). A
+   * local take-over leaves it out.
+   */
+  checkLive: Schema.optionalKey(Schema.Literal(true)),
 });
 export type MachineTakeoverInput = typeof MachineTakeoverInput.Type;
 export const MachineTakeoverData = Schema.Struct({
@@ -232,6 +248,10 @@ export const MachineTakeoverData = Schema.Struct({
   seats: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   automations: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   files: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  /** When the far machine last heard from the old install; absent means never. */
+  previousSeenAt: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(64)))),
+  /** The core's own next step after a confirmed remote take-over. */
+  message: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(512)))),
   takenOver: Schema.Boolean,
 });
 export type MachineTakeoverData = typeof MachineTakeoverData.Type;

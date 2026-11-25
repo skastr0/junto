@@ -55,6 +55,18 @@ export type MachineUpdateLatch = {
   readonly at: string;
 };
 
+/**
+ * The last send to a name whose far setup refused with the S4 pin rule. The
+ * route is its fixed fingerprint, so a changed route drops the record; the
+ * installation id is the far's own, from that send's install receipt.
+ */
+export type MachineSetupRefusal = {
+  readonly machineName: string;
+  readonly installationId: string;
+  readonly route: string;
+  readonly at: string;
+};
+
 export type InstallOpsServiceShape = {
   readonly path: string;
   /** Explicit status for Doctor and other operational reporting surfaces. */
@@ -80,6 +92,10 @@ export type InstallOpsServiceShape = {
   readonly updateLatch: (installationId: string) => Effect.Effect<MachineUpdateLatch | undefined, InstallOpsServiceError>;
   readonly recordUpdateLatch: (latch: MachineUpdateLatch) => Effect.Effect<void, InstallOpsServiceError>;
   readonly clearUpdateLatch: (installationId: string) => Effect.Effect<void, InstallOpsServiceError>;
+  /** The record an S4 send left for this name, if its route has not changed. */
+  readonly setupRefusal: (machineName: string) => Effect.Effect<MachineSetupRefusal | undefined, InstallOpsServiceError>;
+  readonly recordSetupRefusal: (refusal: MachineSetupRefusal) => Effect.Effect<void, InstallOpsServiceError>;
+  readonly clearSetupRefusal: (machineName: string) => Effect.Effect<void, InstallOpsServiceError>;
 };
 
 /**
