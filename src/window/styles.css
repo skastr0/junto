@@ -561,7 +561,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
    menu, a listbox that is not the bar's own), the bar is no drag region at
    all. A surface need not remember to cut itself out; the rules above stay as
    the second line for what draws without one of these roles. */
-html[data-junto-platform="darwin"]:has([role="dialog"], [role="menu"], [role="listbox"]:not(.station-bar *), [data-overlay-open]) .station-bar {
+html[data-junto-platform="darwin"]:has([role="dialog"]:not([data-below-bar="true"] *), [role="menu"], [role="listbox"]:not(.station-bar *), [data-overlay-open]) .station-bar {
   -webkit-app-region: no-drag;
 }
 

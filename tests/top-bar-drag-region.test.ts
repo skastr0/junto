@@ -26,6 +26,13 @@ describe("the top bar drag region", () => {
     for (const part of ['[role="dialog"]', '[role="menu"]', '[role="listbox"]:not(.station-bar *)']) expect(selector).toContain(part);
   });
 
+  it("leaves out a panel that sits under the bar, which crosses none of it: the bar keeps dragging the window while Needs you or Threads is open", () => {
+    expect(whileOpen![0]).toContain('[role="dialog"]:not([data-below-bar="true"] *)');
+    // The shell marks the panels that sit under the bar the same way (operator-modal.css, OperatorModalShell).
+    const shell = readFileSync(join(__dirname, "..", "src", "window", "components", "operator-modal", "OperatorModalShell.tsx"), "utf8");
+    expect(shell).toContain('data-below-bar={belowBar ? "true" : undefined}');
+  });
+
   it("comes after the rule that makes the bar a drag region, so it wins at equal weight", () => {
     const all = rules();
     const drag = all.findIndex(([selector, body]) => selector === 'html[data-junto-platform="darwin"] .station-bar' && /-webkit-app-region:\s*drag/.test(body));
