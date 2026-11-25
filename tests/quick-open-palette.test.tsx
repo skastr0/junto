@@ -11,13 +11,11 @@ import { isModalLayerOpen } from "../src/window/lib/modal-stack";
 let host: HTMLDivElement;
 let root: Root;
 
-// What the prototype held before this file touched it. The shared lane runs
-// with --no-isolate, so a worker keeps its environment and module cache from
-// one test file to the next: a method left patched here is every later file's
-// too. focus-law-authority's parked-surface claim reads getClientRects, and a
-// leaked box made every parked element look rendered.
-const realScrollIntoView = HTMLElement.prototype.scrollIntoView;
-const realGetClientRects = HTMLElement.prototype.getClientRects;
+// The shared lane runs files with no isolation, so a prototype this file
+// replaces is put back, or every later file in the worker reads a laid-out
+// page (focus-law-authority's parked surface came back rendered).
+const protoGetClientRects = HTMLElement.prototype.getClientRects;
+const protoScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
 beforeEach(() => {
   // The count announces on a settle timer, which fake time advances.
@@ -36,8 +34,8 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.useRealTimers();
-  HTMLElement.prototype.scrollIntoView = realScrollIntoView;
-  HTMLElement.prototype.getClientRects = realGetClientRects;
+  HTMLElement.prototype.getClientRects = protoGetClientRects;
+  HTMLElement.prototype.scrollIntoView = protoScrollIntoView;
 });
 
 const items = [
