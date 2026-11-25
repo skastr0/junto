@@ -199,16 +199,18 @@ export function QuickThread({
   const seatField = useRef<HTMLInputElement | null>(null);
   const message = useRef<HTMLTextAreaElement | null>(null);
   // The seat whose remove control takes the keyboard once the row has redrawn.
-  const removeNext = useRef<string | null>(null);
+  const removeNext = useRef<{ readonly kind: "seat" | "region"; readonly id: string } | null>(null);
   useEffect(() => {
-    const id = removeNext.current;
-    if (id === null) return;
+    const next = removeNext.current;
+    if (next === null) return;
     removeNext.current = null;
-    const holder = [...(root.current?.querySelectorAll<HTMLElement>('[data-testid="quick-thread-seat"]') ?? [])].find(
-      (entry) => entry.dataset.seat === id,
+    const holder = [...(root.current?.querySelectorAll<HTMLElement>(`[data-testid="quick-thread-${next.kind}"]`) ?? [])].find(
+      (entry) => (next.kind === "seat" ? entry.dataset.seat : entry.dataset.region) === next.id,
     );
     claimFocus(holder?.querySelector("button"), "gesture");
-  }, [chosen]);
+  }, [chosen, regionsChosen]);
+  // Cancel on the confirm gives the keyboard to the message once the input is drawn again: while it is hidden a focus is ignored.
+  const messageNext = useRef(false);
   const pickingNow = useRef(picking);
   pickingNow.current = picking;
   // The seat field takes the keyboard as it appears: on open with no seat chosen, and when it is brought back.
@@ -432,9 +434,14 @@ export function QuickThread({
 
   const cancelConfirm = (): void => {
     fixed.current = undefined;
+    messageNext.current = true;
     setConfirming(undefined);
-    claimFocus(message.current, "gesture");
   };
+  useEffect(() => {
+    if (confirming !== undefined || !messageNext.current) return;
+    messageNext.current = false;
+    claimFocus(message.current, "gesture");
+  }, [confirming]);
 
   // Back to the draft with the seats that were left out as seats of their own: Send asks again with them counted.
   const addLeftOut = (): void => {
@@ -606,6 +613,10 @@ export function QuickThread({
                   {/* Heard as "Design System, region, 6 seats": Enter on it chooses the region; the narrow key takes its seats one by one. */}
                   <span className="sr-only">, region, </span>
                   <span className="quick-thread__option-count">{seatCount(option.seats)}</span>
+                  {/* Said as the option becomes active: a field's description is read once, on focus. */}
+                  {narrowSpoken === undefined ? null : (
+                    <span className="sr-only">. Enter chooses the whole region, {narrowSpoken} picks its seats</span>
+                  )}
                   {/* The pointer's way to the region's seats; the keyboard has its own key, so this is not a stop. */}
                   <IconButton
                     size="xs"
@@ -679,7 +690,7 @@ export function QuickThread({
                     // which takes the keyboard as it appears. A pointer goes on to where it was headed.
                     if (neighbour === undefined) claimFocus(seatField.current, "gesture");
                     else if (byPointer) claimFocus(picking ? seatField.current : message.current, "gesture");
-                    else removeNext.current = neighbour.id;
+                    else removeNext.current = { kind: "seat", id: neighbour.id };
                   }}
                 >
                   <X size={10} strokeWidth={2} />
@@ -698,7 +709,21 @@ export function QuickThread({
                   total={read(picksOf([], [{ regionId: held.regionId, doing: [], needs: [] }])).count}
                   countAlone={(limit) => read(picksOf([], [chooseRegion([], held.regionId, limit)[0]!])).count}
                   onToggle={(limit) => toggleRegionLimit(held, limit)}
-                  onRemove={() => removeRegion(held)}
+                  onRemove={() => {
+                    if (busy) return;
+                    // As a seat's control: the keyboard goes to the next token, else the one before, else the seat field.
+                    const at = regionsChosen.indexOf(held);
+                    const next = regionsChosen[at + 1];
+                    const before = regionsChosen[at - 1];
+                    const lastSeat = chosen.at(-1);
+                    const byPointer = recentGestureKind() === "pointer";
+                    removeRegion(held);
+                    if (next === undefined && before === undefined && lastSeat === undefined) claimFocus(seatField.current, "gesture");
+                    else if (byPointer) claimFocus(picking ? seatField.current : message.current, "gesture");
+                    else if (next !== undefined) removeNext.current = { kind: "region", id: next.regionId };
+                    else if (before !== undefined) removeNext.current = { kind: "region", id: before.regionId };
+                    else if (lastSeat !== undefined) removeNext.current = { kind: "seat", id: lastSeat.id };
+                  }}
                 />
               );
             })}

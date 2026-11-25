@@ -276,9 +276,10 @@
   white-space: nowrap;
 }
 
+/* Dim, not faint: the token's own tint and its hover keep this above 4.5 in both themes. */
 .quick-thread__region-count {
   font-variant-numeric: tabular-nums;
-  color: var(--color-faint);
+  color: var(--color-dim);
 }
 
 /* The limits: two groups of the feed's own chips, and the count at the foot. */
@@ -308,7 +309,7 @@
   margin: 0;
   font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
-  color: var(--color-faint);
+  color: var(--color-dim);
 }
 
 /* The confirm and the receipt of a send with a region, in the input's place. */

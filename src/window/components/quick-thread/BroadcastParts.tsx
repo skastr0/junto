@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 import { Check, ChevronDown, ChevronRight, Clock, X } from "lucide-react";
 import type { BroadcastSeat } from "@shared/broadcast";
 import { claimFocus, claimFocusOnMount } from "../../lib/focus-ownership";
+import { keyIs } from "../../lib/key-match";
 import {
   confirmDetail,
   confirmQuestion,
@@ -209,8 +210,9 @@ function Disclosure({
  * said apart and are not in the send.
  *
  * It opens with the keyboard on the question, not on Send: a key still held
- * from the press that opened it must not send to every seat. Send is one Tab
- * away. Its words are said once through the host's live line as it opens.
+ * from the press that opened it must not send to every seat. Send is a few
+ * Tabs away (the names, Cancel); the send key pressed on the question itself
+ * sends too, unless it is a repeat. Its words are said once through the host's live line as it opens.
  */
 export function BroadcastConfirm({
   seats,
@@ -237,6 +239,13 @@ export function BroadcastConfirm({
     <div
       ref={claimFocusOnMount}
       tabIndex={-1}
+      onKeyDown={(event) => {
+        // The question has the keyboard: the send key there is Send, once; a held key does nothing.
+        if (event.target !== event.currentTarget || event.repeat || !keyIs(event, "inThread.send") || sending) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onConfirm();
+      }}
       className="quick-thread__confirm"
       data-testid="quick-thread-confirm"
       role="group"

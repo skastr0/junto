@@ -201,7 +201,7 @@ describe("Quick thread from the canvas", () => {
     await typeIn(seatField()!, "design sys");
     expect(all("quick-thread-option")[0]?.getAttribute("data-kind")).toBe("region");
     // Heard for what it is, so narrowing does not surprise.
-    expect(all("quick-thread-option")[0]?.textContent).toBe("Design System, region, 2 seats");
+    expect(all("quick-thread-option")[0]?.textContent).toContain("Design System, region, 2 seats");
     await narrowKey(seatField());
     expect(chosenNames()).toEqual([]);
     expect(q("quick-thread-narrowed")?.textContent).toContain("in Design System");
@@ -609,12 +609,36 @@ describe("Broadcast: a region as a recipient", () => {
     expect(tokens()).toEqual(["Design System2"]);
     expect(messageField()?.value).toBe("status?");
     expect(sends).toEqual([]);
+    // The keyboard is in the message, claimed once the input is drawn again.
+    expect(document.activeElement).toBe(messageField());
 
     await key(messageField(), "Enter");
     expect(q("quick-thread-confirm")).not.toBeNull();
     await key(q("quick-thread-confirm"), "Escape");
     expect(q("quick-thread-confirm")).toBeNull();
     expect(operatorModal$.open.peek()).toBe("quick-thread");
+    expect(document.activeElement).toBe(messageField());
+  });
+
+  it("a region token taken off by keyboard hands the keyboard on: the next token, else the one before, else the field", async () => {
+    await mountHost();
+    await open();
+    await typeIn(seatField()!, "ptyl");
+    await key(seatField(), "Enter");
+    await press(q("quick-thread-add"));
+    await typeIn(seatField()!, "design sys");
+    await key(seatField(), "Enter");
+    expect(tokens()).toEqual(["Design System2"]);
+    // The last token is the region; the seat before it takes the keyboard.
+    const x = q("quick-thread-region")!.querySelectorAll("button")[1] as HTMLElement;
+    act(() => {
+      x.focus();
+      x.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      x.click();
+    });
+    await flush();
+    expect(tokens()).toEqual([]);
+    expect(document.activeElement).toBe(q("quick-thread-seat")?.querySelector("button"));
   });
 
   it("a seat picked one by one never asks", async () => {
