@@ -17,6 +17,10 @@ Known: a canvas deleted by 0.12.0 or an earlier build, whose name was then
 used again for a new canvas here, is not removed from the other machines.
 Each keeps its old copy until the canvas is deleted there by hand.
 
+Known: a machine holds one canvas of each name. When two editors both send a
+seat on a canvas of the same name, such as base, to the same machine, the
+second is refused without saying why.
+
 ## 0.12.0 — 2026-11-25
 
 Opening the database with 0.12.0 moves it from version 76 to 79, and 0.11.15
