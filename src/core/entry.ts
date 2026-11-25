@@ -87,7 +87,7 @@ const main = async (parent: ParentPort): Promise<void> => {
   startSqlTimingLog({ home: boot.home });
   // One `[metrics] core heap` row a minute in core.jsonl, every build: the
   // core's V8 heap against its limit, which no other process can read (#650).
-  startHeapLog({ label: "core", write: (level, message) => log.writeLog({ level, source: "core", message }) });
+  const stopHeapLog = startHeapLog({ label: "core", write: (level, message) => log.writeLog({ level, source: "core", message }) });
   // The port opens before the core boots: what boots may already publish.
   const served = serveCore(parentCorePort(parent));
   // The core's RPC groups ride the same port; a request that comes before
@@ -157,6 +157,8 @@ const main = async (parent: ParentPort): Promise<void> => {
     .catch((cause: unknown) => console.error("[core] startup wiring failed:", cause instanceof Error ? cause.message : cause));
   served.push("core.ready", {});
   const stop = (): void => {
+    // The last heap row, before the core closes its log.
+    stopHeapLog();
     // Main stops the core; a host call still out fails when its link says main is gone.
     stopCoreOnSignal(() => closeCoreProcess(() => core.close()));
   };

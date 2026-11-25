@@ -71,3 +71,26 @@ describe("a process's own heap rows", () => {
     }
   });
 });
+
+describe("a heap row that cannot be written", () => {
+  it("never throws out of the timer, even when the failure row fails too", () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const stop = startHeapLog({
+        label: "core",
+        read: () => heap(10),
+        write: () => {
+          calls += 1;
+          throw new Error("log closed");
+        },
+        intervalMs: 1000,
+      });
+      expect(() => vi.advanceTimersByTime(3000)).not.toThrow();
+      expect(() => stop()).not.toThrow();
+      expect(calls).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

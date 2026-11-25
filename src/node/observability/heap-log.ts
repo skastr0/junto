@@ -119,8 +119,16 @@ export const startHeapLog = (deps: HeapLogDeps): (() => void) => {
       }
       failing = false;
     } catch (cause) {
-      // One row per failing streak, not one a minute.
-      if (!failing) deps.write("warn", `[metrics] ${deps.label} heap sample failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+      // One row per failing streak, not one a minute. The row itself may be
+      // what failed: a throw from here would leave the timer as an uncaught
+      // exception in the process it watches, so it goes no further.
+      if (!failing) {
+        try {
+          deps.write("warn", `[metrics] ${deps.label} heap sample failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+        } catch {
+          // Nothing left to tell; the next sample tries again.
+        }
+      }
       failing = true;
     }
   };
