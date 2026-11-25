@@ -31,8 +31,8 @@ const IGNORED_GLOBALS = /^(__vitest|__VITEST|__vite_ssr|__coverage__|~effect\/)/
 const targets = (): readonly Target[] => {
   const g = globalThis as Record<string, unknown>;
   const proto = (name: string): object | undefined => {
-    const ctor = g[name] as { readonly prototype?: object } | undefined;
-    return typeof ctor === "function" ? ctor.prototype : undefined;
+    const ctor = g[name];
+    return typeof ctor === "function" ? (ctor as { readonly prototype?: object }).prototype : undefined;
   };
   const found: Target[] = [];
   for (const name of [
