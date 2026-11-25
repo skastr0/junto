@@ -141,6 +141,18 @@ describe("a signal withdrawn as the answer was on its way", () => {
   });
 });
 
+describe("a signal answered as its withdrawal was on its way", () => {
+  it("says the crossing the same way as a withdrawn one, once", async () => {
+    await render(
+      <SignalFrame author="pty-lead" known={KNOWN} signal={signal({ state: "answered", crossed: true })} onHandIn={() => undefined}>
+        <p>What was asked.</p>
+      </SignalFrame>,
+    );
+    expect(words(q("seat-threads-signal-state"))).toBe("Answered");
+    expect(words(q("seat-threads-signal-crossed"))).toBe("pty-lead says it withdrew this before your answer reached it.");
+  });
+});
+
 describe("the operator's side", () => {
   it("says what an answer answered, by that signal's headline", async () => {
     await render(<AnswerTo text="pty-lead: the migration number is taken." known={KNOWN} />);

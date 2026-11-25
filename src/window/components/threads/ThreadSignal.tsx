@@ -127,8 +127,8 @@ export function SignalFrame({
         </span>
       </p>
       {children}
-      {signal.state === "withdrawn" && signal.crossed ? (
-        // The answer and the withdrawal crossed. Nothing failed, so it is said plainly, here on the signal, as the seat's own statement (it is not fact the operator's machine can check).
+      {signal.crossed ? (
+        // The answer and the withdrawal crossed, as either machine keeps them (withdrawn here, or answered with the withdrawal kept beside it). Nothing failed, so it is said plainly, once, here on the signal, as the seat's own statement (it is not fact the operator's machine can check).
         <p className="seat-threads__signal-note" data-testid="seat-threads-signal-crossed">
           {crossedWords(author)}
         </p>

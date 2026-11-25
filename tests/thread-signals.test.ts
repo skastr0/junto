@@ -159,17 +159,21 @@ describe("an answer held from its seat", () => {
     expect(waits(sent, signalsOf(withdrawn), rowOf)).toBe(false);
   });
 
-  it("is held on the seat's machine's face too, a withdrawn signal that holds the late answer", () => {
+  it("says it once: a crossed signal says the crossing on the signal, so its held answer carries no second mark, on either machine", () => {
     const rowOf = rows({ [SEAT]: [heldRow()] });
-    const late = signal("S01", { state: "withdrawn", response: { text: "go", at: 5 } });
-    expect(withSignals([sent], signalsOf(late), rowOf)[0]).toMatchObject({ held: true });
-  });
-
-  it("is not held on the editing machine's face: an answered signal with withdrawnAt is told by the signal, not by the mail", () => {
-    const rowOf = rows({ [SEAT]: [heldRow()] });
-    const answered = signal("S01", { state: "answered", response: { text: "go", at: 5 }, withdrawnAt: 6 });
-    expect(heldIn(sent, signalsOf(answered), rowOf)).toBe(false);
-    expect(withSignals([sent], signalsOf(answered), rowOf)[0]?.held).toBeUndefined();
+    // The seat's machine: withdrawn, holding the late answer. The editing machine: answered, with the withdrawal kept beside it.
+    const faces = [
+      signal("S01", { state: "withdrawn", response: { text: "go", at: 5 } }),
+      signal("S01", { state: "answered", response: { text: "go", at: 5 }, withdrawnAt: 6 }),
+    ];
+    for (const face of faces) {
+      // The rule still holds the mail (delivery), and the signal reads crossed.
+      expect(heldIn(sent, signalsOf(face), rowOf)).toBe(true);
+      const [read] = withSignals([sent], signalsOf(face), rowOf);
+      expect(read?.held).toBeUndefined();
+      expect(read?.waiting).toBeUndefined();
+      expect(read?.answers).toMatchObject({ signalId: "S01" });
+    }
   });
 
   it("is never held for an open signal, another seat's signal, an automation's, a mail with a receipt, or a mail that is not the operator's", () => {

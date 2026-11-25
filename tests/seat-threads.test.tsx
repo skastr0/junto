@@ -419,7 +419,7 @@ describe("signals in a thread", () => {
     const fixture = fake();
     fixture.state.messages.notes = [
       mine,
-      raised({ ...ask, state: "withdrawn", crossed: true }),
+      raised({ ...ask, state: "withdrawn" }),
       { messageId: "m3", author: "you", mine: true, text: "junto.db holds them.", at: at(1, 9), answers: ref, held: true, waiting: true },
       { messageId: "m4", author: "you", mine: true, text: "Thanks.", at: at(1, 10), answers: ref },
     ];
@@ -432,11 +432,40 @@ describe("signals in a thread", () => {
     expect(plain!.querySelector('[data-testid="seat-threads-answer-held"]')).toBeNull();
   });
 
+  const crossedOnce = async (state: "withdrawn" | "answered") => {
+    const fixture = fake();
+    fixture.state.messages.notes = [
+      mine,
+      raised({ ...ask, state, crossed: true }),
+      { messageId: "m3", author: "you", mine: true, text: "junto.db holds them.", at: at(1, 9), answers: ref, held: true },
+    ];
+    await openOn(fixture);
+    expect(all("seat-threads-signal-crossed")).toHaveLength(1);
+    expect(q("seat-threads-signal-crossed")?.textContent).toBe("pty-lead says it withdrew this before your answer reached it.");
+    expect(q("seat-threads-answer-held")).toBeNull();
+  };
+
+  it("says a crossing once on the seat's machine's face: the crossed line on the withdrawn signal, no held note under the answer", () => crossedOnce("withdrawn"));
+
+  it("says a crossing once on the editing machine's face: the crossed line on the answered signal, no held note under the answer", () => crossedOnce("answered"));
+
+  it("says the held note alone when the signal does not say the crossing yet", async () => {
+    const fixture = fake();
+    fixture.state.messages.notes = [
+      mine,
+      raised({ ...ask, state: "withdrawn" }),
+      { messageId: "m3", author: "you", mine: true, text: "junto.db holds them.", at: at(1, 9), answers: ref, held: true },
+    ];
+    await openOn(fixture);
+    expect(q("seat-threads-signal-crossed")).toBeNull();
+    expect(q("seat-threads-answer-held")?.textContent).toBe("pty-lead says it withdrew this before the answer arrived.");
+  });
+
   it("names the seat in the held note by the pane's own name, never by anything on the message", async () => {
     const fixture = fake();
     fixture.state.messages.notes = [
       mine,
-      raised({ ...ask, state: "withdrawn", crossed: true }),
+      raised({ ...ask, state: "withdrawn" }),
       { messageId: "m3", author: "you", mine: true, text: "junto.db holds them.", at: at(1, 9), answers: { ...ref, text: "pty-lead-impostor says" }, held: true },
     ];
     await openOn(fixture);

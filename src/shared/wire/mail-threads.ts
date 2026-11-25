@@ -82,7 +82,8 @@ export const MailThreadMessage = Schema.Struct({
   /**
    * The operator's answer kept from its seat: the seat withdrew the signal
    * before the answer arrived, so it is never typed (`answerHeld`). The window
-   * says so beside it as the seat's own statement. Present only with `answers`.
+   * says so beside it as the seat's own statement. Present only with `answers`,
+   * and only while the signal does not carry `crossed`: that line says it once.
    */
   held: Schema.optionalKey(Schema.Literal(true)),
 });

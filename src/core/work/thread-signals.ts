@@ -227,7 +227,8 @@ export const withSignals = (
       : {
           ...settled(entry, signals, rowOf),
           answers: { signalId: answered.signalId, kind: answered.kind, text: answered.text },
-          ...(heldIn(entry, signals, rowOf) ? { held: true as const } : {}),
+          // One statement per crossing: a crossed signal says it on the signal, so its answer carries no second mark.
+          ...(heldIn(entry, signals, rowOf) && !crossedClosing(answered) ? { held: true as const } : {}),
         };
   });
 

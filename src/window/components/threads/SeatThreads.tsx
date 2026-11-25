@@ -540,6 +540,13 @@ export function ThreadChat({
   // that mark is not drawn even for a frame before an effect could hold it.
   const [heldBack, setHeldBack] = useState<ReadonlyArray<string>>(() => (started === undefined ? [] : [started.messageId]));
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  // The signals this thread already says crossed, on the signal itself: their answer says nothing more.
+  const crossedSignals = useMemo(() => {
+    const ids = new Set<string>();
+    for (const message of messages) if (message.signal?.crossed === true) ids.add(message.signal.signalId);
+    if (headSignal?.crossed === true) ids.add(headSignal.signalId);
+    return ids;
+  }, [messages, headSignal]);
   const messagesNow = useRef(messages);
   messagesNow.current = messages;
   // Whether the chat is on screen when a timer fires, not when it was set.
@@ -808,7 +815,7 @@ export function ThreadChat({
                     {/* The operator's own mail that its seat does not have yet. */}
                     {message.mine && message.waiting && !message.held && !heldBack.includes(message.messageId) ? <WaitingMark name={name} /> : null}
                     {/* An answer its seat withdrew the signal before it arrived: kept from the seat, said in the crossed note's own style. */}
-                    {message.mine && message.held ? (
+                    {message.mine && message.held && !(message.answers !== undefined && crossedSignals.has(message.answers.signalId)) ? (
                       <p className="seat-threads__signal-note seat-threads__signal-note--held" data-testid="seat-threads-answer-held">{answerHeldWords(name)}</p>
                     ) : null}
                   </>
