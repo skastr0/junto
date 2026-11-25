@@ -27,7 +27,7 @@ vi.mock("../src/window/components/quick-thread/QuickThread", () => ({ QuickThrea
 const { state$ } = await import("../src/window/lib/state");
 const { resetOperatorThreads, setOperatorThreadsSource } = await import("../src/window/lib/operator-threads");
 const { clearThreadsFilters, threadsView$ } = await import("../src/window/lib/threads-view");
-const { resetSeatThreads, sendSeatThread } = await import("../src/window/lib/seat-threads");
+const { holdWaitingMark, resetSeatThreads, sendSeatThread, waitingHoldLeft } = await import("../src/window/lib/seat-threads");
 const { OperatorThreads } = await import("../src/window/components/feed/OperatorThreads");
 
 const region = { regionId: "", label: "", path: [] };
@@ -157,4 +157,34 @@ it("draws nothing for mail the list shows before the send's own answer names it"
     await vi.advanceTimersByTimeAsync(200);
   });
   expect(marked().sort()).toEqual(["t-old", "t-sent"]);
+});
+
+it("lets go of a seat's marks when a send never answers, at the cap", async () => {
+  waitingRows = new Set(["m-old"]);
+  await rowsShown();
+  vi.useFakeTimers();
+  gate = new Promise<void>(() => undefined);
+  void sendSeatThread({ canvasName: CANVAS, seatId: "a", text: "Are you there?", threadId: "t-sent" });
+  waitingRows.add("m-sent");
+  writtenAt["m-sent"] = Date.now();
+  setOperatorThreadsSource(source());
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(marked()).toEqual(["t-old"]);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(6000);
+  });
+  expect(marked().sort()).toEqual(["t-old", "t-sent"]);
+});
+
+it("says how much of its second a hold has left: the whole of it at the start, none once it is up or when there was none", () => {
+  vi.useFakeTimers();
+  expect(waitingHoldLeft("never-held")).toBe(0);
+  holdWaitingMark("m-x");
+  expect(waitingHoldLeft("m-x")).toBe(1000);
+  vi.advanceTimersByTime(400);
+  expect(waitingHoldLeft("m-x")).toBe(600);
+  vi.advanceTimersByTime(700);
+  expect(waitingHoldLeft("m-x")).toBe(0);
 });

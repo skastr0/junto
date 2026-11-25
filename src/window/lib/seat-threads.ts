@@ -1000,14 +1000,26 @@ const holdTimers = new Set<ReturnType<typeof setTimeout>>();
 // held too, until the answer's own hold by id takes over.
 const sending$ = observable<Record<string, { count: number; since: number }>>({});
 
-const sendBegins = (seatId: string): void => {
+/** The longest a send holds its seat's marks: a send that never answers cannot hold them for ever. */
+const SEND_HOLD_CAP_MS = 10 * WAITING_AFTER_MS;
+
+/** A send to this seat begins; the one thing it returns ends its hold, once, at its answer or at the cap. */
+const sendBegins = (seatId: string): (() => void) => {
   const now = sending$[seatId].peek();
   sending$[seatId].set({ count: (now?.count ?? 0) + 1, since: now?.since ?? Date.now() });
-};
-const sendEnds = (seatId: string): void => {
-  const now = sending$[seatId].peek();
-  if (now === undefined || now.count <= 1) sending$[seatId].delete();
-  else sending$[seatId].set({ count: now.count - 1, since: now.since });
+  let over = false;
+  const end = (): void => {
+    if (over) return;
+    over = true;
+    clearTimeout(cap);
+    holdTimers.delete(cap);
+    const held = sending$[seatId].peek();
+    if (held === undefined || held.count <= 1) sending$[seatId].delete();
+    else sending$[seatId].set({ count: held.count - 1, since: held.since });
+  };
+  const cap = setTimeout(end, SEND_HOLD_CAP_MS);
+  holdTimers.add(cap);
+  return end;
 };
 
 /** The operator's mail was sent from here: its waiting mark is held back for a second. */
@@ -1022,10 +1034,15 @@ export const holdWaitingMark = (messageId: string): void => {
   holdTimers.add(timer);
 };
 
-/** How much of its second this mail's hold has left, so what is said about it can end when the mark can be drawn. */
+/**
+ * How much of its second this mail's hold has left, so what is said about it
+ * can end when the mark can be drawn. Mail with no hold on record has none
+ * left: every send from here is held when it is answered, so none means the
+ * second is up, and the mark is already drawn.
+ */
 export const waitingHoldLeft = (messageId: string): number => {
   const since = heldSince.get(messageId);
-  return since === undefined ? WAITING_AFTER_MS : Math.max(0, WAITING_AFTER_MS - (Date.now() - since));
+  return since === undefined ? 0 : Math.max(0, WAITING_AFTER_MS - (Date.now() - since));
 };
 
 /** Whether this mail's waiting mark is still held back: held by its id, or written while a send to its seat is still in flight. */
@@ -1085,7 +1102,7 @@ export const sendSeatThread = async (
   const { canvasName, seatId, ...mail } = input;
   const send = getJuntoApi()?.seatThreadSend;
   if (typeof send !== "function") return { ok: false, reason: "failed", message: "Junto could not reach this seat." };
-  sendBegins(seatId);
+  const endSend = sendBegins(seatId);
   try {
     const result = await send({ canvasName, nodeId: seatId, ...mail });
     if (result.ok) {
@@ -1097,7 +1114,7 @@ export const sendSeatThread = async (
   } catch (error) {
     return { ok: false, reason: "failed", message: errorText(error) };
   } finally {
-    sendEnds(seatId);
+    endSend();
   }
 };
 
