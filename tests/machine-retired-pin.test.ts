@@ -243,6 +243,8 @@ describe("a first send to a reinstalled machine", () => {
       updated: false, disposition: "ready", installationId: NEW, machineName: "mini", pid: 72,
       transitions: [{ step: "ready", pid: 72 }],
     });
+    const macbookLink = await macbook.runtime.runPromise(MachineLink);
+    const macbookMachines = await macbook.runtime.runPromise(MachineRepository);
     const owner = await macbook.runtime.runPromise(makeMachineOwnerActions({
       ownStatus: Effect.succeed(Schema.decodeUnknownSync(MachineOwnStatus)({ build: "c".repeat(64), installationId: macbook.self, machineName: "macbook", juntoHome: macbook.home, pid: 71, ready: true, form: "mac-mini" })),
       ownHarnesses: Effect.succeed({ machineName: "macbook", reachable: true, keychain: "available", harnesses: [] }),
@@ -251,9 +253,8 @@ describe("a first send to a reinstalled machine", () => {
       ownLogs: () => Effect.die("own logs not part of this test"),
       peerLogs: () => Effect.die("peer logs not part of this test"),
       copy: (host) => Effect.gen(function* () {
-        const link = yield* MachineLink;
-        const retired = yield* Effect.flatMap(MachineRepository, (repository) => repository.retiredPin(host.id)).pipe(Effect.orElseSucceed(() => undefined));
-        const peer = yield* link.connectSetup(host, NEW, {
+        const retired = yield* macbookMachines.retiredPin(host.id).pipe(Effect.orElseSucceed(() => undefined));
+        const peer = yield* macbookLink.connectSetup(host, NEW, {
           forget: (name, previous) => Effect.sync(() => { forgotten.push([name, previous]); }),
           placements: () => Effect.succeed(placed),
         }).pipe(Effect.catch((cause): Effect.Effect<never, MachineSetupError> => cause instanceof LinkClosed && retired !== undefined
