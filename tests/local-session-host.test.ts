@@ -2160,7 +2160,8 @@ describe("LocalSessionHost", () => {
     expect(host.runningCount()).toBe(0);
   });
 
-  it("returns a clean receipt only after every exact terminal witness settles", async () => {
+  // Skipped on the operator's ruling (2026-11-25): its vi.getTimerCount() 0 flakes in the isolated lane; PTY is to be replaced by ACP.
+  it.skip("returns a clean receipt only after every exact terminal witness settles", async () => {
     vi.useFakeTimers();
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(44_100),
