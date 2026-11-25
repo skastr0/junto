@@ -20,6 +20,7 @@ import { mailExtensionMetadata } from "@shared/crew";
 import { makeUserMessage } from "@shared/task";
 import type { ContentRef } from "@shared/wire/content-ref";
 import { operatorActorRef } from "@shared/work-reference";
+import { perfStage } from "@shared/perf-stages";
 import { claimOperatorAttachments, operatorMailOwner } from "../content/operator-attachments";
 import { ContentService } from "../content/service";
 import { WorkService } from "../work/service";
@@ -184,7 +185,9 @@ const answerOpenSignals = (
         }),
       );
       // A row main will not write goes again with the answer's words as a file.
+      perfStage("core", "core-step-start", { op: "SignalWriteRow" });
       const carried = yield* writeMailCarryingText(write, { text: mailed, attachments: refs, owner, filesText: AGENT_SIGNAL_TEXT_FILE_RESPONSE });
+      perfStage("core", "core-step-end", { op: "SignalWriteRow" });
       const appended = carried.written;
       refs = carried.attachments;
       if (!appended.ok) {
@@ -194,7 +197,9 @@ const answerOpenSignals = (
       messageId = appended.data.messageId;
     }
 
+    perfStage("core", "core-step-start", { op: "SignalRecordAnswer" });
     const answered = yield* Effect.result(repository.answer(signal.signalId, text, refs, options.reply));
+    perfStage("core", "core-step-end", { op: "SignalRecordAnswer" });
     if (answered._tag === "Failure") {
       // Mailed, the files stay with the mail; recorded only, they go with the answer.
       if (messageId === undefined) yield* releaseFiles;
@@ -214,7 +219,9 @@ const answerOpenSignals = (
     // answer stands either way: a signal the store will not place is said in the log.
     let closed = answered.success;
     if (thread === undefined && messageId !== undefined) {
+      perfStage("core", "core-step-start", { op: "SignalSetThread" });
       const placed = yield* Effect.result(repository.setThread(signal.signalId, messageId));
+      perfStage("core", "core-step-end", { op: "SignalSetThread" });
       if (placed._tag === "Success") closed = placed.success;
       else yield* Effect.logWarning("the answer started a thread its signal was not put in", { signalId: signal.signalId });
     }
@@ -237,7 +244,9 @@ const answerOpenSignals = (
 export const answerAgentSignal = (signalId: string, response: string, options?: AnswerOptions) =>
   Effect.gen(function* () {
     const signals = yield* AgentSignalRepository;
+    perfStage("core", "core-step-start", { op: "SignalGet" });
     const current = yield* Effect.result(signals.get(signalId));
+    perfStage("core", "core-step-end", { op: "SignalGet" });
     if (current._tag === "Failure") return refused(repositoryMessage(current.failure));
     const signal = current.success;
     if (signal.state !== "open") return refused(`this signal is already ${signal.state}`);
@@ -313,7 +322,9 @@ export type SignalReplyPorts = {
 export const replyAgentSignal = (signalId: string, reply: SignalReply, ports: SignalReplyPorts) =>
   Effect.gen(function* () {
     const signals = yield* AgentSignalRepository;
+    perfStage("core", "core-step-start", { op: "SignalGet" });
     const current = yield* Effect.result(signals.get(signalId));
+    perfStage("core", "core-step-end", { op: "SignalGet" });
     if (current._tag === "Failure") return refused(repositoryMessage(current.failure));
     const signal = current.success;
     if (signal.state !== "open") return refused(`this signal is already ${signal.state}`);
