@@ -41,6 +41,8 @@ type FullHook = CanvasTestHook & {
   readonly pick: (screen: Point) => Hit | null;
   /** Painted quads for a card, with rect in page screen pixels. */
   readonly partsOf: (id: NodeId) => ReadonlyArray<DrawnPart>;
+  /** Whether anything is still easing or animating: the scene's own word. */
+  readonly hasMotion: () => boolean;
   /** Painted quads for a cluster badge, with rect in page screen pixels. */
   readonly badgePartsOf: (key: string) => ReadonlyArray<DrawnPart>;
   /** In-view seats nothing draws or picks, and missing or waiting portraits (issue 912). */
