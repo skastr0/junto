@@ -33,13 +33,19 @@ const create = async (page: Page, name: string): Promise<void> => {
 
 test("a new canvas is made from the top bar and opened", async ({ junto: { page } }) => {
   const thrown: string[] = [];
-  page.on("pageerror", (error) => thrown.push(error.message));
+  page.on("pageerror", (error) => thrown.push(`${error.message}\n${error.stack ?? ""}`));
+  page.on("console", (message) => {
+    if (message.type() === "error") thrown.push(message.text());
+  });
   await canvasReady(page, { timeout: 30_000 });
   expect(await names(page)).toEqual([BOARD]);
 
   await create(page, "second");
 
   await expect.poll(() => names(page), { timeout: 20_000 }).toEqual(expect.arrayContaining([BOARD, "second"]));
+  // Whatever the window threw on the way, said first: a render error takes the bar down with it.
+  await page.waitForTimeout(1500);
+  expect(thrown).toEqual([]);
   await expect(page.getByLabel("Active canvas")).toContainText(/second/i, { timeout: 20_000 });
   expect(thrown).toEqual([]);
 });
