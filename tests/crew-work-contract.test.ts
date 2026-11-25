@@ -131,6 +131,28 @@ describe("crew work wire contract", () => {
     expect(Result.isFailure(stranger) && stranger.failure).toMatchObject({ type: "UnknownTarget", details: { target: "Stranger" } });
   });
 
+  it("keeps one name ambiguous across a mask: a port decides what a seat may do, never who the name means", () => {
+    const canvas = canvasOf(
+      [seat("author"), seat("open", { label: "Twin" }), seat("masked", { label: "Twin" })],
+      [
+        wire("o", "author", "open", "messages"),
+        wire("m", "author", "masked", "messages", { mask: ["terminal.read"] }),
+      ],
+    );
+    const named = resolveWorkTarget(canvas, "author", "Twin", "thread.list");
+    expect(Result.isFailure(named) && named.failure).toMatchObject({
+      type: "InputError",
+      details: { target: "Twin", retryable: false, next_step: "send again with the node id of the one you mean" },
+    });
+    const ids = Result.isFailure(named) ? named.failure.details?.candidates?.map((candidate) => candidate.nodeId).sort() : [];
+    expect(ids).toEqual(["masked", "open"]);
+    // Each id answers in its own words, so the mask is the only difference.
+    const admitted = admitWorkTarget(canvas, "author", "open", "thread.list");
+    expect(Result.isSuccess(admitted)).toBe(true);
+    const refused = admitWorkTarget(canvas, "author", "masked", "thread.list");
+    expect(Result.isFailure(refused) && refused.failure.details?.reason).toBe("port_off");
+  });
+
   it("resolves a wired seat on another machine by name, and refuses it with other_machine", () => {
     const canvas = canvasOf([seat("author"), peerSeat("away")], [wire("m", "author", "away", "messages")]);
     const named = resolveWorkTarget(canvas, "author", "away", "thread.list");
