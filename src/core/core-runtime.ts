@@ -491,6 +491,7 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
       home: options.home, userHome: homedir(), run: runTool, toolEnv: resolvedSpawnEnv,
     }) : undefined;
     const actions = yield* makeMachineOwnerActions({
+      autoUpdate: { downloadsBundles: options.acquireBundle !== undefined, signedRelease: false },
       linkSetup,
       ...(vaultSetup === undefined ? {} : { vaultSetup }),
       ownStatus: machineStatus.own,

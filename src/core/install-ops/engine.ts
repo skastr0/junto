@@ -7,6 +7,8 @@ import { installOpsDatabasePath } from "./paths";
 import {
   INSTALL_OPS_SCHEMA_SQL,
   INSTALL_OPS_SCHEMA_VERSION,
+  INSTALL_OPS_V1_SCHEMA_SQL,
+  MACHINE_UPDATE_LATCHES_SQL,
 } from "./schema";
 import {
   InstallOpsDeferredError,
@@ -17,6 +19,7 @@ import {
   type InstallOpsAvailability,
   type InstallOpsServiceError,
   type InstallOpsServiceShape,
+  type MachineUpdateLatch,
 } from "./service";
 
 export {
@@ -36,6 +39,7 @@ export {
   type InstallOpsAvailability,
   type InstallOpsServiceError,
   type InstallOpsServiceShape,
+  type MachineUpdateLatch,
 } from "./service";
 
 const BUSY_TIMEOUT_MS = 5_000;
@@ -65,20 +69,18 @@ const storedSchemaSql = (sql: string): string =>
   sql.trim().replace(/;$/u, "");
 
 const expectedSchemaSql = storedSchemaSql(INSTALL_OPS_SCHEMA_SQL);
+const expectedV1SchemaSql = storedSchemaSql(INSTALL_OPS_V1_SCHEMA_SQL);
+
+const EXPECTED_V1_SCHEMA_OBJECTS = [
+  { type: "index", name: "sqlite_autoindex_backfill_markers_1", tbl_name: "backfill_markers", sql: null },
+  { type: "table", name: "backfill_markers", tbl_name: "backfill_markers", sql: expectedV1SchemaSql },
+] as const;
 
 const EXPECTED_SCHEMA_OBJECTS = [
-  {
-    type: "index",
-    name: "sqlite_autoindex_backfill_markers_1",
-    tbl_name: "backfill_markers",
-    sql: null,
-  },
-  {
-    type: "table",
-    name: "backfill_markers",
-    tbl_name: "backfill_markers",
-    sql: expectedSchemaSql,
-  },
+  { type: "index", name: "sqlite_autoindex_backfill_markers_1", tbl_name: "backfill_markers", sql: null },
+  { type: "index", name: "sqlite_autoindex_machine_update_latches_1", tbl_name: "machine_update_latches", sql: null },
+  { type: "table", name: "backfill_markers", tbl_name: "backfill_markers", sql: expectedV1SchemaSql },
+  { type: "table", name: "machine_update_latches", tbl_name: "machine_update_latches", sql: storedSchemaSql(MACHINE_UPDATE_LATCHES_SQL) },
 ] as const;
 
 type SchemaObjectRow = {
@@ -95,7 +97,7 @@ type DatabaseFingerprint = {
   readonly schema: ReadonlyArray<SchemaObjectRow>;
 };
 
-type AdmittedDatabaseKind = "fresh" | "current";
+type AdmittedDatabaseKind = "fresh" | "current" | "previous";
 
 const integerPragma = (
   database: DatabaseSync,
@@ -187,10 +189,10 @@ const inspectDatabase = (database: DatabaseSync): DatabaseFingerprint => {
   return fingerprint;
 };
 
-const schemaIsExact = (schema: ReadonlyArray<SchemaObjectRow>): boolean =>
-  schema.length === EXPECTED_SCHEMA_OBJECTS.length &&
+const schemaIsExact = (schema: ReadonlyArray<SchemaObjectRow>, expectedObjects: typeof EXPECTED_SCHEMA_OBJECTS | typeof EXPECTED_V1_SCHEMA_OBJECTS): boolean =>
+  schema.length === expectedObjects.length &&
   schema.every((row, index) => {
-    const expected = EXPECTED_SCHEMA_OBJECTS[index];
+    const expected = expectedObjects[index];
     return (
       expected !== undefined &&
       row.type === expected.type &&
@@ -209,9 +211,17 @@ const admitFingerprint = (
   if (
     fingerprint.applicationId === INSTALL_OPS_APPLICATION_ID &&
     fingerprint.userVersion === INSTALL_OPS_SCHEMA_VERSION &&
-    schemaIsExact(fingerprint.schema)
+    schemaIsExact(fingerprint.schema, EXPECTED_SCHEMA_OBJECTS)
   ) {
     return "current";
+  }
+
+  if (
+    fingerprint.applicationId === INSTALL_OPS_APPLICATION_ID &&
+    fingerprint.userVersion === 1 &&
+    schemaIsExact(fingerprint.schema, EXPECTED_V1_SCHEMA_OBJECTS)
+  ) {
+    return "previous";
   }
 
   if (
@@ -234,6 +244,24 @@ const assertCurrentSchema = (database: DatabaseSync): void => {
   if (kind !== "current") {
     throw new Error("install-ops schema does not match its recorded version");
   }
+};
+
+const migratePreviousSchema = (database: DatabaseSync): void => {
+  let open = false;
+  try {
+    database.exec("BEGIN IMMEDIATE");
+    open = true;
+    database.exec(MACHINE_UPDATE_LATCHES_SQL);
+    database.exec(`PRAGMA user_version = ${INSTALL_OPS_SCHEMA_VERSION}`);
+    database.exec("COMMIT");
+    open = false;
+  } catch (error) {
+    if (open) {
+      try { database.exec("ROLLBACK"); } catch { /* keep the migration failure */ }
+    }
+    throw error;
+  }
+  assertCurrentSchema(database);
 };
 
 const initializeFreshSchema = (database: DatabaseSync): void => {
@@ -357,7 +385,7 @@ const openInstallOps = (configuredPath: string): Effect.Effect<
                 const fingerprint = inspectDatabase(recoveryDatabase);
                 const kind = admitFingerprint(fingerprint, false);
                 if (
-                  kind !== "current" ||
+                  kind === "fresh" ||
                   fingerprint.journalMode !== "delete"
                 ) {
                   throw new Error(
@@ -385,7 +413,7 @@ const openInstallOps = (configuredPath: string): Effect.Effect<
                   const fingerprint = inspectDatabase(recoveryDatabase);
                   const kind = admitFingerprint(fingerprint, false);
                   if (
-                    kind !== "current" ||
+                    kind === "fresh" ||
                     fingerprint.journalMode !== "wal"
                   ) {
                     throw new Error(
@@ -450,6 +478,7 @@ const openInstallOps = (configuredPath: string): Effect.Effect<
             "install-ops database identity changed between inspection and writable open",
           );
         }
+        if (writableKind === "previous") migratePreviousSchema(database);
         fileGuard.verifyFamily();
 
         if (inspectionDatabase !== undefined) {
@@ -538,6 +567,18 @@ const openInstallOps = (configuredPath: string): Effect.Effect<
               completed_at = excluded.completed_at
           `,
         );
+        const readUpdateLatch = database.prepare(
+          "SELECT machine_name, target_build, outcome, at FROM machine_update_latches WHERE machine_name = ?",
+        );
+        const writeUpdateLatch = database.prepare(
+          `INSERT INTO machine_update_latches(machine_name, target_build, outcome, at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(machine_name) DO UPDATE SET
+             target_build = excluded.target_build,
+             outcome = excluded.outcome,
+             at = excluded.at`,
+        );
+        const deleteUpdateLatch = database.prepare("DELETE FROM machine_update_latches WHERE machine_name = ?");
         fileGuard.verifyQuiescent();
 
         let closed = false;
@@ -682,6 +723,29 @@ const openInstallOps = (configuredPath: string): Effect.Effect<
                 }),
               catch: (cause) => serviceError("markComplete", cause),
             }),
+          updateLatch: (machineName) =>
+            Effect.try({
+              try: () => guardedOperation("updateLatch", () => {
+                const row = readUpdateLatch.get(machineName) as { readonly machine_name: string; readonly target_build: string; readonly outcome: string; readonly at: string } | undefined;
+                if (row === undefined) return undefined;
+                return { machineName: row.machine_name, targetBuild: row.target_build, outcome: row.outcome, at: row.at } as MachineUpdateLatch;
+              }),
+              catch: (cause) => serviceError("updateLatch", cause),
+            }),
+          recordUpdateLatch: (latch) =>
+            Effect.try({
+              try: () => guardedOperation("recordUpdateLatch", () => {
+                writeUpdateLatch.run(latch.machineName, latch.targetBuild, latch.outcome, latch.at);
+              }),
+              catch: (cause) => serviceError("recordUpdateLatch", cause),
+            }),
+          clearUpdateLatch: (machineName) =>
+            Effect.try({
+              try: () => guardedOperation("clearUpdateLatch", () => {
+                deleteUpdateLatch.run(machineName);
+              }),
+              catch: (cause) => serviceError("clearUpdateLatch", cause),
+            }),
         };
 
         return { service, close: closeResources };
@@ -726,6 +790,9 @@ const deferredService = (
     ensurePending: () => Effect.fail(deferred("ensurePending")),
     reopenPending: () => Effect.fail(deferred("reopenPending")),
     markComplete: () => Effect.fail(deferred("markComplete")),
+    updateLatch: () => Effect.fail(deferred("updateLatch")),
+    recordUpdateLatch: () => Effect.fail(deferred("recordUpdateLatch")),
+    clearUpdateLatch: () => Effect.fail(deferred("clearUpdateLatch")),
   };
 };
 

@@ -118,6 +118,20 @@ export const MachinePeerStatus = Schema.Struct({
   failure: Schema.optionalKey(EncodedFailure),
 });
 export type MachinePeerStatus = typeof MachinePeerStatus.Type;
+/** What the automatic updater last did, for the machine list and its operator line. */
+export const MachineAutoUpdateState = Schema.Literals([
+  "updating", "updated", "refused-busy", "this-older", "needs-signed-release", "rolled-back", "start-failed", "stop-unconfirmed", "failed",
+]);
+export type MachineAutoUpdateState = typeof MachineAutoUpdateState.Type;
+export const MachineAutoUpdateView = Schema.Struct({
+  state: MachineAutoUpdateState,
+  targetBuild: MachineBuild,
+  at: Schema.String.pipe(Schema.check(Schema.isMaxLength(64))),
+  runningSeats: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
+  detail: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(512)))),
+});
+export type MachineAutoUpdateView = typeof MachineAutoUpdateView.Type;
+
 export const MachineStatusData = Schema.Union([MachineOwnStatus, MachinePeerStatus]);
 export type MachineStatusData = typeof MachineStatusData.Type;
 export const MachineListData = Schema.Struct({
@@ -132,6 +146,8 @@ export const MachineListData = Schema.Struct({
     holdsRevokedKeys: Schema.optionalKey(Schema.Array(MachineName).pipe(Schema.check(Schema.isMaxLength(32)))),
     /** The machine's vault token, as this machine knows it: names, scope and age, never the token. */
     vault: Schema.optionalKey(MachineVaultView),
+    /** The automatic updater's last attempt, when it has one for this machine. */
+    autoUpdate: Schema.optionalKey(MachineAutoUpdateView),
   })).pipe(Schema.check(Schema.isMaxLength(32))),
 });
 export type MachineListData = typeof MachineListData.Type;

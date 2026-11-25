@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
 import { Reactivity } from "effect/reactivity";
 import { SqlClient } from "effect/sql";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { makeSqliteClient } from "../src/core/state/sqlite-client";
 import { MODEL_STATE_SCHEMA_SQL } from "../src/core/model/state-schema";
 import { MACHINE_STATE_SCHEMA_SQL } from "../src/core/machines/state-schema";
@@ -27,14 +27,14 @@ const readyInstall = () => Schema.decodeUnknownSync(MachineInstallResult)({
   serviceLabel: "test-service", provider: "launchd", updated: false, disposition: "ready", installationId: "mini-install", machineName: "mini", pid: 71, transitions: [{ step: "ready", pid: 71 }],
 });
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); resetDefaultHostsRegistryForTests(); setHostsSnapshot([]); });
-const fixture = async (overrides: Partial<MachineOwnerOptions> = {}) => {
+const fixture = async (overrides: Partial<MachineOwnerOptions> = {}, sshRun?: (program: unknown) => Effect.Effect<{ readonly stdout: string; readonly stderr: string; readonly exitCode: number }>) => {
   const database = new DatabaseSync(":memory:");
   database.exec(MACHINE_STATE_SCHEMA_SQL + MACHINE_REGISTRY_STATE_SCHEMA_SQL + MODEL_STATE_SCHEMA_SQL);
   database.exec("CREATE TABLE host_registry_state(singleton INTEGER PRIMARY KEY, version INTEGER, initialized_at TEXT) STRICT");
   const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
   const machines = makeMachineRepositoryLive({ defaultName: () => "macbook" }).pipe(Layer.provideMerge(sql));
-  const ssh = Layer.succeed(SshTransport, SshTransport.of({ run: () => Effect.die("no dial"), transfer: () => Effect.die("no transfer"), connect: () => Effect.die("no link"), forward: () => Effect.die("no forward"), warm: () => Effect.void, teardown: () => Effect.void }));
-  const runtime = ManagedRuntime.make(Layer.mergeAll(HostsServiceLive, HostRegistryRows.layer).pipe(Layer.provideMerge(testLog.log.loggerLayer), Layer.provideMerge(machines), Layer.provide(ssh)));
+  const ssh = Layer.succeed(SshTransport, SshTransport.of({ run: sshRun ?? (() => Effect.die("no dial")), transfer: () => Effect.die("no transfer"), connect: () => Effect.die("no link"), forward: () => Effect.die("no forward"), warm: () => Effect.void, teardown: () => Effect.void }));
+  const runtime = ManagedRuntime.make(Layer.mergeAll(HostsServiceLive, HostRegistryRows.layer).pipe(Layer.provideMerge(testLog.log.loggerLayer), Layer.provideMerge(machines), Layer.provideMerge(ssh)));
   cleanup.push(async () => { await runtime.dispose(); database.close(); });
   const disconnected: string[] = [];
   const probed: string[] = [];
@@ -57,7 +57,7 @@ const fixture = async (overrides: Partial<MachineOwnerOptions> = {}) => {
     if (Result.isFailure(request)) throw new Error(request.failure.message);
     return runtime.runPromise(owner.dispatch(request.success));
   };
-  return { database, call, disconnected, probed, failReload: () => { failReload = true; } };
+  return { database, call, disconnected, probed, failReload: () => { failReload = true; }, start: () => runtime.runPromise(owner.startAutoUpdates?.() ?? Effect.succeed(() => undefined)) };
 };
 
 it("joins active pins on the list and retires the pin with route removal", async () => {
@@ -338,4 +338,26 @@ it("passes a failure's message through the scrub before it leaves the owner", as
   expect(response).toMatchObject({ ok: false, error: { type: "io" } });
   expect(JSON.stringify(response)).not.toContain("ops_test-only");
   expect(JSON.stringify(response)).toContain("the log read failed near");
+});
+
+it("updates an idle pinned peer with no click and records the attempt", async () => {
+  let copies = 0;
+  const peerStatus = {
+    build: "b".repeat(64), version: "0.10.0", builtAt: "2026-01-01T00:00:00.000Z",
+    form: "mac-mini" as const, keychain: "available" as const, installationId: "mini-install", machineName: "mini",
+    juntoHome: "/home/probe", pid: 72, ready: true, runningSeats: 0,
+  };
+  const f = await fixture({
+    autoUpdate: { downloadsBundles: false, signedRelease: false },
+    ownStatus: Effect.succeed(Schema.decodeUnknownSync(MachineOwnStatus)({ build: "a".repeat(64), version: "0.11.0", builtAt: "2026-02-01T00:00:00.000Z", installationId: "own-install", machineName: "macbook", juntoHome: "/home/user/probe", pid: 71, ready: true, form: "mac-mini", keychain: "available" })),
+    peerBuild: () => Effect.succeed("b".repeat(64)),
+    copy: () => Effect.sync(() => { copies += 1; return readyInstall(); }),
+  }, () => Effect.succeed({ stdout: JSON.stringify({ ok: true, command: "machine status", data: peerStatus }), stderr: "", exitCode: 0 }));
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini", juntoHome: "/home/probe", installRoot: "/home/probe/install" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  const stop = await f.start();
+  await vi.waitFor(() => expect(copies).toBe(1));
+  stop();
+  const listed = await f.call("machine.list", {});
+  expect(listed.ok && listed.op === "machine.list" && listed.data.machines.find(row => row.machine.id === "mini")?.autoUpdate).toMatchObject({ state: "updated", targetBuild: "a".repeat(64) });
 });

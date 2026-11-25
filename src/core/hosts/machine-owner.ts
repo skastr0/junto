@@ -1,10 +1,11 @@
-import { Context, Effect, Option, Result, Schema, Semaphore } from "effect";
+import { Context, Effect, Fiber, Option, Result, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/sql";
 import {
   OPERATOR_PROTOCOL_VERSION, decodeOperatorResponse,
   type OperatorRequestEnvelope, type OperatorResponseEnvelope,
 } from "@shared/operator-control";
-import { MachineBuild, MachinePeerStatus, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput } from "@shared/machine-control";
+import { MachineBuild, MachinePeerStatus, type MachineOwnStatus, type MachineHarnesses, type MachineCopyInput, type MachineAutoUpdateView } from "@shared/machine-control";
+import { decideMachineUpdate } from "@shared/machine-updates";
 import type { MachineLogQuery, MachineLogRead } from "@shared/machine-log";
 import type { MachineSeatInput, MachineSeatRead, MachineSeatReadInput, MachineSeatStartInput, MachineSeatStarted, MachineSeatStopped } from "@shared/machine-seat";
 import type { TerminalSessionSummary } from "@shared/terminal";
@@ -16,7 +17,12 @@ import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { MachineRepository } from "../machines/repository";
 import { StateTransactionOperation } from "../state/service";
 import { HostsService } from "./service";
+import { parseHostSshRoute } from "../ssh/domain";
 import { noteMachinesChanged } from "./machine-changes";
+import { InstallOpsService } from "../install-ops/service";
+import { SshTransport } from "../ssh";
+import { machineStatusProgram } from "../ssh/machine-owner-commands";
+import { decodeMachineOwnStatus } from "./machine-status";
 import { HostRegistryRows } from "./registry";
 import type { MachineLinkSetup } from "./machine-link";
 import type { VaultSetup } from "../vault/setup";
@@ -42,12 +48,19 @@ export interface MachineOwnerOptions {
   readonly linkSetup?: MachineLinkSetup;
   /** Vault tokens (`junto machine vault-token`), refused while VAULT_ENABLED is off. */
   readonly vaultSetup?: VaultSetup;
+  /** Automatic update is allowed only for an own build, or a signed release. */
+  readonly autoUpdate?: {
+    readonly downloadsBundles: boolean;
+    readonly signedRelease: boolean;
+  };
 }
 export class SeatControlUnavailable extends Schema.TaggedError<SeatControlUnavailable>()("SeatControlUnavailable", {
   message: Schema.String.pipe(Schema.check(Schema.isMaxLength(1024))),
 }) {}
 export interface MachineOwnerActions {
   readonly dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void) => Effect.Effect<OperatorResponseEnvelope>;
+  /** Starts the idle automatic updater; the return stops it. */
+  readonly startAutoUpdates?: () => Effect.Effect<() => void>;
 }
 export class MachineOwnerControl extends Context.Service<MachineOwnerControl, MachineOwnerActions>()("@junto/MachineOwnerControl") {}
 
@@ -57,7 +70,97 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
   const hosts = yield* HostsService;
   const rows = yield* HostRegistryRows;
   const sql = yield* SqlClient.SqlClient;
+  const ssh = yield* SshTransport;
+  const installOps = yield* Effect.serviceOption(InstallOpsService);
+  const autoUpdateViews = new Map<string, MachineAutoUpdateView>();
   const mutationLock = yield* Semaphore.make(1);
+  const updateViews = (name: string, view: MachineAutoUpdateView): void => {
+    autoUpdateViews.set(name, view);
+    noteMachinesChanged();
+  };
+  const startAutoUpdates = (): Effect.Effect<() => void> => Effect.gen(function* () {
+    const auto = options.autoUpdate;
+    if (auto === undefined) return () => undefined;
+    let stopped = false;
+    const inFlight = new Set<string>();
+    const once = Effect.gen(function* () {
+      const own = yield* options.ownStatus;
+      if (own.ready !== true) return;
+      const pins = yield* machines.peers;
+      for (const pin of pins) {
+        if (stopped || inFlight.has(pin.machineName)) continue;
+        const host = yield* hosts.get(pin.machineName).pipe(Effect.orElseSucceed(() => undefined));
+        if (host === undefined || host.isThisMachine || host.sshEndpoint === undefined) continue;
+        const peerBuild = yield* options.peerBuild(pin.machineName).pipe(Effect.orElseSucceed(() => undefined));
+        if (peerBuild === undefined || peerBuild === own.build) continue;
+        if (host.juntoHome === undefined || host.installRoot === undefined) continue;
+        // Never update a machine that edits a canvas this one holds; its name
+        // is not authority, its installation id is.
+        const edited = yield* sql`SELECT canvas_name FROM canvases WHERE editor_installation_id = ${pin.installationId} LIMIT 1`;
+        const latch = Option.isSome(installOps) ? yield* installOps.value.updateLatch(pin.machineName).pipe(Effect.orElseSucceed(() => undefined)) : undefined;
+        const route = yield* parseHostSshRoute(host).pipe(Effect.orElseSucceed(() => undefined));
+        if (route === undefined) continue;
+        const status = yield* machineStatusProgram(route, { juntoHome: host.juntoHome, installRoot: host.installRoot })
+          .pipe(Effect.flatMap(program => ssh.run(program)), Effect.flatMap(answer => decodeMachineOwnStatus(answer.stdout)), Effect.orElseSucceed(() => undefined));
+        if (status === undefined || status.installationId !== pin.installationId) continue;
+        const decision = decideMachineUpdate({
+          peerBuild,
+          ownBuild: own.build,
+          peerRelease: { version: status.version, builtAt: status.builtAt },
+          ownRelease: { version: own.version, builtAt: own.builtAt },
+          runningSeats: status.runningSeats,
+          editedHere: edited.length > 0,
+          latchedForBuild: latch !== undefined && latch.targetBuild === own.build,
+          downloadsBundles: auto.downloadsBundles,
+          signedRelease: auto.signedRelease,
+        });
+        if (decision.kind === "skip") continue;
+        if (decision.kind === "click") {
+          updateViews(pin.machineName, {
+            state: "refused-busy",
+            targetBuild: own.build,
+            at: new Date().toISOString(),
+            ...(status.runningSeats === undefined ? { detail: "could not count running seats" } : { runningSeats: status.runningSeats }),
+          });
+          continue;
+        }
+        if (decision.kind === "tell") {
+          updateViews(pin.machineName, { state: decision.reason === "this-older" ? "this-older" : "needs-signed-release", targetBuild: own.build, at: new Date().toISOString() });
+          continue;
+        }
+        inFlight.add(pin.machineName);
+        updateViews(pin.machineName, { state: "updating", targetBuild: own.build, at: new Date().toISOString() });
+        yield* options.copy(host, { name: pin.machineName }, "update").pipe(
+          Effect.matchEffect({
+            onSuccess: () => Effect.gen(function* () {
+              if (Option.isSome(installOps)) yield* installOps.value.clearUpdateLatch(pin.machineName).pipe(Effect.ignore);
+              updateViews(pin.machineName, { state: "updated", targetBuild: own.build, at: new Date().toISOString() });
+            }),
+            onFailure: (cause: unknown) => Effect.gen(function* () {
+              const at = new Date().toISOString();
+              if (cause instanceof MachineInstallError) {
+                if (cause.disposition === "staged" && (cause.runningSeats !== undefined || cause.runningSeatsUnknown === true)) {
+                  updateViews(pin.machineName, { state: "refused-busy", targetBuild: own.build, at, ...(cause.runningSeats === undefined ? {} : { runningSeats: cause.runningSeats }) });
+                  return;
+                }
+                const outcome = cause.disposition === "rolled-back" ? "rolled-back" : cause.disposition === "uncertain" ? "stop-unconfirmed" : "start-failed";
+                if (Option.isSome(installOps)) yield* installOps.value.recordUpdateLatch({ machineName: pin.machineName, targetBuild: own.build, outcome, at }).pipe(Effect.ignore);
+                updateViews(pin.machineName, { state: outcome, targetBuild: own.build, at, detail: cause.message.slice(0, 512) });
+                return;
+              }
+              updateViews(pin.machineName, { state: "failed", targetBuild: own.build, at, detail: (cause instanceof Error ? cause.message : String(cause)).slice(0, 512) });
+            }),
+          }),
+          Effect.ensuring(Effect.sync(() => inFlight.delete(pin.machineName))),
+        );
+      }
+    }).pipe(Effect.catchCause(cause => Effect.sync(() => { if (!stopped) console.error("[machine-updates] pass failed", cause); })));
+    const fiber = yield* Effect.forkDetach(Effect.forever(Effect.gen(function* () {
+      yield* once;
+      yield* Effect.sleep("60 seconds");
+    })));
+    return () => { stopped = true; void Effect.runFork(Fiber.interrupt(fiber)); };
+  });
   const notFound = (name: string) => new RemoteHostsError("not_found", `unknown machine: ${name}`);
   const selected = (name: string) => hosts.get(name).pipe(Effect.flatMap(host =>
     host === undefined ? Effect.fail(notFound(name)) : Effect.succeed(host)));
@@ -95,7 +198,8 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
             ...(machine.isThisMachine ? { installationId: ownId } : pin === undefined ? {} : { installationId: pin.installationId }),
             ...(pin?.binding !== "key" || options.linkSetup === undefined ? {} : { linkKey: options.linkSetup.lineHeld(pin.installationId) ? "bound" as const : "line-missing" as const }),
             ...(held.length === 0 ? {} : { holdsRevokedKeys: held }),
-            ...(vault === undefined ? {} : { vault }) };
+            ...(vault === undefined ? {} : { vault }),
+            ...(autoUpdateViews.get(machine.id) === undefined ? {} : { autoUpdate: autoUpdateViews.get(machine.id)! }) };
         })) };
       }
       case "machine.add": {
@@ -198,6 +302,8 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
           if (host.isThisMachine) return yield* Effect.fail(new RemoteHostsError("conflict", "cannot remove this machine"));
           yield* machines.retirePeer(name);
           yield* rows.delete(name);
+          // The owed finishes it was named in go with it: a machine that is
+          // removed is never "next seen", so the debt is no longer owed to it.
         })).pipe(Effect.provideService(StateTransactionOperation, "machine.remove"),
           Effect.tap(() => options.disconnect(name))));
         // Its key comes off here and off every machine this one reaches; one it cannot reach stays listed.
@@ -216,6 +322,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
   // Reads and seat control take no machine mutation lock: a seat start must not wait behind a send.
   const unlocked = new Set<string>(["machine.list", "machine.status", "machine.harnesses", "machine.logs", "machine.seat-start", "machine.seat-stop", "machine.seat-read"]);
   return {
+    startAutoUpdates,
     dispatch: (request: OperatorRequestEnvelope, onTransition?: (event: MachineSendEvent) => void) =>
       (unlocked.has(request.op) ? run(request, onTransition) : mutationLock.withPermits(1)(run(request, onTransition)).pipe(
         // A send or update that failed part way may still have changed the machine.

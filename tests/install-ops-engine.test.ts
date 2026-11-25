@@ -27,7 +27,8 @@ vi.mock("node:sqlite", () => ({
   DatabaseSync: class DatabaseSync {
     closeCalls = 0;
     readonly readOnly: boolean;
-    private schemaSql: string | undefined;
+    private backfillSql: string | undefined;
+    private latchesSql: string | undefined;
     private userVersion = 0;
 
     constructor(path: string | URL, options?: { readonly readOnly?: boolean }) {
@@ -41,8 +42,10 @@ vi.mock("node:sqlite", () => ({
       if (sqliteControl.execCalls === sqliteControl.failExecAt) {
         throw new Error("forced exec setup failure");
       }
-      const schema = sql.match(/CREATE TABLE backfill_markers[\s\S]*?\) STRICT;/u);
-      if (schema !== null) this.schemaSql = schema[0].replace(/;$/u, "");
+      const backfill = sql.match(/CREATE TABLE backfill_markers[\s\S]*?\) STRICT;/u);
+      if (backfill !== null) this.backfillSql = backfill[0].replace(/;$/u, "");
+      const latches = sql.match(/CREATE TABLE machine_update_latches[\s\S]*?\) STRICT;/u);
+      if (latches !== null) this.latchesSql = latches[0].replace(/;$/u, "");
       const version = sql.match(/PRAGMA user_version = (\d+)/u);
       if (version?.[1] !== undefined) this.userVersion = Number(version[1]);
     }
@@ -72,22 +75,33 @@ vi.mock("node:sqlite", () => ({
           if (sql.includes("PRAGMA integrity_check")) {
             return [{ integrity_check: "ok" }];
           }
-          return this.schemaSql === undefined
-            ? []
-            : [
-              {
-                type: "index",
-                name: "sqlite_autoindex_backfill_markers_1",
-                tbl_name: "backfill_markers",
-                sql: null,
-              },
-              {
-                type: "table",
-                name: "backfill_markers",
-                tbl_name: "backfill_markers",
-                sql: this.schemaSql,
-              },
-            ];
+          if (this.backfillSql === undefined) return [];
+          return [
+            {
+              type: "index",
+              name: "sqlite_autoindex_backfill_markers_1",
+              tbl_name: "backfill_markers",
+              sql: null,
+            },
+            ...(this.latchesSql === undefined ? [] : [{
+              type: "index",
+              name: "sqlite_autoindex_machine_update_latches_1",
+              tbl_name: "machine_update_latches",
+              sql: null,
+            }]),
+            {
+              type: "table",
+              name: "backfill_markers",
+              tbl_name: "backfill_markers",
+              sql: this.backfillSql,
+            },
+            ...(this.latchesSql === undefined ? [] : [{
+              type: "table",
+              name: "machine_update_latches",
+              tbl_name: "machine_update_latches",
+              sql: this.latchesSql,
+            }]),
+          ];
         },
         run: () => undefined,
       };
@@ -184,7 +198,7 @@ describe("InstallOpsLive acquisition", () => {
   });
 
   it("degrades after statement preparation failure and preserves the setup cause", async () => {
-    sqliteControl.failPrepareAt = 20;
+    sqliteControl.failPrepareAt = 23;
     const { runtime } = await openRuntime();
 
     const service = await runtime.runPromise(InstallOpsService);

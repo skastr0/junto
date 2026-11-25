@@ -217,6 +217,18 @@ spans all of them. A seat's machine is a property of the seat, like its harness.
     Archives are cached under the Junto home, verified on each use, and old
     builds are pruned while active users keep their inputs. Source and
     Preview builds use local bundles only and never download.
+    An idle pinned machine updates itself from this machine's own build or a
+    signed release, with no per-update click: no seat runs, its own status
+    answered a seat count, and no canvas this machine holds names it as editor
+    (`editor_installation_id` alone decides that, never its name). A machine
+    with a running seat, or an unknown count, keeps the operator's click. Each
+    attempt and outcome is listed against that machine by name and target
+    build. One failed attempt latches its build in install-ops, so the same
+    claim gets no second automatic try; a later success clears it. A peer's
+    version and build time only decide whether to push, never what is
+    installed: no byte is fetched from the peer, and a peer that claims newer
+    makes this machine show behind instead. Downloaded bytes require a signed
+    release; source and Preview builds install only their own build.
     An update whose machine reports any running seat, or no seat count at all,
     changes nothing unless the operator confirmed stopping them: the install
     takes the maintenance lease on the incumbent's term control socket and

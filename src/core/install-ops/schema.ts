@@ -4,7 +4,7 @@
  * and append forward steps only when this file evolves.
  */
 
-export const INSTALL_OPS_SCHEMA_VERSION = 1 as const;
+export const INSTALL_OPS_SCHEMA_VERSION = 2 as const;
 
 /** Stable backfill ids — never reuse a completed id for a different walk. */
 export const BACKFILL_INLINE_MEDIA_V1 = "content.inline-media.v1" as const;
@@ -13,7 +13,7 @@ export const BACKFILL_ARTIFACT_LINKS_V1 = "artifact-links.v1" as const;
 export const BACKFILL_CANVAS_RELATIONAL_V1 = "canvas.relational.v1" as const;
 export const BACKFILL_CANVAS_RELATIONAL_V2 = "canvas.relational.v2" as const;
 
-export const INSTALL_OPS_SCHEMA_SQL = `
+export const INSTALL_OPS_V1_SCHEMA_SQL = `
   CREATE TABLE backfill_markers (
     id TEXT PRIMARY KEY
       CHECK (length(id) BETWEEN 1 AND 128),
@@ -31,3 +31,20 @@ export const INSTALL_OPS_SCHEMA_SQL = `
       )
   ) STRICT;
 `;
+
+/** The coordinator's per-build attempt latch; install-local bookkeeping only. */
+export const MACHINE_UPDATE_LATCHES_SQL = `
+  CREATE TABLE machine_update_latches (
+    machine_name TEXT PRIMARY KEY
+      CHECK (length(machine_name) BETWEEN 1 AND 64),
+    target_build TEXT NOT NULL
+      CHECK (length(target_build) = 64),
+    outcome TEXT NOT NULL
+      CHECK (outcome IN ('rolled-back', 'start-failed', 'stop-unconfirmed', 'uncertain', 'activated', 'needs-signed-release')),
+    at TEXT NOT NULL
+      CHECK (length(at) BETWEEN 1 AND 64)
+  ) STRICT;
+`;
+
+export const INSTALL_OPS_SCHEMA_SQL = `${INSTALL_OPS_V1_SCHEMA_SQL}
+${MACHINE_UPDATE_LATCHES_SQL}`;

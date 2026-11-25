@@ -150,6 +150,7 @@ export const startCore = async (options: CoreOptions) => {
   let admitted = false;
   let stopping = false;
   let compositionReady = false;
+  let stopMachineUpdates: (() => void) | undefined;
   let owner: OperatorControlServer | undefined;
   let listener: MachineLinkListener | undefined;
   let work: WorkControlServer | undefined;
@@ -190,6 +191,8 @@ export const startCore = async (options: CoreOptions) => {
     stopping = true;
     admitted = false;
     compositionReady = false;
+    stopMachineUpdates?.();
+    stopMachineUpdates = undefined;
     owner?.beginShutdown();
     listener?.beginShutdown(cause);
     work?.beginShutdown();
@@ -292,6 +295,9 @@ export const startCore = async (options: CoreOptions) => {
     const windowTerminals = options.windowTerminals;
     if (windowTerminals !== undefined) await runtime.runPromise(connectCoreTerminals(windowTerminals.parent));
     else placeTerminals({ kind: "here" });
+    // The durable delete holds come back before any seat path can admit a
+    // start: row written, lock taken, stop, then answer — and a restart
+    // never reopens the window the hold closed.
     seatProcesses = await startCoreSeats({ home: options.home });
     // The window's terminal ops ask this plane by name, and its events reach the window as core pushes.
     // The terminals the last core left running come back first: a new client
@@ -456,6 +462,7 @@ export const startCore = async (options: CoreOptions) => {
     if (desk?.listen !== "on-demand") await ensureOperatorListening();
     admitted = true;
     compositionReady = true;
+    stopMachineUpdates = actions.startAutoUpdates === undefined ? undefined : await runtime.runPromise(actions.startAutoUpdates());
     return { runtime, close, overseer, overseerLive, seatSessions: sessions, ensureOperatorListening, ready: () => admitted && compositionReady && !stopping && ownerReady() && listener!.ready() };
   } catch (cause) {
     // The start failure is the reason worth keeping; a stop that also fails is logged beside it.

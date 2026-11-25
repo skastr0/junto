@@ -47,6 +47,14 @@ export type InstallOpsAvailability =
  * Implementation shape for {@link InstallOpsService}.
  * Named so the V4 swap is a one-line Tag→Service change, not a reshape.
  */
+export type MachineUpdateLatchOutcome = "rolled-back" | "start-failed" | "stop-unconfirmed" | "uncertain" | "activated" | "needs-signed-release";
+export type MachineUpdateLatch = {
+  readonly machineName: string;
+  readonly targetBuild: string;
+  readonly outcome: MachineUpdateLatchOutcome;
+  readonly at: string;
+};
+
 export type InstallOpsServiceShape = {
   readonly path: string;
   /** Explicit status for Doctor and other operational reporting surfaces. */
@@ -68,6 +76,10 @@ export type InstallOpsServiceShape = {
     id: string,
     objectsIngested: number,
   ) => Effect.Effect<void, InstallOpsServiceError>;
+  /** A failed automatic update attempt for one machine and target build. */
+  readonly updateLatch: (machineName: string) => Effect.Effect<MachineUpdateLatch | undefined, InstallOpsServiceError>;
+  readonly recordUpdateLatch: (latch: MachineUpdateLatch) => Effect.Effect<void, InstallOpsServiceError>;
+  readonly clearUpdateLatch: (machineName: string) => Effect.Effect<void, InstallOpsServiceError>;
 };
 
 /**
