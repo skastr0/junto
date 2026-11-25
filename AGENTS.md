@@ -196,8 +196,9 @@ protected routes refuse every caller until they move to the seat generation
 credential. There is **no enable-grant ceremony** and no client capability
 secret, and human-drawn edges to page nodes stay the only grant. Content transfer is `junto content-transfer …`. Packaged installs and every machine bundle ship
 **one** CLI binary (`bin/junto`), the native Rust CLI built from `native/cli`
-by `scripts/build-native-cli.ts`. Bun compiles only the dev CLI
-(`dist/junto-dev`) and the Linux desktop bootstrap.
+by `scripts/build-native-cli.ts`; the dev app's seats run the same native
+`dist/junto`. Junto has only the native CLI: no CLI code in TypeScript or
+Bun. Bun compiles only the Linux desktop bootstrap.
 
 Ops go through WorkService (tasks/messages/artifacts). That is
 the ordinary agent write path. Freeform canvas authoring remains human,
@@ -403,7 +404,7 @@ other headless Linux hosts.
 - `src/terminal/` — the terminal process.
 - `src/contract/` — what crosses between programs: the main to core and terminal contracts.
 - `src/node/` — Node code more than one program loads. The window and the preload never import it.
-- `src/cli/` — the `junto` CLI.
+- `native/cli/` — the `junto` CLI, in Rust. It calls the work socket through the contract in `src/contract/work`, whose published JSON it reads.
 - `src/window/` — the canvas surface; `src/window/preload/` is its sandboxed preload.
 - `scripts/` — the headless CLIs above.
 

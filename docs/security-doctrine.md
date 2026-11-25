@@ -629,7 +629,7 @@ Each run:
 - Gives the child an environment of the region's values on that machine
   plus `PATH`, `HOME`, `TMPDIR` and `LANG`, and nothing of the core's.
   `JUNTO_WORK_TOKEN` is set to the empty string, so the CLI refuses owner
-  and machine commands (`src/cli/core/owner-access.ts:7`); that guards
+  and machine commands (`native/cli/src/operator.rs:27`); that guards
   against confused use, not attack.
 - Gives the child no Junto credential. Input arrives as JSON on stdin and the
   result goes out on fd 3. The SDK has no Junto operation; if it gains one,

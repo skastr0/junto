@@ -121,7 +121,7 @@ Linux desktop: alpha, Ubuntu 24.04 x86-64 from source; the download page says th
 - Unit suite: 1 test fails in `tests/awareness-window-calibration.test.ts` (seat awareness, off in official builds), a different case on each of two runs; the runner stops there, so the isolated lane did not run.
 - Timing: the first e2e run today had 4 of 7 specs time out (`Timeout 150000ms exceeded`); the three besides the cold-seat spec passed on an immediate rerun.
 - In 0.3.2, `junto msg send '<json>'` stops at `Missing required flag: --prompt` (same for `seat wait --any`, `seat read --follow`); `--no-prompt` works. Effect CLI booleans are required unless defaulted. Fixed in source (`9bc3fd393`), not yet released.
-- `junto --version` prints `v0.1.0` in 0.3.2 and 0.3.3 (`src/cli/core/constants.ts:4` fallback). Fixed in source (`d5e1ed032`), not yet released.
+- `junto --version` prints `v0.1.0` in 0.3.2 and 0.3.3 (a hard-coded fallback). Fixed in source (`d5e1ed032`), not yet released.
 - `bun run digest` with no argument fails: `canvas "portfolio" is not in the active portfolio` (`scripts/digest.ts:23`).
 - 0.3.3 is signed but not on the update feed; git tags stop at `v0.3.0` and the only GitHub release is 0.1.0, marked pre-release.
 - Off in official builds: tasks, browser, artifacts, Fleet, seat awareness (`src/shared/feature-catalog.ts`). The GitHub About text still mentions "browser pages, and shared work".

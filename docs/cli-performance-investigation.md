@@ -1,6 +1,6 @@
 # CLI performance investigation
 
-Captured 7 October 2026 UTC. This document records the historical diagnosis and architecture discussion. The completed, scoped agent CLI performance pass and its measured qualification are in [CLI performance completion](cli-performance-completion.md). The later architecture ideas below are not pending work for that pass.
+Captured 7 October 2026 UTC. This document records the historical diagnosis and architecture discussion. The TypeScript CLI it studies is gone: Junto's CLI is the native Rust CLI in `native/cli`, and the `src/cli` paths below are as of the source receipt commit named under Scope and evidence. The completed, scoped agent CLI performance pass and its measured qualification are in [CLI performance completion](cli-performance-completion.md). The later architecture ideas below are not pending work for that pass.
 
 Follow-up: [cross-harness environment identity qualification](cli-harness-identity-qualification.md) records launch tests, installed Codex/Prime/Pi execution probes, daemon forwarding requirements, and the remaining live-generation checks.
 
@@ -144,7 +144,7 @@ The rejected file variant keeps the raw token out of environment dumps, while th
 
 A private channel may offer even less admission work, but an inherited shared stream does not automatically route replies to the CLI child that sent each request. Request IDs alone cannot stop competing children reading each other's responses. It may need a harness/seat-owned broker or independent logical streams. [`app-process-plane.ts`](../src/node/app-process-plane.ts):1022–1032 supplies environment to `nodePty.spawn` but exposes no extra-descriptor mapping; the inherited-descriptor path is unqualified, not a proven impossibility.
 
-The more practical channel variant is a distinct rendezvous for each generation, reached through normal per-invocation connections. That provides natural response routing without a resident broker. Current [`core/socket.ts`](../src/cli/core/socket.ts):24 and :266–277 resolves `JUNTO_WORK_HOME` and derives `token` and `control.sock`; it does not directly use the separately injected socket-path variables. A generation-specific work-home directory is therefore a concrete integration candidate. An unguessable socket path alone still acts as a copyable local capability, not an inherited uncopyable channel. Compare its extra listeners and cleanup with one shared listener plus generation credentials. Keep resource budgets global across all listeners, rather than multiplying the current 32-client limit by seat count.
+The more practical channel variant is a distinct rendezvous for each generation, reached through normal per-invocation connections. That provides natural response routing without a resident broker. Current `src/cli/core/socket.ts`:24 and :266–277 resolves `JUNTO_WORK_HOME` and derives `token` and `control.sock`; it does not directly use the separately injected socket-path variables. A generation-specific work-home directory is therefore a concrete integration candidate. An unguessable socket path alone still acts as a copyable local capability, not an inherited uncopyable channel. Compare its extra listeners and cleanup with one shared listener plus generation credentials. Keep resource budgets global across all listeners, rather than multiplying the current 32-client limit by seat count.
 
 Prefer the shared-listener version for the first proof: it keeps today's naturally addressed per-call connections and avoids one server/listener lifecycle per generation. Supply a generation-specific credential through the launch environment, keeping it out of argv and logs. Exact field names remain design work; the existing frame's `token` field can carry it. A per-generation rendezvous is an alternative, not a requirement for revocation. Neither variant needs low per-seat request quotas.
 
@@ -160,7 +160,7 @@ Qualification must cover credential preparation before spawn but admission publi
 
 ## Startup and command loading
 
-[`src/cli/main.ts`](../src/cli/main.ts):1–116 statically imports command families and constructs the complete command tree. The early-dispatch decision at :157 happens afterward. [`early-dispatch.ts`](../src/cli/early-dispatch.ts):9–12 imports content-transfer, companion, and Station implementations merely to obtain command constants. These are concrete import dependencies to remove from the initial path.
+`src/cli/main.ts`:1–116 statically imports command families and constructs the complete command tree. The early-dispatch decision at :157 happens afterward. `src/cli/early-dispatch.ts`:9–12 imports content-transfer, companion, and Station implementations merely to obtain command constants. These are concrete import dependencies to remove from the initial path.
 
 The six-run source import experiment measured total child-process time:
 
@@ -176,7 +176,7 @@ These source-runtime results are not predicted packaged savings: compilation, tr
 
 Use a thin dispatcher that recognizes the selected family before loading its implementation. Keep literal command names in a small shared module. Fast offline commands should not load browser, Station, companion, or work services. Precompute declarative discovery where appropriate while preserving help, schemas, examples, output envelopes, and exit codes. Retain idiomatic Effect within each loaded command. Verify the packaged binary, not only source imports. [`build-standalone-cli.ts`](../scripts/build-standalone-cli.ts):64 remains the single public CLI build path.
 
-[`core/batch.ts`](../src/cli/core/batch.ts) already runs per-item effects with default concurrency five. Batching amortizes process startup; each item still opens a separate socket and pays server admission. Raising batch concurrency before server changes increases contention.
+`src/cli/core/batch.ts` already runs per-item effects with default concurrency five. Batching amortizes process startup; each item still opens a separate socket and pays server admission. Raising batch concurrency before server changes increases contention.
 
 ## Request admission and transport
 
@@ -192,7 +192,7 @@ The reproduced direct burst completed 24 requests in 1.69 seconds, about 14.2 re
 
 Handle idle or incomplete-frame connections with a deadline. Keep the 8 MiB protocol ceiling, but decode frames incrementally rather than repeatedly concatenating and copying accumulated buffers. A tighter limit for small control requests can be considered without shrinking existing payload contracts blindly. Yield between bounded groups of frames. At :2889 responses use `socket.write` without handling backpressure; response queues should have bounded bytes and drain handling.
 
-[`core/socket.ts`](../src/cli/core/socket.ts):70 uses `Effect.callback`, creates a socket per call at :137, and destroys it when a response/error settles. The callback returns no interruption finalizer. Add scoped cleanup of the socket, listeners, and timer so outer Effect interruption releases them immediately. This cleanup gap is source-verified; a leak duration was not measured.
+`src/cli/core/socket.ts`:70 uses `Effect.callback`, creates a socket per call at :137, and destroys it when a response/error settles. The callback returns no interruption finalizer. Add scoped cleanup of the socket, listeners, and timer so outer Effect interruption releases them immediately. This cleanup gap is source-verified; a leak duration was not measured.
 
 On server socket close at [`work/control.ts`](../src/core/work/control.ts):3670, the connection is removed from the client set, but already-running operation fibers are not interrupted there. Scope read-only wait subscriptions to their caller connection. Preserve retained mutation flights and shutdown drain receipts: disconnecting a client does not prove a dispatched write failed.
 

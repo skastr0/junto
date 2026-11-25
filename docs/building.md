@@ -25,7 +25,6 @@ Local packages are development builds without a signing identity. Automatic upda
 
 ```sh
 bun run cli:build          # the native Rust CLI (native/cli), written to dist/junto
-bun run cli                # the TypeScript CLI from source
 ```
 
 `scripts/build-native-cli.ts` runs `cargo build --locked --release` in `native/cli`, stamps the package version and the resolved feature profile, and refuses a binary whose `--version` does not answer that version. Packaged apps and machine bundles include that native CLI as `bin/junto`. The dev app's seats use the same native `dist/junto`: `scripts/dev.sh` builds it before the app starts. Bun compiles only the Linux desktop bootstrap. Commands that touch the work plane must run inside a seat the app started; outside one they return an `AuthError`.
