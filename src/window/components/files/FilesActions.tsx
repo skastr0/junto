@@ -7,6 +7,7 @@ import { filesErrorLine, filesSource } from "../../lib/files-source";
 import { claimFocus } from "../../lib/focus-ownership";
 import { Button, Combobox, ConfirmDialog, Dialog, Input, MenuItem } from "../ui";
 import { folderOfRow, moveTargets, rowOf, typedFolder, walkFolders, type FilesAction } from "./files-actions";
+import { useOverlayHold } from "../../lib/overlay-open";
 
 type RowChoice = { readonly key: string; readonly label: string; readonly glyph: LucideIcon; readonly run: () => void };
 
@@ -44,6 +45,8 @@ export function FilesRowMenu({
     const first = panel.querySelector<HTMLElement>('[role="menuitem"]');
     if (first !== null) claimFocus(first, "open", { preventScroll: true });
   }, [item.path, context.anchorRect]);
+  // Floating over the window while it is up: the top bar is no window drag meanwhile.
+  useOverlayHold();
   const row = rowOf(item.path);
   if (row === undefined) return null;
   const into = folderOfRow(row.path, row.dir);
