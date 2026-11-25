@@ -66,8 +66,12 @@ const write = (to: string, text: string) =>
       const message = makeUserMessage({ messageId: ulid(), text, contextId: CANVAS, metadata: { factoryMail: true, ...extension } });
       // A copy machine never tells a peer (workSystemMailboxNotify refuses): the row reaches it as sync writes it,
       // an append to the peer's own mailbox, which workSubjectNotice is.
-      return to === PEER ? work.workSubjectNotice(CANVAS, to, message, sender) : work.workSystemMailboxNotify(CANVAS, to, message);
-    }).pipe(Effect.flatMap((appended) => (appended.ok ? Effect.succeed(appended.data.messageId) : Effect.die(appended.message)))),
+      const idOf = (appended: { readonly ok: true; readonly data: { readonly messageId: string } } | { readonly ok: false; readonly message: string }) =>
+        appended.ok ? Effect.succeed(appended.data.messageId) : Effect.die(appended.message);
+      return to === PEER
+        ? Effect.flatMap(work.workSubjectNotice(CANVAS, to, message, sender), idOf)
+        : Effect.flatMap(work.workSystemMailboxNotify(CANVAS, to, message), idOf);
+    }),
   );
 
 beforeAll(async () => {
