@@ -720,13 +720,16 @@ export const machineFigureState = (
   };
 };
 
-const hhmm = (iso: string | undefined): string => {
-  if (!iso) return "";
+const clockTime = (iso: string | undefined): string | undefined => {
+  if (!iso) return undefined;
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return ` (${hours}:${minutes})`;
+  if (Number.isNaN(date.getTime())) return undefined;
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+};
+
+const hhmm = (iso: string | undefined): string => {
+  const time = clockTime(iso);
+  return time ? ` (${time})` : "";
 };
 
 /**
@@ -785,11 +788,11 @@ export type MachinesBarSummary = {
   readonly idleUpdatableNames: ReadonlyArray<string>;
 };
 
-const workingStatusLine = (condition: MachineCondition, label: string, copy: MachineCopy | undefined): string => {
-  if (condition === "waking") return `Waking ${label}`;
+const workingStatusLine = (condition: MachineCondition, copy: MachineCopy | undefined): string => {
+  if (condition === "waking") return "Waking";
   if (copy?.kind !== "running") return condition === "updating" ? "Updating Junto" : "Sending Junto";
   if (condition === "adding" && copy.steps.length === 0 && copy.download === undefined && copy.transfer === undefined) {
-    return "Making on Boat";
+    return "Making it on Boat";
   }
   const verb = copy.op === "update" ? "Updating Junto" : "Sending Junto";
   if (copy.download && copy.download.state !== "downloaded") {
@@ -802,20 +805,40 @@ const workingStatusLine = (condition: MachineCondition, label: string, copy: Mac
   return `${verb}, step ${currentStep} of ${MACHINE_INSTALL_STEPS.length}`;
 };
 
+/**
+ * A row's seats clause. The label is on the row's first line, so it is not
+ * named again, and the count says when it was read: a machine out of reach
+ * cannot say what runs there now.
+ */
 const withRunningSeats = (sentence: string, item: MachineListItem): string => {
-  const seats = runningSeatsLine(item);
-  return seats ? `${sentence} ${seats}.` : sentence;
+  const count = item.runningSeats;
+  if (count === undefined || count <= 0) return sentence;
+  const time = clockTime(item.runningSeatsAt);
+  return `${sentence} Had ${count} ${count === 1 ? "seat" : "seats"} running${time ? ` at ${time}` : ""}.`;
+};
+
+/** What a ready machine lacks for its seats, as a row says it: harnesses by name up to two, secrets by count. */
+const lackingRowLine = (harnesses: ReadonlyArray<string>, secrets: ReadonlyArray<string>): string => {
+  const parts = [
+    harnesses.length === 0
+      ? undefined
+      : harnesses.length <= 2
+        ? harnesses.map(harnessName).join(" and ")
+        : `${harnesses.length} harnesses`,
+    secrets.length === 0 ? undefined : `${secrets.length} ${secrets.length === 1 ? "secret" : "secrets"}`,
+  ].filter((part): part is string => part !== undefined);
+  const one = harnesses.length + secrets.length === 1;
+  return `${parts.join(" and ")} ${one ? "is" : "are"} missing there.`;
 };
 
 const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined => {
   const { item, listed, read, copy, boat, placed } = entry;
   const id = item.machine.id;
   const label = item.machine.label.trim() || id;
-  const where = machineNamed(item);
   const condition = machineCondition(item, read, copy, boat);
 
   if (condition === "adding" || condition === "sending" || condition === "updating" || condition === "waking") {
-    return { id, label, severity: MachineRowUrgency.group.working, status: workingStatusLine(condition, label, copy), condition, listed };
+    return { id, label, severity: MachineRowUrgency.group.working, status: workingStatusLine(condition, copy), condition, listed };
   }
 
   // Sleeping, falling asleep, and checking are quiet.
@@ -824,7 +847,6 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
   }
 
   const hasSeats = placed.seats > 0 || (item.runningSeats ?? 0) > 0;
-  const said = copy?.kind === "failed" ? copy.message.trim() : "";
 
   switch (condition) {
     case "boat-failed":
@@ -832,7 +854,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         id,
         label,
         severity: MachineRowUrgency.group.broken,
-        status: `Boat says ${label} failed.`,
+        status: "Boat says it failed.",
         action: { kind: "delete", label: "Delete on Boat", armedLabel: `Delete ${label} on Boat`, danger: true },
         condition,
         listed,
@@ -842,7 +864,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         id,
         label,
         severity: MachineRowUrgency.group.broken,
-        status: `${label} is no longer on Boat.`,
+        status: "No longer on Boat.",
         action: { kind: "remove", label: "Remove", armedLabel: `Remove ${label}`, danger: true },
         condition,
         listed,
@@ -852,7 +874,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         id,
         label,
         severity: MachineRowUrgency.group.broken,
-        status: said || `Junto stopped on ${label}. Reinstall Junto to run its seats.`,
+        status: "The update failed, and nothing runs there now.",
         action: { kind: "update", label: "Reinstall Junto", pendingLabel: "Reinstalling…", danger: false },
         condition,
         listed,
@@ -862,7 +884,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         id,
         label,
         severity: MachineRowUrgency.group.broken,
-        status: said || `Update failed on ${label}.`,
+        status: "Junto could not be updated. The old build still runs.",
         action: { kind: "update", label: "Try update again", pendingLabel: "Updating…", danger: false },
         condition,
         listed,
@@ -872,7 +894,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         id,
         label,
         severity: MachineRowUrgency.group.broken,
-        status: said || `Could not confirm Junto was updated on ${label}.`,
+        status: "Could not confirm Junto was updated.",
         action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
         condition,
         listed,
@@ -882,7 +904,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         id,
         label,
         severity: MachineRowUrgency.group.broken,
-        status: said || `Junto was updated on ${label}, but is not ready.`,
+        status: "Junto was updated, but it is not ready.",
         action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
         condition,
         listed,
@@ -892,7 +914,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         id,
         label,
         severity: MachineRowUrgency.group.broken,
-        status: said || `Could not send Junto to ${label}.`,
+        status: "Junto could not be sent.",
         action: { kind: "send", label: "Send Junto", pendingLabel: "Sending…", danger: false },
         condition,
         listed,
@@ -905,27 +927,23 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         label,
         severity: MachineRowUrgency.group.broken,
         status:
-          said ||
-          (condition === "add-failed"
-            ? `Could not finish adding ${label} on Boat.`
+          condition === "add-failed"
+            ? "Could not finish adding it on Boat."
             : condition === "sent-not-ready"
-              ? `Junto is on ${label}, but is not ready.`
-              : `Could not confirm Junto was sent to ${label}.`),
+              ? "Junto is on it, but it is not ready."
+              : "Could not confirm Junto was sent.",
         action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
         condition,
         listed,
       };
     case "unreachable":
     case "check-failed": {
-      const detail =
+      const base =
         condition === "check-failed"
-          ? read?.kind === "failed"
-            ? read.message.trim()
-            : ""
-          : read?.kind === "peer"
-            ? (read.status.detail?.trim() ?? "")
-            : "";
-      const base = detail || `Cannot reach ${label}. Check that it is on and SSH reaches it.`;
+          ? "Could not be checked."
+          : hasSeats
+            ? "Cannot be reached."
+            : "Cannot be reached. Check that it is on.";
       return {
         id,
         label,
@@ -941,7 +959,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         id,
         label,
         severity: MachineRowUrgency.group["needs-you"],
-        status: withRunningSeats(`${label} needs an update before its seats can run.`, item),
+        status: withRunningSeats("Runs a different build of Junto.", item),
         action: { kind: "update", label: "Update Junto", pendingLabel: "Updating…", danger: false },
         condition,
         listed,
@@ -951,7 +969,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         id,
         label,
         severity: MachineRowUrgency.group["needs-you"],
-        status: `${label} is on a newer Junto. Update Junto on this Mac to connect.`,
+        status: "Runs a newer build of Junto. Update this Mac to connect.",
         action: { kind: "check-updates", label: "Check for updates", danger: false },
         condition,
         listed,
@@ -961,7 +979,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         id,
         label,
         severity: MachineRowUrgency.group["needs-you"],
-        status: `Junto is not on ${label} yet. Send Junto to set it up.`,
+        status: "Junto is not on it yet.",
         action: { kind: "send", label: "Send Junto", pendingLabel: "Sending…", danger: false },
         condition,
         listed,
@@ -971,7 +989,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         id,
         label,
         severity: MachineRowUrgency.group["needs-you"],
-        status: `${label} is not connected to this Mac. Reconnect to run its seats.`,
+        status: "Junto is installed there, but not connected.",
         action: { kind: "send", label: "Reconnect", pendingLabel: "Reconnecting…", danger: false },
         condition,
         listed,
@@ -981,7 +999,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
         id,
         label,
         severity: MachineRowUrgency.group["needs-you"],
-        status: `Made on Boat, not added yet. Finish adding ${label} to send Junto.`,
+        status: "Made on Boat, not added yet.",
         action: { kind: "finish", label: "Finish adding", pendingLabel: "Adding…", danger: false },
         condition,
         listed,
@@ -991,12 +1009,11 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
       const missingHarnesses = harnessesSeatsLack(read, placed.harnesses);
       const missingSecrets = machineMissingSecrets(read);
       if (missingHarnesses.length > 0 || missingSecrets.length > 0) {
-        const line = lackingLine(item, missingHarnesses, missingSecrets)!;
         return {
           id,
           label,
           severity: MachineRowUrgency.group["needs-you"],
-          status: line.advice ?? line.headline,
+          status: lackingRowLine(missingHarnesses, missingSecrets),
           action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
           condition,
           listed,
@@ -1008,7 +1025,7 @@ const classifyBarEntry = (entry: MachinesBarEntry): MachinesBarRow | undefined =
           id,
           label,
           severity: MachineRowUrgency.group["needs-you"],
-          status: `Sign-in blocked on ${where}. Sign in at its screen, then restart Junto.`,
+          status: "Sign-in is blocked. Sign in at its screen, then restart Junto.",
           action: { kind: "check", label: "Check again", pendingLabel: "Checking…", danger: false },
           condition,
           listed,

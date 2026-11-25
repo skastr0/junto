@@ -619,6 +619,49 @@ describe("Slice 1 conditions, TopBar summary, and copy law", () => {
     expect(mixed.idleUpdatableNames).toEqual(["m-old-1", "m-old-2"]);
   });
 
+  it("says each row's state without the machine's name or its raw error, in under 64 characters", () => {
+    const status = (item: MachineListItem, more: Partial<Omit<MachinesBarEntry, "item">> = {}) =>
+      machinesBarSummary([entry(item, more)]).rows[0]?.status;
+    const boat = (power: MachineBoat["power"]): MachineBoat => ({
+      machineName: OTHER_MACHINE, sandboxId: "bx_1", size: "small", power, listed: true,
+    });
+    type Failed = Extract<MachineCopy, { kind: "failed" }>;
+    const failed = (more: Pick<Failed, "op"> & Partial<Failed>): MachineCopy =>
+      ({ kind: "failed", id: "f", message: "Command failed: tar", steps: ["verified"], installed: false, ...more });
+    const seated = { ...listed(), runningSeats: 3, runningSeatsAt: "2026-11-23T09:12:00" };
+
+    const lines = [
+      [status(listed(), { read: undefined, boat: boat("failed") }), "Boat says it failed."],
+      [status(listed(), { read: undefined, boat: boat("gone") }), "No longer on Boat."],
+      [status(listed(), { copy: failed({ op: "update", steps: ["verified", "quiescent", "selected"], disposition: "activated" }) }),
+        "The update failed, and nothing runs there now."],
+      [status(listed(), { copy: failed({ op: "update", disposition: "staged" }) }), "Junto could not be updated. The old build still runs."],
+      [status(listed(), { copy: failed({ op: "send", disposition: "staged" }) }), "Junto could not be sent."],
+      [status(listed(), { copy: failed({ op: "send", installed: true }) }), "Junto is on it, but it is not ready."],
+      [status(seated, { read: peer({ reachable: false, harnesses: [], detail: "ssh: connect to host atlas port 22" }), placed: { seats: 3, harnesses: [] } }),
+        "Cannot be reached. Had 3 seats running at 09:12."],
+      [status(listed(), { read: peer({ reachable: false, harnesses: [] }) }), "Cannot be reached. Check that it is on."],
+      [status({ ...listed({ needsUpdate: true }), runningSeats: 1 }, { read: undefined }), "Runs a different build of Junto. Had 1 seat running."],
+      [status({ ...listed({ needsUpdate: true }), updateDirection: "this-older" }, { read: undefined }),
+        "Runs a newer build of Junto. Update this Mac to connect."],
+      [status(listed({ setUp: false }), { read: undefined }), "Junto is not on it yet."],
+      [status({ ...listed({ setUp: false }), setupState: "installed-not-linked" }, { read: undefined }), "Junto is installed there, but not connected."],
+      [status(listed(), { read: peer(), placed: { seats: 1, harnesses: ["codex"] } }), "Codex is missing there."],
+      [status(listed(), { read: peer({ missingSecrets: ["GH_TOKEN", "NPM_TOKEN"] }), placed: { seats: 1, harnesses: ["codex"] } }),
+        "Codex and 2 secrets are missing there."],
+      [status(listed(), {
+        read: peer({ harnesses: [{ harness: "claude", installed: true, signIn: "keychain-login-unavailable" }] }),
+        placed: { seats: 1, harnesses: ["claude"] },
+      }), "Sign-in is blocked. Sign in at its screen, then restart Junto."],
+      [status(listed(), { read: undefined, boat: boat("waking") }), "Waking"],
+    ] as const;
+    for (const [got, want] of lines) {
+      expect(got).toBe(want);
+      expect(want.length).toBeLessThan(64);
+      expect(want).not.toContain("Atlas");
+    }
+  });
+
   it("enforces Copy Law across all states: no middots, no mechanics jargon, no move-seat, no this-machine for remotes", () => {
     const boat = (power: MachineBoat["power"], listedFlag = true): MachineBoat => ({
       machineName: OTHER_MACHINE,
