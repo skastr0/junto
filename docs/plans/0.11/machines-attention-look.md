@@ -294,8 +294,10 @@ place of `unreachable` or `timeout`.
 | `unreachable` | `Junto cannot reach Mac mini, so it could not stop quasar-lead there.` |
 | asleep (Boat) | `Mac mini is asleep, so Junto could not stop quasar-lead there.` |
 
-Several seats on one machine with one reason are named up to three, then
-the rest by count: `Junto cannot reach Mac mini, so it could not stop
+Several seats on one machine with one reason: three or fewer are all
+named (`quasar-lead, quasar-db and quasar-maintenance`); four or more name
+two, then the rest by count, which is then always 2 or more, so it never
+reads `and 1 more`: `Junto cannot reach Mac mini, so it could not stop
 quasar-lead, quasar-db and 2 more there.` Seats on different machines, or
 with different reasons, take a pair of lines each, in the table's order,
 then by machine label.
