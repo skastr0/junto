@@ -1155,7 +1155,13 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
         const popName = `c${String(cycle)}-${place.name}-pops-${String(from)}-${String(to)}`;
         log(`pops ${popName}`, pops === null ? { hook: false } : { ...pops, samples: pops.samples.slice(0, 4) });
         if (pops !== null && (pops.pops > 0 || pops.blankQuads > 0)) {
-          fail(`${popName}: ${String(pops.pops)} quad(s) lost their own pixels at an unchanged raster scale and ${String(pops.blankQuads)} in-view quad(s) drew nothing, over ${String(pops.frames)} frames of the gesture`, { first: pops.samples.slice(0, 8) });
+          // What each lost cell stands in for, when the build can say: a fault
+          // receipt without the content it showed leaves the atlas owner guessing.
+          const standsIn = await page.evaluate((cells) => {
+            const hook = (window as unknown as { __juntoCanvas?: { cellRecord?: (cell: number) => Record<string, unknown> | null } }).__juntoCanvas;
+            return cells.map((cell) => ({ cell, record: hook?.cellRecord?.(cell) ?? null }));
+          }, pops.samples.slice(0, 8).map((s) => s.cell));
+          fail(`${popName}: ${String(pops.pops)} quad(s) lost their own pixels at an unchanged raster scale and ${String(pops.blankQuads)} in-view quad(s) drew nothing, over ${String(pops.frames)} frames of the gesture`, { first: pops.samples.slice(0, 8), standsIn });
           contact.push({ name: popName, strip: "", verdict: "fail", detail: failures[failures.length - 1]! });
         }
         // The frame's own reference: a fresh launch placed at exactly the
