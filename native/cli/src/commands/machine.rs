@@ -30,6 +30,18 @@ struct Input {
     input: String,
 }
 
+/// A take-over preview takes the name and the started installation id as two
+/// positionals; the one-input form is the JSON confirm.
+#[derive(Args)]
+struct TakeoverInput {
+    /// A machine name for a preview, or a JSON object for a confirm
+    #[arg(value_name = "MACHINE_OR_JSON")]
+    input: String,
+    /// The installation id a positional preview takes over
+    #[arg(value_name = "INSTALLATION_ID")]
+    installation_id: Option<String>,
+}
+
 #[derive(Args)]
 struct SeatRef {
     canvas: String,
@@ -50,7 +62,7 @@ enum Command {
     Harnesses(Input),
     Configure(Input),
     Setup(Input),
-    Takeover(Input),
+    Takeover(TakeoverInput),
     TakeoverRemote(Input),
     Exchange(Input),
     BoatConnect(Input),
@@ -113,6 +125,28 @@ fn owner(op: &str, input: &Input) -> Answer {
     operator::call(op, &args, bound(op)).map(Into::into)
 }
 
+/// The preview the printed line runs sends exactly the two fields, no confirm.
+fn takeover(args: TakeoverInput) -> Answer {
+    let Some(installation_id) = args.installation_id else {
+        let input: Value = input::load(&args.input)?;
+        return operator::call("machine.takeover", &input, bound("machine.takeover"))
+            .map(Into::into);
+    };
+    if !envelope::machine_name_is_valid(&args.input)
+        || !envelope::installation_id_is_valid(&installation_id)
+    {
+        return Err(Failure::new(
+            ErrorType::InputError,
+            "The take-over preview needs a machine name and an installation id in Junto's shapes",
+        ));
+    }
+    let input = serde_json::json!({
+        "machineName": args.input,
+        "installationId": installation_id,
+    });
+    operator::call("machine.takeover", &input, bound("machine.takeover")).map(Into::into)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SeatArgs<'a> {
@@ -163,7 +197,7 @@ impl Run for Machine {
             Command::Harnesses(i) => owned("harnesses", "machine.harnesses", &i),
             Command::Configure(i) => owned("configure", "machine.configure", &i),
             Command::Setup(i) => owned("setup", "machine.setup", &i),
-            Command::Takeover(i) => owned("takeover", "machine.takeover", &i),
+            Command::Takeover(i) => envelope::print("machine takeover", takeover(i)),
             Command::TakeoverRemote(i) => owned("takeover-remote", "machine.takeover-remote", &i),
             Command::Exchange(i) => owned("exchange", "machine.exchange", &i),
             Command::BoatConnect(i) => owned("boat-connect", "machine.boat-connect", &i),

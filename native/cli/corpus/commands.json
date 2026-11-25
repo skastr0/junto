@@ -117,6 +117,23 @@
           ]
         },
         {
+          "name": "takeover",
+          "description": "Preview a take-over with a machine name and installation id, or confirm one with a JSON object",
+          "args": [
+            {
+              "name": "input",
+              "kind": "string",
+              "description": "A machine name for a preview, or a JSON object for a confirm"
+            },
+            {
+              "name": "installationId",
+              "kind": "string",
+              "optional": true,
+              "description": "The installation id the preview takes over"
+            }
+          ]
+        },
+        {
           "name": "exchange",
           "args": [
             {

@@ -1539,6 +1539,46 @@ fn a_malformed_takeover_prints_no_command() {
     }
 }
 
+#[test]
+fn a_takeover_preview_from_the_printed_line_sends_the_two_fields_with_no_confirm() {
+    let operator = Operator::start(|frame| {
+        serde_json::json!({
+            "protocol": "junto-operator/v1",
+            "id": frame["id"],
+            "op": frame["op"],
+            "ok": true,
+            "data": {
+                "machineName": "mini",
+                "installationId": "new-install",
+                "previousInstallationId": "old-install",
+                "seats": 2,
+                "automations": 1,
+                "takenOver": false,
+            },
+        })
+    });
+    let output = operator.run(&["machine", "takeover", "mini", "new-install"]);
+    assert_eq!(
+        code(&output),
+        0,
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let frames = operator.frames();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0]["op"], "machine.takeover");
+    assert_eq!(
+        frames[0]["args"],
+        serde_json::json!({"machineName": "mini", "installationId": "new-install"}),
+        "the printed line is a preview: no confirm, no expected id"
+    );
+
+    let refused = operator.run(&["machine", "takeover", "local", "new-install"]);
+    assert_eq!(code(&refused), 1);
+    assert_eq!(stderr_json(&refused)["error"]["type"], "InputError");
+    assert_eq!(operator.frames().len(), 1, "refused before the socket");
+}
+
 /// A stand-in operator socket at `$HOME/.junto/operator/control.sock`.
 struct Operator {
     home: PathBuf,

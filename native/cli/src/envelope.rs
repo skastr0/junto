@@ -126,7 +126,7 @@ fn takeover_command(error: &Failure) -> Option<String> {
     ))
 }
 
-fn machine_name_is_valid(value: &str) -> bool {
+pub(crate) fn machine_name_is_valid(value: &str) -> bool {
     value != "local"
         && (1..=64).contains(&value.len())
         && value
@@ -138,7 +138,7 @@ fn machine_name_is_valid(value: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
-fn installation_id_is_valid(value: &str) -> bool {
+pub(crate) fn installation_id_is_valid(value: &str) -> bool {
     (1..=128).contains(&value.len())
         && value
             .chars()
