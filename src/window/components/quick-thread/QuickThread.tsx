@@ -31,6 +31,7 @@ import {
   broadcastReceipt,
   broadcastReceiptSpoken,
   chooseRegion,
+  confirmSpoken,
   limitedRegionOptions,
   limitWord,
   regionTokenSpoken,
@@ -518,6 +519,7 @@ export function QuickThread({
   const another = keyCaps("inQuickThread.another")?.join(isMac() ? "" : "+");
   // The same key in words, for the line a screen reader hears: caps are drawn as symbols.
   const anotherSpoken = keyAria("inQuickThread.another")?.split(" ")[0];
+  const narrowSpoken = keyAria("inQuickThread.narrow")?.split(" ")[0];
 
   const row = (
     <div className="quick-thread__to" inert={busy} data-busy={busy ? "true" : undefined}>
@@ -629,9 +631,14 @@ export function QuickThread({
             }
           />
           <span id={describedBy} className="sr-only">
-            {anotherSpoken === undefined
-              ? chosenSeatsSpoken(chosen.length, regionsChosen.length)
-              : `${chosenSeatsSpoken(chosen.length, regionsChosen.length)}. ${anotherSpoken} adds another`}
+            {[
+              chosenSeatsSpoken(chosen.length, regionsChosen.length),
+              anotherSpoken === undefined ? undefined : `${anotherSpoken} adds another`,
+              // The narrow key is said where a region is the active option; its chevron is for the pointer.
+              active?.kind === "region" && narrowSpoken !== undefined ? `Enter chooses the whole region, ${narrowSpoken} picks its seats` : undefined,
+            ]
+              .filter((line) => line !== undefined)
+              .join(". ")}
           </span>
         </div>
       ) : null}
@@ -822,6 +829,8 @@ export function QuickThread({
           holds={() => {
             if (!withRegion) return false;
             setConfirming({ seats: set.seats, unread: set.unread });
+            // The confirm is said as it opens, through the live line that stays mounted.
+            say(confirmSpoken(set.seats.length, set.seats.filter((seat) => !seat.running).length, set.unread.length));
             return true;
           }}
           sender={sendTo}

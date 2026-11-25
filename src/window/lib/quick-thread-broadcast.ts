@@ -150,6 +150,10 @@ export const leftOutLine = (count: number): string =>
     ? "1 is left out: its machine is out of reach right now, so what it is doing is not known."
     : `${count} are left out: their machine is out of reach right now, so what they are doing is not known.`;
 
+/** The confirm said once when it opens, for the live line: the question, the detail and what is left out. */
+export const confirmSpoken = (count: number, later: number, unread: number): string =>
+  [confirmQuestion(count), confirmDetail(later), unread > 0 ? leftOutLine(unread) : undefined].filter((line) => line !== undefined).join(" ");
+
 /** The send button's own words. */
 export const sendToCount = (count: number): string => `Send to ${count}`;
 
@@ -165,9 +169,14 @@ export const groupByRegion = (seats: ReadonlyArray<BroadcastSeat>, regionOf: (no
   return [...groups].map(([region, held]) => ({ region, seats: held }));
 };
 
+/** The seats not sent, one line per reason they share, as the seat-by-seat flow says it: "Not sent to @a, @b. Reason." */
+export type NotSentReason = { readonly reason: string; readonly names: string };
+
 /** The receipt of a send with a region, as three counted lines: not sent, have it, get it when they are back. */
 export type BroadcastReceipt = {
   readonly notSent: ReadonlyArray<BroadcastSeat>;
+  /** Why the seats not sent got nothing, one line to a shared reason. */
+  readonly reasons: ReadonlyArray<NotSentReason>;
   readonly have: ReadonlyArray<BroadcastSeat>;
   readonly later: ReadonlyArray<BroadcastSeat>;
 };
@@ -176,13 +185,20 @@ export const broadcastReceipt = (
   seats: ReadonlyArray<BroadcastSeat>,
   outcome: {
     readonly sent: ReadonlyArray<{ readonly seatId: string; readonly arrival: "arrived" | "waiting" }>;
-    readonly failed: ReadonlyArray<{ readonly seatId: string }>;
+    readonly failed: ReadonlyArray<{ readonly seatId: string; readonly message: string }>;
   },
 ): BroadcastReceipt => {
   const arrival = new Map(outcome.sent.map((entry) => [entry.seatId, entry.arrival]));
-  const failed = new Set(outcome.failed.map((entry) => entry.seatId));
+  const failed = new Map(outcome.failed.map((entry) => [entry.seatId, entry.message]));
+  const notSent = seats.filter((seat) => failed.has(seat.nodeId));
+  const byReason = new Map<string, string[]>();
+  for (const seat of notSent) {
+    const reason = failed.get(seat.nodeId) ?? "";
+    byReason.set(reason, [...(byReason.get(reason) ?? []), `@${seat.name}`]);
+  }
   return {
-    notSent: seats.filter((seat) => failed.has(seat.nodeId)),
+    notSent,
+    reasons: [...byReason].map(([reason, names]) => ({ reason, names: names.join(", ") })),
     have: seats.filter((seat) => arrival.get(seat.nodeId) === "arrived"),
     later: seats.filter((seat) => arrival.get(seat.nodeId) === "waiting"),
   };

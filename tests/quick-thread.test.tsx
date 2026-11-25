@@ -586,7 +586,9 @@ describe("Broadcast: a region as a recipient", () => {
     expect(sends).toEqual([]);
     expect(q("quick-thread-confirm")?.textContent).toContain("Send to 2 seats?");
     expect(q("quick-thread-confirm")?.textContent).toContain("Each gets its own thread.");
-    expect(document.activeElement).toBe(q("quick-thread-confirm-send"));
+    // On the question, not on Send: a key still held from the press that opened it sends nothing.
+    expect(document.activeElement).toBe(q("quick-thread-confirm"));
+    expect(spoken()).toContain("Send to 2 seats? Each gets its own thread.");
 
     await press(q("quick-thread-confirm-send"));
     expect(sends.map((entry) => entry.nodeId).sort()).toEqual(["s-design", "s-type"]);
@@ -653,6 +655,8 @@ describe("Broadcast: a region as a recipient", () => {
     expect(q("quick-thread-later")).toBeNull();
     // Open for a few seats, with its names.
     expect(q("quick-thread-not-sent")?.textContent).toContain("product-typography");
+    // Why, under the line, as the seat-by-seat flow says it.
+    expect(q("quick-thread-not-sent-reasons")?.textContent).toBe("Not sent to @product-typography. That seat is not reachable.");
 
     delete refused["s-type"];
     sends = [];

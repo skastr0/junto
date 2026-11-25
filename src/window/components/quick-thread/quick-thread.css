@@ -234,6 +234,8 @@
    press inside it opens the limits, the control after it takes the region off. */
 .quick-thread__region {
   gap: 2px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .quick-thread__region-press {
@@ -264,9 +266,13 @@
   white-space: nowrap;
 }
 
+/* The limits give way first: a token with three of them shortens inside the frame; the aria-label has them whole. */
 .quick-thread__region-limits {
+  min-width: 0;
   margin-left: -6px;
+  overflow: hidden;
   color: var(--color-dim);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

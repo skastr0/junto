@@ -47,11 +47,13 @@ export const readBroadcastSet = (input: {
       const node = input.canvas.nodes.get(asNodeId(nodeId));
       const bindingId = node !== undefined && "bindingId" in node ? (node.bindingId as string | undefined) : undefined;
       const host = node !== undefined && "host" in node ? (node.host as string | undefined) : undefined;
-      const here = node?.kind !== "peer" && (host === undefined || isOnMachine(host, input.machineName));
+      const here = node !== undefined && node.kind !== "peer" && (host === undefined || isOnMachine(host, input.machineName));
+      // As the core reads it: a seat here with no state yet is off (gone), so a Doing limit holds it as off, never unread.
+      const event = input.eventOf(bindingId) ?? (here ? { state: "gone" as const } : undefined);
       return seatReading({
         canvasName: input.canvasName,
         nodeId,
-        event: input.eventOf(bindingId),
+        event,
         current: here || (node?.kind !== "peer" && host !== undefined && input.machineReadable(host)),
         signals: input.signals,
       });

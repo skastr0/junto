@@ -70,9 +70,10 @@ describe("the confirm and the receipt", () => {
         { seatId: "b", arrival: "waiting" },
         { seatId: "c", arrival: "arrived" },
       ],
-      failed: [{ seatId: "d" }],
+      failed: [{ seatId: "d", message: "Not reachable." }],
     });
     expect([receipt.notSent.length, receipt.have.length, receipt.later.length]).toEqual([1, 2, 1]);
+    expect(receipt.reasons).toEqual([{ reason: "Not reachable.", names: "@d" }]);
     expect(broadcastReceiptSpoken(receipt)).toBe("1 not sent. 2 have it. 1 get it when they are back.");
   });
 });
