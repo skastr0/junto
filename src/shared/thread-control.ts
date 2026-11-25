@@ -14,6 +14,7 @@
 import { Schema } from "effect";
 import { MailMessageId } from "./crew";
 import { PAGE_MAX, THREAD_GROUPS } from "./mail-threads";
+import { ANSWER_HELD_WORDS } from "./signal-answer-held";
 import { MailThreadMessage, MailThreadSummary } from "./wire/mail-threads";
 
 const PageLimit = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: PAGE_MAX }));
@@ -44,6 +45,27 @@ export const ThreadShowArgs = Schema.Struct({
 });
 export type ThreadShowArgs = typeof ThreadShowArgs.Type;
 
+// The window marks a held answer `held` and words it itself; a seat reads the words.
+const { held: _held, ...seatMessageFields } = MailThreadMessage.fields;
+
+/**
+ * A thread's mail as a seat reads it. The operator's answer kept from its
+ * seat, because the seat withdrew the signal before the answer arrived
+ * (`answerHeld`), stays readable and says so in the fixed words
+ * `ANSWER_HELD_WORDS`. Present only with `answers`.
+ */
+export const SeatThreadMessage = Schema.Struct({
+  ...seatMessageFields,
+  answerHeld: Schema.optionalKey(Schema.Literal(ANSWER_HELD_WORDS)),
+});
+export type SeatThreadMessage = typeof SeatThreadMessage.Type;
+
+/** A thread's mail as a seat reads it: a held answer marked in its fixed words. */
+export const seatThreadMessageOf = (message: MailThreadMessage): SeatThreadMessage => {
+  const { held, ...rest } = message;
+  return held === true ? { ...rest, answerHeld: ANSWER_HELD_WORDS } : rest;
+};
+
 // The operator's read state is theirs: a seat's view of a thread leaves it out.
 const { readAt: _readAt, unread: _unread, ...seatSummaryFields } = MailThreadSummary.fields;
 
@@ -64,7 +86,7 @@ export type ThreadListAnswer = typeof ThreadListAnswer.Type;
 export const ThreadShowAnswer = Schema.Struct({
   seat: Schema.String,
   threadId: Schema.String,
-  messages: Schema.Array(MailThreadMessage),
+  messages: Schema.Array(SeatThreadMessage),
   older: Schema.optionalKey(Schema.String),
 });
 export type ThreadShowAnswer = typeof ThreadShowAnswer.Type;

@@ -639,10 +639,10 @@
                 ],
                 "additionalProperties": false
               },
-              "held": {
-                "type": "boolean",
+              "answerHeld": {
+                "type": "string",
                 "enum": [
-                  true
+                  "withdrawn before the answer arrived"
                 ]
               }
             },

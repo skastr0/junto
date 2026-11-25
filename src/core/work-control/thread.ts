@@ -19,7 +19,7 @@ import { titleOf } from "@shared/model/title";
 import type { ThreadGroup } from "@shared/mail-threads";
 import { resolveMailboxTarget } from "@shared/mailbox-target";
 import { type WorkErrorBody, type WorkOpName } from "@shared/work-control";
-import { seatThreadSummaryOf, type ThreadListAnswer, type ThreadShowAnswer } from "@shared/thread-control";
+import { seatThreadMessageOf, seatThreadSummaryOf, type ThreadListAnswer, type ThreadShowAnswer } from "@shared/thread-control";
 import { ThreadRpcs } from "../../contract/work/thread";
 import { workFailure } from "../../contract/work/failure";
 import { ModelService } from "../model/service";
@@ -106,7 +106,7 @@ export const seatThreadMessagesView = (
     return {
       seat: nodeId,
       threadId,
-      messages: found.messages,
+      messages: found.messages.map(seatThreadMessageOf),
       ...(found.older === undefined ? {} : { older: found.older }),
     };
   });
