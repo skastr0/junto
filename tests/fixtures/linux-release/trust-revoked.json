@@ -1,0 +1,25 @@
+{
+  "keyring": {
+    "schema": "junto/linux-release-keyring/v1",
+    "revision": 1,
+    "keys": [
+      {
+        "keyId": "junto-linux-fixture",
+        "algorithm": "ed25519",
+        "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA+V45dZJSpuA0LpeSheg+niiOF9j6c72nKqQku/GU7aQ=\n-----END PUBLIC KEY-----\n",
+        "fingerprintSha256": "51aaccce741a54cc6141eee943330293bdd08cbd900a731b1e31efb170e809e8",
+        "status": "revoked",
+        "validFrom": "2020-01-01T00:00:00.000Z",
+        "revokedAt": "2026-01-02T00:00:00.000Z"
+      }
+    ]
+  },
+  "policy": {
+    "schema": "junto/linux-release-trust-policy/v1",
+    "state": "configured",
+    "trustedKeyringRevision": 1,
+    "trustedKeyringSha256": "7149f160dd904e8c7bf2566b3bf90873a87de3bba47bf74eb80b97362be1c43a",
+    "trustedKeyId": "junto-linux-fixture",
+    "trustedKeyFingerprintSha256": "51aaccce741a54cc6141eee943330293bdd08cbd900a731b1e31efb170e809e8"
+  }
+}

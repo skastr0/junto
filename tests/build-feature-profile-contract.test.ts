@@ -4,7 +4,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { FEATURE_CATALOG, SHIP_FEATURES } from "../src/shared/feature-catalog";
-import { standaloneControlBuild } from "../scripts/build-standalone-cli";
 import { nativeFeatureEnv } from "../scripts/build-native-cli";
 import { resolveBuildFeatures } from "../scripts/build-features";
 
@@ -58,16 +57,6 @@ describe("packaged feature build contract", () => {
     for (const [key, feature] of Object.entries(FEATURE_CATALOG)) {
       const tier = SHIP_FEATURES[key as keyof typeof SHIP_FEATURES];
       expect(env[feature.define.replace(/^__|__$/g, "")]).toBe(tier === true ? "1" : tier === false ? "0" : tier);
-    }
-  });
-
-  it("keeps the Bun bootstrap compiler on explicit ship defines", () => {
-    const build = standaloneControlBuild("junto-desktop-bootstrap-linux-x64");
-    expect(build.profile).toBe("ship");
-    for (const [key, feature] of Object.entries(FEATURE_CATALOG)) {
-      expect(build.featureDefines).toContain(
-        `--define=${feature.define}=${JSON.stringify(SHIP_FEATURES[key as keyof typeof SHIP_FEATURES])}`,
-      );
     }
   });
 

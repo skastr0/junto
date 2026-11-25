@@ -31,7 +31,7 @@ describe("Linux desktop alpha operator documentation", () => {
     expect(bootstrap).toContain("The packaged application CLI does not install Linux desktop");
     expect(bootstrap).toContain("That procedure is withdrawn");
     expect(commands).toContain("gh attestation verify");
-    expect(commands).toContain("bun scripts/install-linux-desktop.ts");
+    expect(commands).toContain("cargo build --locked --release");
     expect(commands).toContain("junto-desktop-bootstrap-linux-x64");
     expect(commands).not.toMatch(/^\s*tar\s+-xzf\b/mu);
     expect(commands).not.toContain("desktop-install");

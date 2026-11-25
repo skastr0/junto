@@ -10,7 +10,7 @@ import { Header } from "tar";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LINUX_DESKTOP_RELEASE_SCHEMA, LINUX_DESKTOP_TARGET, linuxDesktopArchiveName, type LinuxDesktopReleaseDescriptor } from "../src/shared/linux-desktop-release";
 import { signLinuxDesktopRelease, verifyLinuxDesktopRelease, type LinuxDesktopReleaseTrust, type VerifiedLinuxDesktopRelease } from "../src/shared/linux-desktop-release-crypto";
-import { installLinuxDesktop } from "../src/app/update/linux-first-install";
+import { verifyLinuxDesktopReleaseFiles } from "../src/shared/linux-desktop-release-files";
 import { activateLinuxDesktopRelease, assertLinuxDesktopFirstInstallAvailable, assertLinuxDesktopManagedIncumbent, holdLinuxDesktopInstallReadiness, LinuxDesktopActivationError, linuxDesktopInstallStorageDoctor, markLinuxDesktopInstallReady, revalidateLinuxDesktopRelease, stageLinuxDesktopRelease, type StagedLinuxDesktopRelease } from "../src/node/update/linux-install";
 import { itOnLinux } from "./helpers/platform";
 
@@ -150,11 +150,11 @@ describe("rootless Linux desktop installation", () => {
       releasePath,
       JSON.stringify(signLinuxDesktopRelease(descriptor, keyPair.privateKey)),
     );
-    await expect(installLinuxDesktop({
-      release: releasePath,
-      archive: archivePath,
-      home: input.home,
-    }, { assertTarget: async () => undefined })).rejects.toThrow(/pinned signing trust/);
+    // The first-install command verifies these files before it stages anything.
+    await expect(verifyLinuxDesktopReleaseFiles({
+      releasePath,
+      archivePath,
+    })).rejects.toThrow(/pinned signing trust/);
     await expect(lstat(join(input.home, ".local"))).rejects.toMatchObject({ code: "ENOENT" });
     await expect(lstat(active(input.home))).rejects.toMatchObject({ code: "ENOENT" });
   });

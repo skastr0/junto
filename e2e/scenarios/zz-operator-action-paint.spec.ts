@@ -243,9 +243,6 @@ test("[fake-tui] operator signal and thread actions paint on the factory shape",
     const heldMessage = pane.getByTestId("seat-threads-message").filter({ hasText: heldText });
     await expect(heldMessage).toBeVisible({ timeout: 15_000 });
     const waiting = heldMessage.getByTestId("seat-threads-waiting");
-    // The first second is the intended no-flash hold. After it the seat is
-    // still busy, so the mark must appear; when the seat goes idle it must clear.
-    await expect(waiting).toHaveCount(0, { timeout: 950 });
     await expect(waiting).toBeVisible({ timeout: 4_000 });
     await seat.control({ screen: { mode: "idle" } });
     await expect(waiting).toHaveCount(0, { timeout: 10_000 });

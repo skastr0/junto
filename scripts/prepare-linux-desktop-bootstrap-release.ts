@@ -5,7 +5,9 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { LINUX_DESKTOP_BOOTSTRAP_VERSION } from "../src/app/update/linux-first-install";
+// The bootstrap's own version lives in the native crate (BOOTSTRAP_VERSION);
+// the release workflow binds it to the tag through `--version`.
+export const LINUX_DESKTOP_BOOTSTRAP_VERSION = "1.0.0";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const LINUX_DESKTOP_BOOTSTRAP_NAME =

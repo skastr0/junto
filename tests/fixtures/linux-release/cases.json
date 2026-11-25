@@ -1,0 +1,175 @@
+[
+  {
+    "name": "good",
+    "file": "cases/good.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": true,
+      "version": "0.3.0"
+    }
+  },
+  {
+    "name": "signature-tampered",
+    "file": "cases/signature-tampered.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "Linux desktop release signature verification failed"
+    }
+  },
+  {
+    "name": "unknown-field",
+    "file": "cases/unknown-field.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "unexpected Linux desktop descriptor fields"
+    }
+  },
+  {
+    "name": "missing-field",
+    "file": "cases/missing-field.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "unexpected Linux desktop descriptor fields"
+    }
+  },
+  {
+    "name": "wrong-schema",
+    "file": "cases/wrong-schema.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "unsupported Linux desktop release identity"
+    }
+  },
+  {
+    "name": "bad-version",
+    "file": "cases/bad-version.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "invalid Linux desktop version; expected X.Y.Z"
+    }
+  },
+  {
+    "name": "bad-source-revision",
+    "file": "cases/bad-source-revision.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "invalid Linux desktop source revision"
+    }
+  },
+  {
+    "name": "bad-created-at",
+    "file": "cases/bad-created-at.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "invalid release creation timestamp"
+    }
+  },
+  {
+    "name": "unsupported-target",
+    "file": "cases/unsupported-target.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "unsupported Linux desktop target"
+    }
+  },
+  {
+    "name": "archive-name-mismatch",
+    "file": "cases/archive-name-mismatch.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "Linux desktop archive path does not match version"
+    }
+  },
+  {
+    "name": "archive-bytes-zero",
+    "file": "cases/archive-bytes-zero.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "invalid archive bytes"
+    }
+  },
+  {
+    "name": "archive-sha-bad",
+    "file": "cases/archive-sha-bad.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "invalid archive SHA256"
+    }
+  },
+  {
+    "name": "signature-format",
+    "file": "cases/signature-format.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "invalid canonical Ed25519 signature"
+    }
+  },
+  {
+    "name": "trust-key-mismatch",
+    "file": "cases/trust-key-mismatch.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "Linux desktop descriptor does not match pinned signing trust"
+    }
+  },
+  {
+    "name": "trust-revision-mismatch",
+    "file": "cases/trust-revision-mismatch.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "Linux desktop descriptor does not match pinned signing trust"
+    }
+  },
+  {
+    "name": "created-in-future",
+    "file": "cases/created-in-future.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "Linux desktop release creation is in the future"
+    }
+  },
+  {
+    "name": "created-before-key",
+    "file": "cases/created-before-key.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "expect": {
+      "ok": false,
+      "message": "Linux desktop release was signed outside the key authorization window"
+    }
+  },
+  {
+    "name": "created-after-signing-window",
+    "file": "cases/created-after-signing-window.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "trust": "trust-window.json",
+    "expect": {
+      "ok": false,
+      "message": "Linux desktop release was signed outside the key authorization window"
+    }
+  },
+  {
+    "name": "revoked-key",
+    "file": "cases/revoked-key.json",
+    "now": "2026-02-01T00:00:00.000Z",
+    "trust": "trust-revoked.json",
+    "expect": {
+      "ok": false,
+      "message": "Linux desktop signing key is revoked"
+    }
+  }
+]

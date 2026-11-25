@@ -91,9 +91,10 @@ a failed signature, size, or hash check.
 ## Source fallback
 
 Use this only when independently installed `gh` or Sigstore verification is
-unavailable and a current reviewed checkout plus trusted Bun 1.4.3 are
-available. An invalid signature is not a reason to fall back. Compromise of
-the GitHub repository or its release authority stops both paths.
+unavailable and a current reviewed checkout plus a Rust toolchain pinned by
+`native/linux-desktop-bootstrap/rust-toolchain.toml` are available. An invalid
+signature is not a reason to fall back. Compromise of the GitHub repository or
+its release authority stops both paths.
 
 ```sh
 (
@@ -108,17 +109,16 @@ the GitHub repository or its release authority stops both paths.
   git -C junto-bootstrap-source checkout --detach "$BOOTSTRAP_COMMIT"
   test "$(git -C junto-bootstrap-source rev-parse HEAD)" = "$BOOTSTRAP_COMMIT"
 
-  cd junto-bootstrap-source
-  test "$(bun --version)" = "1.4.3"
-  bun install --frozen-lockfile
-  bun scripts/install-linux-desktop.ts \
+  cd junto-bootstrap-source/native/linux-desktop-bootstrap
+  cargo build --locked --release --target x86_64-unknown-linux-gnu
+  ./target/x86_64-unknown-linux-gnu/release/junto-desktop-bootstrap-linux-x64 \
     --release "$INPUTS/release.json" \
     --archive "$INPUTS/junto-runtime-$ALPHA_VERSION-linux-x64.tar.gz"
 )
 ```
 
-Review the lockfile and dependency lifecycle scripts. Run from the trusted
-checkout, not the downloads directory.
+Run from the trusted checkout, not the downloads directory. The crate builds
+with `--locked`, so its committed lockfile pins every dependency.
 
 ## What this bootstrap does not do
 

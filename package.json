@@ -81,7 +81,7 @@
     "content-transfer": "bun src/cli/main.ts content-transfer",
     "cli": "bun src/cli/main.ts",
     "cli:build": "bun scripts/build-native-cli.ts --out dist/junto",
-    "linux:desktop:bootstrap:build": "bun scripts/build-standalone-cli.ts junto-desktop-bootstrap-linux-x64",
+    "linux:desktop:bootstrap:build": "bash scripts/build-linux-desktop-bootstrap.sh",
     "test:e2e:startup": "scripts/with-app-run-lock.sh sh -c 'JUNTO_FEATURE_PROFILE=all-on bun run build:bundles && scripts/run-e2e.sh e2e/scenarios/free-startup.spec.ts \"$@\"' --",
     "audit:dependencies": "bun audit --audit-level=high --ignore=GHSA-vfj7-8cjw-p6xm"
   },

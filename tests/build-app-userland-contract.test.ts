@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { standaloneControlBuild } from "../scripts/build-standalone-cli";
 
 describe("app build userland artifact contract", () => {
   it("compiles only the single packaged CLI required by the app", async () => {
@@ -11,10 +10,13 @@ describe("app build userland artifact contract", () => {
     // The packaged CLI is the native one; no Bun-compiled control ships.
     expect(build).not.toContain("build-standalone-cli.ts");
     expect(build).toMatch(/"\$SCRIPT_DIR\/build-native-cli\.ts" .*--out dist\/junto/u);
-    expect(standaloneControlBuild("junto-desktop-bootstrap-linux-x64")).toMatchObject({
-      output: "dist/junto-desktop-bootstrap-linux-x64",
-      source: "scripts/linux-desktop-bootstrap.ts",
-    });
+    // The Linux desktop bootstrap is Rust and built by its own script.
+    const packageJson = await readFile(
+      new URL("../package.json", import.meta.url),
+      "utf8",
+    );
+    expect(packageJson).toContain('"linux:desktop:bootstrap:build": "bash scripts/build-linux-desktop-bootstrap.sh"');
+    expect(packageJson).not.toContain("build-standalone-cli");
     expect(build).not.toContain("junto-desktop-bootstrap-linux-x64");
     expect(build).not.toContain("bun build --compile");
     expect(build).not.toContain("junto-browser");

@@ -1,0 +1,33 @@
+[package]
+name = "junto-desktop-bootstrap"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98.1"
+license = "LicenseRef-Junto"
+publish = false
+description = "The independently distributed Linux desktop first-install verifier"
+
+[[bin]]
+name = "junto-desktop-bootstrap-linux-x64"
+path = "src/main.rs"
+
+# The bootstrap verifies and installs; it never launches the app and keeps no
+# product state. Dependencies stay small and synchronous: one signature check,
+# one archive, one filesystem transaction.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["legacy_compatibility"] }
+base64 = "0.22"
+flate2 = "1"
+tar = "0.4"
+rustix = { version = "1", features = ["fs", "process"] }
+# Only the glibc runtime version, read from the loaded libc, not a file or shell.
+libc = "0.2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

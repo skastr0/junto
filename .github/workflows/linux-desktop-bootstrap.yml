@@ -44,10 +44,14 @@ jobs:
         with:
           bun-version: 1.4.3
 
-      - name: Install and build
+      - name: Install the pinned Rust toolchain
         run: |
           set -eu
-          bun install --frozen-lockfile
+          rustup toolchain install 1.98.1 --profile minimal --target x86_64-unknown-linux-gnu
+
+      - name: Build and prepare
+        run: |
+          set -eu
           bun run linux:desktop:bootstrap:build
           bun scripts/prepare-linux-desktop-bootstrap-release.ts
 

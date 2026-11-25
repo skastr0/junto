@@ -76,10 +76,12 @@ website-checksum-then-bundled-CLI procedure trusted the download page before
 executing downloaded code; that checksum was not independent authentication
 and is not a fallback.
 
-From a reviewed, commit-pinned source checkout with independently trusted Bun
-1.4.3, `bun scripts/install-linux-desktop.ts` accepts the same two flags and
-invokes the same first-install API. That source fallback is documented in the
-bootstrap guide.
+From a reviewed, commit-pinned source checkout with a Rust toolchain pinned by
+`native/linux-desktop-bootstrap/rust-toolchain.toml`, running
+`cargo build --locked --release --target x86_64-unknown-linux-gnu` inside
+`native/linux-desktop-bootstrap` builds `junto-desktop-bootstrap-linux-x64`,
+which accepts the same two flags and performs the same first install. That
+source fallback is documented in the bootstrap guide.
 
 The managed generation is:
 

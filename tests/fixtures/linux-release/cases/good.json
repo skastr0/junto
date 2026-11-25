@@ -1,0 +1,30 @@
+{
+  "descriptor": {
+    "schema": "junto/linux-desktop-release/v1",
+    "product": "Junto",
+    "channel": "alpha",
+    "version": "0.3.0",
+    "sourceRevision": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "target": {
+      "os": "linux",
+      "arch": "x64",
+      "distribution": "ubuntu",
+      "distributionVersion": "24.04",
+      "libc": "glibc",
+      "libcVersion": "2.39"
+    },
+    "archive": {
+      "file": "junto-runtime-0.3.0-linux-x64.tar.gz",
+      "path": "/linux/x64/junto-runtime-0.3.0-linux-x64.tar.gz",
+      "bytes": 32,
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "trust": {
+      "algorithm": "ed25519",
+      "keyId": "junto-linux-fixture",
+      "keyringRevision": 1
+    }
+  },
+  "signature": "O5f1uTyRfIU4PYtYLabsogajhrZdO3Uqi6pZgp1V3vbwfo6vpOfKjFGvkMiEgQKCI0HtJRlXlCoc3zFhdhaICQ"
+}
