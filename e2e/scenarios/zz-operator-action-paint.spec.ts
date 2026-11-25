@@ -256,7 +256,15 @@ const rendererStageEvents = (page: Page): Promise<StageEvent[]> =>
 const stageTable = (name: string, click: number, painted: number, events: ReadonlyArray<StageEvent>) => {
   const wanted = (event: StageEvent): boolean => {
     if (name === "signal-answer") {
-      return event.op === "SignalsAnswer" || event.op === "SignalsChanged" || event.label === "ipc.work.signal-answer";
+      return (
+        event.op === "SignalsAnswer" ||
+        event.op === "SignalGet" ||
+        event.op === "SignalWriteRow" ||
+        event.op === "SignalRecordAnswer" ||
+        event.op === "SignalSetThread" ||
+        event.op === "SignalsChanged" ||
+        event.label === "ipc.work.signal-answer"
+      );
     }
     if (name === "thread-create" || name === "thread-reply") {
       return (
