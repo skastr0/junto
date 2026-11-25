@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { createWireScene, RECORD_FLOATS, PREVIEW_ID, type WireFrame } from "../src/window/canvas/engine/wires/scene";
 import type { NodeId, Rect, SceneOp, WireFact, WireRouteFact } from "../src/window/canvas/contract";
-import { STRIP_FLOATS } from "../src/window/canvas/paint/wires";
+import { STRIP_FLOATS, WIRE_HALF_WIDTH } from "../src/window/canvas/paint/wires";
 import { WIRE_PULSE_MS } from "../src/window/lib/wire-pulse";
 
 const T0 = 1_700_000_000_000;
@@ -14,19 +14,33 @@ const T0 = 1_700_000_000_000;
 const wire = (id: string, from: string, to: string, verb: "messages" | "flows" | "derives" | "navigates" = "messages"): WireFact =>
   ({ id, row: { id, from, to, verb } }) as unknown as WireFact;
 
-const makeScene = (cards: Map<string, Rect>, reducedMotion = false, surfaces?: Map<string, Rect>) => {
+type TestGathering = { readonly key: string; readonly rect: Rect };
+
+const makeScene = (cards: Map<string, Rect>, reducedMotion = false, surfaces?: Map<string, Rect>, gatherings: Map<string, TestGathering> = new Map()) => {
+  const gatheringPending: string[] = [];
+  let tierNow: WireFrame["tier"] = "near";
   const scene = createWireScene({
     rectOf: (id: NodeId) => cards.get(id),
     ...(surfaces === undefined ? {} : { surfaceOf: (id: NodeId) => surfaces.get(id) }),
+    gatheredInto: (id: NodeId) => (tierNow === "far" || tierNow === "overview" ? gatherings.get(id) : undefined),
+    gatheringChanged: () => gatheringPending.splice(0),
     reducedMotion: () => reducedMotion,
   });
-  const frame = (at: number, tier: WireFrame["tier"] = "near", live?: ReadonlySet<string>): boolean =>
-    scene.frame({ camera: { x: 0, y: 0, zoom: 1 }, width: 1600, height: 1000, pixelRatio: 2, tier, wall: at, ...(live === undefined ? {} : { live }) });
+  const frame = (at: number, tier: WireFrame["tier"] = "near", live?: ReadonlySet<string>): boolean => {
+    tierNow = tier;
+    return scene.frame({ camera: { x: 0, y: 0, zoom: 1 }, width: 1600, height: 1000, pixelRatio: 2, tier, wall: at, ...(live === undefined ? {} : { live }) });
+  };
   /** A card op, as a model change arrives: the wire layer rebuilds that card's wires. */
   const card = (id: string): void => {
     scene.apply({ kind: "card", fact: { id } } as unknown as SceneOp);
   };
-  return { scene, frame, card };
+  /** A seat joins or leaves a badge, as the model scene reports it. */
+  const gather = (id: string, gathering: TestGathering | undefined): void => {
+    if (gathering === undefined) gatherings.delete(id);
+    else gatherings.set(id, gathering);
+    gatheringPending.push(id);
+  };
+  return { scene, frame, card, gather };
 };
 
 const rect = (x: number, y: number, width = 260, height = 96): Rect => ({ x, y, width, height });
@@ -42,6 +56,15 @@ const board = () =>
   ]);
 
 const load = (wires: WireFact[]): SceneOp => ({ kind: "load", canvas: "t" as never, cards: [], wires });
+
+const badge = (key: string, x: number, y: number): TestGathering => ({ key, rect: rect(x, y, 40, 40) });
+
+const maxStripAcross = (scene: ReturnType<typeof createWireScene>): number => {
+  const vertices = scene.pool.vertices();
+  let widest = 0;
+  for (let at = 0; at < scene.pool.extent() * STRIP_FLOATS; at += STRIP_FLOATS) widest = Math.max(widest, Math.abs(vertices[at + 5] ?? 0));
+  return widest;
+};
 
 describe("the wire scene", () => {
   it("draws a wire at rest as one strip and a record at 7% opacity", () => {
@@ -625,6 +648,119 @@ describe("the wire scene", () => {
     card("b");
     frame(T0 + 16);
     expect(scene.inspect("w")!.kind).toBe("elbow");
+  });
+
+
+  it("ends a gathered seat's wire on its badge disc, not on the seat's card", () => {
+    const cards = board();
+    const gatherings = new Map<string, TestGathering>([["a", badge("k1", 100, 0)]]);
+    const { scene, frame } = makeScene(cards, false, undefined, gatherings);
+    scene.apply(load([wire("w", "a", "b")]));
+    frame(T0, "far");
+    const points = scene.inspect("w")!.points;
+    expect(points[0]!.x).toBeLessThan(200);
+    expect(points[0]!.x).toBeGreaterThan(130);
+    expect(points[0]!.y).toBe(20);
+    expect(points[points.length - 1]!.x).toBeGreaterThan(590);
+  });
+
+  it("draws and picks nothing for a wire whose ends are inside one badge", () => {
+    const cards = board();
+    const gatherings = new Map<string, TestGathering>([
+      ["a", badge("k1", 100, 0)],
+      ["b", badge("k1", 100, 0)],
+    ]);
+    const { scene, frame } = makeScene(cards, false, undefined, gatherings);
+    scene.apply(load([wire("w", "a", "b")]));
+    frame(T0, "far");
+    expect(scene.inspect("w")).toBeUndefined();
+    expect(scene.folds()).toHaveLength(0);
+    expect(scene.foldOf("w")).toEqual(["w"]);
+    expect(scene.pick({ x: 120, y: 20 })).toBeUndefined();
+  });
+
+  it("folds wires between two badges into one widening strip, led by the tracked wire and picked as that wire", () => {
+    const cards = board();
+    cards.set("d", rect(600, 300));
+    const gatherings = new Map<string, TestGathering>([
+      ["a", badge("k1", 100, 0)],
+      ["b", badge("k1", 100, 0)],
+      ["c", badge("k2", 600, 0)],
+      ["d", badge("k2", 600, 0)],
+    ]);
+    const { scene, frame } = makeScene(cards, false, undefined, gatherings);
+    scene.apply(load([wire("lead", "a", "c", "flows")]));
+    frame(T0, "far");
+    const single = maxStripAcross(scene);
+    expect(single).toBeCloseTo(WIRE_HALF_WIDTH, 4);
+    scene.apply({ kind: "wire", fact: wire("same", "b", "c") } as unknown as SceneOp);
+    scene.apply({ kind: "wire", fact: wire("reverse", "d", "a") } as unknown as SceneOp);
+    frame(T0 + 16, "far");
+    const folds = scene.folds();
+    expect(folds).toHaveLength(1);
+    expect(folds[0]!.lead).toBe("lead");
+    expect(folds[0]!.members).toEqual(["lead", "reverse", "same"]);
+    expect(scene.foldOf("reverse")).toEqual(["lead", "reverse", "same"]);
+    expect(maxStripAcross(scene)).toBeCloseTo(WIRE_HALF_WIDTH * (1 + Math.log2(3)), 4);
+    scene.apply({ kind: "wireMode", mode: "loupe" });
+    const at = folds[0]!.points[Math.floor(folds[0]!.points.length / 2)]!;
+    expect(scene.pick(at)).toBe("lead");
+    expect(scene.inspect("reverse")).toMatchObject({ kind: "elbow", pickable: true });
+  });
+
+  it("moves only the changed seat's wires when a regroup drains", () => {
+    const cards = board();
+    cards.set("d", rect(600, 300));
+    const gatherings = new Map<string, TestGathering>([
+      ["a", badge("k1", 100, 0)],
+      ["b", badge("k1", 100, 0)],
+      ["c", badge("k2", 600, 0)],
+      ["d", badge("k2", 600, 0)],
+    ]);
+    const { scene, frame, gather } = makeScene(cards, false, undefined, gatherings);
+    scene.apply(load([wire("changed", "a", "c"), wire("kept", "b", "d")]));
+    frame(T0, "far");
+    expect(scene.folds()).toHaveLength(1);
+    gather("a", badge("k3", 0, 300));
+    frame(T0 + 16, "far");
+    const folds = scene.folds();
+    expect(folds).toHaveLength(2);
+    expect(folds.find((fold) => fold.members.includes("changed"))!.members).toEqual(["changed"]);
+    expect(folds.find((fold) => fold.members.includes("kept"))!.members).toEqual(["kept"]);
+  });
+
+  it("unfolds at mid with no strip rebuild once both tier strips are warm", () => {
+    const cards = board();
+    const { scene, frame, gather } = makeScene(cards);
+    scene.apply(load([wire("w", "a", "b")]));
+    frame(T0, "mid");
+    frame(T0 + 16, "far");
+    gather("a", badge("k1", 100, 0));
+    frame(T0 + 32, "far");
+    expect(scene.folds()).toHaveLength(1);
+    const builds = scene.builds();
+    frame(T0 + 48, "mid");
+    expect(scene.builds()).toBe(builds);
+    expect(scene.folds()).toHaveLength(0);
+    expect(scene.inspect("w")).toMatchObject({ kind: "elbow" });
+  });
+
+  it("plays a member's pulse on its fold and drops one wholly inside a badge", () => {
+    const cards = board();
+    const gatherings = new Map<string, TestGathering>([
+      ["a", badge("k1", 100, 0)],
+      ["c", badge("k2", 600, 400)],
+    ]);
+    const { scene, frame, gather } = makeScene(cards, false, undefined, gatherings);
+    scene.apply(load([wire("w", "a", "c")]));
+    frame(T0, "far");
+    scene.apply({ kind: "pulse", wireId: "w", at: T0 + 100, pulse: "notice" } as unknown as SceneOp);
+    expect(scene.busy(T0 + 100)).toBe(true);
+    gather("c", badge("k1", 100, 0));
+    frame(T0 + 200, "far");
+    scene.apply({ kind: "pulse", wireId: "w", at: T0 + 200, pulse: "notice" } as unknown as SceneOp);
+    expect(scene.busy(T0 + 200)).toBe(false);
+    expect(WIRE_PULSE_MS).toBeGreaterThan(0);
   });
 
   it("rewrites only the changed span: a selection touches records, not strips", () => {

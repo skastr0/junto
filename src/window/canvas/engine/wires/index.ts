@@ -29,6 +29,10 @@ export type WireLayerOptions = {
   readonly rectOf: (id: NodeId) => Rect | undefined;
   /** The visible body a card draws at this tier, when it is narrower than the card. */
   readonly surfaceOf?: (id: NodeId) => Rect | undefined;
+  /** The badge a seat is gathered into at far and overview, with its disc in board units. */
+  readonly gatheredInto?: (id: NodeId) => { readonly key: string; readonly rect: Rect } | undefined;
+  /** Seats whose gathering changed since the last read; the wire scene drains this once a frame. */
+  readonly gatheringChanged?: () => ReadonlyArray<NodeId>;
   /** The device keeper: the layer builds on the ready device and its surface format. */
   readonly device: DeviceKeeper;
   readonly mode?: ThemeMode;
@@ -45,6 +49,8 @@ export type WireStats = {
   readonly frameMsTotal: number;
   /** Wires rebuilt (a strip rebuilt) since the layer was made. */
   readonly rebuilds: number;
+  /** Folds the gathered seats' wires draw as. */
+  readonly folds: number;
   /** Draw calls the last encoded frame issued for wires, glow, tracks and pulses. */
   readonly draws: number;
   /** Index count the last encoded frame's visible draw covered. */
@@ -91,6 +97,8 @@ export type WiresLayer = {
   readonly labelAt: (at: Point, half: number) => WireId | undefined;
   readonly labelsRevision: () => number;
   readonly inspect: (id: WireId) => WireInspect | undefined;
+  /** Every member of the fold a wire is hidden in, or undefined when it draws itself. */
+  readonly foldOf: (id: WireId) => ReadonlyArray<WireId> | undefined;
   readonly stats: () => WireStats;
   /** What the last upload wrote, buffer by buffer. */
   readonly lastUploads: () => ReadonlyArray<UploadRange>;
@@ -101,6 +109,8 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
   const scene = createWireScene({
     rectOf: options.rectOf,
     ...(options.surfaceOf ? { surfaceOf: options.surfaceOf } : {}),
+    ...(options.gatheredInto ? { gatheredInto: options.gatheredInto } : {}),
+    ...(options.gatheringChanged ? { gatheringChanged: options.gatheringChanged } : {}),
     ...(options.mode ? { mode: options.mode } : {}),
     ...(options.reducedMotion ? { reducedMotion: options.reducedMotion } : {}),
     ...(options.awaitRoutes === true ? { awaitRoutes: true } : {}),
@@ -143,11 +153,13 @@ export const createWireLayer = (options: WireLayerOptions): WiresLayer => {
     labelAt: scene.labelAt,
     labelsRevision: scene.labelsRevision,
     inspect: scene.inspect,
+    foldOf: scene.foldOf,
     stats: () => ({
       frames,
       lastFrameMs,
       frameMsTotal,
       rebuilds: scene.builds(),
+      folds: scene.folds().length,
       draws: gpu.draws(),
       indices: gpu.indices(),
       uploadBytes: gpu.lastBytes(),

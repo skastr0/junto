@@ -155,6 +155,10 @@ type Entry = {
   /** A transition is running or ended since the record was last written. */
   settling: boolean;
   pulse: { readonly startedAt: number; readonly kind: "notice" | "prompt" | "answer"; readonly reverse: boolean } | undefined;
+  /** The fold this member is hidden inside, when its seat is gathered. */
+  folded: string | undefined;
+  /** A fold entry: the real wires it draws for, and the member whose verb and direction it follows. */
+  fold: { readonly key: string; readonly members: ReadonlySet<WireId>; lead: WireId } | undefined;
 };
 
 export type WireHost = {
@@ -167,6 +171,10 @@ export type WireHost = {
    * card draws its whole box or has no body.
    */
   readonly surfaceOf?: (id: NodeId) => Rect | undefined;
+  /** The badge a seat is gathered into at far and overview, with its disc in board units. */
+  readonly gatheredInto?: (id: NodeId) => { readonly key: string; readonly rect: Rect } | undefined;
+  /** Seats whose `gatheredInto` answer changed since the last call; drained once a frame. */
+  readonly gatheringChanged?: () => ReadonlyArray<NodeId>;
   readonly mode?: ThemeMode;
   /** Reduced motion: tracks hold still, pulses hold the wire, nothing eases. */
   readonly reducedMotion?: () => boolean;
@@ -220,6 +228,10 @@ export type WireScene = {
   readonly labelsRevision: () => number;
   /** A wire's centreline length and route kind, for tests and the harness. */
   readonly inspect: (id: WireId) => WireInspect | undefined;
+  /** Every member of the fold a wire is hidden in, or undefined when it draws itself. */
+  readonly foldOf: (id: WireId) => ReadonlyArray<WireId> | undefined;
+  /** The folds now drawn, for unit and end-to-end checks. */
+  readonly folds: () => ReadonlyArray<WireFoldInspect>;
   /** How many wires have had their strip rebuilt since the scene was made (a measurement). */
   readonly builds: () => number;
   /** How many wires the scene holds, strips or not. */
@@ -280,6 +292,14 @@ export type WireInspect = {
   readonly pickable: boolean;
 };
 
+/** One fold as a test or harness reads it: its lead, members and centreline. */
+export type WireFoldInspect = {
+  readonly key: string;
+  readonly lead: WireId;
+  readonly members: ReadonlyArray<WireId>;
+  readonly points: ReadonlyArray<Point>;
+};
+
 const PULSE_KIND_DEFAULT = "notice" as const;
 
 export const createWireScene = (host: WireHost): WireScene => {
@@ -297,9 +317,19 @@ export const createWireScene = (host: WireHost): WireScene => {
   let coneWires: ReadonlySet<WireId> | undefined;
 
   const entries = new Map<WireId, Entry>();
+  /** Fold entries by their synthetic id (`\0fold:` + key), separate from the real wires they hide. */
+  const foldEntries = new Map<WireId, Entry>();
   const facts = new Map<WireId, WireRouteFact>();
   /** Wires by the card each end names, so a moved card rebuilds only its own wires. */
   const byCard = new Map<NodeId, Set<WireId>>();
+  /** The fold each real wire is a member of, by the fold's unordered key. */
+  const foldOfWire = new Map<WireId, string>();
+  type Fold = { readonly key: string; readonly members: Set<WireId>; inside: boolean; entry: Entry | undefined };
+  const folds = new Map<string, Fold>();
+  /** Wires whose fold key may have changed; resolved before the dirty folds are rebuilt. */
+  const foldWiresDirty = new Set<WireId>();
+  /** Folds whose membership, lead or end rectangles may have changed. */
+  const foldsDirty = new Set<string>();
   /** Wires whose ends may have changed since the last frame (a card or wire op). */
   const dirty = new Set<WireId>();
   /** Wires with a running tween or pulse: the only ones a frame has to write. */
@@ -351,6 +381,31 @@ export const createWireScene = (host: WireHost): WireScene => {
   const reduced = (): boolean => host.reducedMotion?.() ?? false;
   const ms = (kind: "opacity" | "glow"): number => (reduced() ? 0 : WIRE_TRANSITIONS[kind].ms);
 
+  const entryOf = (id: WireId): Entry | undefined => entries.get(id) ?? foldEntries.get(id);
+  const forEachEntry = (fn: (entry: Entry) => void): void => {
+    entries.forEach(fn);
+    foldEntries.forEach(fn);
+  };
+
+  type EndShape = { readonly token: string; readonly rect: Rect | undefined; readonly gathered: boolean };
+  /** The end a fold draws: a gathered seat's badge disc, else the card's drawn body. */
+  const endShape = (id: NodeId): EndShape => {
+    const gathered = host.gatheredInto?.(id);
+    if (gathered !== undefined) return { token: `\u0001${gathered.key}`, rect: gathered.rect, gathered: true };
+    return { token: id, rect: host.surfaceOf?.(id) ?? host.rectOf(id), gathered: false };
+  };
+
+  /** A wire's unordered fold key; undefined when neither end is gathered. */
+  const foldShape = (entry: Entry): { readonly key: string; readonly inside: boolean } | undefined => {
+    const from = endShape(entry.fact.row.from);
+    const to = endShape(entry.fact.row.to);
+    if (!from.gathered && !to.gathered) return undefined;
+    const ends = [from.token, to.token].sort();
+    return { key: `${ends[0]}\u0002${ends[1]}`, inside: from.token === to.token };
+  };
+
+  const foldEntryId = (key: string): WireId => `\0fold:${key}`;
+
   const ensureRecords = (slot: number): void => {
     if ((slot + 1) * RECORD_FLOATS <= records.length) return;
     let next = records.length / RECORD_FLOATS;
@@ -401,19 +456,33 @@ export const createWireScene = (host: WireHost): WireScene => {
   };
 
   /** A wire the loom has not answered yet: drawn as nothing until it does. */
-  const waiting = (entry: Entry): boolean => host.awaitRoutes === true && !facts.has(entry.id);
+  const waiting = (entry: Entry): boolean => entry.fold === undefined && host.awaitRoutes === true && !facts.has(entry.id);
   /** A waiting wire's paint: nothing drawn, nothing picked. */
   const unseen = (paint: WirePaint): WirePaint => {
     const { track: _track, ...rest } = paint;
     return { ...rest, opacity: 0, glow: [], pickable: false, pulseOpacity: 0 };
   };
 
-  const lookOf = (entry: Entry): WireLook => ({
-    verb: entry.fact.row.verb,
-    selected: selection?.wireId === entry.id,
-    hovered: hover === entry.id,
-    inCone: coneSet()?.has(entry.id) ?? false,
-  });
+  const lookOf = (entry: Entry): WireLook => {
+    if (entry.fold !== undefined) {
+      let selected = false;
+      let hovered = false;
+      let inCone = false;
+      const cone = coneSet();
+      for (const member of entry.fold.members) {
+        selected = selected || selection?.wireId === member;
+        hovered = hovered || hover === member;
+        inCone = inCone || (cone?.has(member) ?? false);
+      }
+      return { verb: entry.fact.row.verb, selected, hovered, inCone };
+    }
+    return {
+      verb: entry.fact.row.verb,
+      selected: selection?.wireId === entry.id,
+      hovered: hover === entry.id,
+      inCone: coneSet()?.has(entry.id) ?? false,
+    };
+  };
 
   // --- records --------------------------------------------------------------
 
@@ -510,7 +579,7 @@ export const createWireScene = (host: WireHost): WireScene => {
   let refreshMs = 0;
   const refreshAll = (now: number): void => {
     const started = performance.now();
-    for (const entry of entries.values()) refreshPaint(entry, now);
+    forEachEntry((entry) => refreshPaint(entry, now));
     refreshMs = performance.now() - started;
   };
 
@@ -688,7 +757,8 @@ export const createWireScene = (host: WireHost): WireScene => {
       }
       writeRecord(entry, now);
       pickList = undefined;
-    pickGrid = undefined;
+      pickGrid = undefined;
+      if (entry.folded !== undefined) foldsDirty.add(entry.folded);
       return;
     }
     const route = routeFor(entry, from, to, fromSurface, toSurface);
@@ -742,37 +812,40 @@ export const createWireScene = (host: WireHost): WireScene => {
     writeRecord(entry, now);
     pickList = undefined;
     pickGrid = undefined;
+    if (entry.folded !== undefined) foldsDirty.add(entry.folded);
   };
 
   const rebuildTracks = (): void => {
     visibleDirty = true;
     const layouts: Record<string, ReadonlyArray<TrackRun>> = {};
-    for (const entry of entries.values()) if (entry.layout.length > 0) layouts[entry.id] = entry.layout;
+    forEachEntry((entry) => {
+      if (entry.layout.length > 0) layouts[entry.id] = entry.layout;
+    });
     const fits = trackFits(layouts, tier);
-    for (const entry of entries.values()) {
+    forEachEntry((entry) => {
       const runs = entry.layout;
       if (runs.length === 0 || !isTrackVerb(entry.fact.row.verb)) {
         trackPool.free(entry.trackStrip);
         entry.trackStrip = undefined;
         entry.trackLayoutAt = undefined;
         entry.fits = [];
-        continue;
+        return;
       }
       const fit = fits[entry.id] ?? [];
       // A rebuild that changes nothing near this track leaves its strip where
       // it is: only a changed layout or fit re-puts vertices.
-      if (entry.trackStrip !== undefined && entry.trackLayoutAt === runs && entry.fits.length === fit.length && entry.fits.every((v, i) => v === fit[i])) continue;
+      if (entry.trackStrip !== undefined && entry.trackLayoutAt === runs && entry.fits.length === fit.length && entry.fits.every((v, i) => v === fit[i])) return;
       const strip = buildTrackStrip(runs, tier, { fits: fit, slot: entry.slot });
       entry.trackStrip = strip.count > 0 ? trackPool.put(entry.trackStrip, strip.vertices, strip.count) : undefined;
       entry.trackLayoutAt = runs;
       entry.fits = fit;
-    }
+    });
     tracksDirty = false;
   };
 
   const relayoutTracks = (): void => {
-    for (const entry of entries.values()) {
-      if (!isTrackVerb(entry.fact.row.verb) || entry.route === undefined) continue;
+    forEachEntry((entry) => {
+      if (!isTrackVerb(entry.fact.row.verb) || entry.route === undefined) return;
       // The runs at a tier are the same every time the camera comes back to
       // it: parse the route once per tier, not once per crossing.
       const cached = entry.layoutByTier[tier];
@@ -780,7 +853,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       entry.layoutByTier[tier] = entry.layout;
       if (entry.layout.length > 0) tracked.add(entry.id);
       else tracked.delete(entry.id);
-    }
+    });
     tracksDirty = true;
   };
 
@@ -788,6 +861,266 @@ export const createWireScene = (host: WireHost): WireScene => {
 
   const colourOf = (verb: WireFact["row"]["verb"] | undefined): Rgba => tokenRgba(paintToken(verb), mode);
   const paintToken = (verb: WireFact["row"]["verb"] | undefined): string => wirePaint(view(), { verb, selected: false, hovered: false, inCone: false }).token;
+
+  // --- folds ---------------------------------------------------------------
+
+  const removeFoldMember = (entry: Entry): void => {
+    const key = foldOfWire.get(entry.id);
+    if (key === undefined) return;
+    foldOfWire.delete(entry.id);
+    const fold = folds.get(key);
+    if (fold !== undefined) {
+      fold.members.delete(entry.id);
+      foldsDirty.add(key);
+    }
+  };
+
+  /**
+   * Put a wire in the fold its gathered ends name, or take it back out. Member
+   * strips are kept whole while hidden: unfolding is a visibility swap, never
+   * a rebuild. `geometry` marks the fold itself stale even when membership is
+   * unchanged (a badge moved, or a non-seat end did).
+   */
+  const syncFoldWire = (entry: Entry, now: number, geometry = false): void => {
+    const shape = foldShape(entry);
+    const next = shape?.key;
+    const previous = foldOfWire.get(entry.id);
+    if (previous !== next) {
+      removeFoldMember(entry);
+      if (next !== undefined) {
+        let fold = folds.get(next);
+        if (fold === undefined) {
+          fold = { key: next, members: new Set(), inside: shape?.inside ?? false, entry: undefined };
+          folds.set(next, fold);
+        }
+        fold.members.add(entry.id);
+        foldOfWire.set(entry.id, next);
+        fold.inside = shape?.inside ?? false;
+        foldsDirty.add(next);
+      }
+      entry.folded = next;
+      visibleDirty = true;
+      pickList = undefined;
+      pickGrid = undefined;
+      labelsRevision += 1;
+      if (next === undefined) {
+        // Back on its own strip: settle its paint at the clock, with no replay.
+        refreshPaint(entry, now);
+      } else {
+        if (entry.pulse !== undefined) clearPulse(entry);
+        running.delete(entry.id);
+      }
+      return;
+    }
+    if (next !== undefined) {
+      entry.folded = next;
+      if (geometry) foldsDirty.add(next);
+    }
+  };
+
+  const leadOf = (members: ReadonlySet<WireId>): WireId | undefined => {
+    let lead: WireId | undefined;
+    let leadRank = 1;
+    for (const id of members) {
+      const entry = entries.get(id);
+      if (entry === undefined) continue;
+      const rank = isTrackVerb(entry.fact.row.verb) ? 0 : 1;
+      if (lead === undefined || rank < leadRank || (rank === leadRank && id < lead)) {
+        lead = id;
+        leadRank = rank;
+      }
+    }
+    return lead;
+  };
+
+  const foldFact = (id: WireId, lead: Entry): WireFact =>
+    ({ id, row: { ...lead.fact.row, id } }) as unknown as WireFact;
+
+  const freeFoldEntry = (fold: Fold): void => {
+    const entry = fold.entry;
+    if (entry === undefined) return;
+    fold.entry = undefined;
+    foldEntries.delete(entry.id);
+    running.delete(entry.id);
+    tracked.delete(entry.id);
+    pool.free(entry.strip);
+    glowPool.free(entry.glowStrip);
+    trackPool.free(entry.trackStrip);
+    if (entry.pulse !== undefined) clearPulse(entry);
+    slots.release(entry.slot, 1);
+    records.fill(0, entry.slot * RECORD_FLOATS, (entry.slot + 1) * RECORD_FLOATS);
+    dirtyRecords.mark(entry.slot * RECORD_FLOATS, (entry.slot + 1) * RECORD_FLOATS);
+    stripOrderDirty = true;
+    visibleDirty = true;
+    labelsRevision += 1;
+    pickList = undefined;
+    pickGrid = undefined;
+  };
+
+  const newFoldEntry = (id: WireId, fact: WireFact, meta: Entry["fold"], now: number): Entry => {
+    const slot = takeSlot();
+    const look: WireLook = { verb: fact.row.verb, selected: false, hovered: false, inCone: false };
+    const paint = wirePaint(view(), look);
+    return {
+      id,
+      slot,
+      fact,
+      ends: NAN_ENDS,
+      route: undefined,
+      line: undefined,
+      bounds: undefined,
+      label: undefined,
+      labelView: undefined,
+      strip: undefined,
+      stripBody: undefined,
+      stripPill: undefined,
+      glowStrip: undefined,
+      glowKey: "",
+      layout: [],
+      layoutByTier: {},
+      trackStrip: undefined,
+      trackLayoutAt: undefined,
+      fits: [],
+      paint,
+      look,
+      opacity: { from: paint.opacity, to: paint.opacity, since: now, ms: 0 },
+      trackAlpha: { from: paint.track === undefined ? 0 : 1, to: paint.track === undefined ? 0 : 1, since: now, ms: 0 },
+      glowAlpha: { from: 0, to: 0, since: now, ms: 0 },
+      glowPasses: [],
+      colour: colourOf(fact.row.verb),
+      settling: false,
+      pulse: undefined,
+      folded: undefined,
+      fold: meta,
+    };
+  };
+
+  const clearFoldGeometry = (entry: Entry, now: number): void => {
+    pool.free(entry.strip);
+    entry.strip = undefined;
+    entry.route = undefined;
+    entry.line = undefined;
+    entry.bounds = undefined;
+    entry.label = undefined;
+    syncGlowStrip(entry);
+    writeRecord(entry, now);
+    stripOrderDirty = true;
+    visibleDirty = true;
+    pickList = undefined;
+    pickGrid = undefined;
+  };
+
+  /** Build the one elbow a fold draws, its width growing with its member count. */
+  const rebuildFoldGeometry = (entry: Entry, now: number): void => {
+    builds += 1;
+    const fold = entry.fold;
+    const lead = fold === undefined ? undefined : entries.get(fold.lead);
+    if (fold === undefined || lead === undefined) {
+      clearFoldGeometry(entry, now);
+      return;
+    }
+    const from = endShape(lead.fact.row.from);
+    const to = endShape(lead.fact.row.to);
+    if (from.rect === undefined || to.rect === undefined) {
+      clearFoldGeometry(entry, now);
+      return;
+    }
+    const sides = wireSides(from.rect, to.rect);
+    const route = routeOfElbow({
+      source: handleEnd(from.rect, sides.source, "source"),
+      sourceSide: sides.source,
+      target: handleEnd(to.rect, sides.target, "target"),
+      targetSide: sides.target,
+    });
+    const line = wireLine(route);
+    entry.route = route;
+    entry.line = line;
+    entry.bounds = lineBounds(line);
+    entry.label = route.label;
+    labelsRevision += 1;
+    const half = WIRE_HALF_WIDTH * Math.min(4, 1 + Math.log2(Math.max(1, fold.members.size)));
+    const strip = buildStrip(line, half, { slot: entry.slot });
+    pool.free(entry.strip);
+    entry.strip = strip.count > 0 ? pool.put(undefined, strip.vertices, strip.count) : undefined;
+    stripOrderDirty = true;
+    visibleDirty = true;
+    if (isTrackVerb(entry.fact.row.verb)) {
+      entry.layoutByTier = {};
+      entry.layout = trackLayout(route, tier);
+      entry.layoutByTier[tier] = entry.layout;
+      if (entry.layout.length > 0) tracked.add(entry.id);
+      else tracked.delete(entry.id);
+      tracksDirty = true;
+    } else if (entry.layout.length > 0) {
+      entry.layout = [];
+      entry.layoutByTier = {};
+      tracked.delete(entry.id);
+      tracksDirty = true;
+    }
+    syncGlowStrip(entry);
+    writeRecord(entry, now);
+    pickList = undefined;
+    pickGrid = undefined;
+  };
+
+  /** Rebuild one dirty fold in full: membership, lead, paint, geometry. */
+  const rebuildFold = (key: string, now: number): void => {
+    const fold = folds.get(key);
+    if (fold === undefined) return;
+    if (fold.members.size === 0) {
+      freeFoldEntry(fold);
+      folds.delete(key);
+      return;
+    }
+    let first: Entry | undefined;
+    for (const id of fold.members) {
+      first = entries.get(id);
+      if (first !== undefined) break;
+    }
+    const shape = first === undefined ? undefined : foldShape(first);
+    fold.inside = shape?.inside ?? false;
+    if (shape === undefined || fold.inside) {
+      freeFoldEntry(fold);
+      return;
+    }
+    const leadId = leadOf(fold.members);
+    const lead = leadId === undefined ? undefined : entries.get(leadId);
+    if (leadId === undefined || lead === undefined) {
+      freeFoldEntry(fold);
+      return;
+    }
+    const id = foldEntryId(key);
+    const meta = { key, members: fold.members, lead: leadId };
+    let entry = fold.entry;
+    if (entry === undefined) {
+      entry = newFoldEntry(id, foldFact(id, lead), meta, now);
+      fold.entry = entry;
+      foldEntries.set(id, entry);
+    } else {
+      entry.fact = foldFact(id, lead);
+      entry.fold = meta;
+      entry.colour = colourOf(entry.fact.row.verb);
+    }
+    rebuildFoldGeometry(entry, now);
+    refreshPaint(entry, now);
+  };
+
+  /** Resolve dirty member keys, then rebuild every dirty fold outside the frame's slicing budget. */
+  const syncFolds = (now: number): void => {
+    if (foldWiresDirty.size > 0) {
+      for (const id of [...foldWiresDirty]) {
+        foldWiresDirty.delete(id);
+        const entry = entries.get(id);
+        if (entry !== undefined) syncFoldWire(entry, now);
+      }
+    }
+    if (foldsDirty.size > 0) {
+      for (const key of [...foldsDirty]) {
+        foldsDirty.delete(key);
+        rebuildFold(key, now);
+      }
+    }
+  };
 
   const addWire = (fact: WireFact, now: number): void => {
     const existing = entries.get(fact.id);
@@ -802,6 +1135,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       rebuild(existing, now);
       refreshPaint(existing, now);
       tracksDirty = true;
+      foldWiresDirty.add(fact.id);
       return;
     }
     const slot = takeSlot();
@@ -839,6 +1173,8 @@ export const createWireScene = (host: WireHost): WireScene => {
       colour: colourOf(fact.row.verb),
       settling: false,
       pulse: undefined,
+      folded: undefined,
+      fold: undefined,
     };
     entries.set(fact.id, entry);
     stripOrderDirty = true;
@@ -846,6 +1182,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     coneWires = undefined;
     rebuild(entry, now);
     refreshPaint(entry, now);
+    foldWiresDirty.add(fact.id);
   };
 
   const index = (entry: Entry): void => {
@@ -878,6 +1215,8 @@ export const createWireScene = (host: WireHost): WireScene => {
   const removeWire = (id: WireId): void => {
     const entry = entries.get(id);
     if (entry === undefined) return;
+    removeFoldMember(entry);
+    entry.folded = undefined;
     unindex(entry);
     dirty.delete(id);
     tierOnly.delete(id);
@@ -1029,10 +1368,10 @@ export const createWireScene = (host: WireHost): WireScene => {
         return;
       case "theme": {
         mode = op.mode;
-        for (const entry of entries.values()) {
+        forEachEntry((entry) => {
           entry.colour = colourOf(entry.fact.row.verb);
           writeRecord(entry, now);
-        }
+        });
         syncPreview();
         return;
       }
@@ -1050,12 +1389,25 @@ export const createWireScene = (host: WireHost): WireScene => {
         return;
       }
       case "pulse": {
-        const entry = entries.get(op.wireId);
+        const member = entries.get(op.wireId);
+        if (member === undefined) return;
+        let entry = member;
+        let reverse = op.reverse ?? false;
+        if (member.folded !== undefined) {
+          const fold = folds.get(member.folded);
+          if (fold === undefined || fold.inside || fold.entry === undefined || fold.entry.fold === undefined) return;
+          const lead = entries.get(fold.entry.fold.lead);
+          if (lead !== undefined) {
+            const memberFirst = endShape(member.fact.row.from).token;
+            const leadFirst = endShape(lead.fact.row.from).token;
+            if (memberFirst !== leadFirst) reverse = !reverse;
+          }
+          entry = fold.entry;
+        }
         // The cap counts the pulses a frame draws: a pulse no one can see
         // takes no slot, and the slot it needs is taken when it comes back.
-        if (entry === undefined) return;
         if (activePulses >= WIRE_PULSE_MAX_ACTIVE && inView(entry)) return;
-        entry.pulse = { startedAt: op.at, kind: op.pulse ?? PULSE_KIND_DEFAULT, reverse: op.reverse ?? false };
+        entry.pulse = { startedAt: op.at, kind: op.pulse ?? PULSE_KIND_DEFAULT, reverse };
         running.add(entry.id);
         return;
       }
@@ -1079,8 +1431,8 @@ export const createWireScene = (host: WireHost): WireScene => {
   const tracksMove = (): boolean => {
     if (reduced()) return false;
     for (const id of tracked) {
-      const entry = entries.get(id);
-      if (entry !== undefined && entry.paint.track !== undefined && inView(entry)) return true;
+      const entry = entryOf(id);
+      if (entry !== undefined && entry.folded === undefined && entry.paint.track !== undefined && inView(entry)) return true;
     }
     return false;
   };
@@ -1092,8 +1444,12 @@ export const createWireScene = (host: WireHost): WireScene => {
     activePulses = 0;
     pulseDraws = [];
     for (const id of running) {
-      const entry = entries.get(id);
+      const entry = entryOf(id);
       if (entry === undefined) {
+        running.delete(id);
+        continue;
+      }
+      if (entry.folded !== undefined) {
         running.delete(id);
         continue;
       }
@@ -1191,12 +1547,13 @@ export const createWireScene = (host: WireHost): WireScene => {
     if (stripOrderDirty) {
       byStrip.length = 0;
       entries.forEach(collect);
+      foldEntries.forEach(collect);
       byStrip.sort(byStart);
       stripOrderDirty = false;
     }
     for (let index = 0; index < byStrip.length; index += 1) {
       const entry = byStrip[index]!;
-      if (!inView(entry)) continue;
+      if (entry.folded !== undefined || !inView(entry)) continue;
       if (entry.strip !== undefined) {
         mainCount = append(mainIndex, mainCount, entry.strip.start, entry.strip.count);
         mainIndex = appended;
@@ -1267,7 +1624,22 @@ export const createWireScene = (host: WireHost): WireScene => {
       }
       tierStaleList = [...tierStale];
       tierStaleAt = 0;
+      // gatheredInto is tiered: re-key every wire once at the crossing. The
+      // members' strips are kept; only their visibility and the fold strips change.
+      for (const id of entries.keys()) foldWiresDirty.add(id);
     }
+    // A regroup lands in the same frame as the badge: drain it after prepare's
+    // tier work and before any visible list is built.
+    for (const id of host.gatheringChanged?.() ?? []) {
+      const wires = byCard.get(id);
+      if (wires === undefined) continue;
+      for (const wire of wires) {
+        foldWiresDirty.add(wire);
+        const key = foldOfWire.get(wire);
+        if (key !== undefined) foldsDirty.add(key);
+      }
+    }
+    syncFolds(now);
     // A card a pointer owns this frame can be somewhere its row is not yet.
     if (f.live !== undefined) {
       for (const id of f.live) markCard(id);
@@ -1320,6 +1692,7 @@ export const createWireScene = (host: WireHost): WireScene => {
       const entry = entries.get(id);
       if (entry !== undefined) rebuild(entry, now);
     }
+    syncFolds(now);
     if (tracksDirty) rebuildTracks();
     if (visibleDirty) {
       buildVisible();
@@ -1331,8 +1704,8 @@ export const createWireScene = (host: WireHost): WireScene => {
   const busy: WireScene["busy"] = (at) => {
     if (tracksMove()) return true;
     for (const id of running) {
-      const entry = entries.get(id);
-      if (entry === undefined) continue;
+      const entry = entryOf(id);
+      if (entry === undefined || entry.folded !== undefined) continue;
       if (!inView(entry)) continue;
       if (entry.pulse !== undefined) return true;
       if (!tweenDone(entry.opacity, at) || !tweenDone(entry.trackAlpha, at) || !tweenDone(entry.glowAlpha, at)) return true;
@@ -1395,18 +1768,19 @@ export const createWireScene = (host: WireHost): WireScene => {
       // Sort by that order: entries iteration is insertion order, and a freed
       // run can hand a later wire a lower start than an earlier wire.
       const ordered: Array<{ start: number; candidate: PickCandidate<WireId> }> = [];
-      for (const entry of entries.values()) {
-        if (!entry.paint.pickable || entry.line === undefined || entry.route === undefined || entry.strip === undefined) continue;
+      forEachEntry((entry) => {
+        if (entry.folded !== undefined) return;
+        if (!entry.paint.pickable || entry.line === undefined || entry.route === undefined || entry.strip === undefined) return;
         ordered.push({
           start: entry.strip.start,
           candidate: {
-            id: entry.id,
+            id: entry.fold?.lead ?? entry.id,
             line: entry.line,
             hitHalfWidth: entry.route.hitHalfWidth,
             ...(entry.bounds ? { bounds: entry.bounds } : {}),
           },
         });
-      }
+      });
       ordered.sort((a, b) => a.start - b.start);
       pickList = ordered.map((item) => item.candidate);
     }
@@ -1435,7 +1809,13 @@ export const createWireScene = (host: WireHost): WireScene => {
     return best?.id;
   };
 
-  const labelOf: WireScene["labelOf"] = (id) => entries.get(id)?.label;
+  const labelOf: WireScene["labelOf"] = (id) => {
+    const direct = entries.get(id);
+    if (direct?.folded === undefined) return direct?.label;
+    const key = direct?.folded;
+    const fold = key === undefined ? undefined : folds.get(key);
+    return fold?.entry?.label;
+  };
 
   // The button paints over a label point, in append order: the last match is
   // the one on top, exactly as the shell's buttons stack.
@@ -1450,13 +1830,14 @@ export const createWireScene = (host: WireHost): WireScene => {
 
   const labelWindow = { x0: 0, y0: 0, x1: 0, y1: 0 };
   const collectLabel = (entry: Entry): void => {
+    if (entry.folded !== undefined) return;
     const at = entry.label;
     if (at === undefined || waiting(entry)) return;
     if (at.x < labelWindow.x0 || at.x > labelWindow.x1 || at.y < labelWindow.y0 || at.y > labelWindow.y1) return;
     const verb = entry.fact.row.verb;
     let view = entry.labelView;
     if (view === undefined || view.at !== at || view.verb !== verb) {
-      view = { id: entry.id, at, verb };
+      view = { id: entry.fold?.lead ?? entry.id, at, verb };
       entry.labelView = view;
     }
     // Written by index, the list trimmed after: emptying it with
@@ -1488,6 +1869,7 @@ export const createWireScene = (host: WireHost): WireScene => {
     labelWindow.x1 = labelWindow.x0 + viewSize.width / zoom + 2 * margin;
     labelWindow.y1 = labelWindow.y0 + viewSize.height / zoom + 2 * margin;
     entries.forEach(collectLabel);
+    foldEntries.forEach(collectLabel);
     if (labelsCache.length !== labelsCount) labelsCache.length = labelsCount;
     labelsAt.x = camera.x;
     labelsAt.y = camera.y;
@@ -1500,7 +1882,10 @@ export const createWireScene = (host: WireHost): WireScene => {
   };
 
   const inspect: WireScene["inspect"] = (id) => {
-    const entry = entries.get(id);
+    const member = entries.get(id);
+    const fold = member?.folded === undefined ? undefined : folds.get(member.folded);
+    if (member?.folded !== undefined && (fold === undefined || fold.inside || fold.entry === undefined)) return undefined;
+    const entry = fold?.entry ?? member;
     if (entry?.route === undefined || entry.line === undefined) return undefined;
     return {
       kind: entry.route.kind,
@@ -1520,6 +1905,9 @@ export const createWireScene = (host: WireHost): WireScene => {
       for (const key of [before, id]) {
         const entry = key === undefined ? undefined : entries.get(key);
         if (entry !== undefined) refreshPaint(entry, now);
+        const foldKey = entry?.folded;
+        const fold = foldKey === undefined ? undefined : folds.get(foldKey)?.entry;
+        if (fold !== undefined) refreshPaint(fold, now);
       }
     },
     frame,
@@ -1531,6 +1919,20 @@ export const createWireScene = (host: WireHost): WireScene => {
     labelAt,
     labelsRevision: () => labelsRevision,
     inspect,
+    foldOf: (id) => {
+      const key = foldOfWire.get(id);
+      const fold = key === undefined ? undefined : folds.get(key);
+      return fold === undefined ? undefined : [...fold.members].sort();
+    },
+    folds: () =>
+      [...folds.values()]
+        .filter((fold) => !fold.inside && fold.entry?.route !== undefined)
+        .map((fold) => ({
+          key: fold.key,
+          lead: fold.entry?.fold?.lead ?? "",
+          members: [...fold.members].sort(),
+          points: fold.entry?.route?.points ?? [],
+        })),
     builds: () => builds,
     wires: () => entries.size,
     withFact: () => facts.size,

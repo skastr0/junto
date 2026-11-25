@@ -186,6 +186,9 @@ export function GpuCanvas({ onUnavailable }: Props) {
       // Where the seat actually draws, so a wire meets the mid pill's edge
       // rather than the card's invisible one.
       surfaceOf: (id) => engine.surfaceOf?.(id),
+      // At far and overview a gathered seat's wires end on its badge disc.
+      gatheredInto: (id) => engine.gatheredInto?.(id),
+      gatheringChanged: () => engine.gatheringChanged?.() ?? [],
       device: keeper,
       mode: themeMode$.peek(),
       reducedMotion: () => reducedMotion?.matches ?? false,
