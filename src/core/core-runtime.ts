@@ -484,13 +484,14 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     const hostsService = yield* HostsService;
     const machines = yield* MachineRepository;
     const seatServices = yield* Effect.context<ModelService | ActorSeatOccupy | BoatWake>();
-    const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
-      connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect });
-    const installOps = yield* Effect.serviceOption(InstallOpsService);
     const linkSetup = yield* makeMachineLinkSetup({ home: options.home, juntoPath: () => {
       const bin = machinePackageCliDir();
       return bin === undefined ? undefined : join(bin, "junto");
     } });
+    const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
+      connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect,
+      settleRemovedLink: (name, route, installationId) => linkSetup.settleRemoved({ machineName: name, route, installationId }), holdsLinkKey: linkSetup.holdsLinkKey });
+    const installOps = yield* Effect.serviceOption(InstallOpsService);
     // Off in the ship build: no vault token is placed, recorded or listed.
     const vaultSetup = VAULT_ENABLED ? yield* makeVaultSetup({
       home: options.home, userHome: homedir(), run: runTool, toolEnv: resolvedSpawnEnv,

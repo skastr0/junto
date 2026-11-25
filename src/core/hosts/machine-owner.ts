@@ -262,10 +262,10 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       }
       case "machine.setup": {
         // The answer is the pin's public projection (MachinePeerPin): a pin a
-        // link bound to its key keeps that binding in the store, and the
-        // binding never leaves in this answer.
+        // link bound to its key keeps that binding in the store, and only the
+        // closed fact that it is key-bound leaves in this answer.
         const pin = yield* machines.pinPeer(request.args);
-        return { machineName: pin.machineName, installationId: pin.installationId, boundAt: pin.boundAt };
+        return { machineName: pin.machineName, installationId: pin.installationId, boundAt: pin.boundAt, keyBound: pin.binding === "key" };
       }
       case "machine.status": {
         const name = request.args.name;
@@ -332,7 +332,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
       case "machine.remove": {
         const name = request.args.name;
         const removed = yield* machines.peer(name);
-        yield* Effect.uninterruptible(sql.withTransaction(Effect.gen(function* () {
+        const removedHost = yield* Effect.uninterruptible(sql.withTransaction(Effect.gen(function* () {
           const current = yield* rows.read;
           const host = current.hosts.find(row => row.id === name);
           if (host === undefined) return yield* Effect.fail(notFound(name));
@@ -342,9 +342,18 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
           // The owed finishes it was named in go with it: a machine that is
           // removed is never "next seen", so the debt is no longer owed to it.
           yield* sql`DELETE FROM terminal_delete_owed WHERE machine_name = ${name}`;
+          return host;
         })).pipe(Effect.provideService(StateTransactionOperation, "machine.remove"),
           Effect.tap(() => options.disconnect(name))));
-        // Its key comes off here and off every machine this one reaches; one it cannot reach stays listed.
+        // The removed machine first lets go of this machine's link key, over the
+        // operator's route while it is still known; one it cannot reach now is
+        // kept and cleared the next time Junto reaches it. Then its key comes off
+        // here and off every machine this one reaches; one it cannot reach stays listed.
+        let linkKept = false;
+        if (options.linkSetup !== undefined) {
+          yield* options.linkSetup.settleRemoved().pipe(Effect.ignore);
+          linkKept = (yield* options.linkSetup.clearRemoved(removedHost, removed?.installationId).pipe(Effect.orElseSucceed(() => "kept" as const))) === "kept";
+        }
         if (removed !== undefined && options.linkSetup !== undefined) {
           yield* options.linkSetup.forget(name, removed.installationId);
           yield* options.linkSetup.revokeEverywhere(removed).pipe(Effect.ignore);
@@ -352,7 +361,16 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         // The record of the token it was given goes with it; revoking that token is the operator's, in 1Password.
         if (options.vaultSetup !== undefined) yield* options.vaultSetup.forget(name).pipe(Effect.ignore);
         yield* hosts.list;
-        return { machineName: name, removed: true };
+        const setAside = options.linkSetup?.takeSetAside() ?? [];
+        if (!linkKept && setAside.length === 0) return { machineName: name, removed: true };
+        const self = yield* machines.machineName;
+        return { machineName: name, removed: true,
+          ...(linkKept ? { linkKept: { ownWords: true as const,
+            message: `${name} is removed, but it still accepts ${self}'s link key. Junto clears it the next time it reaches ${name}.` } } : {}),
+          // remote-design c72bde3ce: the words carry no path; the path is its own field.
+          ...(setAside.length === 0 ? {} : { unlinkSetAside: { ownWords: true as const, paths: setAside,
+            message: `Junto could not read its list of removed machines that still accept ${self}'s link key, and set the list aside unchanged. Machines on it may still accept the key until you link them again or remove them again.` } }),
+        };
       }
       default: return yield* Effect.fail(new RemoteHostsError("validation", "unsupported machine operation"));
     }
@@ -386,7 +404,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
               ...(cause.runningSeatsUnknown === undefined ? {} : { runningSeatsUnknown: cause.runningSeatsUnknown }),
               ...(cause.ownWords === true ? { ownWords: true as const } : {}),
             } : {}),
-            ...(cause instanceof MachineSetupError ? { installed: cause.installed } : {}),
+            ...(cause instanceof MachineSetupError ? { installed: cause.installed, ...(cause.ownWords === true ? { ownWords: true as const } : {}) } : {}),
             ...(failure === undefined ? {} : { failure }),
           } },
       } as const)))),

@@ -113,6 +113,8 @@ export class MachineSetupError extends Schema.TaggedError<MachineSetupError>()("
   message: Schema.String,
   retryable: Schema.Literal(false),
   installed: MachineInstallResult,
+  /** The message is the core's own fixed words, as on MachineInstallError. */
+  ownWords: Schema.optionalKey(Schema.Literal(true)),
 }) {}
 
 export const MachineSendInput = Schema.Struct({

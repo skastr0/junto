@@ -95,7 +95,12 @@ export type MachineTargetInput = typeof MachineTargetInput.Type;
 export const MachinePeerIdentity = Schema.Struct({ machineName: MachineName, installationId: InstallationId });
 export type MachinePeerIdentity = typeof MachinePeerIdentity.Type;
 export const MachineConfigured = MachinePeerIdentity;
-export const MachinePeerPin = Schema.Struct({ ...MachinePeerIdentity.fields, boundAt: Schema.String });
+/**
+ * A pin, as setup answers it. `keyBound` says whether the answering machine
+ * lets the pinned installation in only through its link key: a closed fact
+ * about its own trust, never the key, its fingerprint or its path.
+ */
+export const MachinePeerPin = Schema.Struct({ ...MachinePeerIdentity.fields, boundAt: Schema.String, keyBound: Schema.optionalKey(Schema.Boolean) });
 export type MachinePeerPin = typeof MachinePeerPin.Type;
 export const MachineHarness = Schema.Struct({ harness: HarnessId, installed: Schema.Boolean, signIn: Schema.optionalKey(MachineHarnessSignIn) }).pipe(
   Schema.check(Schema.makeFilter(row => row.signIn === undefined || (row.installed ? row.signIn !== "not-installed" : row.signIn === "not-installed"))),
@@ -179,7 +184,24 @@ export const MachineCopyInput = Schema.Struct({
   stopRunningSeats: Schema.optionalKey(Schema.Boolean),
 });
 export type MachineCopyInput = typeof MachineCopyInput.Type;
-export const MachineRemoved = Schema.Struct({ machineName: MachineName, removed: Schema.Literal(true) });
+/**
+ * A removed machine that could not be reached still accepts this machine's
+ * link key: the remove is done here, and Junto clears it there the next time
+ * it reaches that machine. `message` is the core's own words.
+ */
+export const MachineRemoved = Schema.Struct({
+  machineName: MachineName,
+  removed: Schema.Literal(true),
+  linkKept: Schema.optionalKey(Schema.Struct({ message: Schema.String, ownWords: Schema.Literal(true) })),
+  /**
+   * The list of machines still to clear could not be read, and was set aside
+   * unchanged. `message` is the core's own words and holds no path (a
+   * terminal prints each of `paths` on its own line, "Set aside at <path>").
+   */
+  unlinkSetAside: Schema.optionalKey(Schema.Struct({
+    message: Schema.String, ownWords: Schema.Literal(true), paths: Schema.Array(Schema.String).pipe(Schema.check(Schema.isMinLength(1))),
+  })),
+});
 export type MachineRemoved = typeof MachineRemoved.Type;
 export const MachineEmptyInput = Schema.Struct({});
 /** A Boat machine made and sent: where it stands, and the install's receipt. */

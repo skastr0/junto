@@ -27,7 +27,14 @@ export interface MachineCopyOptions {
   readonly connectSetup: (host: RemoteHost, expectedInstallationId: InstallationId) => Effect.Effect<unknown, unknown>;
   readonly connect: (host: RemoteHost) => Effect.Effect<unknown, unknown>;
   readonly disconnect: (name: string) => Effect.Effect<void, unknown>;
+  /** Clears what a remove left pending on `name`, over the route this send just reached, before setup pins this machine again. */
+  readonly settleRemovedLink?: (name: string, route: RemoteHost, installationId: InstallationId) => Effect.Effect<unknown, unknown>;
+  /** Does this machine hold its own link key for `name`. */
+  readonly holdsLinkKey?: (name: string) => boolean;
 }
+
+/** A machine still holds the link this one made before it was removed, and this one no longer holds the key. */
+class LinkOutlivedRemove extends Schema.TaggedError<LinkOutlivedRemove>()("LinkOutlivedRemove", { message: Schema.String }) {}
 /** Which check refused a copy, setup or update; the remote's own refusal arrives scrubbed. */
 export const MachineCopyCheck = Schema.Literals(["release-download-only", "not-set-up", "platform-unsupported", "no-bundle", "bundle-mismatch",
   "identity-mismatch", "name-not-kept", "binding-not-kept", "name-changed", "remote-refused"]);
@@ -109,19 +116,27 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
         const configured = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ConfigureResponse))(configuredOutput.stdout.trim(), { onExcessProperty: "error" });
         if (configured.data.machineName !== host.id || configured.data.installationId !== receipt.installationId) return yield* Effect.fail(refused("name-not-kept", "The machine did not keep its selected name and installation identity"));
         const own = { machineName: yield* machines.machineName, installationId: yield* machines.installationId };
+        // A remove that could not reach this machine left its line and pin of this one pending: they go first, so setup pins plainly.
+        // It settles only against the installation this send reached, the one that held the line.
+        if (options.settleRemovedLink !== undefined) yield* options.settleRemovedLink(host.id, { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot }, receipt.installationId).pipe(Effect.ignore);
         const setupProgram = yield* setupMachine(target, receipt, own);
         const setupOutput = yield* ownerTransfer(setupProgram, "machine setup");
         const setup = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(SetupResponse))(setupOutput.stdout.trim(), { onExcessProperty: "error" });
         if (setup.data.machineName !== own.machineName || setup.data.installationId !== own.installationId) return yield* Effect.fail(refused("binding-not-kept", "The machine did not bind this Junto installation"));
+        // It lets this machine in only through a link key this machine no longer holds: a send that ended ready here would sit beside a dead route.
+        if (setup.data.keyBound === true && options.holdsLinkKey?.(host.id) !== true) return yield* Effect.fail(new LinkOutlivedRemove({
+          message: `${host.id} still has the link ${own.machineName} made before ${host.id} was removed. Run junto machine link ${own.machineName} ${host.id} to link them again.` }));
       } else if (receipt.machineName !== host.id) return yield* Effect.fail(refused("name-changed", "The machine calls itself another name; keep its setup binding and choose the correct machine"));
       const configuredHost = { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot };
       yield* hosts.upsert(configuredHost);
       if (pin === undefined) yield* options.connectSetup(configuredHost, receipt.installationId);
       else yield* options.connect(configuredHost);
       return { ...receipt, machineName: host.id };
-    }).pipe(Effect.mapError(cause => new MachineSetupError({
-      message: `Junto is installed, but could not ${pin === undefined ? "finish setup" : "connect"}: ${cause instanceof Error ? cause.message : String(cause)}. Check this machine before sending again`,
-      retryable: false, installed: receipt,
-    })));
+    }).pipe(Effect.mapError(cause => cause instanceof LinkOutlivedRemove
+      ? new MachineSetupError({ message: cause.message, retryable: false, installed: receipt, ownWords: true })
+      : new MachineSetupError({
+        message: `Junto is installed, but could not ${pin === undefined ? "finish setup" : "connect"}: ${cause instanceof Error ? cause.message : String(cause)}. Check this machine before sending again`,
+        retryable: false, installed: receipt,
+      })));
   }));
 });

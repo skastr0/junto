@@ -25,7 +25,7 @@ const testLog = makeTestLog();
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
-const fixture = async (options: { platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer; status?: { readonly runningSeats?: number } } = {}) => {
+const fixture = async (options: { readonly keyBound?: boolean; readonly holdsLinkKey?: boolean; platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer; status?: { readonly runningSeats?: number } } = {}) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "junto-copy-")));
   await mkdir(join(root, "bin")); await mkdir(join(root, "core"));
   for (const name of ["bin/node", "bin/junto", "core/junto.cjs"]) await writeFile(join(root, name), "fixture\n");
@@ -64,7 +64,7 @@ const fixture = async (options: { platform?: string; helloFailure?: boolean; bun
       calls.push(op);
       const result = op === "install" ? { ok: true, command: "machine install-local", data: receipt }
         : op === "configure" ? { ok: true, command: "machine configure", data: { machineName: "mini", installationId: receipt.installationId } }
-        : { ok: true, command: "machine setup", data: { machineName: "macbook", installationId: ownId, boundAt: "now" } };
+        : { ok: true, command: "machine setup", data: { machineName: "macbook", installationId: ownId, boundAt: "now", ...(options.keyBound === undefined ? {} : { keyBound: options.keyBound }) } };
       return { stdout: JSON.stringify(result), stderr: "" };
     }),
     connect: () => Effect.die("unexpected"), forward: () => Effect.die("unexpected"), warm: () => Effect.void, teardown: () => Effect.void,
@@ -76,6 +76,11 @@ const fixture = async (options: { platform?: string; helloFailure?: boolean; bun
   const copy = await runtime.runPromise(makeMachineCopy({ build, bundles: { "darwin-arm64": root }, acquireBundle: options.acquireBundle,
     disconnect: () => Effect.sync(() => { calls.push("disconnect"); }),
     connect: () => Effect.sync(() => { calls.push("connect"); }),
+    settleRemovedLink: (name, route, installationId) => Effect.sync(() => {
+      calls.push("settle"); expect(name).toBe("mini"); expect(route).toMatchObject({ juntoHome: receipt.juntoHome, installRoot: receipt.installRoot });
+      expect(installationId).toBe(receipt.installationId);
+    }),
+    holdsLinkKey: () => options.holdsLinkKey ?? false,
     connectSetup: (host, installationId) => Effect.gen(function* () {
       calls.push("hello");
       expect(host.id).toBe("mini"); expect(installationId).toBe(receipt.installationId);
@@ -93,8 +98,24 @@ const fixture = async (options: { platform?: string; helloFailure?: boolean; bun
 it("installs and configures before binding through the checked first hello", async () => {
   const f = await fixture();
   expect((await f.copy("send")).installationId).toBe(f.receipt.installationId);
-  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "setup", "location", "hello"]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup", "location", "hello"]);
   expect((await f.runtime.runPromise(f.repository.peer("mini")))?.installationId).toBe(f.receipt.installationId);
+});
+
+it("refuses a send in its own words when the machine lets this one in only through a link key this one no longer holds", async () => {
+  const f = await fixture({ keyBound: true });
+  const error = await f.error("send");
+  expect(error).toBeInstanceOf(MachineSetupError);
+  if (error instanceof MachineSetupError) {
+    expect(error.message).toBe("mini still has the link macbook made before mini was removed. Run junto machine link macbook mini to link them again.");
+    expect(error.ownWords).toBe(true);
+    expect(error.installed).toEqual(f.receipt);
+  }
+  // Refused before it records the route or dials, so nothing reads ready beside a dead route.
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup"]);
+  // A machine that still holds its link key, or a plain pin, sends as before.
+  expect((await (await fixture({ keyBound: true, holdsLinkKey: true })).copy("send")).installationId).toBe(f.receipt.installationId);
+  expect((await (await fixture({ keyBound: false })).copy("send")).installationId).toBe(f.receipt.installationId);
 });
 
 it("updates an active pin without configuring or reviving a binding", async () => {

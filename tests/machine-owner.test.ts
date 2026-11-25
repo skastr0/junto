@@ -96,15 +96,44 @@ it("answers setup on a pin a link bound to its key with the pin's contract, and 
   // binding and failed its own contract.
   const f = await fixture();
   const first = await f.call("machine.setup", { machineName: "studio", installationId: "studio-install" });
-  expect(first.ok).toBe(true);
+  expect(first).toMatchObject({ ok: true, data: { keyBound: false } });
   f.database.exec("UPDATE machine_peers SET binding = 'key' WHERE machine_name = 'studio'");
   const again = await f.call("machine.setup", { machineName: "studio", installationId: "studio-install" });
   expect(again).toMatchObject({ ok: true, op: "machine.setup" });
   if (again.ok && again.op === "machine.setup") {
-    expect(Object.keys(again.data).sort()).toEqual(["boundAt", "installationId", "machineName"]);
-    expect(again.data).toMatchObject({ machineName: "studio", installationId: "studio-install" });
+    // Only the closed fact leaves: never the key, its fingerprint or its path.
+    expect(Object.keys(again.data).sort()).toEqual(["boundAt", "installationId", "keyBound", "machineName"]);
+    expect(again.data).toMatchObject({ machineName: "studio", installationId: "studio-install", keyBound: true });
   }
   expect(f.database.prepare("SELECT binding, retired_at FROM machine_peers WHERE machine_name = 'studio'").get()).toEqual({ binding: "key", retired_at: null });
+});
+
+it.each([["kept", true], ["unreachable", true], ["clear", false]] as const)("answers a remove ok here, and says in its own words when the removed machine still accepts this machine's link key (%s)", async (outcome, kept) => {
+  const cleared: string[] = [];
+  const linkSetup = (answer: Effect.Effect<"clear" | "kept", Error>) => ({
+    settleRemoved: () => Effect.succeed([]),
+    clearRemoved: (host: { readonly id: string }) => answer.pipe(Effect.tap(() => Effect.sync(() => { cleared.push(host.id); }))),
+    forget: () => Effect.void,
+    revokeEverywhere: () => Effect.succeed([]),
+    takeSetAside: () => outcome === "clear" ? ["/home/user/.junto/core/link-keys/unlinked.json.bad-1"] : [],
+  }) as never;
+  {
+    const answer = outcome === "unreachable" ? Effect.fail(new Error("no route to host")) : Effect.succeed(outcome);
+    const f = await fixture({ linkSetup: linkSetup(answer) });
+    await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+    await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+    const removed = await f.call("machine.remove", { name: "mini" });
+    expect(removed).toMatchObject({ ok: true, data: { machineName: "mini", removed: true } });
+    if (!removed.ok || removed.op !== "machine.remove") throw new Error("remove did not answer");
+    expect(removed.data.linkKept).toEqual(kept
+      ? { ownWords: true, message: "mini is removed, but it still accepts macbook's link key. Junto clears it the next time it reaches mini." }
+      : undefined);
+    expect(removed.data.unlinkSetAside).toEqual(outcome === "clear" ? { ownWords: true, paths: ["/home/user/.junto/core/link-keys/unlinked.json.bad-1"],
+      message: "Junto could not read its list of removed machines that still accept macbook's link key, and set the list aside unchanged. Machines on it may still accept the key until you link them again or remove them again." } : undefined);
+    // The route and pin are gone here either way.
+    expect(f.database.prepare("SELECT retired_at IS NOT NULL AS retired FROM machine_peers WHERE machine_name = 'mini'").get()).toEqual({ retired: 1 });
+  }
+  expect(cleared).toEqual(outcome === "unreachable" ? [] : ["mini"]);
 });
 
 it("marks a copy refusal as the core's own words only when its message is the core's fixed sentence", async () => {
