@@ -64,6 +64,7 @@ await allMustPass([
   { name: "lint:layers", cmd: ["bun", "scripts/lint-layers.ts"] },
   { name: "lint:design-tokens", cmd: ["bun", "scripts/lint-design-tokens.ts"] },
   { name: "lint:canvas-theme", cmd: ["bun", "scripts/lint-canvas-theme.ts"] },
+  { name: "lint:work-schemas", cmd: ["bun", "src/contract/work/publish.ts", "--check"] },
   { name: "theme:check", cmd: ["bun", "scripts/theme-build.ts", "--check"] },
 ]);
 

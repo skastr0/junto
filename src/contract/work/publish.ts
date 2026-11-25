@@ -6,9 +6,10 @@
  * arguments fails the Rust gate until its Rust half follows, and a change not
  * republished fails `tests/work-contract-published.test.ts`.
  *
- *   bun src/contract/work/publish.ts    rewrites src/contract/work/published
+ *   bun src/contract/work/publish.ts           rewrites src/contract/work/published
+ *   bun src/contract/work/publish.ts --check   writes nothing; exits 1 naming each file that is not what the contract generates
  */
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Schema } from "effect";
@@ -52,7 +53,33 @@ export const publishedWorkSchemas = (): ReadonlyMap<string, string> => {
   return files;
 };
 
-if (import.meta.main) {
+/**
+ * Each published file that is not what the contract generates now, with why:
+ * missing, stale (its text differs), or left over from an op the contract no
+ * longer has. Empty when the published files are current. Reads only.
+ */
+export const stalePublishedWorkSchemas = (): ReadonlyArray<string> => {
+  const files = publishedWorkSchemas();
+  const onDisk = existsSync(PUBLISHED_DIR) ? readdirSync(PUBLISHED_DIR).filter((name) => name.endsWith(".json")) : [];
+  const faults: string[] = [];
+  for (const [name, text] of files) {
+    const path = join(PUBLISHED_DIR, name);
+    if (!existsSync(path)) faults.push(`${name}: missing`);
+    else if (readFileSync(path, "utf8") !== text) faults.push(`${name}: stale`);
+  }
+  for (const name of onDisk) if (!files.has(name)) faults.push(`${name}: no op of the contract has it`);
+  return faults.sort();
+};
+
+if (import.meta.main && process.argv.includes("--check")) {
+  const faults = stalePublishedWorkSchemas();
+  if (faults.length > 0) {
+    for (const fault of faults) console.error(`src/contract/work/published/${fault}`);
+    console.error(`the published work schemas are not what the contract generates: run ${PUBLISH_COMMAND}`);
+    process.exit(1);
+  }
+  console.log("the published work schemas are current");
+} else if (import.meta.main) {
   const files = publishedWorkSchemas();
   mkdirSync(PUBLISHED_DIR, { recursive: true });
   // An op that left the contract leaves no file behind.
