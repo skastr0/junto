@@ -1,12 +1,10 @@
 //! `machine` over the operator socket (src/cli/commands/machine.ts): the
 //! owner installs and manages Junto on machines. A seat is refused before
 //! parsing (main.rs). What runs on the target machine's own files, install,
-//! uninstall and a Boat machine's key, is the bundle's Node entry
-//! (src/cli/hosts/machine-local.ts); this binary hands those to it.
+//! uninstall and a Boat machine's key, is this binary's own install module: the
+//! bundle needs no Node entry for them.
 
 use std::io::{IsTerminal, Read};
-use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
@@ -17,7 +15,7 @@ use super::Run;
 use super::logs::{Filters, Query};
 use crate::envelope::{self, Answer};
 use crate::error::{ErrorType, Failure, Result};
-use crate::{features, input, operator};
+use crate::{features, input, install, operator};
 
 /// Install and manage Junto on machines
 #[derive(Args)]
@@ -142,9 +140,16 @@ impl Run for Machine {
             envelope::print(&format!("machine {name}"), owner(op, input))
         };
         match self.command {
-            Command::InstallLocal(i) => local("install-local", Some(&i.input)),
-            Command::UninstallLocal(i) => local("uninstall-local", Some(&i.input)),
-            Command::BoatKeyLocal => local("boat-key-local", None),
+            Command::InstallLocal(i) => {
+                envelope::print("machine install-local", install::install_local(&i.input))
+            }
+            Command::UninstallLocal(i) => envelope::print(
+                "machine uninstall-local",
+                install::uninstall_local(&i.input),
+            ),
+            Command::BoatKeyLocal => {
+                envelope::print("machine boat-key-local", install::boat_key_local())
+            }
             Command::Add(i) => owned("add", "machine.add", &i),
             Command::List(i) => owned("list", "machine.list", &i),
             Command::Send(i) => owned("send", "machine.send", &i),
@@ -199,48 +204,15 @@ impl Run for Machine {
     }
 }
 
-// --- the bundle's Node entry ---
+// --- the install lease ------------------------------------------------------
 
-/// The machine-local entry beside this binary: `<root>/bin/node` runs
-/// `<root>/core/machine-local.cjs`, which owns the install lock and the files.
-fn local(command: &str, input: Option<&str>) -> ExitCode {
-    let entry = std::env::current_exe()
-        .and_then(|exe| exe.canonicalize())
-        .ok()
-        .and_then(|exe| {
-            let root = exe.parent()?.parent()?.to_path_buf();
-            let paths: (PathBuf, PathBuf) =
-                (root.join("bin/node"), root.join("core/machine-local.cjs"));
-            (paths.0.is_file() && paths.1.is_file()).then_some((exe, paths.0, paths.1))
-        });
-    let Some((exe, node, script)) = entry else {
-        let failure = Failure::new(
-            ErrorType::InternalError,
-            format!(
-                "machine {command} runs on a machine bundle's Node, and this junto has none beside it"
-            ),
-        );
-        return envelope::refuse(Some(&format!("machine {command}")), &failure);
-    };
-    // exec replaces this process: the entry's envelope and exit code are the answer.
-    // The entry takes its install lease through this binary (install_lease).
-    let error = std::process::Command::new(node)
-        .arg(script)
-        .arg(command)
-        .args(input)
-        .env("JUNTO_NATIVE_CLI", exe)
-        .exec();
-    envelope::refuse(
-        Some(&format!("machine {command}")),
-        &Failure::new(ErrorType::InternalError, error.to_string()),
-    )
-}
-
-/// `junto machine install-lease`, run by the machine-local entry: an exclusive
-/// flock on the lease file it hands over as stdin. The lock belongs to that
-/// open file description, so it outlives this process and holds while the
-/// entry keeps the file open; the entry's exit or crash releases it. Exit 0
-/// locked, 1 held by another install, 2 not lockable.
+/// `junto machine install-lease`: an exclusive flock on the lease file it hands
+/// over as stdin. The native install takes its own flock in process; this is
+/// the TypeScript installer's helper (src/cli/hosts/install-lock.ts, on the
+/// bundle's Node) while src/cli stands. The lock belongs to that open file
+/// description, so it outlives this process while the caller keeps the file
+/// open; the caller's exit or crash releases it. Exit 0 locked, 1 held by
+/// another install, 2 not lockable.
 pub fn install_lease() -> ExitCode {
     use rustix::fs::{FlockOperation, flock};
     match flock(std::io::stdin(), FlockOperation::NonBlockingLockExclusive) {
@@ -428,3 +400,4 @@ mod tests {
         assert!(!account_name("junto--read") && !account_name("junto-mini-admin"));
     }
 }
+

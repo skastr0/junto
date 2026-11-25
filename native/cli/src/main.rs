@@ -14,7 +14,9 @@ mod error;
 mod features;
 mod help;
 mod input;
+mod install;
 mod operator;
+mod scrub;
 mod wire;
 
 use std::process::ExitCode;
@@ -64,11 +66,6 @@ fn main() -> ExitCode {
         ["content-transfer", rest @ ..] => commands::pipes::content_transfer(rest),
         ["overseer", "edge", rest @ ..] => {
             envelope::refuse(None, &commands::overseer::retired_edge(rest))
-        }
-        // The live conversation host is not part of this CLI.
-        ["overseer-host", ..] => {
-            envelope::warn("Junto live conversation is disabled in this build");
-            ExitCode::from(2)
         }
         ["browser", ..] if features::MACHINE_BUILD => {
             envelope::warn(
@@ -406,3 +403,4 @@ fn usage(error: &clap::Error, words: &[&str]) -> ExitCode {
     };
     help::refuse_usage(words, &message, tagged)
 }
+

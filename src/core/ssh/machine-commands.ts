@@ -50,8 +50,9 @@ const input = JSON.parse(process.argv[2]);
 input.bundle = root;
 fs.writeFileSync(process.argv[3], JSON.stringify(input), {mode: 384});
 ' "$stage/package" "$2" "$stage/input.json"
-# The installer takes its kernel lease through the bundle's native junto (install-lock.ts).
-JUNTO_NATIVE_CLI="$stage/package/bin/junto" "$stage/package/bin/node" "$stage/package/core/machine-local.cjs" install-local "@$stage/input.json"
+# The installer is the bundle's own junto: it takes its lease, verifies and copies
+# the package, quiesces, selects, starts and proves the core ready, in process.
+"$stage/package/bin/junto" machine install-local "@$stage/input.json"
 `;
 
 /** Copy is an isolated SSH stream, with arguments quoted by the SSH compiler. */
@@ -76,7 +77,7 @@ export const placeBoatMachineKey = (
 ) => Effect.gen(function* () {
   if (![location.juntoHome, location.installRoot].every(path => /^\/[^\u0000-\u001f\u007f]*$/.test(path))) return yield* new SshCommandInputError({ check: "install-paths", message: "a machine key needs absolute install paths" });
   const command = yield* makeRemoteCommand("/usr/bin/env", [
-    `JUNTO_HOME=${location.juntoHome}`, `${location.installRoot}/current/bin/node`, `${location.installRoot}/current/core/machine-local.cjs`, "boat-key-local",
+    `JUNTO_HOME=${location.juntoHome}`, `${location.installRoot}/current/bin/junto`, "machine", "boat-key-local",
   ]);
   return oneShotWithStdin(target, command, input);
 });

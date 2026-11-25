@@ -38,7 +38,8 @@ it.each([false, true])("receives exact inventoried modes with lost archive execu
     // This installer stand-in independently checks the bytes it received.
     const inspect = `
       const assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path"), crypto = require("node:crypto");
-      const { bundle } = JSON.parse(fs.readFileSync(process.argv[3].slice(1), "utf8"));
+      const target = process.argv.slice(2).reverse().find((arg) => arg.startsWith("@"));
+      const { bundle } = JSON.parse(fs.readFileSync(target.slice(1), "utf8"));
       assert.equal(fs.statSync(path.dirname(bundle)).mode & 0o777, 0o700);
       const manifest = JSON.parse(fs.readFileSync(path.join(bundle, "manifest.json"), "utf8"));
       for (const file of manifest.files) {
@@ -49,10 +50,12 @@ it.each([false, true])("receives exact inventoried modes with lost archive execu
       }
       process.stdout.write("accepted\\n");
     `;
-    // The installer runs the bundle's Node on core/machine-local.cjs (machine-commands.ts).
-    await writeFile(join(bundle, "core/machine-local.cjs"), inspect);
-    for (const file of ["bin/node"]) await chmod(join(bundle, file), 0o755);
-    for (const file of ["core/machine-local.cjs"]) await chmod(join(bundle, file), 0o644);
+    // The installer is the bundle's own junto (machine-commands.ts): here the
+    // bundle's Node running the inspection, so the bytes it received are checked.
+    await writeFile(join(bundle, "bin/junto"), `#!/bin/sh\nexec "$(dirname "$0")/node" "$(dirname "$0")/../core/inspect.cjs" "$@"\n`);
+    await writeFile(join(bundle, "core/inspect.cjs"), inspect);
+    for (const file of ["bin/node", "bin/junto"]) await chmod(join(bundle, file), 0o755);
+    await chmod(join(bundle, "core/inspect.cjs"), 0o644);
     await writeFile(join(bundle, "manifest.json"), JSON.stringify({ files: await machineBundleFiles(bundle) }));
     if (lostExecuteBits) for (const file of ["bin/node"]) await chmod(join(bundle, file), 0o644);
     const result = await receive(root, bundle, { ...process.env, HOME: home });
@@ -62,9 +65,9 @@ it.each([false, true])("receives exact inventoried modes with lost archive execu
 });
 
 // An SSH session hands the script a home and a path, and nothing of Junto's.
-// The installer's lease is taken by a helper it is told of (install-lock.ts),
-// so the script must name it: without that no send or update can install.
-it("names the bundle's own junto as the installer's lease helper in the bare environment of an SSH session", async () => {
+// The installer is the bundle's own junto, run in process: the script names it
+// and no Node entry or lease helper beside it.
+it("runs the bundle's own junto as the installer, with no Node entry and no lease helper on the environment", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "junto-machine-archive-")));
   try {
     const bundle = join(root, "bundle");
@@ -74,27 +77,22 @@ it("names the bundle's own junto as the installer's lease helper in the bare env
     await mkdir(join(home, "install"), { recursive: true, mode: 0o700 });
     await chmod(home, 0o700);
     await writeFile(join(home, "install/owner.json"), "owned", { mode: 0o600 });
+    // The bundle's own junto: records the argv it was handed and answers.
+    await writeFile(join(bundle, "bin/junto"), '#!/bin/sh\nprintf \'%s\\n\' "$*" > "$HOME/installer-argv"\n', { mode: 0o755 });
     await writeFile(join(bundle, "bin/node"), `#!/bin/sh\nexec ${quote(process.execPath)} "$@"\n`, { mode: 0o755 });
-    // Stands in for the native junto: grants the lease and records which file was run.
-    await writeFile(join(bundle, "bin/junto"), '#!/bin/sh\n[ "$1 $2" = "machine install-lease" ] || exit 2\nprintf \'%s\\n\' "$0" > "$HOME/lease-helper"\n', { mode: 0o755 });
-    // The lease module as the bundle's Node loads it: bundled, no Bun.
-    execFileSync("bun", ["build", "src/cli/hosts/install-lock.ts", "--target", "node", "--format", "esm", "--outfile", join(bundle, "core/install-lock.mjs")], { cwd: process.cwd(), stdio: "pipe" });
-    // This installer stand-in takes the install lease the way the installer does.
-    await writeFile(join(bundle, "core/machine-local.cjs"), `
-      const path = require("node:path"), os = require("node:os"), { pathToFileURL } = require("node:url");
-      (async () => {
-        const lease = await import(pathToFileURL(path.join(__dirname, "install-lock.mjs")).href);
-        const release = await lease.acquireInstallLock(await lease.admitInstallLockRoot(path.join(os.homedir(), "install"), "owned"));
-        process.stdout.write("leased\\n");
-        await release();
-      })().catch(error => { process.stderr.write(String(error && error.message) + "\\n"); process.exitCode = 1; });
-    `, { mode: 0o644 });
     await writeFile(join(bundle, "manifest.json"), JSON.stringify({ files: await machineBundleFiles(bundle) }));
     const result = await receive(root, bundle, { HOME: home, PATH: process.env.PATH ?? "/usr/bin:/bin" });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toBe("leased\n");
-    const helper = await readFile(join(home, "lease-helper"), "utf8");
-    expect(helper.startsWith(`${home}/.junto-send.`), helper).toBe(true);
-    expect(helper.endsWith("/package/bin/junto\n"), helper).toBe(true);
+    const argv = await readFile(join(home, "installer-argv"), "utf8");
+    expect(argv.startsWith("machine install-local @"), argv).toBe(true);
+    expect(argv.trim().endsWith("/input.json"), argv).toBe(true);
+    const target = await Effect.runPromise(parseSshRoute({ endpoint: "user@fixture" }));
+    const program = await Effect.runPromise(receiveMachineBundle(target, "a".repeat(64), {}));
+    const compiled = createSshProgramCompiler({ controlDir: "/tmp/junto-archive-mux", envExecutable: "/usr/bin/env", sshExecutable: "/usr/bin/ssh", environment: {} }).stream(program);
+    if (!Command.isStandardCommand(compiled.command)) throw new Error("expected argv command");
+    const text = wordsText(compiled.command.args).at(-1)!;
+    expect(text).toContain("bin/junto\" machine install-local");
+    expect(text).not.toContain("machine-local.cjs");
+    expect(text).not.toContain("JUNTO_NATIVE_CLI");
   } finally { await rm(root, { recursive: true, force: true }); }
 }, 30_000);

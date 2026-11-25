@@ -25,6 +25,9 @@ sha2 = "0.10"
 url = "2"
 # Times as Date.parse reads and toISOString writes them.
 jiff = "0.2"
+# The one scrub (src/node/credentials/scrub.ts) whose patterns are too many to
+# hand-roll, and which must not drift from the TypeScript's.
+regex = "1"
 # The byte pipes (N4) and browser: open flags and statvfs without unsafe, and an HTTP/1.1 response head.
 httparse = "1"
 rustix = { version = "1", features = ["fs", "process"] }

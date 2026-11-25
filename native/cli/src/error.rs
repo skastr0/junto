@@ -60,6 +60,13 @@ pub enum ErrorType {
     /// machine vault-token: the token was not placed on the machine.
     #[serde(skip_deserializing)]
     VaultTokenNotPlaced,
+    /// machine install-local and uninstall-local: the install did not finish,
+    /// as src/shared/machine-install.ts MachineInstallError names it.
+    #[serde(skip_deserializing)]
+    MachineInstallError,
+    /// machine boat-key-local: the machine key was not placed.
+    #[serde(skip_deserializing)]
+    BoatKeyNotPlaced,
 }
 
 /// A failure: printed as the `error` of the failure envelope.
@@ -120,3 +127,4 @@ impl Failure {
 }
 
 pub type Result<T, E = Failure> = std::result::Result<T, E>;
+
