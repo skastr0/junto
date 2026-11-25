@@ -376,17 +376,23 @@ cannot be read.** A resend fails the same way, so the step is not `Send
 Junto again`.
 
 - Core's words, `ownWords: true`: `This machine's link key for that
-  machine cannot be read. Make a new one: junto machine link <this>
-  <that>`
-- The step: `junto machine link` makes this machine's key for `<that>`
-  with `replace: true` (`src/core/hosts/machine-link.ts:172`), so it
-  replaces the unreadable key without anyone touching a file by hand. The
-  window has no link button, so the command is the fix, as section 5's
-  relink line did; it ends the line with no period so it copies clean.
-- The two names are the near side's own machine names from its list, the
-  names the operator chose, never far text. If a name in the command is
-  not allowed under term 5, the step is `Remove it, then add it again.`
-  (remove deletes the key directory without reading it, `removeLinkKey`).
+  machine cannot be read. Remove that machine, then add it again.`
+- Not `junto machine link`: this refusal comes from a send whose setup
+  failed before the machine was saved, and link then answers `Set up ...
+  from this machine before linking it` (remote-verify, receipt 15).
+  Remove deletes the key directory without reading it (`removeLinkKey`),
+  and the next send, with no key here, clears the stale link itself.
+
+**Remove, when Junto cannot confirm `<removed>` stopped accepting the
+link.** This machine holds no link key for it, and the far end could not
+be asked: it was out of reach, its status did not answer, or the key here
+was unreadable. remote-security: the sentence says Junto could not
+confirm, never that `<removed>` still accepts the key.
+
+- Core's words, `ownWords: true`, a `linkKept` message beside the one
+  above, naming both machines as it does: `<removed> is removed, but Junto
+  could not confirm it stopped accepting links from <this>. To clear that,
+  add it again and send Junto to it.`
 
 **Remove, when the list of removed machines that still accept the key
 cannot be read.** Junto sets the file aside and does not overwrite it.
