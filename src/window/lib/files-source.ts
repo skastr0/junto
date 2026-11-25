@@ -72,7 +72,7 @@ export const makeLocalFiles = (
     return stampOf(held);
   };
   const ok = <A>(value: A): FilesResult<A> => ({ ok: true, value });
-  const refused = <A>(error: Exclude<FilesError, "unreachable">): FilesResult<A> => ({ ok: false, error });
+  const refused = <A>(error: Exclude<FilesError, "unreachable" | "not-set-up">): FilesResult<A> => ({ ok: false, error });
   const has = (ref: FilesNodeRef, path: FilePath): boolean => rootOf(ref.node).has(path);
   return {
     open: async () => ok<FilesRoot>({ name: "folder", repo: false }),
@@ -218,6 +218,9 @@ export const filesErrorLine = (error: FilesError): string => {
       return "This folder lives on another machine. Open it there.";
     case "unreachable":
       return "This folder's machine is offline.";
+    // remote-design, 01M89YM5N4GJHGGGYAR26XD79C: the node card names the machine, so this line does not.
+    case "not-set-up":
+      return "This folder is on a machine that is not in your machines. Add it and send Junto to it, then open this folder again.";
     case "root-missing":
       return "This node's folder is missing on this machine.";
     case "invalid-path":

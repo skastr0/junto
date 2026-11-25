@@ -37,8 +37,8 @@ export type Ok<A> = Extract<FilesResult<A>, { ok: true }>;
 export type Refused = Extract<FilesResult<never>, { ok: false }>;
 
 export const ok = <A>(value: A): Ok<A> => ({ ok: true, value });
-/** This machine's own refusals: `unreachable` is a link's, never the disk's. */
-export type LocalFilesError = Exclude<FilesError, "unreachable">;
+/** This machine's own refusals: `unreachable` is a link's and `not-set-up` the window router's, never the disk's. */
+export type LocalFilesError = Exclude<FilesError, "unreachable" | "not-set-up">;
 
 export const refused = (error: LocalFilesError): Refused => ({ ok: false, error });
 

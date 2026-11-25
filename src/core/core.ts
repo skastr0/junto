@@ -10,6 +10,7 @@ import { makeInventoryChannel } from "./inventory/channel";
 import { makeNativeConfigChannel } from "./inventory/native-channel";
 import { FILES_REMOTE_ENABLED } from "@shared/features";
 import { makeHeadlessFilesService } from "./files/headless-service";
+import { ModelService } from "./model/service";
 import { makeFilesLinkChannel } from "./files/link";
 import { makeFileBytesLinkChannel } from "./files/bytes-link";
 import { resolveJuntoHome } from "@shared/junto-home";
@@ -377,6 +378,15 @@ export const startCore = async (options: CoreOptions) => {
     // Always bound, off in ship: a peer with filesRemote on that finds the channel unbound closes the whole
     // link, seats and all, so with the feature off the channel is there and refuses every op denied.
     const filesHost = FILES_REMOTE_ENABLED ? makeHeadlessFilesService() : undefined;
+    if (filesHost !== undefined) {
+      // A copy that moves a node's host or root, or removes it, ends a peer's watch opened under the old one (X6, F5).
+      let rechecking = Promise.resolve();
+      const recheck = (): void => { rechecking = rechecking.then(() => filesHost.recheck()).catch((cause: unknown) => console.error("[files] recheck failed", cause)); };
+      await runtime.runPromise(Effect.map(ModelService, (model) => {
+        model.subscribeChanges(recheck);
+        model.subscribeCanvasesChanges(recheck);
+      }));
+    }
     // This core's end of another machine's Files node: the window's router asks it by name.
     const filesRemote = Option.getOrUndefined(await runtime.runPromise(Effect.serviceOption(FilesRemoteService)));
     filesRemote?.onChange((change) => Effect.runSync(pushes.publish(FILES_REMOTE_CHANGED, change)));

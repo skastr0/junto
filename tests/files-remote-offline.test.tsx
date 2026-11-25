@@ -37,7 +37,7 @@ const flush = async (): Promise<void> => {
   });
 };
 
-const unreachable = (lastReachedAt: number | null): FilesRefusal => ({ error: "unreachable", machine: "mini", lastReachedAt });
+const unreachable = (lastReachedAt: number | null): Extract<FilesRefusal, { error: "unreachable" }> => ({ error: "unreachable", machine: "mini", lastReachedAt });
 
 beforeEach(() => {
   state$.settings.machine.name.set(THIS_MACHINE);

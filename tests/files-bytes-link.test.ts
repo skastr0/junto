@@ -342,3 +342,26 @@ describe("file-bytes host", () => {
     expect(await f.ownStage()).toEqual([]);
   });
 });
+
+describe("a node moved under an open stream or upload (X6, remote-security F5)", () => {
+  for (const [how, moved] of [
+    ["removed", { ok: false, error: "no-node" }],
+    ["given another root", { ok: true, value: "/somewhere/else" }],
+  ] as const) {
+    it(`ends a stream and an upload whose node was ${how}, and they stay gone`, async () => {
+      let away = false;
+      const f = await fixture({ host: (service) => ({ ...service, placeOf: async (ref) => (away ? moved : service.placeOf(ref)) }) });
+      await writeFile(join(f.root, "a.bin"), Buffer.alloc(10, 1));
+      const stream = answer(await f.ask((bytes) => bytes.ReadOpen("mini", { ...f.where, path: path("a.bin") }))).stream;
+      const upload = answer(await f.ask((bytes) => bytes.ImportOpen("mini", { ...f.where, into: path(""), name: "drop.bin", size: 4 }))).upload;
+      away = true;
+      expect(await f.ask((bytes) => bytes.ReadChunk("mini", { stream, offset: 0, length: 1 }))).toEqual({ refused: "no-node" });
+      expect(await f.ask((bytes) => bytes.ImportChunk("mini", { upload, offset: 0, data: encodeChunk(Buffer.alloc(4, 2)) }))).toEqual({ refused: "no-node" });
+      expect(await f.ownStage()).toEqual([]);
+      away = false;
+      expect(await f.ask((bytes) => bytes.ReadChunk("mini", { stream, offset: 0, length: 1 }))).toEqual({ refused: "not-found" });
+      expect(await f.ask((bytes) => bytes.ImportEnd("mini", { upload, sha256: sha(Buffer.alloc(4, 2)) }))).toEqual({ refused: "not-found" });
+      expect(await readdir(f.root)).toEqual(["a.bin"]);
+    });
+  }
+});

@@ -17,6 +17,15 @@ import { canvasFromOpened } from "../src/shared/model/canvas";
 import { titleOf } from "../src/shared/model/title";
 import { nameable, titled } from "../src/window/lib/model-edits";
 import { AUTOMATION_NODE_ARCHIVES_SQL, AUTOMATION_STATE_SCHEMA_SQL } from "../src/core/automation/state-schema";
+import { FILES_REMOTE_ENABLED } from "../src/shared/features";
+
+/**
+ * A Files node on another machine: refused as before with files over SSH off;
+ * with it on (the all-on suite), a name not in this machine's list is refused
+ * by X6's gate (tests/files-place-gate.test.ts holds the rest of it).
+ */
+const AWAY = (host: string): RegExp =>
+  FILES_REMOTE_ENABLED ? new RegExp(`"${host}" is not a machine in this machine's list`) : new RegExp(`on this machine .*not on "${host}"`);
 
 const at = "2026-10-07T00:00:00Z";
 const node = (id: string, kind = "note", fields: object = {}) => ({
@@ -770,7 +779,7 @@ it("keeps a Files node on this machine: add and a host edit name this machine an
     expect((yield* model.open("factory")).nodes).toContainEqual(expect.objectContaining({ id: "files-1", host: THIS_MACHINE }));
 
     for (const [fields, says] of [
-      [{ host: "other-machine" }, /on this machine .*not on "other-machine"/],
+      [{ host: "other-machine" }, AWAY("other-machine")],
       [{ root: "Projects/junto" }, /absolute path; "Projects\/junto" is not/],
     ] as const) {
       const refused = refusal(yield* send({ _tag: "Add", nodes: [folder("files-2", fields)], wires: [] }));
@@ -782,7 +791,7 @@ it("keeps a Files node on this machine: add and a host edit name this machine an
     expect((yield* edit({ host: THIS_MACHINE }))._tag).toBe("Success");
     const away = refusal(yield* edit({ host: "other-machine" }));
     expect(away).toMatchObject({ _tag: "ModelRefused" });
-    expect(away!.rule).toMatch(/not on "other-machine"/);
+    expect(away!.rule).toMatch(AWAY("other-machine"));
     // The unnamed machine never decodes as a host, on an add or an edit.
     expect(() => decode({ _tag: "Add", canvas: "factory", nodes: [folder("files-3", { host: "local" })], wires: [] })).toThrow();
     expect(() => decode({ _tag: "Edit", canvas: "factory", id: "files-1", change: { kind: "files", host: "local" } })).toThrow();
@@ -812,7 +821,7 @@ it("refuses a root edit of a Files node held for another machine until its host 
     expect(refused._tag).toBe("Failure");
     expect((refused as unknown as { failure: { _tag: string; rule: string } }).failure).toMatchObject({
       _tag: "ModelRefused",
-      rule: expect.stringMatching(/on this machine .*not on "old-name"/),
+      rule: expect.stringMatching(AWAY("old-name")),
     });
     // A label still changes; the way back is the host first, then the root.
     expect((yield* edit({ label: "Junto" }))._tag).toBe("Success");

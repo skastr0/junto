@@ -80,6 +80,13 @@ export type FilesServiceDeps = {
    * is logged; the file did move, so the call still answers it.
    */
   readonly carryThreads?: (ref: FilesNodeRef, from: FilePath, to: FilePath) => Promise<void>;
+  /**
+   * The far's own check on a root it serves to a peer (X6, remote-security
+   * F3): given the root as its copy names it and that root's realpath, true
+   * when it may be served. Only the headless service a peer reaches passes it;
+   * a window's own service leaves it unset.
+   */
+  readonly servesRoot?: (named: string, real: string) => Promise<boolean>;
 };
 
 /** An unheld root has no watcher: its count is kept this long, then taken again. */
@@ -220,7 +227,9 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
     const [facts, machine] = await Promise.all([deps.node(ref), deps.machineName()]);
     if (facts === undefined) return refused("no-node");
     if (!isThisMachine(facts.host, machine)) return refused("elsewhere");
-    return realRoot(facts.root);
+    const real = await realRoot(facts.root);
+    if (!real.ok || deps.servesRoot === undefined) return real;
+    return (await deps.servesRoot(facts.root, real.value)) ? real : refused("denied");
   };
 
   const withRoot = async <A>(
@@ -310,6 +319,25 @@ export const makeFilesService = (deps: FilesServiceDeps) => {
       release(sessionKey(subscriber, ref.node));
       return ok(null);
     },
+
+    /**
+     * Every session whose node now resolves elsewhere, or not at all, is told
+     * `closed` and dropped (X6, F5): a copy that moved a node's host or root,
+     * or removed it, ends what was opened under the old one.
+     */
+    recheck: async (): Promise<void> => {
+      for (const [key, session] of [...sessions]) {
+        const root = await rootOf(session.ref);
+        if (root.ok && root.value === session.root) continue;
+        if (sessions.get(key) !== session) continue;
+        release(key);
+        const error = root.ok || root.error === "unreachable" || root.error === "not-set-up" ? "no-node" as const : root.error;
+        deps.send(session.subscriber, { node: session.ref.node, kind: "closed", error });
+      }
+    },
+
+    /** The node's root as served now, realpath'd: what a peer's stream or upload was opened under (X6, F5). */
+    placeOf: (ref: FilesNodeRef): Promise<FilesResult<string>> => rootOf(ref),
 
     /** A window went away: every session it held. */
     closeSubscriber: (subscriber: number): void => {

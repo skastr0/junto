@@ -37,7 +37,7 @@ import type { FilesService } from "./service";
  */
 
 /** The service calls a peer's bytes reach. */
-export type FileBytesHost = Pick<FilesService, "bytesAt" | "import">;
+export type FileBytesHost = Pick<FilesService, "bytesAt" | "import" | "placeOf">;
 
 export const FileBytesLink = linkContract("file-bytes", RpcGroup.make(
   Rpc.make("ReadOpen", { payload: FileBytesReadOpen, success: FileBytesReadOpened, error: FilesLinkFailure }),
@@ -59,7 +59,13 @@ export const FILE_BYTES_LIMITS = {
 } as const;
 export type FileBytesLimits = { readonly [K in keyof typeof FILE_BYTES_LIMITS]: number };
 
-type Owned = { readonly canvas: string; readonly node: FilesNodeRef["node"]; timer: ReturnType<typeof setTimeout> | undefined };
+type Owned = {
+  readonly canvas: string;
+  readonly node: FilesNodeRef["node"];
+  /** The node's realpath'd root when this was opened: an op under another one ends it (X6, F5). */
+  readonly root: string;
+  timer: ReturnType<typeof setTimeout> | undefined;
+};
 type Stream = Owned & { readonly handle: FileHandle; readonly size: number };
 type Upload = Owned & {
   readonly directory: string;
@@ -79,7 +85,7 @@ type Upload = Owned & {
 };
 type Session = { readonly streams: Map<string, Stream>; readonly uploads: Map<string, Upload> };
 
-const hostError = (error: FilesError): HostFilesError => (error === "unreachable" ? "failed" : error);
+const hostError = (error: FilesError): HostFilesError => (error === "unreachable" || error === "not-set-up" ? "failed" : error);
 const refusedWith = (error: FilesError): FilesRefused => new FilesRefused({ error: hostError(error) });
 const newId = (): string => randomBytes(16).toString("hex");
 
@@ -129,6 +135,16 @@ export const makeFileBytesLinkChannel = Effect.fn("FileBytesLink.make")(function
    * ops. An op on the upload's own chain passes `within`: it is the pending op,
    * and waiting for itself would never end.
    */
+  /**
+   * Whether the node still resolves to the root a stream or upload opened
+   * under (X6, F5): read from this machine's own copy on every op, so a host
+   * or root changed, or the node removed, ends it. An upload asks inside its
+   * chain, so the check keeps the order its chunks came in.
+   */
+  const placedStill = async (host: FileBytesHost, ref: FilesNodeRef, root: string): Promise<boolean> => {
+    const now = await host.placeOf(ref).catch((): FilesResult<string> => ({ ok: false, error: "failed" }));
+    return now.ok && now.value === root;
+  };
   const dropUpload = (session: Session, id: string, within = false): Promise<void> => {
     const upload = session.uploads.get(id);
     if (upload === undefined) return Promise.resolve();
@@ -188,10 +204,12 @@ export const makeFileBytesLinkChannel = Effect.fn("FileBytesLink.make")(function
       /** Idempotent apart from the handle it holds, which idle or close lets go. */
       ReadOpen: (request, context) => serve("ReadOpen", request, context, async (host, session) => {
         if (session.streams.size >= limits.streams) return { ok: false, error: "denied" };
+        const place = await host.placeOf({ canvas: request.canvas, node: request.node });
+        if (!place.ok) return place;
         const found = await host.bytesAt({ canvas: request.canvas, node: request.node }, request.path);
         if (!found.ok) return found;
         const id = newId();
-        const stream: Stream = { canvas: request.canvas, node: request.node, timer: undefined, handle: found.value.handle, size: found.value.size };
+        const stream: Stream = { canvas: request.canvas, node: request.node, root: place.value, timer: undefined, handle: found.value.handle, size: found.value.size };
         session.streams.set(id, stream);
         touch(session, id, stream, "stream");
         return { ok: true, value: { stream: id, size: found.value.size, stamp: found.value.stamp } };
@@ -200,7 +218,12 @@ export const makeFileBytesLinkChannel = Effect.fn("FileBytesLink.make")(function
       ReadChunk: (request, context) => {
         const found = owned(sessionOf(context).streams.get(request.stream));
         if (found === undefined) return nowhere(context, "ReadChunk");
-        return serve("ReadChunk", found.ref, context, async (_host, session) => {
+        const session = sessionOf(context);
+        return serve("ReadChunk", found.ref, context, async (host) => {
+          if (!(await placedStill(host, found.ref, found.held.root))) {
+            closeStream(session, request.stream);
+            return { ok: false, error: "no-node" };
+          }
           touch(session, request.stream, found.held, "stream");
           if (request.offset >= found.held.size) return { ok: true, value: { data: "" } };
           const length = Math.min(request.length, FILE_BYTES_CHUNK_MAX, found.held.size - request.offset);
@@ -212,8 +235,10 @@ export const makeFileBytesLinkChannel = Effect.fn("FileBytesLink.make")(function
       /** Idempotent: closing a stream the session no longer holds changes nothing. */
       ReadClose: (request, context) => Effect.sync(() => { closeStream(sessionOf(context), request.stream); return null; }),
       /** NOT idempotent: it makes a stage, which End, idle or the link closing removes. */
-      ImportOpen: (request, context) => serve("ImportOpen", request, context, async (_host, session) => {
+      ImportOpen: (request, context) => serve("ImportOpen", request, context, async (host, session) => {
         if (session.uploads.size >= limits.uploads) return { ok: false, error: "denied" };
+        const place = await host.placeOf({ canvas: request.canvas, node: request.node });
+        if (!place.ok) return place;
         if (request.size > FILE_BYTES_UPLOAD_MAX || stagedBytes + request.size > limits.stagedTotal) return { ok: false, error: "denied" };
         let parent: string;
         try { parent = stageParent(); } catch { return { ok: false, error: "failed" }; }
@@ -230,7 +255,7 @@ export const makeFileBytesLinkChannel = Effect.fn("FileBytesLink.make")(function
         }
         const id = newId();
         const upload: Upload = {
-          canvas: request.canvas, node: request.node, timer: undefined, directory, file, handle, size: request.size,
+          canvas: request.canvas, node: request.node, root: place.value, timer: undefined, directory, file, handle, size: request.size,
           into: request.into, written: 0, hash: createHash("sha256"), tail: Promise.resolve(),
         };
         stagedBytes += request.size;
@@ -243,8 +268,12 @@ export const makeFileBytesLinkChannel = Effect.fn("FileBytesLink.make")(function
         const session = sessionOf(context);
         const found = owned(session.uploads.get(request.upload));
         if (found === undefined) return nowhere(context, "ImportChunk");
-        return serve("ImportChunk", found.ref, context, () => inOrder(found.held, async (): Promise<FilesResult<null>> => {
+        return serve("ImportChunk", found.ref, context, (host) => inOrder(found.held, async (): Promise<FilesResult<null>> => {
           const upload = found.held;
+          if (session.uploads.get(request.upload) === upload && !(await placedStill(host, found.ref, upload.root))) {
+            await dropUpload(session, request.upload, true);
+            return { ok: false, error: "no-node" };
+          }
           const bytes = decodeChunk(request.data);
           if (session.uploads.get(request.upload) !== upload || bytes === undefined
             || request.offset !== upload.written || upload.written + bytes.byteLength > upload.size) {
@@ -273,6 +302,10 @@ export const makeFileBytesLinkChannel = Effect.fn("FileBytesLink.make")(function
           const upload = found.held;
           // A chunk that failed while this waited dropped the upload.
           if (session.uploads.get(request.upload) !== upload) return { ok: false, error: "not-found" };
+          if (!(await placedStill(host, found.ref, upload.root))) {
+            await dropUpload(session, request.upload, true);
+            return { ok: false, error: "no-node" };
+          }
           clearTimeout(upload.timer);
           const whole = upload.written === upload.size && upload.hash.digest("hex") === request.sha256;
           try {

@@ -34,7 +34,23 @@ export type FilesRouterDeps = {
   readonly machineName: () => Promise<string>;
   /** A change to a window that has the node open. */
   readonly send: (subscriber: number, event: FilesChanged) => void;
+  /** True when this machine holds an active pin of that name (X6, F6); without one nothing is asked of it. */
+  readonly pinned: (machine: string) => Promise<boolean>;
   readonly enabled?: boolean;
+};
+
+/**
+ * Another machine's node whose machine has no active pin here, removed or never
+ * set up: every call is refused `not-set-up` on this side, and no request goes
+ * to that name (X6, F6). The node stays on its canvas and opens nothing.
+ */
+const notSetUp = (machine: string): FilesRemotePort => {
+  const refused = async () => ({ ok: false, error: "not-set-up", machine }) as const;
+  return {
+    open: refused, close: refused, count: refused, list: refused, read: refused, write: refused, create: refused,
+    rename: refused, move: refused, trash: refused, search: refused, import: refused, bytes: refused,
+    onChange: () => () => undefined,
+  };
 };
 
 /** A node on another machine that windows here have open, and which windows. */
@@ -70,6 +86,7 @@ export const makeFilesRouter = (deps: FilesRouterDeps) => {
     if (remote === undefined) return undefined;
     const facts = await deps.node(ref);
     if (facts === undefined || facts.host === (await deps.machineName())) return undefined;
+    if (!(await deps.pinned(facts.host))) return { remote: notSetUp(facts.host), machine: facts.host };
     listen(remote);
     return { remote, machine: facts.host };
   };

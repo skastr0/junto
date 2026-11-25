@@ -9,7 +9,9 @@ import {
 } from "@shared/model";
 import { isAbsolute } from "node:path";
 import { UNNAMED_MACHINE } from "@shared/canvas-copy";
-import { AUTHORITY_ENABLED } from "@shared/features";
+import { AUTHORITY_ENABLED, FILES_REMOTE_ENABLED } from "@shared/features";
+import { resolveJuntoHome } from "@shared/junto-home";
+import { readBoatRecords } from "../../node/boat/files";
 import { withSqlRead } from "../state/sql-read";
 import { archiveAutomationsOnNode, restoreAutomationsOnNode } from "../automation/repository";
 import { KIND_TABLES } from "./state-schema";
@@ -20,6 +22,10 @@ import {
   wireToRow,
   type SqlValues,
 } from "./rows";
+
+/** The Boat machines this home records: never a Files node's host, as they are never linked by key. */
+const boatNames = async (): Promise<ReadonlySet<string>> =>
+  new Set((await readBoatRecords(resolveJuntoHome())).machines.map((row) => row.name));
 
 export class ModelNotFound extends Schema.TaggedError<ModelNotFound>()(
   "ModelNotFound",
@@ -85,12 +91,33 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
         Result: Schema.Struct({ machine_name: Schema.String }),
         execute: () => sql`SELECT machine_name FROM machine_configuration WHERE singleton=1`,
       });
+      /** An active pin of this name, never a retired one: the machines a Files node may name besides this one. */
+      const activePins = SqlSchema.findAll({
+        Request: Schema.String,
+        Result: Schema.Struct({ machine_name: Schema.String }),
+        execute: (host) => sql`SELECT machine_name FROM machine_peers WHERE retired_at IS NULL AND machine_name=${host}`,
+      });
       /**
-       * A Files node lives on this machine: its host is this machine's short
-       * name, never the unnamed machine or another one, and its root is absolute.
+       * Where a Files node may open a folder. Its host is this machine's short
+       * name, never the unnamed machine, and its root is absolute.
+       *
+       * With `filesRemote` on (X6, remote-security F1, F2, A1, A2) the host may
+       * also be another machine, only when all of these hold: the command is
+       * the operator's own (source "operator", the window's ModelCommand), this
+       * machine edits the canvas, and the host is an active pin that is not a
+       * Boat machine. A retired pin, a bare host record and an unknown name
+       * refuse. A root alone is checked against the node's host the same way.
        */
       const requireFilesPlace = Effect.fn("ModelRecords.requireFilesPlace")(function* (
         place: { readonly host?: string; readonly root?: string },
+        rule: {
+          readonly source: "operator" | "runtime" | "overseer";
+          readonly canvas: string;
+          /** The `filesRemote` flag; tests pass it, the model leaves it to the build's. */
+          readonly remote?: boolean;
+          /** The Boat machines' names, read when another machine is named; tests pass them. */
+          readonly boat?: () => Promise<ReadonlySet<string>>;
+        },
       ) {
         if (place.host !== undefined) {
           if (place.host === UNNAMED_MACHINE)
@@ -98,8 +125,24 @@ export class ModelRecords extends Context.Service<ModelRecords>()(
           const own = (yield* ownNames(undefined))[0]?.machine_name;
           if (own === undefined)
             return yield* new ModelRefused({ rule: "This machine has no name yet, so it cannot hold a Files node." });
-          if (place.host !== own)
-            return yield* new ModelRefused({ rule: `A Files node opens a folder on this machine (${own}), not on "${place.host}".` });
+          if (place.host !== own) {
+            if (!(rule.remote ?? FILES_REMOTE_ENABLED))
+              return yield* new ModelRefused({ rule: `A Files node opens a folder on this machine (${own}), not on "${place.host}".` });
+            if (rule.source !== "operator")
+              return yield* new ModelRefused({ rule: "Only the operator can place a Files node on another machine." });
+            const editor = yield* canvasEditor(rule.canvas);
+            // NULL is this machine's own canvas, as the rest of the model reads it.
+            if (editor !== undefined && editor !== (yield* thisInstallation()))
+              return yield* new ModelRefused({ rule: "Only the machine that edits this canvas can place a Files node on another machine." });
+            if ((yield* activePins(place.host)).length === 0)
+              return yield* new ModelRefused({ rule: `"${place.host}" is not a machine in this machine's list, so a Files node cannot open a folder there.` });
+            const boat = yield* Effect.tryPromise({
+              try: () => (rule.boat ?? boatNames)(),
+              catch: () => new ModelRefused({ rule: "Junto could not read which machines are Boat machines, so a Files node cannot open a folder on another machine." }),
+            });
+            if (boat.has(place.host))
+              return yield* new ModelRefused({ rule: `"${place.host}" is a Boat machine, so a Files node cannot open a folder there.` });
+          }
         }
         if (place.root !== undefined && !isAbsolute(place.root))
           return yield* new ModelRefused({ rule: `A Files node's folder is an absolute path; "${place.root}" is not.` });

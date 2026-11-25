@@ -245,7 +245,7 @@ export const makeFilesRemote = Effect.fn("FilesRemote.make")(function* (options:
         emit(machine, { node: node, kind: "back" });
         continue;
       }
-      if (result.error === "unreachable") return;
+      if (result.error === "unreachable" || result.error === "not-set-up") return;
       forget(machine, node);
       emit(machine, { node: node, kind: "closed", error: result.error });
     }

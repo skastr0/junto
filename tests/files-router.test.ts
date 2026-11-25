@@ -12,7 +12,7 @@ const hosts: Record<string, string> = { [here.node]: HERE, [away.node]: "mini" }
 const counted = (files: number): FilesResult<{ files: number; capped: boolean }> => ({ ok: true, value: { files, capped: false } });
 
 /** A local service and a link client that record what they were asked. */
-const stage = (options: { enabled?: boolean; linked?: boolean; closeAnswer?: () => Promise<FilesResult<null>> } = {}) => {
+const stage = (options: { enabled?: boolean; linked?: boolean; pinned?: boolean; closeAnswer?: () => Promise<FilesResult<null>> } = {}) => {
   const calls: string[] = [];
   const sent: Array<{ subscriber: number; event: FilesChanged }> = [];
   let listener: ((change: { machine: string; change: FilesChanged }) => void) | undefined;
@@ -37,6 +37,7 @@ const stage = (options: { enabled?: boolean; linked?: boolean; closeAnswer?: () 
     local,
     remote: () => (options.linked === false ? undefined : remote),
     node: async (ref) => ({ host: hosts[ref.node] ?? HERE, root: "/root" }),
+    pinned: async () => options.pinned ?? true,
     machineName: async () => HERE,
     send: (subscriber, event) => void sent.push({ subscriber, event }),
     enabled: options.enabled ?? true,
@@ -128,5 +129,16 @@ describe("the Files router", () => {
     await router.open(1, here);
     await router.close(1, here);
     expect(calls).toEqual(["local open 1", "local close 1"]);
+  });
+
+  it("refuses a node on a machine not in this machine's list not-set-up, and sends it nothing (X6, F6)", async () => {
+    const { router, calls, sent } = stage({ pinned: false });
+    expect(await router.open(1, away)).toEqual({ ok: false, error: "not-set-up", machine: "mini" });
+    expect(await router.count(away)).toEqual({ ok: false, error: "not-set-up", machine: "mini" });
+    expect(await router.read(away, "a.md" as never)).toEqual({ ok: false, error: "not-set-up", machine: "mini" });
+    expect(calls.filter((call) => call.startsWith("remote"))).toEqual([]);
+    expect(sent).toEqual([]);
+    // This machine's own node is not asked about the list.
+    expect(await router.count(here)).toEqual(counted(3));
   });
 });

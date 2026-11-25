@@ -80,7 +80,7 @@ export const admitFilesPeer = Effect.fn("FilesLink.admit")(function* (context: L
   return "ok" as const;
 });
 
-const hostError = (error: FilesError): HostFilesError => (error === "unreachable" ? "failed" : error);
+const hostError = (error: FilesError): HostFilesError => (error === "unreachable" || error === "not-set-up" ? "failed" : error);
 
 /** A change as the link carries it; one too large for a frame says the tree changed too much. */
 export const eventOf = (change: FilesChanged): FilesEvent => {

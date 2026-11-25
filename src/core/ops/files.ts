@@ -37,6 +37,7 @@ import { makeFilesRouter } from "../files/router";
 import type { FileBytesReader } from "../files/bytes";
 import { makeFilesService } from "../files/service";
 import { coreRunner } from "../core-runner";
+import { MachineRepository } from "../machines/repository";
 import { FILES_CHANGED, type FilesChangedPush } from "../../contract/core/channels";
 import { FilesRpcs, type FilesBytesOpened } from "../../contract/core/files";
 import { FilesHost } from "../../contract/host/files";
@@ -106,6 +107,7 @@ export const FilesHandlers = FilesRpcs.toLayer(
       node: nodeFacts,
       machineName,
       send,
+      pinned: (machine) => coreRunner.runPromise(Effect.flatMap(MachineRepository, (machines) => machines.peer(machine))).then((peer) => peer !== undefined),
     });
 
     // The dropped paths: OS paths each window's preload saw on a real dropped File, by subscriber.

@@ -66,6 +66,7 @@ const stage = async () => {
     local,
     remote: () => remote,
     node: async (ref) => ({ host: hosts[ref.node] ?? HERE, root: "/root" }),
+    pinned: async () => true,
     machineName: async () => HERE,
     send: () => undefined,
     enabled: true,

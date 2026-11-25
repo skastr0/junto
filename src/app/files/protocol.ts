@@ -60,6 +60,7 @@ const STATUS_OF: Record<FilesError, number> = {
   "no-node": 404,
   elsewhere: 404,
   unreachable: 503,
+  "not-set-up": 503,
   "root-missing": 404,
   "not-found": 404,
   "invalid-path": 400,

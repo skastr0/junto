@@ -123,7 +123,7 @@ export const FilesRefusedError = Schema.Literals([
   "denied",
   "failed",
 ]);
-export const FilesError = Schema.Union([FilesRefusedError, Schema.Literal("unreachable")]);
+export const FilesError = Schema.Union([FilesRefusedError, Schema.Literal("unreachable"), Schema.Literal("not-set-up")]);
 export type FilesError = typeof FilesError.Type;
 
 /**
@@ -134,6 +134,8 @@ export type FilesError = typeof FilesError.Type;
 export const FilesRefusal = Schema.Union([
   Schema.Struct({ error: FilesRefusedError }),
   Schema.Struct({ error: Schema.Literal("unreachable"), machine: Schema.String, lastReachedAt: Schema.NullOr(Schema.Finite) }),
+  /** The node names a machine this one has no active pin for (removed, or never set up): nothing was asked of it (X6, F6). */
+  Schema.Struct({ error: Schema.Literal("not-set-up"), machine: Schema.String }),
 ]);
 export type FilesRefusal = typeof FilesRefusal.Type;
 
@@ -150,6 +152,7 @@ export const FilesResult = <A extends Schema.Top>(value: A) =>
       machine: Schema.String,
       lastReachedAt: Schema.NullOr(Schema.Finite),
     }),
+    Schema.Struct({ ok: Schema.Literal(false), error: Schema.Literal("not-set-up"), machine: Schema.String }),
   ]);
 
 /** Which Files node a call is for. */

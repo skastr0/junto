@@ -531,7 +531,7 @@ export class ModelService extends Context.Service<ModelService>()(
                 case "Add":
                   for (const node of step.nodes.map(normalizeNode)) {
                     if (node.kind === "agent") yield* records.requireSeatHost(node.host);
-                    if (node.kind === "files") yield* records.requireFilesPlace(node);
+                    if (node.kind === "files") yield* records.requireFilesPlace(node, { source, canvas: command.canvas });
                     if (
                       node.kind === "agent" &&
                       node.overseer &&
@@ -627,12 +627,10 @@ export class ModelService extends Context.Service<ModelService>()(
                   const edited = yield* decodeNode(patch(node, step.change));
                   if (edited.kind === "agent" && node.kind === "agent" && edited.host !== node.host) yield* records.requireSeatHost(edited.host);
                   // Only a new host or a new root is checked: a label or a move of a held node is not.
-                  // A new root names a place on the node's host, so that host must be this machine too.
-                  if (edited.kind === "files" && node.kind === "files")
-                    yield* records.requireFilesPlace({
-                      ...(edited.host === node.host && edited.root === node.root ? {} : { host: edited.host }),
-                      ...(edited.root === node.root ? {} : { root: edited.root }),
-                    });
+                  // A new root names a place on the node's host, so that host passes the gate again, source and
+                  // all (X6, A1); a new host checks the root it brings, changed or not.
+                  if (edited.kind === "files" && node.kind === "files" && (edited.host !== node.host || edited.root !== node.root))
+                    yield* records.requireFilesPlace({ host: edited.host, root: edited.root }, { source, canvas: command.canvas });
                   yield* saveNode(edited, Object.keys(step.change).every((key) => key === "kind" || key === "label"));
                   break;
                 }
