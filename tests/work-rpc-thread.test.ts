@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ThreadList, ThreadRpcs, ThreadShow } from "../src/contract/work/thread";
-import { WorkSocketLive, callWorkRpc } from "../src/cli/core/socket";
+import { callWorkRpc } from "./support/work-rpc";
 import { OperatorThreadSend } from "../src/shared/mail-threads";
 import { WORK_TOKEN_ENV, encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
@@ -146,9 +146,9 @@ const raw = (op: string, args: unknown): Promise<any> =>
     socket.on("error", reject);
   });
 
-const cli = <A>(call: Effect.Effect<A, unknown, any>): Promise<A> => {
+const cli = <A>(call: Effect.Effect<A, unknown>): Promise<A> => {
   process.env[WORK_TOKEN_ENV] = mine;
-  return Effect.runPromise(call.pipe(Effect.provide(WorkSocketLive)) as Effect.Effect<A, unknown, never>);
+  return Effect.runPromise(call);
 };
 
 describe("thread.list and thread.show across the work socket", () => {

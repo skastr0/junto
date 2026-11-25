@@ -1,9 +1,10 @@
 /**
  * The seat.* and preamble ops as one contract on both sides of the work
- * socket: the CLI calls them through `callWorkRpc` with the contract's types,
- * and the core answers them from the contract's handlers, over the real
- * socket. Each answer the CLI decodes is the answer the core wrote, and the
- * core refuses what the contract does not name, in v1's words.
+ * socket: a seat calls them through `callWorkRpc`
+ * (tests/support/work-rpc.ts) with the contract's types, and the core
+ * answers them from the contract's handlers, over the real socket. Each
+ * answer the seat decodes is the answer the core wrote, and the core refuses
+ * what the contract does not name, in v1's words.
  */
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -14,7 +15,7 @@ import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Preamble, SeatRead, SeatWait } from "../src/contract/work/seat";
 import { SeatReadRequest, SeatWaitRequest } from "../src/shared/seat-control";
-import { WorkSocketLive, callWorkRpc } from "../src/cli/core/socket";
+import { callWorkRpc } from "./support/work-rpc";
 import { PreambleArgs, WORK_TOKEN_ENV, encodeWorkFrame } from "../src/shared/work-control";
 import { PREAMBLE_MAX_TEXT_LENGTH, PREAMBLE_TTL_MS, type PreambleEvent } from "../src/shared/preamble";
 import { liveSeatPreamble } from "../src/core/work/seat-preambles";
@@ -148,9 +149,9 @@ const v1Refusal = <S extends Schema.Top>(schema: S, args: unknown) => {
 };
 
 describe("the preamble contract across the work socket", () => {
-  it("answers as the contract types it, decoded by the CLI, and the canvas is told", async () => {
+  it("answers as the contract types it, decoded by the seat, and the canvas is told", async () => {
     const before = Date.now();
-    const shown = await cli(mine, callWorkRpc(Preamble, { text: "  reading   the  seat ops " }).pipe(Effect.provide(WorkSocketLive)));
+    const shown = await cli(mine, callWorkRpc(Preamble, { text: "  reading   the  seat ops " }));
     expect(shown).toMatchObject({ canvasName: CANVAS, nodeId: ME, text: "reading the seat ops", disposition: "applied" });
     expect(Object.keys(shown)).toEqual(["preambleId", "canvasName", "nodeId", "text", "expiresAt", "disposition"]);
     expect(shown.expiresAt).toBeGreaterThanOrEqual(before + PREAMBLE_TTL_MS);
@@ -187,21 +188,21 @@ describe("the preamble contract across the work socket", () => {
 });
 
 describe("the seat contract across the work socket", () => {
-  it("answers seat read on every peer as the contract types it, decoded by the CLI", async () => {
-    const brief = await cli(mine, callWorkRpc(SeatRead, { brief: true }).pipe(Effect.provide(WorkSocketLive)));
+  it("answers seat read on every peer as the contract types it, decoded by the seat", async () => {
+    const brief = await cli(mine, callWorkRpc(SeatRead, { brief: true }));
     expect(brief).toEqual((await raw(mine, "seat.read", { brief: true })).data);
     expect("peers" in brief && brief.peers.map((peer) => peer.target)).toEqual([PEER]);
   });
 
   it("answers seat read and seat wait on one seat as the core wrote them", async () => {
-    // A seat with no terminal: whatever the core answers, the CLI reads the same.
+    // A seat with no terminal: whatever the core answers, the seat reads the same.
     for (const [op, rpc, args] of [
       ["seat.read", SeatRead, { target: PEER, lines: 5 }],
       ["seat.wait", SeatWait, { target: PEER, until: "working", timeoutMs: 50 }],
     ] as const) {
       const answered = await raw(mine, op, args);
       if (answered.ok) {
-        const decoded = await cli(mine, callWorkRpc(rpc as typeof SeatRead, args as never).pipe(Effect.provide(WorkSocketLive)));
+        const decoded = await cli(mine, callWorkRpc(rpc as typeof SeatRead, args as never));
         expect(decoded).toEqual(answered.data);
       } else {
         expect(answered.error.type).not.toBe("InputError");

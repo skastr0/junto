@@ -1,7 +1,7 @@
 /**
- * `callWorkRpc` sends arguments its contract refuses to the core as given,
- * so the seat reads the core's refusal in v1's words, as it does when the
- * native CLI sends the same arguments, never a refusal of the CLI's own.
+ * A seat that sends arguments the contract refuses (`callWorkRpc`,
+ * tests/support/work-rpc.ts, sends them as given) reads the core's refusal
+ * in v1's words, as it does when the native CLI sends the same arguments.
  */
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MsgList } from "../src/contract/work/msg";
-import { WorkSocketLive, callWorkRpc } from "../src/cli/core/socket";
+import { callWorkRpc } from "./support/work-rpc";
 import { MSG_LIST_ARGS_SHAPE, WORK_TOKEN_ENV } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
@@ -90,12 +90,12 @@ afterEach(async () => {
 
 describe("callWorkRpc", () => {
   it("sends arguments the contract refuses as given, and answers the core's refusal", async () => {
-    // A limit of 0 is outside the contract's 1 to 200, so the CLI cannot encode it.
+    // A limit of 0 is outside the contract's 1 to 200, so it cannot be encoded.
     const refused = await Effect.runPromise(
-      Effect.flip(callWorkRpc(MsgList, { limit: 0 }).pipe(Effect.provide(WorkSocketLive))),
+      Effect.flip(callWorkRpc(MsgList, { limit: 0 })),
     );
     expect(refused).toMatchObject({
-      _tag: "WireError",
+      _tag: "WorkRefusal",
       type: "InputError",
       message: MSG_LIST_ARGS_SHAPE,
       details: { path: "args", retryable: false },

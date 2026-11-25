@@ -1,9 +1,10 @@
 /**
- * The discovery ops as one contract on both sides of the work socket: the
- * CLI calls them through `callWorkRpc` with the contract's types, and the
- * core answers them from the contract's handlers, over the real socket. Each
- * answer the CLI decodes is the answer the core wrote, and the core refuses
- * what the contract does not name, in v1's words.
+ * The discovery ops as one contract on both sides of the work socket: a seat
+ * calls them through `callWorkRpc` (tests/support/work-rpc.ts) with the
+ * contract's types, and the core answers them from the contract's handlers,
+ * over the real socket. Each answer the seat decodes is the answer the core
+ * wrote, and the core refuses what the contract does not name, in v1's
+ * words.
  */
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -13,7 +14,7 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Capabilities, EnvReport, LogsRead, OpList, OpShow, Onboard, SignalClear, SignalList, SignalRaise, Since } from "../src/contract/work/discovery";
-import { WorkSocketLive, callWorkRpc } from "../src/cli/core/socket";
+import { callWorkRpc } from "./support/work-rpc";
 import { WORK_TOKEN_ENV, encodeWorkFrame } from "../src/shared/work-control";
 import { publishSeatCredential } from "./helpers/seat-credential";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
@@ -128,17 +129,17 @@ const cli = <A>(token: string, call: Effect.Effect<A, unknown, never>): Promise<
 
 describe("the discovery contract across the work socket", () => {
   it("raises, lists and clears this seat's signals as the contract types them", async () => {
-    const raised = await cli(mine, callWorkRpc(SignalRaise, { kind: "feedback", text: "the report is ready" }).pipe(Effect.provide(WorkSocketLive)));
+    const raised = await cli(mine, callWorkRpc(SignalRaise, { kind: "feedback", text: "the report is ready" }));
     expect(raised.signal).toMatchObject({ kind: "feedback", text: "the report is ready", nodeId: ME, state: "open" });
     expect(raised.next_step).toContain("junto signal clear");
 
-    const listed = await cli(mine, callWorkRpc(SignalList, {}).pipe(Effect.provide(WorkSocketLive)));
+    const listed = await cli(mine, callWorkRpc(SignalList, {}));
     // The CLI's decode keeps the answer as the core wrote it.
     expect(listed).toEqual((await raw(mine, "signal.list", {})).data);
     expect(listed.open).toBe(1);
     expect(listed.signals.map((signal) => signal.signalId)).toEqual([raised.signal.signalId]);
 
-    const cleared = await cli(mine, callWorkRpc(SignalClear, { signalId: raised.signal.signalId }).pipe(Effect.provide(WorkSocketLive)));
+    const cleared = await cli(mine, callWorkRpc(SignalClear, { signalId: raised.signal.signalId }));
     expect(cleared.signals.map((signal) => [signal.signalId, signal.state])).toEqual([[raised.signal.signalId, "withdrawn"]]);
   });
 
@@ -148,47 +149,47 @@ describe("the discovery contract across the work socket", () => {
   });
 
   it("answers op list and op show as the contract types them", async () => {
-    const listed = await cli(mine, callWorkRpc(OpList, {}).pipe(Effect.provide(WorkSocketLive)));
+    const listed = await cli(mine, callWorkRpc(OpList, {}));
     expect(listed).toEqual((await raw(mine, "op.list", {})).data);
     expect(listed.ops).toEqual([]);
 
     const unknown = await raw(mine, "op.show", { opId: "01JB2C3D4E5F6G7H8J9K0M1N2Q" });
     expect(unknown.ok).toBe(false);
     expect(unknown.error.type).toBe("UnknownTarget");
-    await expect(cli(mine, callWorkRpc(OpShow, { opId: "01JB2C3D4E5F6G7H8J9K0M1N2Q" as never }).pipe(Effect.provide(WorkSocketLive)))).rejects.toThrow();
+    await expect(cli(mine, callWorkRpc(OpShow, { opId: "01JB2C3D4E5F6G7H8J9K0M1N2Q" as never }))).rejects.toThrow();
   });
 
   it("reads this machine's log and this seat's environment through the contract", async () => {
-    const log = await cli(mine, callWorkRpc(LogsRead, {}).pipe(Effect.provide(WorkSocketLive)));
+    const log = await cli(mine, callWorkRpc(LogsRead, {}));
     expect(log).toEqual((await raw(mine, "logs.read", {})).data);
     expect(log.rows).toEqual([]);
 
     const env = await raw(mine, "env.report", {});
     if (env.ok) {
-      expect(await cli(mine, callWorkRpc(EnvReport, {}).pipe(Effect.provide(WorkSocketLive)))).toEqual(env.data);
+      expect(await cli(mine, callWorkRpc(EnvReport, {}))).toEqual(env.data);
     } else {
       expect(env.error).toEqual({ type: "RuntimeDown", message: "this seat's region environment could not be read", details: { retryable: true } });
     }
   });
 
   it("answers since as the contract types it, capped or whole", async () => {
-    const since = await cli(mine, callWorkRpc(Since, {}).pipe(Effect.provide(WorkSocketLive)));
+    const since = await cli(mine, callWorkRpc(Since, {}));
     // Each read is as of its own moment; the rest is the answer the core wrote.
     const { as_of: _asOf, ...written } = (await raw(mine, "since", {})).data;
     expect({ ...since, as_of: undefined }).toEqual({ ...written, as_of: undefined });
     expect(since.unread).toBe(0);
-    const all = await cli(mine, callWorkRpc(Since, { all: true }).pipe(Effect.provide(WorkSocketLive)));
+    const all = await cli(mine, callWorkRpc(Since, { all: true }));
     expect(all.unread).toBe(0);
   });
 
   it("answers capabilities and onboard as the contract types them", async () => {
-    const capabilities = await cli(mine, callWorkRpc(Capabilities, {}).pipe(Effect.provide(WorkSocketLive)));
+    const capabilities = await cli(mine, callWorkRpc(Capabilities, {}));
     expect(capabilities).toEqual((await raw(mine, "capabilities", {})).data);
     expect(capabilities.node.id).toBe(ME);
     expect(capabilities.connected.map((peer) => peer.id)).toEqual([PEER]);
     expect(capabilities.connected[0]?.grants).toContain("msg.send");
 
-    const onboard = await cli(mine, callWorkRpc(Onboard, {}).pipe(Effect.provide(WorkSocketLive)));
+    const onboard = await cli(mine, callWorkRpc(Onboard, {}));
     const { since: _since, ...written } = (await raw(mine, "onboard", {})).data;
     const { since, ...decoded } = onboard;
     expect(decoded).toEqual(written);

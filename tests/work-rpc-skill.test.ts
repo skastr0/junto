@@ -1,10 +1,11 @@
 /**
  * The artifact, automation, references and content.stage ops as one contract
- * on both sides of the work socket: the CLI calls them through `callWorkRpc`
- * with the contract's types, and the core answers them from the contract's
- * handlers, over the real socket. Each answer the CLI decodes is the answer
- * the core wrote, and the core refuses what the contract does not name, in
- * the words each op refused it in before.
+ * on both sides of the work socket: a seat calls them through `callWorkRpc`
+ * (tests/support/work-rpc.ts) with the contract's types, and the core
+ * answers them from the contract's handlers, over the real socket. Each
+ * answer the seat decodes is the answer the core wrote, and the core refuses
+ * what the contract does not name, in the words each op refused it in
+ * before.
  */
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -32,7 +33,7 @@ import {
   ReferencesRead,
   SkillRpcs,
 } from "../src/contract/work/skill";
-import { WorkSocketLive, callWorkRpc } from "../src/cli/core/socket";
+import { callWorkRpc } from "./support/work-rpc";
 import { ArtifactListArgs } from "../src/shared/artifact-control";
 import { ARTIFACTS_ENABLED } from "../src/shared/features";
 import { mintItemId, mintOpId } from "../src/shared/resource-command";
@@ -169,8 +170,8 @@ describe("the skill contract across the work socket", () => {
     ]);
   });
 
-  it.runIf(ARTIFACTS_ENABLED)("answers each artifact verb as the contract types it, decoded by the CLI", async () => {
-    const call = <A>(effect: Effect.Effect<A, unknown, any>) => cli(effect.pipe(Effect.provide(WorkSocketLive)) as Effect.Effect<A, unknown, never>);
+  it.runIf(ARTIFACTS_ENABLED)("answers each artifact verb as the contract types it, decoded by the seat", async () => {
+    const call = <A>(effect: Effect.Effect<A, unknown>) => cli(effect);
     const artifactId = mintItemId();
     const created = await call(callWorkRpc(ArtifactCreate, {
       opId: mintOpId(), artifactId, type: "document", title: "Plan", body: { markdown: "# plan" }, labels: ["draft"],
@@ -204,7 +205,7 @@ describe("the skill contract across the work socket", () => {
   });
 
   it("answers the automation reads as the contract types them", async () => {
-    const call = <A>(effect: Effect.Effect<A, unknown, any>) => cli(effect.pipe(Effect.provide(WorkSocketLive)) as Effect.Effect<A, unknown, never>);
+    const call = <A>(effect: Effect.Effect<A, unknown>) => cli(effect);
     const listed = await call(callWorkRpc(AutomationList, {}));
     expect(listed).toEqual((await raw("automation.list", {})).data);
     expect(listed).toEqual({ automations: [] });
@@ -217,7 +218,7 @@ describe("the skill contract across the work socket", () => {
   });
 
   it("answers the references reads as the contract types them", async () => {
-    const call = <A>(effect: Effect.Effect<A, unknown, any>) => cli(effect.pipe(Effect.provide(WorkSocketLive)) as Effect.Effect<A, unknown, never>);
+    const call = <A>(effect: Effect.Effect<A, unknown>) => cli(effect);
     const listed = await call(callWorkRpc(ReferencesList, {}));
     expect(listed).toEqual((await raw("references.list", {})).data);
     expect(listed.references.map((entry) => [entry.name, entry.scope, entry.description])).toEqual([["style", "app", "how we write"]]);
@@ -228,7 +229,7 @@ describe("the skill contract across the work socket", () => {
   });
 
   it("stages a file in one piece and answers its ref", async () => {
-    const call = <A>(effect: Effect.Effect<A, unknown, any>) => cli(effect.pipe(Effect.provide(WorkSocketLive)) as Effect.Effect<A, unknown, never>);
+    const call = <A>(effect: Effect.Effect<A, unknown>) => cli(effect);
     const staged = await call(callWorkRpc(ContentStage, { bytesBase64: Buffer.from("hi").toString("base64"), done: { mediaType: "text/plain" } } as never));
     expect(staged).toMatchObject({ ref: { byteLength: 2, mediaType: "text/plain" } });
   });

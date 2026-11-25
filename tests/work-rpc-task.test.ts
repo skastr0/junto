@@ -1,9 +1,10 @@
 /**
  * The task.* and rulings ops as one contract on both sides of the work
- * socket: the CLI calls them through `callWorkRpc` with the contract's types,
- * and the core answers them from the contract's handlers, over the real
- * socket. Each answer the CLI decodes is the answer the core wrote, and the
- * core refuses what the contract does not name, in the words it used before.
+ * socket: a seat calls them through `callWorkRpc`
+ * (tests/support/work-rpc.ts) with the contract's types, and the core
+ * answers them from the contract's handlers, over the real socket. Each
+ * answer the seat decodes is the answer the core wrote, and the core refuses
+ * what the contract does not name, in the words it used before.
  */
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -37,7 +38,7 @@ import {
   TaskUndepend,
   TaskWait,
 } from "../src/contract/work/task";
-import { WorkSocket, WorkSocketLive, callWorkRpc } from "../src/cli/core/socket";
+import { callWorkRpc } from "./support/work-rpc";
 import { TASKS_ENABLED } from "../src/shared/features";
 import { mintItemId, mintOpId } from "../src/shared/resource-command";
 import { TaskShowArgs } from "../src/shared/task-control";
@@ -158,13 +159,13 @@ const raw = (as: string, op: string, args: unknown): Promise<any> =>
   });
 
 /** The CLI's typed call, as the seat whose credential is in its environment. */
-const cli = <A, E>(as: string, call: Effect.Effect<A, E, WorkSocket>): Promise<A> => {
+const cli = <A, E>(as: string, call: Effect.Effect<A, E>): Promise<A> => {
   process.env[WORK_TOKEN_ENV] = tokens[as]!;
-  return Effect.runPromise(call.pipe(Effect.provide(WorkSocketLive)));
+  return Effect.runPromise(call);
 };
 
 describe("the task contract across the work socket", () => {
-  it.skipIf(!TASKS_ENABLED)("answers every op as the contract types it, decoded by the CLI as the core wrote it", async () => {
+  it.skipIf(!TASKS_ENABLED)("answers every op as the contract types it, decoded by the seat as the core wrote it", async () => {
     const taskId = mintItemId();
     const created = await cli(ME, callWorkRpc(TaskCreate, { opId: mintOpId(), taskId, node: BOARD, title: "ship the task contract" }));
     expect(created).toMatchObject({ disposition: "applied", taskId, number: 1, state: "backlog" });

@@ -1,10 +1,10 @@
 /**
- * The overseer ops as one contract on both sides of the work socket: the CLI
- * calls them through `callWorkRpc` with the contract's types, and the core
- * answers them from the contract's handlers, over the real socket. Admission
- * stays the work server's (an overseer seat, the native Overseer seat), the
- * refusals keep v1's words, and an answer the contract does not describe is
- * never written.
+ * The overseer ops as one contract on both sides of the work socket: a seat
+ * calls them through `callWorkRpc` (tests/support/work-rpc.ts) with the
+ * contract's types, and the core answers them from the contract's handlers,
+ * over the real socket. Admission stays the work server's (an overseer seat,
+ * the native Overseer seat), the refusals keep v1's words, and an answer the
+ * contract does not describe is never written.
  */
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Result } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Overseer, OverseerLive } from "../src/contract/work/overseer";
-import { WorkSocketLive, callWorkRpc } from "../src/cli/core/socket";
+import { callWorkRpc } from "./support/work-rpc";
 import { WORK_TOKEN_ENV, encodeWorkFrame } from "../src/shared/work-control";
 import { LIVE_OVERSEER_ENABLED } from "../src/shared/features";
 import { decodeOverseerArgs, decodeOverseerRequest, type OverseerResult } from "../src/shared/overseer-control";
@@ -150,8 +150,8 @@ const cli = <A, E>(token: string, call: Effect.Effect<A, E, never>): Promise<Res
 };
 
 describe("the overseer contract across the work socket", () => {
-  it("answers an overseer seat's command as the contract types it, decoded by the CLI", async () => {
-    const answered = await cli(tokens[OVERSEER]!, callWorkRpc(Overseer, { operation: "status" }).pipe(Effect.provide(WorkSocketLive)));
+  it("answers an overseer seat's command as the contract types it, decoded by the seat", async () => {
+    const answered = await cli(tokens[OVERSEER]!, callWorkRpc(Overseer, { operation: "status" }));
     expect(answered).toEqual(Result.succeed(status));
     // The CLI's decode keeps the answer as the core wrote it.
     expect((await raw(tokens[OVERSEER]!, "overseer", { operation: "status" })).data).toEqual(status);
@@ -189,9 +189,9 @@ describe("the overseer contract across the work socket", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("answers a command's own failure as its answer, and the CLI reads it as the command's", async () => {
+  it("answers a command's own failure as its answer, and the seat reads it as the command's", async () => {
     execute.mockImplementation(async (request) => ({ ok: false, operation: request.operation, error: { type: "NotFound", message: "no such node" } }));
-    const answered = await cli(tokens[OVERSEER]!, callWorkRpc(Overseer, { operation: "node.get", args: { nodeId: "gone" } }).pipe(Effect.provide(WorkSocketLive)));
+    const answered = await cli(tokens[OVERSEER]!, callWorkRpc(Overseer, { operation: "node.get", args: { nodeId: "gone" } }));
     expect(answered).toEqual(Result.succeed({ ok: false, operation: "node.get", error: { type: "NotFound", message: "no such node" } }));
   });
 
@@ -229,7 +229,7 @@ describe("the overseer contract across the work socket", () => {
   it.runIf(LIVE_OVERSEER_ENABLED)("answers the native seat's Live protocol through the contract, and refuses any other seat before it reads the request", async () => {
     const bridge = vi.fn<NonNullable<WorkControlServerOptions["onOverseerLive"]>>(async () => ({ type: "idle" }));
     await serveWith({ onOverseer: execute, onOverseerLive: bridge });
-    const answered = await cli(tokens[NATIVE]!, callWorkRpc(OverseerLive, { type: "next" }).pipe(Effect.provide(WorkSocketLive)));
+    const answered = await cli(tokens[NATIVE]!, callWorkRpc(OverseerLive, { type: "next" }));
     expect(answered).toEqual(Result.succeed({ type: "idle" }));
     expect(bridge.mock.calls[0]?.[0]).toEqual({ type: "next" });
     expect(bridge.mock.calls[0]?.[1]).toMatchObject({ canvasName: CANVAS, nodeId: NATIVE, bindingId: `binding-${NATIVE}` });
