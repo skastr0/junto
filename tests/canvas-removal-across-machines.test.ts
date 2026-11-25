@@ -327,6 +327,24 @@ describe("a canvas removed on its editor reaches every machine that held a copy 
     expect(now).not.toBe(old.canvasId);
   });
 
+  it("takes a canvas of the removed one's name from another editor: the removal is that editor's own", async () => {
+    teardowns();
+    const { macbook, mini } = await stage(true);
+    const [{ canvas_id: removedId }] = await rows(macbook, "SELECT canvas_id FROM canvases WHERE canvas_name = 'factory'") as Array<{ canvas_id: string }>;
+    await remove(macbook);
+    const studio = await boot("studio", STUDIO, ["mini", MINI]);
+    await studio.runtime.runPromise(seedCanvas("factory", [files("folder", { x: 400, y: 0, host: "mini" as never, root: ROOT })]));
+    // Its id sorts older than the removed one's: only the macbook's own ids are judged against that removal.
+    const older = `0${removedId.slice(1, 25)}0`;
+    await rows(studio, `UPDATE canvases SET canvas_id = '${older}' WHERE canvas_name = 'factory'`);
+    await link(studio, mini);
+    await studio.runtime.runPromise(studio.exchange.committed("factory"));
+    await settle();
+    expect(await canvasesOn(mini)).toEqual(["factory"]);
+    expect(await rows(mini, "SELECT editor_installation_id AS editor FROM canvases WHERE canvas_name = 'factory'")).toEqual([{ editor: STUDIO }]);
+    expect(await rows(mini, "SELECT editor FROM canvas_removed")).toEqual([{ editor: MACBOOK }]);
+  });
+
   it("finishes the hold an earlier build left after an overseer removed the canvas", async () => {
     const torn = teardowns();
     const { macbook, mini } = await stage(true);
