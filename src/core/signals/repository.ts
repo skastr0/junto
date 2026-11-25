@@ -1,6 +1,5 @@
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/sql";
-import { ulid } from "ulid";
 import { asNodeId } from "@shared/physics/schema";
 import { ItemId } from "@shared/work-ids";
 import {
@@ -22,6 +21,7 @@ import { SignalReplySecret, type SignalReplyArtifact } from "@shared/agent-signa
 import { StateTransactionOperation } from "../state/service";
 import { afterSqlCommit } from "../state/sql-commit";
 import { emitAgentSignalChanged } from "./changes";
+import { newSignalId } from "./signal-id";
 
 export class AgentSignalPersistenceError extends Schema.TaggedError<AgentSignalPersistenceError>()(
   "AgentSignalPersistenceError",
@@ -628,7 +628,7 @@ export const AgentSignalRepositoryLive: Layer.Layer<
     });
 
     const raise = Effect.fn("agent-signals.raise")(function* (input: RaiseAgentSignal) {
-      const signalId = input.signalId ?? ulid();
+      const signalId = input.signalId ?? newSignalId();
       const dependsOn = dependsOnOf(signalId, input.dependsOn);
       if (dependsOn.length > 0) {
         const own = new Set((yield* ownSignalRows([input.canvasName, input.nodeId, dependsOn])).map((row) => row.signal_id));

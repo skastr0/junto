@@ -30,6 +30,7 @@ import { claimSignalAttachments, signalAttachmentOwner } from "../signals/attach
 import { resolveSignalForm, signalKindTakesForm } from "../signals/form-rule";
 import { AgentSignalRepository, type AgentSignalRepositoryError, type RaiseAgentSignal } from "../signals/repository";
 import { signalResourcesFor } from "../signals/resource-refs";
+import { newSignalId } from "../signals/signal-id";
 import { StateTransactionOperation } from "../state/service";
 import { fromWorkResult } from "./answers";
 import { mailSenderStamp } from "./mail";
@@ -240,7 +241,7 @@ export const raiseSignals = (asked: ReadonlyArray<Asked>, batch: boolean) =>
     const sentBy = actor;
     if (asked.some((one) => one.args.thread !== undefined) && Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
     const threads = new Map<string, InThread>();
-    const ids = asked.map(() => ulid());
+    const ids = asked.map(() => newSignalId());
     const judged: Array<Judged> = [];
     for (const [index, one] of asked.entries()) {
       const words = yield* judgeWords(board, caller, one);
