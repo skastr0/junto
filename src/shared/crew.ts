@@ -101,6 +101,12 @@ export const MailExtension = Schema.Struct({
   senderRegions: Schema.optionalKey(MailSenderRegions),
   senderGeneration: Schema.String,
   senderHarness: Schema.String,
+  /**
+   * This mail never starts its seat: it is typed if the seat is up, or when
+   * something else starts it. Stamped by the sender at the append, so the hold
+   * survives a restart and reaches the seat's own machine. Absent: mail wakes.
+   */
+  noWake: Schema.optionalKey(Schema.Literal(true)),
 });
 export type MailExtension = typeof MailExtension.Type;
 
@@ -145,7 +151,11 @@ export const mailExtensionMetadata = (
   ...(ext.senderRegions !== undefined ? { senderRegions: ext.senderRegions } : {}),
   senderGeneration: ext.senderGeneration,
   senderHarness: ext.senderHarness,
+  ...(ext.noWake === true ? { noWake: true } : {}),
 });
+
+/** Whether a mail's row holds it from starting its seat. */
+export const mailHoldsWake = (metadata: unknown): boolean => readMailExtension(metadata)?.noWake === true;
 
 /** What a mail id is, said in a refusal instead of the string that failed. */
 export const MAIL_MESSAGE_ID_SHAPE = "a message id: 26 characters of Crockford base32 (a ULID)";

@@ -657,6 +657,39 @@ describe("mail delivery", () => {
     expect(seat.writes).toHaveLength(1);
   });
 
+  it("never starts a seat for mail whose row says noWake, after a restart too", async () => {
+    const seat = rig({ live: false, wake: () => true });
+    const held = mail("01A", "stop");
+    seat.append({ ...held, metadata: { ...held.metadata, noWake: true } });
+
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    await settle();
+    // A restart empties every in-process hold; the row keeps this one.
+    seat.restart();
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    expect(seat.wakes).toHaveLength(0);
+
+    seat.setLive(true);
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    expect(seat.writes).toHaveLength(1);
+    expect(seat.messages[0]!.metadata?.deliveredAt).toEqual(expect.any(Number));
+  });
+
+  it("starts a seat for its mail that wakes, past a noWake row ahead of it", async () => {
+    const seat = rig({ live: false, wake: () => false });
+    const held = mail("01A", "stop");
+    seat.append({ ...held, metadata: { ...held.metadata, noWake: true } });
+    seat.append(mail("01B", "wake for this"));
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    expect(seat.wakes).toHaveLength(0);
+    expect(await seat.service.deliver(canvas, nodeId, "01B")).toBe("waiting");
+    await settle();
+    expect(seat.wakes).toEqual([{ bindingId, canvas, nodeId }]);
+  });
+
   it("keeps mail queued while paused and starts the seat when play resumes", async () => {
     // A paused canvas refuses the wake; play retries the waiting mail.
     const seat = rig({ live: false, wake: () => false });

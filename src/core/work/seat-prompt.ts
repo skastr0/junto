@@ -73,6 +73,7 @@ export const appendSeatPrompt = async (
         senderName,
         senderGeneration: "operator",
         senderHarness: "unknown",
+        ...(input?.wake === false ? { noWake: true as const } : {}),
       }),
     },
   });

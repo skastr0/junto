@@ -20,7 +20,9 @@
  * scan. Waiting mail starts its seat (`wakeSeat`): arriving work is the
  * reason to run the session, not an operator opening it. The wake keeps the
  * pause law, so a paused canvas or seat keeps its mail queued until play
- * (`onResumed`). A sender may opt one message out of the wake.
+ * (`onResumed`). A sender may opt one message out of the wake: `noWake` on
+ * its row, which holds across a restart and on the seat's own machine, or
+ * `holdWake` in this process.
  *
  * Mail is typed only into an available input box. While the operator is
  * composing there, a dialog is up, or the box cannot be read, typing would
@@ -56,7 +58,7 @@ import { asNodeId, type Canvas, type Node } from "@shared/model";
 import { isThisMachine } from "@shared/machine-identity";
 import { thisMachineName } from "../term/machine-name";
 import type { Message } from "@shared/work-model";
-import { readMailExtension } from "@shared/crew";
+import { mailHoldsWake, readMailExtension } from "@shared/crew";
 import { MAIL_WAITING_AFTER_MS, type MailWaitingFact } from "@shared/mail-waiting";
 import { operatorFilesOf } from "@shared/mail-threads";
 import {
@@ -223,6 +225,8 @@ type PendingMail = {
   readonly messageId: string;
   /** Seat binding seen when the message was indexed; authority re-reads it. */
   readonly bindingId: string;
+  /** The row says this mail never starts its seat (`noWake`). */
+  readonly noWake: boolean;
 };
 
 const mailKey = (canvas: string, nodeId: string, messageId: string): string =>
@@ -421,7 +425,8 @@ export class MessageDeliveryService {
   /**
    * Keep this message from starting its seat: it is written only if the
    * seat is already up, or when something else starts it. Call before the
-   * append, so the append's own delivery sees it.
+   * append, so the append's own delivery sees it. It lasts this process only:
+   * a sender that must hold across a restart stamps `noWake` on the row.
    */
   holdWake(messageId: string): void {
     if (!this.suspended) this.noWake.add(messageId);
@@ -600,7 +605,8 @@ export class MessageDeliveryService {
       this.forgetHeld(key);
       return "delivered";
     }
-    this.waiting.set(key, { canvas, nodeId, messageId, bindingId: target.bindingId });
+    const noWake = mailHoldsWake(message.metadata);
+    this.waiting.set(key, { canvas, nodeId, messageId, bindingId: target.bindingId, noWake });
     let attachmentLines: ReadonlyArray<string> | undefined;
     if (operatorFilesOf(message).length > 0) {
       attachmentLines = await store.attachmentLines?.(canvas, nodeId, message).catch(() => undefined);
@@ -611,7 +617,7 @@ export class MessageDeliveryService {
       }
     }
     if (!transport.seatLive(target.bindingId)) {
-      if (this.noWake.has(messageId)) return waiting("no-wake message, seat is not ready");
+      if (noWake || this.noWake.has(messageId)) return waiting("no-wake message, seat is not ready");
       return waiting(`seat is not ready, ${this.wake(transport, target.bindingId, canvas, nodeId, generation, messageId)}`);
     }
     const sender = senderOn(doc, message, nodeId);
@@ -948,7 +954,7 @@ export class MessageDeliveryService {
     if (this.transport?.seatLive(bindingId) === true) {
       this.walk(bindingId, mail);
     } else {
-      const first = mail.find((pending) => !this.noWake.has(pending.messageId)) ?? mail[0];
+      const first = mail.find((pending) => !pending.noWake && !this.noWake.has(pending.messageId)) ?? mail[0];
       if (first !== undefined) void this.deliver(first.canvas, first.nodeId, first.messageId);
     }
   }
