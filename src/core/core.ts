@@ -20,6 +20,7 @@ import { MachineLink, type MachineLinkListener } from "./link/service";
 import { startOperatorControlServer, type OperatorControlServer } from "../node/operator-control";
 import { evaluateSchemaCompatibility, probeInstalledStateSchema } from "../node/state/schema-version-probe";
 import { acquireHomeLock, HomeLockRefused } from "../node/home-lock";
+import type { RestoreFinishOutcome } from "../node/hosts/restore-finish";
 import { watchSocketPathOwned } from "../node/socket-path-watch";
 import { quiesceServiceChildrenOnQuit } from "./services/process";
 import { terminateAdapterChildrenOnQuit } from "./adapters/exec";
@@ -74,6 +75,12 @@ export type CoreOptions = Omit<MachineCoreOptions, "ready" | "log"> & {
    * The entry stops the core as on SIGTERM. A test core leaves it out.
    */
   readonly onHomeMoved?: (message: string) => void;
+  /**
+   * The installed core's boot step under the home lock, before the schema
+   * probe: finish a restore an install left owed (restore-finish.ts). A core
+   * with no install root, a dev run or the desktop app, has none.
+   */
+  readonly finishRestore?: () => Promise<RestoreFinishOutcome>;
   /** The desktop core also serves canvas edits (`junto canvas`); a headless machine core does not. */
   readonly canvasControl?: boolean;
   /** The desktop core runs the overseer, asking main for the window's pixels and the browser's pages. */
@@ -131,9 +138,13 @@ export class CoreSchemaTooNew extends Schema.TaggedError<CoreSchemaTooNew>()("Co
   message: Schema.String,
 }) {}
 
-/** The home lock was not taken: another core or an install has this home, or its state directory is not this user's alone. No database file was opened. */
+/**
+ * This core did not open its database: another core or an install holds the
+ * home lock, the state directory is not this user's alone, an install is
+ * updating this machine, or a restore it left owed could not finish.
+ */
 export class CoreHomeLocked extends Schema.TaggedError<CoreHomeLocked>()("CoreHomeLocked", {
-  reason: Schema.Literals(["held", "unsafe"]),
+  reason: Schema.Literals(["held", "unsafe", "updating", "restore-refused"]),
   message: Schema.String,
 }) {}
 
@@ -161,6 +172,13 @@ export const startCore = async (options: CoreOptions) => {
     if (cause instanceof HomeLockRefused) throw new CoreHomeLocked({ reason: cause.reason, message: cause.message });
     throw cause;
   });
+  const restore = options.finishRestore === undefined ? "ready" : await options.finishRestore().catch(() => "refused" as const);
+  if (restore !== "ready") {
+    await homeLock.release();
+    throw restore === "updating"
+      ? new CoreHomeLocked({ reason: "updating", message: `This machine is updating: an install holds ${options.home}` })
+      : new CoreHomeLocked({ reason: "restore-refused", message: `A restore an install left owed in ${options.home} could not finish; its words are in this core's log` });
+  }
   const schema = evaluateSchemaCompatibility(probeInstalledStateSchema(join(options.home, ".junto", "state", "junto.db")));
   if (!schema.ok) {
     await homeLock.release();

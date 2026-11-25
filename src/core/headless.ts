@@ -13,6 +13,7 @@ import { armMainThreadBudget } from "../node/observability/main-thread-budget";
 import { openCoreLog } from "./core-log";
 import { machineLogDir } from "../node/observability/log-file";
 import { LinkUnavailable } from "./link/types";
+import { runRestoreFinish } from "../node/hosts/restore-finish";
 
 const home = resolveJuntoHome();
 // A machine core's service always sets JUNTO_HOME, and every session pinned
@@ -52,6 +53,11 @@ const main = async (): Promise<void> => {
   const core = await startCore({
     home,
     onHomeMoved: (message) => stopForHomeMoved?.(message),
+    // An installed core finishes a restore its install left owed, under its
+    // home lock, before it reads the database. Both roots are this core's own.
+    ...(installRoot === undefined ? {} : {
+      finishRestore: () => runRestoreFinish({ junto: join(packageRoot, "bin", "junto"), home, installRoot }),
+    }),
     build: runningBuildIdentity(),
     bundles,
     log,
