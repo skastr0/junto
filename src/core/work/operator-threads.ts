@@ -670,18 +670,19 @@ export const deliverOperatorThreadMail = async (
   sent: Refused | OperatorThreadWritten,
 ): Promise<OperatorThreadSent> => {
   if ("ok" in sent) return sent;
-  // A comment is held at its resource; each seat it tells has its notice in delivery already.
-  const state = sent.comment === true
-    ? ("delivered" as const)
-    : await messageDelivery.deliver(canvasName, nodeId, sent.messageId).catch(() => "failed" as const);
-  // A review's copies go on their own; the send answers for the seat it was written to.
+  // Delivery is physical transport, not authoring: start it and answer for
+  // the committed row. A terminal write, a held composer, or another seat never
+  // holds the operator's RPC; mail-waiting pushes carry what happens after.
+  if (sent.comment !== true) {
+    void messageDelivery.deliver(canvasName, nodeId, sent.messageId).catch(() => "failed" as const);
+  }
   for (const copy of sent.copies ?? []) {
-    await messageDelivery.deliver(canvasName, copy.nodeId, copy.messageId).catch(() => "failed" as const);
+    void messageDelivery.deliver(canvasName, copy.nodeId, copy.messageId).catch(() => "failed" as const);
   }
   return {
     ok: true,
     messageId: sent.messageId,
     threadId: sent.threadId,
-    delivery: state === "delivered" ? "delivered" : state === "failed" ? "failed" : "waiting_for_seat",
+    delivery: sent.comment === true ? "delivered" : "waiting_for_seat",
   };
 };

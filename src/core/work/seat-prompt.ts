@@ -97,8 +97,10 @@ export const appendSeatPrompt = async (
     );
     if (!appended.ok) return failed(appended.message);
     const liveId = appended.data.messageId;
-    const state = await messageDelivery.deliver(canvasName, nodeId, liveId);
-    return { ok: true, disposition: state === "delivered" ? "submitted" : "queued", messageId: liveId };
+    // The prompt is committed before transport starts. A terminal write never
+    // holds the operator's click; its arrival is the mailbox's delivery fact.
+    void messageDelivery.deliver(canvasName, nodeId, liveId).catch(() => "failed" as const);
+    return { ok: true, disposition: "queued", messageId: liveId };
   } catch (error) {
     return {
       ok: false,

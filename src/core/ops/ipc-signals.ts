@@ -45,7 +45,8 @@ const unavailable = (error: unknown): SignalsUnavailable => {
  * Type an answer's mail into its seat here, where delivery is configured
  * (core-runtime.ts). Main has no transport, so its call returned waiting; a
  * delivery that cannot land now is left to the boot scan and the seat-live
- * events, as every other held line is.
+ * events, as every other held line is. It starts detached: a terminal write
+ * never holds the operator's answer.
  */
 const deliverIntoSeat = (answer: {
   readonly ok: boolean;
@@ -55,10 +56,12 @@ const deliverIntoSeat = (answer: {
   if (!answer.ok || answer.signal === undefined || answer.messageId === undefined) return Effect.void;
   const { canvasName, nodeId } = answer.signal;
   const messageId = answer.messageId;
-  return Effect.tryPromise({
-    try: () => messageDelivery.deliver(canvasName, nodeId, messageId),
-    catch: (cause) => new SeatDeliveryLost({ message: cause instanceof Error ? cause.message : String(cause) }),
-  }).pipe(Effect.ignore);
+  return Effect.sync(() => {
+    Effect.runFork(Effect.tryPromise({
+      try: () => messageDelivery.deliver(canvasName, nodeId, messageId),
+      catch: (cause) => new SeatDeliveryLost({ message: cause instanceof Error ? cause.message : String(cause) }),
+    }).pipe(Effect.ignore));
+  });
 };
 
 export const SignalsHandlers = SignalsRpcs.toLayer(
