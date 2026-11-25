@@ -132,6 +132,11 @@ describe("a burst of seat reports", () => {
     stop?.();
     stop = undefined;
     host.remove();
+    // A shared-lane worker keeps these stores between files: leave nothing of
+    // this one behind for the next file to inherit.
+    state$.machines.set([]);
+    state$.machineFacts.set({});
+    state$.settings.machine.name.set("");
     seatNextTurn$.set({});
     seatCacheWindow$.set({});
     resetAgentSeatState();
