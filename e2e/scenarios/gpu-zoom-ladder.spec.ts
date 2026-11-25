@@ -915,7 +915,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
    * cached across cycles.
    */
   const legReferences = new Map<string, { image: PngImage; camera: Camera; tier: string; mask: Uint8Array }>();
-  const legReference = async (camera: Camera): Promise<{ image: PngImage; camera: Camera; tier: string; mask: Uint8Array }> => {
+  const legReference = async (camera: Camera, dpr: number): Promise<{ image: PngImage; camera: Camera; tier: string; mask: Uint8Array }> => {
     const key = `${camera.x.toFixed(2)},${camera.y.toFixed(2)},${camera.zoom.toFixed(5)}`;
     const hit = legReferences.get(key);
     if (hit !== undefined) return hit;
@@ -1127,7 +1127,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
         // and needs no mapping. A reference at a different camera misaligns a
         // seat's 12 px mark by about a pixel, which reads as a fault at every
         // seat on a dense board.
-        const own = await legReference(state.camera);
+        const own = await legReference(state.camera, dpr);
         const { worstGroup, hot, diff } = compareZoomEnd({ image: own.image, mask: own.mask, camera: own.camera }, frame, state.camera, dpr, overlay.mask, moving.mask);
         const name = `c${String(cycle)}-${place.name}-zoomend-${String(from)}-${String(to)}`;
         log(`zoomend ${name}`, { aimed: Math.round(mid * 1000) / 1000, zoom: Math.round(state.camera.zoom * 1000) / 1000, tier: state.tier, referenceTier: own.tier, hot, worstGroup, eased: easedMs, masked: Math.round(moving.share * 1000) / 1000, records: moving.records, largestRecord: moving.largest });
