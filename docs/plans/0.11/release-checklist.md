@@ -584,8 +584,8 @@ only (local main was 24 commits past it; those are not in this release).
   `8cbf4724ec4704a957edc8e360580cb4194b32bf1b18a3a646d3467babe78b0a`) pass.
   The whole suite was not rerun on the branch; `167006e67` is the main-verify
   green, and the bump adds only package.json and CHANGELOG. The zoom ladder
-  gate (`release:zoom-ladder`, needs the mini) was NOT run: no ruling in the
-  GO names it, read as Mac-only and waived.
+  gate (`release:zoom-ladder`, needs the mini) was NOT run: the operator waived
+  it for 0.12.0 (product-lead's mail, 2026-11-25).
 - Database 76 to 79: the migration test files ran on the VM (8 files, 72
   passed, 1 skipped), fixtures replayed on the production DDL. No copy of an
   installed database was used; the installed-copy test stayed skipped. NOT
