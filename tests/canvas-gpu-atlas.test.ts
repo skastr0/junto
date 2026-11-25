@@ -134,6 +134,29 @@ const fakeClock = (): void => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
 };
 
+/**
+ * The next macrotask, by the same MessageChannel mechanism the decode queue
+ * uses. A drain the queue already posted runs first, so this is the test's
+ * sight of the queue having drained, with no fixed wait.
+ */
+const nextMacrotask = async (): Promise<void> => {
+  if (typeof MessageChannel === "function") {
+    await new Promise<void>((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => {
+        channel.port1.close();
+        channel.port2.close();
+        resolve();
+      };
+      channel.port2.postMessage(undefined);
+    });
+    return;
+  }
+  await new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+};
+
 // A test that took the clock gives it back, pass or fail.
 afterEach(() => {
   vi.useRealTimers();
@@ -647,12 +670,16 @@ describe("gpu atlas (#911)", () => {
     const origRevokeObjectURL = URL.revokeObjectURL;
     let createUrlCalls = 0;
     let decodeCalls = 0;
+    const decodes: Array<Promise<void>> = [];
 
     g["document"] = {};
     g["Image"] = class FakeImage {
       src = "";
       async decode(): Promise<void> {
         decodeCalls += 1;
+        const done = Promise.resolve();
+        decodes.push(done);
+        await done;
       }
     };
     URL.createObjectURL = () => {
@@ -673,16 +700,20 @@ describe("gpu atlas (#911)", () => {
       expect(createUrlCalls).toBe(0);
       expect(decodeCalls).toBe(0);
 
-      // Macrotask runs the deferred decode off-frame.
-      await new Promise((r) => setTimeout(r, 10));
-      await settle();
+      // The decode drain's own macrotask runs the decode off-frame; then the
+      // decode's own promise settles it.
+      await nextMacrotask();
       expect(createUrlCalls).toBe(1);
       expect(decodeCalls).toBe(1);
+      await decodes[0];
+      await settle();
 
       // Release to refCount 0 (simulating leaving overview tier) and re-prepare (returning to overview).
       atlas.releaseSource(spriteQuad);
       atlas.prepareSource(spriteQuad);
-      await new Promise((r) => setTimeout(r, 10));
+      // Warm or not, a queued drain would run before this macrotask. Nothing
+      // is queued here, so nothing decodes.
+      await nextMacrotask();
       await settle();
 
       // Warm hit: zero re-decode, and stats report decoded cache bytes/count!
