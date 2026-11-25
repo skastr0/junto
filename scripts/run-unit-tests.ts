@@ -80,6 +80,11 @@ const run = (
       stdio: "inherit",
       env: {
         ...unitTestEnvironment(process.env),
+        // Files share one environment only without isolation: there a file
+        // that leaves a shared prototype patched poisons the next one, so
+        // tests/vitest-setup-global-guard.ts checks it. Isolated forks cannot
+        // reach each other, and a targeted run does not set this.
+        ...(isolate ? {} : { JUNTO_GUARD_SHARED_GLOBALS: "1" }),
         ...(disabledTests.length > 0
           ? { JUNTO_DISABLED_TESTS: JSON.stringify(disabledTests) }
           : {}),

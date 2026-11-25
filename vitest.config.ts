@@ -63,6 +63,9 @@ export default defineConfig({
       resolve(__dirname, "tests/vitest-setup-disabled-tests.ts"),
       // The core and main joined in one process: pushes and host calls.
       resolve(__dirname, "tests/vitest-setup-one-process.ts"),
+      // A file that leaves a shared prototype or a global patched fails, and
+      // the original is put back for the next file (tests/vitest-setup-global-guard.ts).
+      resolve(__dirname, "tests/vitest-setup-global-guard.ts"),
     ],
   },
   resolve: {
