@@ -27,7 +27,7 @@ const testLog = makeTestLog();
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
-const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<boolean>; readonly keyState?: "held" | "none" | "unreadable"; readonly cleared?: boolean; platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer; status?: { readonly runningSeats?: number; readonly installationId?: string }; receiptName?: string; setupRefused?: "name-pinned-elsewhere" | "installation-pinned-elsewhere"; linkAnswer?: "never" | "refused"; farClaimsPinned?: boolean } = {}) => {
+const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<boolean>; readonly keyState?: "held" | "none" | "unreadable"; readonly cleared?: boolean; platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer; status?: { readonly runningSeats?: number; readonly installationId?: string }; receiptName?: string; setupRefused?: "name-pinned-elsewhere" | "installation-pinned-elsewhere"; linkAnswer?: "never" | "refused"; farClaimsPinned?: boolean; recordFails?: boolean } = {}) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "junto-copy-")));
   await mkdir(join(root, "bin")); await mkdir(join(root, "core"));
   for (const name of ["bin/node", "bin/junto", "core/junto.cjs"]) await writeFile(join(root, name), "fixture\n");
@@ -36,6 +36,7 @@ const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<bo
   await writeFile(join(root, "manifest.json"), JSON.stringify({ build: options.bundleBuild ?? build, target: "darwin-arm64", node: "26.10.0", appVersion: "1", files: await machineBundleFiles(root) }));
   const receipt = Schema.decodeUnknownSync(MachineInstallResult)({ build, juntoHome: "/home/probe", installRoot: "/home/probe/install", directory: "/home/probe/install/builds/" + build, serviceLabel: "test-service", provider: "launchd", updated: false, disposition: "ready", installationId: "mini-install", machineName: options.receiptName ?? "mini", pid: 71, transitions: [{ step: "ready", build, pid: 71 }] });
   const calls: string[] = [];
+  const recorded: Array<{ machineName: string; juntoHome?: string; installRoot?: string; installationId: string }> = [];
   const database = new DatabaseSync(":memory:"); database.exec(MACHINE_STATE_SCHEMA_SQL);
   const sql = Layer.effect(SqlClient.SqlClient, makeSqliteClient(database)).pipe(Layer.provide(Reactivity.layer));
   const machines = makeMachineRepositoryLive({ defaultName: () => "macbook" }).pipe(Layer.provideMerge(sql));
@@ -86,6 +87,10 @@ const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<bo
     disconnect: () => Effect.sync(() => { calls.push("disconnect"); }),
     connect: () => Effect.sync(() => { calls.push("connect"); }),
     linkOpenMs: 50,
+    onPinnedElsewhere: (machineName, route, installationId) => Effect.gen(function* () {
+      calls.push("record"); recorded.push({ machineName, juntoHome: route.juntoHome, installRoot: route.installRoot, installationId });
+      if (options.recordFails === true) return yield* Effect.fail(new Error("the store is closed"));
+    }),
     linkAnswers: (host) => Effect.gen(function* () {
       calls.push("answered"); expect(host.id).toBe("mini");
       if (options.linkAnswer === "never") return yield* Effect.never;
@@ -112,7 +117,7 @@ const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<bo
     ...(options.status === undefined ? {} : { juntoHome: receipt.juntoHome, installRoot: receipt.installRoot }) });
   const events: MachineSendEvent[] = [];
   const told = (event: MachineSendEvent) => { events.push(event); };
-  return { root, calls, receipt, repository, runtime, events,
+  return { root, calls, receipt, repository, runtime, events, recorded,
     copy: (mode: "send" | "update", input: { readonly stopRunningSeats?: boolean } = {}) => runtime.runPromise(copy(host, { name: "mini", ...input }, mode, told)),
     error: (mode: "send" | "update", bundle?: string) => runtime.runPromise(copy(host, { name: "mini", ...(bundle === undefined ? {} : { bundle }) }, mode, told).pipe(Effect.flip)) };
 };
@@ -333,7 +338,7 @@ it.each(["name-pinned-elsewhere", "installation-pinned-elsewhere"] as const)("en
     expect(error.installed).toEqual(f.receipt);
   }
   // Once, with no retry, no take-over and no link: the route is kept for the preview there.
-  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "setup", "location"]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "setup", "location", "record"]);
   expect((await f.runtime.runPromise(f.repository.peer("mini")))?.installationId).toBe(f.receipt.installationId);
   expect(f.events.some((event) => event.event === "machine-install" && event.step === "pinned")).toBe(false);
 });
@@ -373,8 +378,10 @@ it.each(["name-pinned-elsewhere", "installation-pinned-elsewhere"] as const)("en
     expect(error.retryable).toBe(false);
     expect(error.takeoverRemote).toEqual({ machineName: "mini" });
   }
-  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup", "location"]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup", "location", "record"]);
   expect(await f.runtime.runPromise(f.repository.peer("mini"))).toBeUndefined();
+  // The installation the install receipt named, with the route kept, for take-over-remote.
+  expect(f.recorded).toEqual([{ machineName: "mini", juntoHome: f.receipt.juntoHome, installRoot: f.receipt.installRoot, installationId: f.receipt.installationId }]);
 });
 
 it("refuses a far install receipt that claims the pinned step: only this machine adds it (receipt 24, remote-security)", async () => {
@@ -384,4 +391,23 @@ it("refuses a far install receipt that claims the pinned step: only this machine
   expect(f.calls).not.toContain("setup");
   expect(f.events.some((event) => event.event === "machine-install" && event.step === "pinned")).toBe(false);
   expect(await f.runtime.runPromise(f.repository.peer("mini"))).toBeUndefined();
+});
+
+it("keeps the S4 refusal as it is when the refused setup cannot be recorded", async () => {
+  const f = await fixture({ setupRefused: "name-pinned-elsewhere", recordFails: true });
+  const error = await f.error("send");
+  expect(error).toBeInstanceOf(MachineSetupError);
+  if (error instanceof MachineSetupError) {
+    expect(error.message).toBe(PINNED_ELSEWHERE_WORDS);
+    expect(error.takeoverRemote).toEqual({ machineName: "mini" });
+  }
+  expect(f.calls.filter((call) => call === "record")).toHaveLength(1);
+});
+
+it("records nothing on a send that ends ready or on a link that does not open", async () => {
+  for (const options of [{}, { linkAnswer: "never" as const }]) {
+    const f = await fixture(options);
+    await f.copy("send").catch(() => undefined);
+    expect(f.calls).not.toContain("record");
+  }
 });

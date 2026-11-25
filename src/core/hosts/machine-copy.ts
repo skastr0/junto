@@ -32,6 +32,13 @@ export interface MachineCopyOptions {
    * admitted this one (receipt 22). Bounded by LINK_OPEN_MS.
    */
   readonly linkAnswers: (host: RemoteHost) => Effect.Effect<unknown, unknown>;
+  /**
+   * Told once, on the S4 refusal only, after the route is kept: the name, that
+   * route, and the installation the install receipt over it named, for
+   * take-over-remote (remote-send owns the record). A failure here is logged
+   * and never changes the refusal.
+   */
+  readonly onPinnedElsewhere?: (machineName: string, route: RemoteHost, installationId: InstallationId) => Effect.Effect<void, unknown>;
   /** How long the send waits for that answer; LINK_OPEN_MS unless a test says. */
   readonly linkOpenMs?: number;
   readonly disconnect: (name: string) => Effect.Effect<void, unknown>;
@@ -220,8 +227,13 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
       // A machine that trusts another install under this name refuses, on a first send (this machine was
       // reinstalled) as on a send to a pin here: the route stays, and the pin if there is one; nothing is
       // taken over and nothing retried, and the operator previews a take-over there (S4, receipt 24).
-      const bindOrRefuse = bindHere.pipe(Effect.catchTag("PinRefused", (cause) =>
-        hosts.upsert({ ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot }).pipe(Effect.andThen(Effect.fail(new PinnedElsewhere({ message: cause.message }))))));
+      const bindOrRefuse = bindHere.pipe(Effect.catchTag("PinRefused", (cause) => Effect.gen(function* () {
+        const route = { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot };
+        yield* hosts.upsert(route);
+        if (options.onPinnedElsewhere !== undefined) yield* options.onPinnedElsewhere(host.id, route, receipt.installationId).pipe(
+          Effect.catch(() => Effect.logWarning("the refused setup could not be recorded").pipe(Effect.annotateLogs({ area: "machines", peer: host.id }))));
+        return yield* Effect.fail(new PinnedElsewhere({ message: cause.message }));
+      })));
       if (pin === undefined) {
         const configuredProgram = yield* configureMachine(target, receipt, host.id);
         const configuredOutput = yield* ownerTransfer(configuredProgram, "machine configure");
