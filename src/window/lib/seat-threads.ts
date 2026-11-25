@@ -20,6 +20,7 @@ import { useEffect, useState } from "react";
 import type { MentionableSeat, OperatorThreadSend, OperatorThreadSent, ThreadGroup } from "@shared/mail-threads";
 import type { ResourceSubject } from "@shared/thread-subject";
 import type { ContentRef } from "@shared/wire/content-ref";
+import type { AgentSignalState } from "@shared/wire/agent-signals";
 import type { MailParty, MailThreadMessage, ThreadHeadSignal, ThreadSignal, ThreadSignalRef } from "@shared/wire/mail-threads";
 import { agentSignals$ } from "./agent-signals-state";
 import { getJuntoApi } from "./junto-api";
@@ -92,6 +93,17 @@ export type SeatThreadMessagesPage = {
   readonly headSignal?: ThreadHeadSignal;
 };
 
+/**
+ * A signal changed where it stands on this canvas. `closed` is every signal
+ * the window knows closed there, as it stands: the store lays it over the
+ * messages it holds, so a page read before the change takes the new state in
+ * place instead of waiting for a read it will not get.
+ */
+export type SignalsChange = {
+  readonly canvasName: string;
+  readonly closed?: ReadonlyArray<{ readonly signalId: string; readonly state: AgentSignalState }>;
+};
+
 /** What reads a seat's threads, a page at a time. */
 export type SeatThreadsSource = {
   /** One list, the threads the operator is in or those between seats: from the newest, or after the cursor its page gave. */
@@ -107,7 +119,7 @@ export type SeatThreadsSource = {
    * withdrawal writes no mail, so no mail change says it: the threads read
    * differently, and no unread count moves.
    */
-  readonly onSignalsChanged?: (listener: (change: { readonly canvasName: string }) => void) => () => void;
+  readonly onSignalsChanged?: (listener: (change: SignalsChange) => void) => () => void;
   /** What the operator has not read in the seat, over every thread of it, never a page of them; undefined when it cannot be read. */
   readonly unreadTotal: (seat: SeatAddress) => Promise<number | undefined>;
   /** The operator read a thread: their shared point moves, on every device. It never rejects. */
@@ -200,8 +212,13 @@ export const juntoSeatThreadsSource = (): SeatThreadsSource | undefined => {
     // any of them changing is that canvas's threads reading differently.
     onSignalsChanged: (listener) =>
       agentSignals$.onChange(({ value }) => {
-        const canvasName = Object.values(value ?? {})[0]?.canvasName;
-        if (canvasName !== undefined) listener({ canvasName });
+        const signals = Object.values(value ?? {});
+        const canvasName = signals[0]?.canvasName;
+        if (canvasName === undefined) return;
+        listener({
+          canvasName,
+          closed: signals.flatMap((signal) => (signal.state === "open" ? [] : [{ signalId: signal.signalId, state: signal.state }])),
+        });
       }),
     unreadTotal: ({ canvasName, seatId }) => unreadTotal({ canvasName, nodeId: seatId }),
     markRead: async ({ canvasName, seatId, threadId }) => {
@@ -407,6 +424,53 @@ const refreshUnread = (key: string): Promise<void> =>
     }
   });
 
+/**
+ * Where the window knows each signal closed, by canvas. A signal never
+ * reopens (main refuses anything on a signal that is not open), so a closed
+ * state is final and is only ever laid over a held state that is still open:
+ * never open over closed, and never one closing over another, which keeps the
+ * crossed answer main reported.
+ */
+const closedOn = new Map<string, Map<string, AgentSignalState>>();
+
+const layClosed = <S extends ThreadSignal>(known: ReadonlyMap<string, AgentSignalState>, signal: S): S => {
+  const now = known.get(signal.signalId);
+  return signal.state === "open" && now !== undefined && now !== "open" ? { ...signal, state: now } : signal;
+};
+
+/** These messages with every open signal in them that is known closed, closed; the same array when none is. */
+const closedOver = (canvasName: string, messages: ReadonlyArray<SeatThreadMessage>): ReadonlyArray<SeatThreadMessage> => {
+  const known = closedOn.get(canvasName);
+  if (known === undefined) return messages;
+  let changed = false;
+  const next = messages.map((message) => {
+    if (message.signal === undefined) return message;
+    const signal = layClosed(known, message.signal);
+    if (signal === message.signal) return message;
+    changed = true;
+    return { ...message, signal };
+  });
+  return changed ? next : messages;
+};
+
+/** Record what the window says is closed on this canvas, and lay it over every thread held from it. */
+const lay = (change: SignalsChange): void => {
+  if (change.closed === undefined || change.closed.length === 0) return;
+  let known = closedOn.get(change.canvasName);
+  if (known === undefined) {
+    known = new Map();
+    closedOn.set(change.canvasName, known);
+  }
+  for (const { signalId, state } of change.closed) known.set(signalId, state);
+  for (const [key, held] of Object.entries(seatThreads$.messages.peek())) {
+    if (held === undefined || !key.startsWith(`${change.canvasName}\u0000`)) continue;
+    const messages = closedOver(change.canvasName, held.messages);
+    const headSignal = held.headSignal === undefined ? undefined : layClosed(known, held.headSignal);
+    if (messages !== held.messages) seatThreads$.messages[key].messages.set(messages);
+    if (headSignal !== held.headSignal && headSignal !== undefined) seatThreads$.messages[key].headSignal.set(headSignal);
+  }
+};
+
 const refreshThread = (key: string): Promise<void> =>
   coalesce(key, async () => {
     const read = activeSource();
@@ -489,7 +553,7 @@ export const loadOlderMessages = async (seat: SeatAddress, threadId: string): Pr
     const older = now.older === before ? page.older : now.older;
     seatThreads$.messages[key].set({
       ...rest,
-      messages: laid(now.messages, page.messages, (m) => m.messageId, byAge),
+      messages: laid(now.messages, closedOver(seat.canvasName, page.messages), (m) => m.messageId, byAge),
       error: "",
       ...(older === undefined ? {} : { older }),
     });
@@ -626,6 +690,8 @@ const listenForChanges = (): void => {
   // A signal changed where it stands: a row's open mark and an open thread's
   // signals read again. No mail moved, so no count is asked for.
   offSignals ??= read.onSignalsChanged?.((change) => {
+    // In place now, so a page held from before the change does not wait for a read.
+    lay(change);
     paceCanvas(change.canvasName, (pace) => {
       for (const key of touched(listed.keys(), change)) pace.lists.add(key);
       for (const key of touched(openThreads.keys(), change)) pace.threads.add(key);
@@ -972,5 +1038,6 @@ export const resetSeatThreads = (): void => {
   for (const pace of paces.values()) if (pace.timer !== undefined) clearTimeout(pace.timer);
   paces.clear();
   flights.clear();
+  closedOn.clear();
   seatThreads$.set({ seats: {}, messages: {}, unread: {} });
 };
