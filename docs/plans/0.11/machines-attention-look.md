@@ -811,3 +811,22 @@ make one with New canvas and place the work from it.`
 - Where it shows: nowhere in the window. No window code reads
   `machine.exchange`, so for now these words reach the operator only on
   that row of `junto machine exchange`.
+
+## 8. A seat whose start a machine refused, never started
+
+(remote-lead, receipt 38.) The seat opened, and its first start was refused
+(`TermRefused`). The far never ran it, so it held no task and has nothing
+to stop.
+
+- Headline `Not started`, never `Agent stopped` (`deadStateCopy` in
+  `terminal-kill-ux.ts` serves only a seat that ran).
+- Detail: the refusal sentence once, with no `Error invoking remote
+  method 'junto:model-start':` and no `TermRefused:` prefix. Show it only
+  when it carries `ownWords`, as section 2b rule 3 does; with no mark, show
+  no third line. No task-board line, since a seat never started held no
+  task.
+- Buttons: `Close view` only. `Reopen` retries the same start, which the
+  same machine refuses again for the same reason, so it is left out. It
+  comes back for a refusal the near marks as retryable.
+- Seat card: state word `not started`, not `not running`, with the same
+  sentence under it when marked.
