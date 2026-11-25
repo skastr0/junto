@@ -305,11 +305,15 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
 
   /** Pending files that could not be read, set aside since the last remove said so. */
   const setAside: Array<string> = [];
+  // A file that could not be moved aside is still in place: nothing is written over it.
+  let pendingBlocked = false;
   const pendingUnlinks = (): ReadonlyArray<PendingUnlink> => {
     const read = readPendingUnlinks(options.home);
     if (read.setAside !== undefined) setAside.push(read.setAside);
+    pendingBlocked = read.blocked === true;
     return read.rows;
   };
+  const writeUnlinks = (rows: ReadonlyArray<PendingUnlink>): void => { if (!pendingBlocked) writePendingUnlinks(options.home, rows); };
 
   /**
    * After a remove: clear the removed machine's trust in this machine's link
@@ -326,7 +330,7 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
       ...(holder === undefined ? {} : { holder }), route: ownerRoute(host), ...(knownHosts === undefined ? {} : { knownHosts }),
     };
     if (yield* unlinkRemoved(row)) { yield* Effect.sync(() => settleUnlinkFiles(options.home, host.id)); return "clear" as const; }
-    yield* Effect.sync(() => writePendingUnlinks(options.home, [...pendingUnlinks().filter((held) => held.machineName !== host.id), row]));
+    yield* Effect.sync(() => writeUnlinks([...pendingUnlinks().filter((held) => held.machineName !== host.id), row]));
     return "kept" as const;
   });
 
@@ -344,7 +348,7 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
       if (yield* unlinkRemoved(row, only?.route === undefined ? undefined : ownerRoute(only.route))) yield* Effect.sync(() => settleUnlinkFiles(options.home, row.machineName));
       else still.push(row);
     }
-    yield* Effect.sync(() => writePendingUnlinks(options.home, still));
+    yield* Effect.sync(() => writeUnlinks(still));
     return still.map((row) => row.machineName);
   });
 
@@ -451,7 +455,7 @@ const pendingUnlinkRow = (row: unknown): row is PendingUnlink => {
  * Junto did not write, is moved aside as `unlinked.json.bad-<ms>`, never
  * overwritten, and its path is answered so a remove can say so.
  */
-const readPendingUnlinks = (home: string): { readonly rows: ReadonlyArray<PendingUnlink>; readonly setAside?: string } => {
+const readPendingUnlinks = (home: string): { readonly rows: ReadonlyArray<PendingUnlink>; readonly setAside?: string; readonly blocked?: true } => {
   const file = unlinkFile(home);
   let text: string;
   try { text = readFileSync(file, "utf8"); } catch (cause) {
@@ -464,9 +468,10 @@ const readPendingUnlinks = (home: string): { readonly rows: ReadonlyArray<Pendin
   } catch { /* set aside below */ }
   return { rows: [], ...setAsideFile(file) };
 };
-const setAsideFile = (file: string): { readonly setAside?: string } => {
+/** Moved aside, or, when the move fails, left where it is and marked so nothing writes over it. */
+const setAsideFile = (file: string): { readonly setAside: string; readonly blocked?: true } => {
   const aside = `${file}.bad-${Date.now()}`;
-  try { renameSync(file, aside); return { setAside: aside }; } catch { return { setAside: file }; }
+  try { renameSync(file, aside); return { setAside: aside }; } catch { return { setAside: file, blocked: true }; }
 };
 const writePendingUnlinks = (home: string, rows: ReadonlyArray<PendingUnlink>): void => {
   const file = unlinkFile(home);

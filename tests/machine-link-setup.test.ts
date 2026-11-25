@@ -427,3 +427,22 @@ it("moves an unreadable list of pending clears aside, never over it, and says wh
   expect(editor.setup.takeSetAside()).toHaveLength(1);
   expect(JSON.parse(await readFile(join(dir, "unlinked.json"), "utf8"))).toEqual([expect.objectContaining({ machineName: "vps" })]);
 });
+
+// Root renames in a directory it may not write: the refusal this needs exists only for an ordinary user.
+it.skipIf(process.getuid?.() === 0)("writes nothing over a list it could not read or move aside, and says where it is", async () => {
+  const { editor, vps } = await fleet();
+  await run(editor, editor.setup.link({ from: "mini", to: "vps" }));
+  const dir = join(editor.home, ".junto/core/link-keys");
+  const file = join(dir, "unlinked.json");
+  await writeFile(file, "not json");
+  await mkdir(join(dir, "unlinked"), { recursive: true, mode: 0o700 });
+  // The directory refuses the move: the file stays, unchanged, and is answered as set aside where it is.
+  await chmod(dir, 0o500);
+  try {
+    editor.hosts.set("vps", { ...editor.hosts.get("vps")!, sshEndpoint: "later-alias" as never });
+    await expect(run(editor, editor.setup.clearRemoved(editor.hosts.get("vps")!, vps.installationId))).resolves.toBe("kept");
+    await expect(run(editor, editor.setup.settleRemoved())).resolves.toEqual([]);
+  } finally { await chmod(dir, 0o700); }
+  expect(await readFile(file, "utf8")).toBe("not json");
+  expect(editor.setup.takeSetAside()).toEqual([file, file]);
+});
