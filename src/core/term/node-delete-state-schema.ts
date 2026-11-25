@@ -19,6 +19,9 @@ export const TERMINAL_DELETE_STATE_SCHEMA_SQL = `
     PRIMARY KEY (binding_id)
   ) STRICT, WITHOUT ROWID;
 
+  -- Nothing reads these rows yet: they are the durable record a next-seen
+  -- finish will use, and machine.remove sweeps them at retire. Any first
+  -- reader keys by installation id or proves it runs after that sweep.
   CREATE TABLE IF NOT EXISTS terminal_delete_owed (
     lease_id TEXT NOT NULL CHECK (length(lease_id) BETWEEN 1 AND 128),
     binding_id TEXT NOT NULL CHECK (length(CAST(binding_id AS BLOB)) BETWEEN 1 AND 512),

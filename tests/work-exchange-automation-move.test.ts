@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/sql";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { AutomationRunnerLive, AutomationRunnerService } from "../src/core/automation/live";
 import { noBoatWakeLayer } from "./support/no-boat";
 import { AutomationRepository, makeAutomationRepositoryLive } from "../src/core/automation/repository";
@@ -49,6 +49,7 @@ import type { ResourceCommand } from "../src/shared/resource-command";
 import { OpId } from "../src/shared/work-ids";
 import { automations, seat, taskBoard } from "./support/model-nodes";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
+import { termPlane } from "../src/core/term/plane";
 import { makeTestLog } from "./support/test-log";
 
 const testLog = makeTestLog();
@@ -394,4 +395,32 @@ it("refuses a system notice to a seat of another machine on a machine that holds
   expect(macbook.exchange.linked(MINI)).toBe(true);
   expect(mini.exchange.linked(MACBOOK)).toBe(true);
   expect(await inbox(macbook)).not.toContain("system-to-lead");
+});
+it("a seat deleted and an automation moved off in one edit tears the seat down and the machine still takes the move", async () => {
+  const teardown = vi.spyOn(termPlane.router, "deleteBinding").mockResolvedValue({ kind: "clean" });
+  const macbook = await boot("macbook", MACBOOK, ["mini", MINI]);
+  const mini = await boot("mini", MINI, ["macbook", MACBOOK]);
+  const lead = seat("lead", { x: 0, y: 0, width: 200, height: 100, host: "macbook" as never, agentKey: "macbook:claude", bindingId: "binding-lead" as never });
+  const peer = seat("peer", { x: 200, y: 0, width: 200, height: 100, host: "mini" as never, agentKey: "mini:claude", bindingId: "binding-peer" as never });
+  await macbook.runtime.runPromise(seedCanvas("factory", [lead, peer, automations("routines", { x: 400, y: 0 })]));
+  expect((await rule(macbook, { kind: "create", automationId: NIGHTLY, enabled: true, machine: "mini" as never, definition }, "01M62ADDDDDDDDDDDDDDDDDDD1")).kind).toBe("applied");
+  await link(macbook, mini);
+  const placed = await countOn(macbook);
+  expect(await countOn(mini)).toBe(placed);
+
+  // One edit: the seat is deleted and the automation moves off the mini.
+  await macbook.runtime.runPromise(
+    Effect.flatMap(ModelService, (model) =>
+      model.command(command({ _tag: "Remove", canvas: "factory", nodes: ["peer"], wires: [] }), "operator")),
+  );
+  expect((await rule(macbook, { kind: "set-machine", machine: "macbook" as never }, "01M62ADDDDDDDDDDDDDDDDDDD2")).kind).toBe("applied");
+  await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+  expect(await settle()).toBeUndefined();
+
+  // The seat is torn down: the departure copy reached the machine.
+  expect(teardown).toHaveBeenCalledWith("binding-peer");
+  // And the automation window stayed row-driven through it: the mini takes
+  // the move, which a copies_sent row at the copy's count would have cut off.
+  const minis = async () => (await mini.runtime.runPromise(Effect.flatMap(AutomationRepository, (repository) => repository.loadState("factory")))).get(NIGHTLY);
+  expect((await minis())?.automation.machine).toBe("macbook");
 });

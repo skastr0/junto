@@ -311,4 +311,87 @@ describe("the copy janitor decides a held delete", () => {
     expect(miniNodes.some((node) => node.kind === "agent" && node.id === "peer2")).toBe(true);
     expect(miniNodes.some((node) => node.id === "peer")).toBe(false);
   });
+
+  it("a have that outruns the departure copy closes nothing; the seat tears down once the copy goes", async () => {
+    memoryStore();
+    const teardown = vi.spyOn(termPlane.router, "deleteBinding").mockResolvedValue({ kind: "clean" });
+    const { macbook, mini } = await pair();
+
+    await removePeer(macbook);
+    await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+
+    // Pump only non-copy frames: the mini's have reaches the macbook first.
+    // That have proves the mini holds rows, never that the copy went — so the
+    // window must stay open and nothing tears down yet.
+    for (let guard = 0; guard < 200; guard += 1) {
+      await quiet();
+      const index = queue.findIndex((queued) => {
+        if (!open.has(`${queued.from.name}>${queued.to.name}`)) return false;
+        const frame = queued.to.channel.decodeEvent(queued.payload) as { kind?: string };
+        return frame.kind !== "copy";
+      });
+      if (index < 0) break;
+      const next = queue.splice(index, 1)[0]!;
+      const frame = next.to.channel.decodeEvent(next.payload);
+      await next.to.runtime.runPromise(next.to.channel.handleEvent(contextOf(next.to, next.from), frame));
+    }
+    await quiet();
+    expect(teardown).not.toHaveBeenCalled();
+    expect([...await departing(macbook)]).toContain(MINI);
+
+    // Now the departure copy goes: the seat is torn down, and the mini leaves
+    // the departing set only after it.
+    await settle();
+    expect(teardown).toHaveBeenCalledWith("binding-peer");
+    expect([...await departing(macbook)]).not.toContain(MINI);
+  });
+
+  it("two seats lost in two edits: haves after the first copy close nothing, and the second tears down before the window closes", async () => {
+    memoryStore();
+    const teardown = vi.spyOn(termPlane.router, "deleteBinding").mockResolvedValue({ kind: "clean" });
+    const macbook = await boot("macbook", MACBOOK, [["mini", MINI]]);
+    const mini = await boot("mini", MINI, [["macbook", MACBOOK]]);
+    const peer2 = seat("peer2", { ...place, x: 300, y: 200, host: "mini" as never, agentKey: "mini:claude", bindingId: "binding-peer2" as never });
+    await macbook.runtime.runPromise(
+      seedCanvas("factory", [region, lead, peer, peer2], [wire("lead-to-peer", "lead", "peer", "messages")]),
+    );
+    await link(macbook, mini);
+    await settle();
+
+    // First edit: peer goes. Its departure copy goes out and the mark is set.
+    await removePeer(macbook);
+    await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+    await settle();
+    expect(teardown).toHaveBeenCalledWith("binding-peer");
+
+    // Second edit: peer2 goes. Hold back every copy frame and deliver only
+    // haves: the first copy's mark must not close the second seat's open row.
+    await macbook.runtime.runPromise(
+      Effect.flatMap(ModelService, (model) =>
+        model.command(command({ _tag: "Remove", canvas: "factory", nodes: ["peer2"], wires: [] }), "operator")),
+    );
+    await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+    for (let guard = 0; guard < 200; guard += 1) {
+      await quiet();
+      const index = queue.findIndex((queued) => {
+        if (!open.has(`${queued.from.name}>${queued.to.name}`)) return false;
+        const frame = queued.to.channel.decodeEvent(queued.payload) as { kind?: string };
+        return frame.kind !== "copy";
+      });
+      if (index < 0) break;
+      const next = queue.splice(index, 1)[0]!;
+      const frame = next.to.channel.decodeEvent(next.payload);
+      await next.to.runtime.runPromise(next.to.channel.handleEvent(contextOf(next.to, next.from), frame));
+    }
+    await quiet();
+    expect(teardown).not.toHaveBeenCalledWith("binding-peer2");
+    expect([...await departing(macbook)]).toContain(MINI);
+
+    // The second copy goes: the second seat tears down, and only then does
+    // the machine leave the departing set.
+    await settle();
+    expect(teardown).toHaveBeenCalledWith("binding-peer2");
+    expect([...await departing(macbook)]).not.toContain(MINI);
+  });
 });
+

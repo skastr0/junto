@@ -195,10 +195,15 @@ export class TerminalNodeDeleteService {
     try {
       const stored = await this.store.hold(row);
       const held = this.heldOf(resource, stored);
-      this.revisions.set(resource.key, (this.revisions.get(resource.key) ?? 0) + 1);
-      this.heldDeletes.set(resource.key, held);
-      this.locks.set(resource.key, "held-delete");
-      return held;
+      // Memory never drifts below the row: a replay whose stored seq lost to
+      // a retry's raise does not lower what this fence enforces.
+      const current = this.heldDeletes.get(resource.key);
+      if (current === undefined || stored.editorCanvasSeq >= current.editorCanvasSeq) {
+        this.revisions.set(resource.key, (this.revisions.get(resource.key) ?? 0) + 1);
+        this.heldDeletes.set(resource.key, held);
+        this.locks.set(resource.key, "held-delete");
+      }
+      return this.heldDeletes.get(resource.key) ?? held;
     } finally {
       this.pendingHolds.delete(resource.key);
     }
@@ -262,7 +267,7 @@ export class TerminalNodeDeleteService {
         held.editorInstallationId !== expected.editorInstallationId ||
         held.editorCanvasSeq !== expected.editorCanvasSeq)
     ) return false;
-    await this.store.releaseHeld({
+    const released = await this.store.releaseHeld({
       bindingId: held.bindingId,
       canvasName: held.canvas,
       seatId: held.seatId,
@@ -270,6 +275,12 @@ export class TerminalNodeDeleteService {
       editorCanvasSeq: held.editorCanvasSeq,
       createdAt: held.createdAt,
     });
+    if (!released) {
+      // No row matched the exact release: either a retry raised the seq (the
+      // fence stays) or the row is already gone (the fence opens, idempotent).
+      const rows = await this.store.loadHeld();
+      if (rows.some((row) => row.bindingId === held.bindingId)) return false;
+    }
     this.heldDeletes.delete(key);
     if (this.locks.get(key) === "held-delete") this.locks.delete(key);
     return true;

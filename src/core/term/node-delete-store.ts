@@ -58,27 +58,31 @@ export const makeSqlTerminalNodeDeleteStore = (): TerminalNodeDeleteStore => ({
   })),
   hold: (row) => coreRunner.runPromise(Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    yield* sql`
-      INSERT INTO terminal_delete_held(
-        binding_id, canvas_name, seat_id, editor_installation_id, editor_canvas_seq, created_at
-      ) VALUES (
-        ${row.bindingId}, ${row.canvasName}, ${row.seatId}, ${row.editorInstallationId}, ${row.editorCanvasSeq}, ${row.createdAt}
-      )
-      ON CONFLICT(binding_id) DO UPDATE SET
-        canvas_name = excluded.canvas_name,
-        seat_id = excluded.seat_id,
-        editor_installation_id = excluded.editor_installation_id,
-        editor_canvas_seq = excluded.editor_canvas_seq,
-        created_at = excluded.created_at
-      WHERE excluded.editor_canvas_seq > terminal_delete_held.editor_canvas_seq
-    `;
-    const rows = yield* sql`
-      SELECT binding_id, canvas_name, seat_id, editor_installation_id, editor_canvas_seq, created_at
-      FROM terminal_delete_held WHERE binding_id = ${row.bindingId}
-    `;
-    const held = (rows as ReadonlyArray<RawRow>)[0];
-    if (held === undefined) throw new Error("terminal delete hold did not persist");
-    return heldOf(held);
+    // Upsert and read-back in one transaction: the row returned is the one
+    // that governs, with no concurrent write able to slip between them.
+    return yield* sql.withTransaction(Effect.gen(function* () {
+      yield* sql`
+        INSERT INTO terminal_delete_held(
+          binding_id, canvas_name, seat_id, editor_installation_id, editor_canvas_seq, created_at
+        ) VALUES (
+          ${row.bindingId}, ${row.canvasName}, ${row.seatId}, ${row.editorInstallationId}, ${row.editorCanvasSeq}, ${row.createdAt}
+        )
+        ON CONFLICT(binding_id) DO UPDATE SET
+          canvas_name = excluded.canvas_name,
+          seat_id = excluded.seat_id,
+          editor_installation_id = excluded.editor_installation_id,
+          editor_canvas_seq = excluded.editor_canvas_seq,
+          created_at = excluded.created_at
+        WHERE excluded.editor_canvas_seq > terminal_delete_held.editor_canvas_seq
+      `;
+      const rows = yield* sql`
+        SELECT binding_id, canvas_name, seat_id, editor_installation_id, editor_canvas_seq, created_at
+        FROM terminal_delete_held WHERE binding_id = ${row.bindingId}
+      `;
+      const held = (rows as ReadonlyArray<RawRow>)[0];
+      if (held === undefined) throw new Error("terminal delete hold did not persist");
+      return heldOf(held);
+    }));
   })),
   releaseHeld: (row) => coreRunner.runPromise(Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;

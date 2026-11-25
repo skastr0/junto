@@ -275,6 +275,15 @@ export const makeLiveRowExchange = (
       Effect.gen(function* () {
         const header = yield* records.getCanvas(canvasName);
         if (header === undefined) return;
+        // A have proves the peer holds the rows, never that the departure
+        // copy was sent or installed. Close no seat window of its until the
+        // copy carrying it went at or past the row's close.
+        const seatRows = yield* repository.seatDepartureRows(canvasName);
+        const openSeat = seatRows.get(peer);
+        if (openSeat !== undefined) {
+          const sentSeq = departureCopiesSent.get(peer)?.get(canvasName);
+          if (openSeat === null || sentSeq === undefined || sentSeq < openSeat) return;
+        }
         const byName = yield* installations;
         const seats = (yield* records.listNodes(canvasName)).flatMap((node) => {
           if (node.kind !== "agent") return [];
@@ -409,6 +418,14 @@ export const makeLiveRowExchange = (
         };
       }).pipe(sql.withTransaction, Effect.provideService(StateTransactionOperation, "exchange.cut-copy"));
 
+    /**
+     * Departure copies this machine has sent, peer then canvas then the copy's
+     * count. In memory on purpose: a restart loses the mark, the window is
+     * still open, and cutCopy sends the copy again — the safe direction.
+     * departed() may not close a seat window until the copy carrying it went.
+     */
+    const departureCopiesSent = new Map<InstallationId, Map<string, number>>();
+
     /** Keep the count sent to that machine, and where every seat and automation was at it. */
     const copySent = (copy: CanvasCopy, departing: boolean): Effect.Effect<void, unknown> =>
       Effect.gen(function* () {
@@ -435,11 +452,11 @@ export const makeLiveRowExchange = (
                 return machine === undefined ? [] : [{ nodeId: peer.id, seatId: peer.seatId, machine }];
               }),
             ];
+        // A departure copy reconciles no automation rows: the automation
+        // window stays row-driven, and rows the machine is still owed keep
+        // crossing until departed() records where everything stands.
         const automations = departing
-          ? (yield* copiedAutomations(copy.canvasName)).flatMap((automation) => {
-              const machine = byName.get(automation.machine);
-              return machine === undefined ? [] : [{ nodeId: automation.nodeId, automationId: automation.automationId, machine }];
-            })
+          ? undefined
           : copy.automations?.flatMap((automation) => {
               const machine = byName.get(automation.machine);
               return machine === undefined ? [] : [{ nodeId: automation.nodeId, automationId: automation.automationId, machine }];
@@ -449,8 +466,14 @@ export const makeLiveRowExchange = (
           target: copy.target,
           seq: copy.seq,
           seats,
+          ...(departing ? { departing: true } : {}),
           ...(automations === undefined ? {} : { automations }),
         });
+        if (departing) {
+          const byCanvas = departureCopiesSent.get(copy.target) ?? new Map<string, number>();
+          byCanvas.set(copy.canvasName, copy.seq);
+          departureCopiesSent.set(copy.target, byCanvas);
+        }
       });
 
     /** One place's references as the copy states them: written where they differ. */
@@ -565,7 +588,10 @@ export const makeLiveRowExchange = (
         yield* signals.withdraw({ canvasName, nodeId: seat.seatId });
         if (held !== undefined) {
           const released = yield* Effect.tryPromise({
-            try: () => termPlane.nodeDelete.releaseHeldDelete(held.key),
+            try: () => termPlane.nodeDelete.releaseHeldDelete(held.key, {
+              canvas: canvasName, seatId: held.seatId,
+              editorInstallationId: held.editorInstallationId, editorCanvasSeq: held.editorCanvasSeq,
+            }),
             catch: () => new Error("hold release failed"),
           });
           yield* Effect.logInfo("terminal delete release").pipe(Effect.annotateLogs({
@@ -592,7 +618,10 @@ export const makeLiveRowExchange = (
           // and only once no in-flight delete lease can still commit behind this copy.
           if (Date.now() - held.createdAt < DELETE_LEASE_TTL_MS) return;
           const released = yield* Effect.tryPromise({
-            try: () => termPlane.nodeDelete.releaseHeldDelete(held.key),
+            try: () => termPlane.nodeDelete.releaseHeldDelete(held.key, {
+              canvas: canvasName, seatId: held.seatId,
+              editorInstallationId: held.editorInstallationId, editorCanvasSeq: held.editorCanvasSeq,
+            }),
             catch: () => new Error("hold release failed"),
           });
           yield* Effect.logInfo("terminal delete release").pipe(Effect.annotateLogs({

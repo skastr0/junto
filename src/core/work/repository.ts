@@ -3163,6 +3163,8 @@ export type CanvasCopySent = {
     readonly machine: InstallationId;
   }>;
   readonly sentAt?: string;
+  /** A header-only departure copy: seat rows reconcile, no copies_sent row, automation rows untouched. */
+  readonly departing?: boolean;
 };
 
 /** A frame for a canvas this machine does not hold: nothing taken, nothing to tell. */
@@ -3698,6 +3700,8 @@ export interface WorkRepositoryShape {
    * departure takes its move through rows and is not.
    */
   readonly seatDepartingFrom: (canvasName: string) => Effect.Effect<ReadonlySet<InstallationId>, WorkRepositoryError>;
+  /** The seat rows keeping a machine in its departure window, by machine: the highest until_seq of its closed rows, or null when one is still open. */
+  readonly seatDepartureRows: (canvasName: string) => Effect.Effect<ReadonlyMap<InstallationId, number | null>, WorkRepositoryError>;
   /** Every writer with rows for a canvas that this machine holds. */
   readonly exchangeWriters: (
     canvasName: string,
@@ -4487,10 +4491,18 @@ export const WorkRepositoryLive = Layer.effect(
       sql
         .withTransaction(
           Effect.gen(function* () {
-            yield* sql.unsafe(
-              "INSERT OR IGNORE INTO canvas_copies_sent(canvas_name, target, seq, sent_at) VALUES (?, ?, ?, ?)",
-              [input.canvasName, input.target, input.seq, timestamp(input.sentAt)],
-            );
+            // A departure copy records no row here: its close of the seat
+            // rows runs through the placement reconciliation below, and the
+            // automation window must stay row-driven until the machine lacks
+            // nothing and departed() records where everything stands. One
+            // copies_sent row at the copy's count would close both windows
+            // against the same MAX(sent.seq), cutting rows mid-flight.
+            if (input.departing !== true) {
+              yield* sql.unsafe(
+                "INSERT OR IGNORE INTO canvas_copies_sent(canvas_name, target, seq, sent_at) VALUES (?, ?, ?, ?)",
+                [input.canvasName, input.target, input.seq, timestamp(input.sentAt)],
+              );
+            }
             const open = yield* sql.unsafe<{
               node_id: string;
               from_seq: number;
@@ -4627,6 +4639,38 @@ export const WorkRepositoryLive = Layer.effect(
       ).pipe(
         Effect.map((rows) => new Set(rows.map((row) => Schema.decodeUnknownSync(InstallationId)(row.machine)))),
         Effect.mapError((error) => toRepositoryError("work.exchange.departing", error)),
+      );
+
+    const seatDepartureRows = (canvasName: string): Effect.Effect<ReadonlyMap<InstallationId, number | null>, WorkRepositoryError> =>
+      withSqlRead(
+        sql,
+        sql.unsafe<{ machine: string; until_seq: number | null }>(
+          `
+            SELECT machine, until_seq
+            FROM canvas_placements
+            WHERE canvas_name = ?
+              AND (
+                until_seq IS NULL
+                OR until_seq > COALESCE(
+                  (SELECT MAX(sent.seq) FROM canvas_copies_sent AS sent WHERE sent.canvas_name = ? AND sent.target = machine),
+                  0
+                )
+              )
+          `,
+          [canvasName, canvasName],
+        ),
+      ).pipe(
+        Effect.map((rows) => {
+          const byMachine = new Map<string, number | null>();
+          for (const row of rows) {
+            // An open row outranks every closed one: the window is unbounded until it closes.
+            if (!byMachine.has(row.machine)) byMachine.set(row.machine, row.until_seq);
+            else if (row.until_seq === null) byMachine.set(row.machine, null);
+            else if (byMachine.get(row.machine) !== null) byMachine.set(row.machine, Math.max(byMachine.get(row.machine)!, row.until_seq));
+          }
+          return new Map([...byMachine].map(([machine, until]) => [Schema.decodeUnknownSync(InstallationId)(machine), until]));
+        }),
+        Effect.mapError((error) => toRepositoryError("work.exchange.seat-departure-rows", error)),
       );
 
     const seatDepartingFrom = (canvasName: string): Effect.Effect<ReadonlySet<InstallationId>, WorkRepositoryError> =>
@@ -5621,6 +5665,7 @@ export const WorkRepositoryLive = Layer.effect(
       recordCanvasCopySent,
       departingFrom,
       seatDepartingFrom,
+      seatDepartureRows,
       exchangeHave,
       exchangeForget,
       exchangeForgetMail,
