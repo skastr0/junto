@@ -75,67 +75,56 @@ export const fail = (message: string): never => answer({ kind: "fail", message }
 /** Refusals the launcher answers on fd 3 before the step runs. */
 export const CODE_LAUNCH_REFUSED_EXIT = 70;
 
-export const CODE_LAUNCHER_SOURCE = `import { plugin } from "bun";
-import Module, { builtinModules } from "node:module";
+/**
+ * The launcher the runtime runs: the machine's Node, which strips the step's
+ * types itself. It is plain JavaScript, so it means the same on every Node
+ * that runs it. Before the step loads, a resolve hook closes every import
+ * form (static, `import()`, `require`) to the SDK and the runtime's
+ * built-ins; a folder's `node_modules`, `package.json` imports or
+ * `tsconfig.json` paths never resolve.
+ */
+export const CODE_LAUNCHER_SOURCE = `import { builtinModules, createRequire, registerHooks } from "node:module";
 import { readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
-const DIR = import.meta.dir;
-const STEP = join(DIR, "step.ts");
+const DIR = import.meta.dirname;
+const STEP_PATH = join(DIR, "step.ts");
+const STEP = pathToFileURL(STEP_PATH).href;
+const SDK_URL = pathToFileURL(join(DIR, "sdk.ts")).href;
 const SDK = "junto/automation";
+const REFUSED = "JUNTO_CODE_IMPORT_REFUSED";
 const BUILTIN = new Set(builtinModules);
-const builtin = (name: string): boolean =>
-  name.startsWith("node:") || name.startsWith("bun:") || name === "bun" || BUILTIN.has(name);
-const refuse = (message: string): never => {
+const builtin = (name) => name.startsWith("node:") || BUILTIN.has(name);
+const refuse = (message) => {
   writeSync(3, \`\${JSON.stringify({ kind: "fail", message })}\\n\`);
   process.exit(${CODE_LAUNCH_REFUSED_EXIT});
 };
-const only = (name: string): string =>
+const only = (name) =>
   \`A code step imports only junto/automation and the runtime's built-ins, not \${name}\`;
 
-const built = await Bun.build({
-  entrypoints: [STEP],
-  target: "bun",
-  format: "esm",
-  throw: false,
-  minify: { whitespace: true, syntax: true },
-  plugins: [{
-    name: "junto-code-imports",
-    setup(build) {
-      build.onResolve({ filter: /.*/ }, (args) => {
-        if (args.path === STEP) return undefined;
-        if (args.path === SDK) return { path: "sdk", namespace: "junto-sdk" };
-        if (builtin(args.path)) return { path: args.path, external: true };
-        throw new Error(only(args.path));
-      });
-      build.onLoad({ filter: /.*/, namespace: "junto-sdk" }, () => ({
-        contents: readFileSync(join(DIR, "sdk.ts"), "utf8"),
-        loader: "ts",
-      }));
-    },
-  }],
-});
-if (!built.success) {
-  refuse(\`The step's code does not build: \${built.logs.map((log) => String(log.message ?? log)).join("; ")}\`);
-}
-const code = await built.outputs[0].text();
-if (/\\bimport\\s*\\(\\s*(?![\\x22\\x27])/.test(code)) {
+if (/\\bimport\\s*\\(\\s*(?![\\x22\\x27])/.test(readFileSync(STEP_PATH, "utf8"))) {
   refuse("A code step imports by name: import() with a computed name is refused");
 }
 
-const resolve = (Module as unknown as { _resolveFilename: (request: string, ...rest: unknown[]) => string })._resolveFilename;
-(Module as unknown as { _resolveFilename: (request: string, ...rest: unknown[]) => string })._resolveFilename =
-  function (this: unknown, request: string, ...rest: unknown[]): string {
-    if (builtin(request)) return resolve.call(this, request, ...rest);
-    throw new Error(only(request));
-  };
-
-plugin({
-  name: "junto-code-step",
-  setup(build) {
-    build.onResolve({ filter: /^step$/, namespace: "junto-code" }, () => ({ path: "step", namespace: "junto-code" }));
-    build.onLoad({ filter: /.*/, namespace: "junto-code" }, () => ({ contents: code, loader: "js" }));
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === SDK) return { url: SDK_URL, format: "module-typescript", shortCircuit: true };
+    if (specifier === STEP || builtin(specifier)) return nextResolve(specifier, context);
+    throw Object.assign(new Error(only(specifier)), { code: REFUSED });
   },
 });
-await import("junto-code:step");
+// A step may require a built-in from its module, as it may import one.
+globalThis.require = createRequire(STEP_PATH);
+
+try {
+  await import(STEP);
+} catch (error) {
+  const code = error?.code;
+  if (code === REFUSED) refuse(error.message);
+  if (code === "ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX" || code === "ERR_INVALID_TYPESCRIPT_SYNTAX") {
+    refuse(\`The step's code does not build: \${error.message}\`);
+  }
+  throw error;
+}
 `;

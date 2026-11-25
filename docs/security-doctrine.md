@@ -613,22 +613,24 @@ Each run:
   its working directory. The directory holds nothing but that copy, so no
   project `.env`, `bunfig.toml`, `package.json` or `tsconfig.json` is there
   to read, whatever the runtime's flags do. It is removed after the run.
-- Runs TypeScript with the core's own runtime by absolute path, never one
-  found on `PATH`. Imports resolve only to the SDK and the runtime's
-  built-ins: no package install, no package resolution from a folder, and no
-  `.env`, `bunfig.toml`, `package.json` or `tsconfig.json` read from any
-  folder, the same as git config (Files node). Flags alone do not hold this
-  on bun 1.4.3: a cwd `.env` and `bunfig.toml` preload load by default, a
-  parent `tsconfig.json` applies its paths, and a runtime plugin's resolver
-  sees only the entry, so a parent or `HOME` `node_modules` resolves through
-  every import form. So the step is bundled in memory with a closed
-  resolver, run as a module with no folder, `require` is limited to
-  built-ins and a computed `import()` is refused
+- Runs TypeScript on the Node this Junto ships, by absolute path, never one
+  found on `PATH`: a windowless core's own Node, the app's
+  `<resources>/bin/node`, or in a source run Electron's binary as Node. A
+  packaged app's RunAsNode fuse stays off, so a packaged app without its
+  own Node runs no TypeScript step and says so. `bin/junto` is the native
+  CLI and runs no code. Node strips the types itself; syntax it cannot strip
+  is refused before the step runs. Imports resolve only to the SDK and the
+  runtime's built-ins: no package install, no package resolution from a
+  folder, and no `.env`, `package.json` or `tsconfig.json` read from any
+  folder, the same as git config (Files node). A resolve hook registered
+  before the step loads refuses every other name through every import form
+  (static, `import()`, `require`), a computed `import()` is refused before
+  the run, and the region's `NODE_OPTIONS` and `NODE_PATH` never reach Node
   (`src/core/automation/code-sdk.ts`;
   `tests/automation-code-runner.test.ts` plants each file in the parent and
   in `HOME`). This keeps folders from changing what a step means. It is not
-  a sandbox against the step's author: `eval` or `new Function` reaches the
-  runtime's own resolver.
+  a sandbox against the step's author: the step can register a resolve hook
+  of its own ahead of the launcher's.
 - Runs shell as `/bin/sh <path>`. The path is in argv; the source bytes, the
   trigger and its values never are.
 - Gives the child an environment of the region's values on that machine

@@ -1,8 +1,8 @@
 /**
  * K2 (plan 0.11/05, Code steps): a code step runs on this machine's runtime,
  * reads its input from stdin, answers on fd 3, and holds the doctrine's run
- * rules (docs/security-doctrine.md, Code steps). The runtime here is the bun
- * that runs the suite, standing in for the machine's `junto` binary as bun.
+ * rules (docs/security-doctrine.md, Code steps). The runtime here is the
+ * Node on this machine's PATH, standing in for the Node Junto ships.
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -13,14 +13,16 @@ import { Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ContentRef } from "@shared/content";
 import {
+  machineNodeRuntime,
   makeCodeRunner,
   type CodeInput,
   type CodeLanguage,
   type CodeResult,
   type CodeRunRequest,
+  type CodeRuntime,
 } from "../src/core/automation/code-runner";
 
-const BUN = execFileSync("/usr/bin/env", ["which", "bun"], { encoding: "utf8" }).trim();
+const NODE = execFileSync("/usr/bin/env", ["which", "node"], { encoding: "utf8" }).trim();
 const CANVAS = "factory";
 
 let root: string;
@@ -43,11 +45,11 @@ const INPUT: CodeInput = {
   values: { "task.title": "Ship the quit handshake" },
 };
 
-const runner = (overrides: { readonly runtime?: () => string | undefined } = {}) => makeCodeRunner({
+const runner = (overrides: { readonly runtime?: () => CodeRuntime | undefined } = {}) => makeCodeRunner({
   machine: "mac-mini",
   runRoot,
   readSource: (ref) => Effect.succeed(sources.get(ref.sha256) ?? { state: "missing" }),
-  runtime: overrides.runtime ?? (() => BUN),
+  runtime: overrides.runtime ?? (() => ({ command: NODE })),
   baseEnv: {
     PATH: process.env.PATH,
     HOME: childHome,
@@ -144,7 +146,7 @@ describe("a TypeScript code step", () => {
   it("times out, and the timeout ends what the code started", async () => {
     const marker = join(root, "grandchild-pid");
     const result = await run(request("typescript", `
-      const child = Bun.spawn(["sleep", "60"]);
+      const child = require("node:child_process").spawn("sleep", ["60"], { stdio: "ignore" });
       require("node:fs").writeFileSync(${JSON.stringify(marker)}, String(child.pid));
       setInterval(() => {}, 1000);
     `, { timeoutMs: 1_500 }));
@@ -158,7 +160,7 @@ describe("a TypeScript code step", () => {
   it("ends what the code left running when it exits", async () => {
     const marker = join(root, "leftover-pid");
     const result = await run(request("typescript", `
-      const child = Bun.spawn(["sleep", "60"]);
+      const child = require("node:child_process").spawn("sleep", ["60"], { stdio: "ignore" });
       require("node:fs").writeFileSync(${JSON.stringify(marker)}, String(child.pid));
       child.unref();
     `));
@@ -264,6 +266,49 @@ describe("a TypeScript code step", () => {
     expect(existsSync(join(runRoot, "node_modules"))).toBe(false);
     expect(existsSync(join(childHome, "node_modules"))).toBe(false);
   }, 60_000);
+
+  it("never takes NODE_OPTIONS or NODE_PATH from the region", async () => {
+    const marker = join(root, "preloaded");
+    const evil = join(root, "evil.cjs");
+    writeFileSync(evil, `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "loaded");`);
+    const result = await run(request("typescript", `
+      import { cont } from "junto/automation";
+      cont({ options: process.env.NODE_OPTIONS ?? "absent", path: process.env.NODE_PATH ?? "absent" });
+    `, { env: { NODE_OPTIONS: `--require ${evil}`, NODE_PATH: root } }));
+    expect(result).toMatchObject({ kind: "continue", output: { options: "absent", path: "absent" } });
+    expect(existsSync(marker)).toBe(false);
+  }, 30_000);
+
+  it("refuses TypeScript that Node cannot strip, naming why", async () => {
+    const result = await run(request("typescript", `enum Mode { On, Off }\nconsole.log(Mode.On);`));
+    expect(result).toMatchObject({ kind: "fail" });
+    expect((result as { message: string }).message).toContain("does not build");
+  }, 30_000);
+});
+
+describe("the machine's Node", () => {
+  it("is a windowless core's own Node, by absolute path", () => {
+    expect(machineNodeRuntime({ node: "26.10.0" } as NodeJS.ProcessVersions, "/opt/junto/bin/node", undefined))
+      .toEqual({ command: "/opt/junto/bin/node" });
+  });
+
+  it("is the Node a packaged app ships, and nothing when it ships none", () => {
+    const resources = join(root, "Resources");
+    mkdirSync(join(resources, "bin"), { recursive: true });
+    writeFileSync(join(resources, "bin", "junto"), "");
+    const electron = { node: "24.22.1", electron: "43.8.4" } as NodeJS.ProcessVersions;
+    expect(machineNodeRuntime(electron, "/Applications/Junto.app/Contents/MacOS/Junto", resources)).toBeUndefined();
+    writeFileSync(join(resources, "bin", "node"), "");
+    expect(machineNodeRuntime(electron, "/Applications/Junto.app/Contents/MacOS/Junto", resources))
+      .toEqual({ command: join(resources, "bin", "node") });
+  });
+
+  it("is Electron as Node in a source run, whose fuse is on", () => {
+    const resources = join(root, "electron-dist-resources");
+    mkdirSync(resources, { recursive: true });
+    expect(machineNodeRuntime({ node: "24.22.1", electron: "43.8.4" } as NodeJS.ProcessVersions, "/repo/node_modules/electron/dist/electron", resources))
+      .toEqual({ command: "/repo/node_modules/electron/dist/electron", env: { ELECTRON_RUN_AS_NODE: "1" } });
+  });
 });
 
 describe("a shell code step", () => {

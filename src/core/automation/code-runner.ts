@@ -5,10 +5,11 @@
  * the seam: the source fetched and verified, the process, the SDK, the
  * timeout, the bounds and the scrub.
  *
- * - **One runtime.** TypeScript runs on this machine's own `junto` binary as
- *   bun (`BUN_BE_BUN=1`): the app ships it at `<resources>/bin/junto`, a
- *   windowless core at `bin/junto`, so there is no Electron and nothing else
- *   to install (docs/machines.md Rules 1 and 10). Shell is `/bin/sh <file>`.
+ * - **One runtime.** TypeScript runs on the Node this Junto ships, by
+ *   absolute path, never one found on PATH (`machineNodeRuntime`): a
+ *   windowless core's own Node, the app's `<resources>/bin/node`, or, in a
+ *   source run, Electron's binary as Node. Node strips the types itself.
+ *   `bin/junto` is the native CLI and runs no code. Shell is `/bin/sh <file>`.
  * - **Admission** (docs/security-doctrine.md, Code steps): the copy run
  *   verifies against the ref's digest. The other checks (an applied ruling,
  *   its author, the automation naming this machine) belong to the automation
@@ -18,10 +19,11 @@
  *   directory as its working directory, and removed after it. Neither is ever
  *   in argv or a shell string.
  * - **Folders change nothing.** TypeScript imports resolve only to the SDK
- *   and the runtime's built-ins (`code-sdk.ts`, the launcher); no `.env`,
- *   `bunfig.toml`, `package.json` or `tsconfig.json` of any folder is read
- *   and nothing is installed: the run directory holds its own empty ones and
- *   bun runs with `--no-install --no-env-file`.
+ *   and the runtime's built-ins (`code-sdk.ts`, the launcher's resolve
+ *   hook); no `.env`, `package.json` or `tsconfig.json` of any folder is read
+ *   and nothing is installed: the run directory holds its own `package.json`,
+ *   Node reads no `.env` or `tsconfig.json` unasked, and `NODE_OPTIONS` never
+ *   reaches it.
  * - **Answer.** One JSON line on fd 3, bounded by `maxOutputBytes`; the first
  *   line wins. With none, exit 0 continues with no output, anything else fails.
  * - **Environment.** A fixed base (PATH, HOME, TMPDIR, LANG) and the region's
@@ -34,6 +36,7 @@
  * The child runs as this OS account. It is not a sandbox.
  */
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdtemp, open, readFile, rm, writeFile, type FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,7 +53,6 @@ import {
 import { registerKnownSecrets, registeredSecretValues, releaseKnownSecrets } from "../credentials/known-secrets";
 import { appProcessPlane, type AppProcessExit, type AppProcessLease } from "../../node/app-process-plane";
 import type { ContentServiceShape } from "../content/service";
-import { juntoCliPathPrefixes } from "../term/templates/seat-env";
 import { CODE_LAUNCHER_SOURCE, CODE_SDK_SOURCE } from "./code-sdk";
 import type { CodeArtifact } from "./code-step";
 
@@ -103,7 +105,7 @@ export class CodeSourceUnavailable extends Schema.TaggedError<CodeSourceUnavaila
   message: Schema.String,
 }) {}
 
-/** This machine has no `junto` binary to run TypeScript on. */
+/** This machine has no Node to run TypeScript on. */
 export class CodeRuntimeMissing extends Schema.TaggedError<CodeRuntimeMissing>()("CodeRuntimeMissing", {
   machine: Schema.String,
   message: Schema.String,
@@ -157,8 +159,8 @@ export type CodeRunnerDeps = {
   readonly machine: string;
   /** The source's bytes, or why they are not held here. */
   readonly readSource: (ref: ContentRef) => Effect.Effect<Uint8Array | { readonly state: string }, unknown>;
-  /** The `junto` binary TypeScript runs on; undefined when this machine has none. */
-  readonly runtime?: () => string | undefined;
+  /** The Node TypeScript runs on; undefined when this machine has none. */
+  readonly runtime?: () => CodeRuntime | undefined;
   /** This process's environment, for the base names only. */
   readonly baseEnv?: Readonly<Record<string, string | undefined>>;
   readonly shell?: string;
@@ -166,10 +168,29 @@ export type CodeRunnerDeps = {
   readonly runRoot?: string;
 };
 
-/** The `junto` binary this machine ships its seats, or undefined. */
-export const machineJuntoBinary = (): string | undefined => {
-  const dir = juntoCliPathPrefixes()[0];
-  return dir === undefined ? undefined : join(dir, "junto");
+/** A Node by absolute path, and what its environment must add to be Node. */
+export type CodeRuntime = { readonly command: string; readonly env?: Readonly<Record<string, string>> };
+
+/**
+ * The Node this Junto ships, by absolute path, or undefined. A windowless
+ * core runs on its machine package's own Node. The app's core runs in
+ * Electron, whose RunAsNode fuse is off when packaged
+ * (scripts/package-security-policy.json), so a packaged app runs code only on
+ * a Node it ships at `<resources>/bin/node`; a source run, whose Electron
+ * keeps the fuse on, uses that binary as Node.
+ */
+export const machineNodeRuntime = (
+  versions: NodeJS.ProcessVersions = process.versions,
+  execPath: string = process.execPath,
+  resourcesPath: string | undefined = typeof process.resourcesPath === "string" ? process.resourcesPath : undefined,
+): CodeRuntime | undefined => {
+  if (versions.electron === undefined && versions.bun === undefined) return { command: execPath };
+  if (versions.electron === undefined || resourcesPath === undefined) return undefined;
+  const shipped = join(resourcesPath, "bin", "node");
+  if (existsSync(shipped)) return { command: shipped };
+  // A packaged app ships its CLI beside its resources; a source run's Electron does not.
+  if (existsSync(join(resourcesPath, "bin", "junto"))) return undefined;
+  return { command: execPath, env: { ELECTRON_RUN_AS_NODE: "1" } };
 };
 
 /** A source read from this machine's content store: verified present, read whole, bounded. */
@@ -203,8 +224,11 @@ export const codeEnvironment = (
   }
   // Defined and empty: the CLI refuses owner and machine commands (src/cli/core/owner-access.ts).
   env[WORK_TOKEN_ENV] = "";
-  if (language === "typescript") env.BUN_BE_BUN = "1";
-  else delete env.BUN_BE_BUN;
+  // Node's own flags come from the launch alone: a region value cannot preload code or change resolution.
+  if (language === "typescript") {
+    delete env.NODE_OPTIONS;
+    delete env.NODE_PATH;
+  }
   return env;
 };
 
@@ -382,10 +406,8 @@ const prepareRunDirectory = async (dir: string, language: CodeLanguage, source: 
   }
   await writeFile(join(dir, "step.ts"), source, { mode: 0o600 });
   await writeFile(join(dir, "sdk.ts"), CODE_SDK_SOURCE, { mode: 0o600 });
-  await writeFile(join(dir, "bunfig.toml"), "", { mode: 0o600 });
-  await writeFile(join(dir, "tsconfig.json"), "{}\n", { mode: 0o600 });
   await writeFile(join(dir, "package.json"), `${JSON.stringify({ private: true, type: "module" })}\n`, { mode: 0o600 });
-  const launcher = join(dir, "launch.ts");
+  const launcher = join(dir, "launch.mjs");
   await writeFile(launcher, CODE_LAUNCHER_SOURCE, { mode: 0o600 });
   return launcher;
 };
@@ -455,7 +477,7 @@ const clamp = (value: number, min: number, max: number): number =>
 
 /** The K1 port: run one code step on this machine. */
 export const makeCodeRunner = (deps: CodeRunnerDeps) => {
-  const runtime = deps.runtime ?? machineJuntoBinary;
+  const runtime = deps.runtime ?? machineNodeRuntime;
   const baseEnv = deps.baseEnv ?? process.env;
   const shell = deps.shell ?? "/bin/sh";
   const runRoot = deps.runRoot ?? tmpdir();
@@ -473,19 +495,23 @@ export const makeCodeRunner = (deps: CodeRunnerDeps) => {
     }
 
     let command: string;
+    let runtimeEnv: Readonly<Record<string, string>> = {};
     if (request.language === "typescript") {
-      const binary = runtime();
-      if (binary === undefined) {
-        return yield* new CodeRuntimeMissing({ machine: deps.machine, message: `${deps.machine} has no junto binary to run TypeScript on` });
+      const node = runtime();
+      if (node === undefined) {
+        return yield* new CodeRuntimeMissing({ machine: deps.machine, message: `${deps.machine} has no Node to run TypeScript on` });
       }
-      command = binary;
+      command = node.command;
+      runtimeEnv = node.env ?? {};
     } else {
       command = shell;
     }
 
-    const env = codeEnvironment(request.language, request.env, baseEnv);
+    const stepEnv = codeEnvironment(request.language, request.env, baseEnv);
     // The child's whole environment is known to the scrub; the shown names (PATH, HOME) stay readable.
-    const secrets = regionSecretValues(env);
+    const secrets = regionSecretValues(stepEnv);
+    // What makes the runtime Node is the runner's own, never a secret.
+    const env = { ...stepEnv, ...runtimeEnv };
     const owner = `code:${request.input.firing.firingId}`;
     const timeoutMs = clamp(request.timeoutMs, CODE_TIMEOUT_MIN_MS, CODE_TIMEOUT_MAX_MS);
     const maxOutputBytes = clamp(request.maxOutputBytes, 1, CODE_MAX_OUTPUT_BYTES);
@@ -505,7 +531,7 @@ export const makeCodeRunner = (deps: CodeRunnerDeps) => {
           const file = await prepareRunDirectory(dir, request.language, read);
           if (!await verifiedCopy(join(dir, request.language === "shell" ? "step.sh" : "step.ts"), request.source)) return "digest";
           const args = request.language === "typescript"
-            ? ["run", "--no-install", "--no-env-file", `--config=${join(dir, "bunfig.toml")}`, `--tsconfig-override=${join(dir, "tsconfig.json")}`, file]
+            ? ["--disable-warning=ExperimentalWarning", file]
             : [file];
           const answerFile = join(dir, "answer");
           await writeFile(answerFile, "", { mode: 0o600 });
