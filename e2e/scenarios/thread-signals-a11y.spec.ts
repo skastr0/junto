@@ -217,27 +217,35 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
     await page.keyboard.press("Escape");
     await expect(page.locator(".operator-threads")).toHaveCount(0, { timeout: 5_000 });
     await settle(2_000);
+    // With no thread on screen the bubble is the only voice: each raise note once in order, then exactly one "cleared:" for the withdrawn signal (told after the dwell queue), nothing else of it, nothing for the other signal.
+    const oneEventOneSaying = (c: Awaited<ReturnType<typeof runCase>>, plainText: string, asksText: string, insideDwell: boolean): string => {
+      const timed = c.spoken.map((x) => ({ text: String(x.text), t: Number(x.t) }));
+      const count = (needle: string) => timed.filter((x) => x.text === needle).length;
+      const order = timed.map((x) => x.text);
+      const afterW = timed.filter((x) => x.t >= c.w).map((x) => x.text);
+      const allowedAfterW = insideDwell ? [`blocked: ${asksText}`, `cleared: ${plainText}`] : [`cleared: ${plainText}`];
+      const problems: string[] = [];
+      if (count(`wants you: ${plainText}`) !== 1) problems.push(`"wants you" said ${count(`wants you: ${plainText}`)} times`);
+      if (count(`blocked: ${asksText}`) !== 1) problems.push(`"blocked" said ${count(`blocked: ${asksText}`)} times`);
+      if (count(`cleared: ${plainText}`) !== 1) problems.push(`"cleared" for the withdrawn said ${count(`cleared: ${plainText}`)} times`);
+      if (timed.some((x) => x.text.includes(`cleared: ${asksText}`))) problems.push("a cleared note for the other signal");
+      if (afterW.some((t) => !allowedAfterW.includes(t))) problems.push(`after the withdrawal ${JSON.stringify(afterW)}`);
+      const idx = (needle: string) => order.indexOf(needle);
+      if (!(idx(`wants you: ${plainText}`) < idx(`blocked: ${asksText}`) && idx(`blocked: ${asksText}`) < idx(`cleared: ${plainText}`))) problems.push(`order ${JSON.stringify(order)}`);
+      if (problems.length > 0) throw new Error(`${problems.join("; ")}. ${c.note}`);
+      return `spoken in order ${JSON.stringify(order)}`;
+    };
     await check("s8-bubble-after-the-dwell-canvas-visible", async (frames) => {
       const c = await runCase("Which tag should it carry?", "Need the signing key", 4_000);
       frames.push(await shot("s8-after-withdraw"));
-      const texts = c.spoken.map((x) => String(x.text));
-      const atW = c.spoken.filter((x) => Number(x.t) >= c.w).map((x) => String(x.text));
-      const blocked = texts.filter((t) => t.includes("Need the signing key"));
-      if (blocked.length !== 1 || atW.length > 0 || texts.some((t) => t.startsWith("cleared"))) throw new Error(`blocked said ${blocked.length} time(s), ${atW.length} saying(s) at the withdrawal ${JSON.stringify(atW)}. ${c.note}`);
-      return `after the dwell: "blocked: Need the signing key" said once, nothing at the withdrawal. ${c.note}`;
+      return `after the dwell: ${oneEventOneSaying(c, "Which tag should it carry?", "Need the signing key", false)}. ${c.note}`;
     });
     await check("s9-bubble-inside-the-dwell-canvas-visible", async (frames) => {
       const c = await runCase("Which cluster should it use?", "Need the vault key", 1_000);
       frames.push(await shot("s9-after-withdraw"));
-      const texts = c.spoken.map((x) => String(x.text));
-      const withdrawnNote = texts.filter((t) => t.includes("Which cluster should it use?"));
-      const blocked = texts.filter((t) => t.includes("Need the vault key"));
-      const atW = c.spoken.filter((x) => Number(x.t) >= c.w).map((x) => String(x.text));
-      // The withdrawn signal's own raise note was already said before the withdrawal in this case only if its dwell had run: it had not.
-      if (blocked.length !== 1 || texts.some((t) => t.startsWith("cleared")) || (atW.length !== 1 || !atW[0]!.includes("Need the vault key")))
-        throw new Error(`blocked said ${blocked.length} time(s), at the withdrawal ${JSON.stringify(atW)}, the withdrawn note ${withdrawnNote.length} time(s). ${c.note}`);
-      return `inside the dwell: "blocked: Need the vault key" said once at the withdrawal; the withdrawn signal's note said ${withdrawnNote.length} time(s). ${c.note}`;
+      return `inside the dwell: ${oneEventOneSaying(c, "Which cluster should it use?", "Need the vault key", true)}. ${c.note}`;
     });
+
     // The thread back on screen for the lines about the reply field.
     await page.keyboard.press(mod("U"));
     await expect(page.locator(".operator-threads").first()).toBeVisible({ timeout: 10_000 });
