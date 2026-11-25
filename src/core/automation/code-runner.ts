@@ -418,11 +418,18 @@ const verifiedCopy = async (file: string, ref: ContentRef): Promise<boolean> => 
   return copy.byteLength === ref.byteLength && sha256Hex(copy) === ref.sha256;
 };
 
-const exitWords = (end: ProcessEnd): string =>
-  end.signal !== null ? `The step ended on ${end.signal}` : `The step exited with code ${end.exitCode ?? "unknown"}`;
+/** Node's exit code when the module's top-level await is still pending as the event loop empties. */
+const UNSETTLED_TOP_LEVEL_AWAIT_EXIT = 13;
+
+const exitWords = (end: ProcessEnd, language: CodeLanguage): string =>
+  end.signal !== null
+    ? `The step ended on ${end.signal}`
+    : language === "typescript" && end.exitCode === UNSETTLED_TOP_LEVEL_AWAIT_EXIT
+      ? "The step ended with a promise that never settles"
+      : `The step exited with code ${end.exitCode ?? "unknown"}`;
 
 /** What one process end answers, with every text a person or a log reads scrubbed. */
-export const codeResultOf = (end: ProcessEnd, secrets: ReadonlyArray<string>): CodeResult => {
+export const codeResultOf = (end: ProcessEnd, secrets: ReadonlyArray<string>, language: CodeLanguage): CodeResult => {
   const known = knownSecretValues({ secrets, registered: registeredSecretValues() });
   const logTail = end.tail.read(known);
   const durationMs = end.durationMs;
@@ -436,7 +443,7 @@ export const codeResultOf = (end: ProcessEnd, secrets: ReadonlyArray<string>): C
   if (line.length === 0) {
     return end.exitCode === 0 && end.signal === null
       ? { kind: "continue", output: {}, durationMs, ...withTail }
-      : { kind: "fail", message: exitWords(end), ...(exitCode === undefined ? {} : { exitCode }), durationMs, ...withTail };
+      : { kind: "fail", message: exitWords(end, language), ...(exitCode === undefined ? {} : { exitCode }), durationMs, ...withTail };
   }
   let answer: CodeAnswer;
   try {
@@ -569,7 +576,7 @@ export const makeCodeRunner = (deps: CodeRunnerDeps) => {
       });
     }
 
-    const result = codeResultOf(end, secrets);
+    const result = codeResultOf(end, secrets, request.language);
     yield* Effect.logInfo("automation code step ran").pipe(Effect.annotateLogs({
       area: "automation",
       automationId: request.input.automation.automationId,

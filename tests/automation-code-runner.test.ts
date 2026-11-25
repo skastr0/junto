@@ -136,6 +136,12 @@ describe("a TypeScript code step", () => {
       .toMatchObject({ kind: "fail", exitCode: 3 });
   }, 30_000);
 
+  it("says a top-level promise that never settles in words, keeping its exit code", async () => {
+    expect(await run(request("typescript", `await new Promise(() => {});`)))
+      .toMatchObject({ kind: "fail", message: "The step ended with a promise that never settles", exitCode: 13 });
+    expect(await run(request("shell", "exit 13"))).toMatchObject({ kind: "fail", message: "The step exited with code 13", exitCode: 13 });
+  }, 30_000);
+
   it("refuses an answer that is not a result", async () => {
     const result = await run(request("typescript", `
       require("node:fs").writeSync(3, JSON.stringify({ kind: "continue", output: { "Bad-Name": 1 } }) + "\\n");
