@@ -101,6 +101,11 @@ describe("real canvas shape from a database copy", () => {
     dirs.push(dir);
     const path = join(dir, "junto.db");
     const db = new DatabaseSync(path);
+    // One transaction for the whole shape: a raw DatabaseSync opens in the
+    // delete journal with synchronous=FULL, so each CREATE commits and fsyncs
+    // on its own, and the schema alone took 150 ms here and seconds on a slow
+    // VM. Same DDL, same rows, one commit: the fixture is what the case reads.
+    db.exec("BEGIN IMMEDIATE");
     db.exec(MODEL_STATE_SCHEMA_SQL);
     const geometry = "canvas_name,id,z_index,x,y,width,height,color,created_at,updated_at";
     const times = "'2000-01-01', '2000-01-01'";
@@ -120,6 +125,7 @@ describe("real canvas shape from a database copy", () => {
         ('factory', 'e1', 'a1', 'a2', 'messages', ${times}),
         ('factory', 'e2', 'a1', 'p1', 'navigates', ${times});
     `);
+    db.exec("COMMIT");
     db.close();
     return path;
   };

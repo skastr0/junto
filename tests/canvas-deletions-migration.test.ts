@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { decodeWire } from "../src/shared/model/wire";
 import { ModelRecords } from "../src/core/model/records";
 import { makeStateEngineLive } from "../src/core/state/engine";
@@ -37,10 +37,43 @@ afterEach(async () => {
   dir = undefined;
 });
 
+/**
+ * Each case needs the same thing: a fixture the real steps brought to version
+ * 31. Replaying them inside every case paid the chain again per case, and most
+ * of that chain is the identity witness, which hashes the live schema at every
+ * step (about 30 ms a step here, seconds on a slow machine). So the chain runs
+ * once per file, per fixture, and each case copies the database it produced:
+ * same steps, same bytes, one replay.
+ */
+const bases = new Map<string, string>();
+let baseDir: string | undefined;
+const prepareBases = async (): Promise<void> => {
+  baseDir = await mkdtemp(join(tmpdir(), "junto-canvas-deletions-bases-"));
+  for (const fixture of ["command-center-v13.db", "remote-v13.db"]) {
+    const path = join(baseDir, fixture);
+    await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
+    const database = new DatabaseSync(path, { open: true, readOnly: false, allowExtension: false, enableForeignKeyConstraints: true });
+    try {
+      migrateStateSchema(database, versionThirtyOnePlan);
+    } finally {
+      database.close();
+    }
+    bases.set(fixture, path);
+  }
+};
+beforeAll(prepareBases);
+afterAll(async () => {
+  if (baseDir) await rm(baseDir, { recursive: true, force: true });
+  baseDir = undefined;
+  bases.clear();
+});
+
 const copyOf = async (fixture: string): Promise<string> => {
+  const base = bases.get(fixture);
+  if (base === undefined) throw new Error(`no version-31 base for ${fixture}: prepareBases did not run`);
   dir = await mkdtemp(join(tmpdir(), "junto-canvas-deletions-migration-"));
   const path = join(dir, "junto.db");
-  await copyFile(fileURLToPath(new URL(`./fixtures/state-v13/${fixture}`, import.meta.url)), path);
+  await copyFile(base, path);
   return path;
 };
 
@@ -153,7 +186,6 @@ describe("state migration 31 -> 32 (the 0.10 deletions)", () => {
     async (fixture) => {
       const database = await openCopy(fixture);
       try {
-        migrateStateSchema(database, versionThirtyOnePlan);
         const canvas = firstCanvas(database);
         const wiresBefore = rows(database, "wires");
         seed(database, canvas);
