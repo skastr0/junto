@@ -528,7 +528,15 @@ export const unquoteGitPatchPaths = (patch: string): string =>
       if (quotedOld === undefined && quotedNew === undefined) return line;
       const oldPath = quotedOld === undefined ? (plainOld ?? "") : decodeGitQuotedPath(quotedOld);
       const newPath = quotedNew === undefined ? (plainNew ?? "") : decodeGitQuotedPath(quotedNew);
+      // A raw newline cannot live unquoted in one patch line; keep git's quoted form there.
+      if (/[\n\r]/u.test(oldPath) || /[\n\r]/u.test(newPath)) return line;
       return `diff --git a/${oldPath} b/${newPath}`;
+    })
+    .map((line) => {
+      const rename = /^(rename (?:from|to) )"((?:\\.|[^"\\])*)"$/u.exec(line);
+      if (!rename) return line;
+      const path = decodeGitQuotedPath(rename[2] ?? "");
+      return /[\n\r]/u.test(path) ? line : `${rename[1]}${path}`;
     })
     .join("\n");
 

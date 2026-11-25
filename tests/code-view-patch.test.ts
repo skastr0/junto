@@ -29,4 +29,23 @@ describe("unquoteGitPatchPaths", () => {
     expect(unquoted).toContain("diff --git a/src/café.txt b/src/café.txt");
     expect(getSingularPatch(unquoted).name).toBe("src/café.txt");
   });
+
+  it("keeps a decoded name with a newline or carriage return quoted as-is", () => {
+    for (const escaped of ["src/a\\nb.txt", "src/a\\rb.txt"]) {
+      const patch = patchFor(escaped);
+      expect(unquoteGitPatchPaths(patch)).toContain(`diff --git "a/${escaped}" "b/${escaped}"`);
+    }
+  });
+
+  it("unquotes rename from and rename to names the same way", () => {
+    const patch = [
+      'diff --git "a/src/caf\\303\\251 old.txt" "b/src/caf\\303\\251.txt"',
+      'rename from "src/caf\\303\\251 old.txt"',
+      'rename to "src/caf\\303\\251.txt"',
+      "",
+    ].join("\n");
+    const unquoted = unquoteGitPatchPaths(patch);
+    expect(unquoted).toContain("rename from src/café old.txt");
+    expect(unquoted).toContain("rename to src/café.txt");
+  });
 });
