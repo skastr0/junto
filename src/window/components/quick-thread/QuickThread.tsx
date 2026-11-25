@@ -32,6 +32,7 @@ import {
   broadcastReceiptSpoken,
   chooseRegion,
   confirmSpoken,
+  crossLine,
   limitedRegionOptions,
   limitWord,
   regionTokenSpoken,
@@ -162,7 +163,11 @@ export function QuickThread({
   const [busy, setBusy] = useState(false);
   const [spoken, setSpoken] = useState({ text: "", turn: 0 });
   // A send with a region asks first. What it asks about is read once when it opens and is what is sent.
-  const [confirming, setConfirming] = useState<{ readonly seats: ReadonlyArray<BroadcastSeat>; readonly unread: ReadonlyArray<BroadcastSeat> }>();
+  const [confirming, setConfirming] = useState<{
+    readonly seats: ReadonlyArray<BroadcastSeat>;
+    readonly unread: ReadonlyArray<BroadcastSeat>;
+    readonly crossing: ReadonlyArray<{ readonly region: string; readonly seats: ReadonlyArray<BroadcastSeat> }>;
+  }>();
   // What a send with a region came to, until Done.
   const [broadcastResult, setBroadcastResult] = useState<BroadcastReceipt>();
   // The set a send with a region fixed and what has reached it so far, across tries. A ref: the send reads it after it awaits.
@@ -854,6 +859,7 @@ export function QuickThread({
         <BroadcastConfirm
           seats={confirming.seats}
           unread={confirming.unread}
+          crossing={confirming.crossing}
           regionOf={regionOf}
           sending={busy}
           onCancel={cancelConfirm}
@@ -882,9 +888,18 @@ export function QuickThread({
           // A send with a region asks first, and sends to the seats the confirm showed.
           holds={() => {
             if (!withRegion) return false;
-            setConfirming({ seats: set.seats, unread: set.unread });
+            // Seats that straddle a chosen region's edge are told apart, with the region's name as the operator sees it.
+            const crossing = set.crossing.map((entry) => ({ region: regionOfId.get(entry.regionId)?.name ?? "the region", seats: entry.seats }));
+            setConfirming({ seats: set.seats, unread: set.unread, crossing });
             // The confirm is said as it opens, through the live line that stays mounted.
-            say(confirmSpoken(set.seats.length, set.seats.filter((seat) => !seat.running).length, set.unread.length));
+            say(
+              confirmSpoken(
+                set.seats.length,
+                set.seats.filter((seat) => !seat.running).length,
+                set.unread.length,
+                crossing.map((entry) => crossLine(entry.region, entry.seats.length)),
+              ),
+            );
             return true;
           }}
           sender={sendTo}

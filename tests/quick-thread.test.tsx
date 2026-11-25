@@ -614,6 +614,28 @@ describe("Broadcast: a region as a recipient", () => {
     expect(sends.map((entry) => entry.nodeId).sort()).toEqual(["s-design", "s-type"]);
   });
 
+  it("says the seats that cross the region's edge in the confirm, apart from the seats that get the thread", async () => {
+    // One seat straddles the edge of Design System: not wholly inside, so not a member.
+    modelStore.adopt({
+      canvas: asCanvasName(CANVAS),
+      seq: 1,
+      wires: [],
+      nodes: [...NODES, seat("s-edge", { ...at(450, 20), label: "edge-lead" })],
+    });
+    await mountHost();
+    await open();
+    await typeIn(seatField()!, "design sys");
+    await key(seatField(), "Enter");
+    await typeIn(messageField(), "status?");
+    await key(messageField(), "Enter");
+    expect(q("quick-thread-crossing")?.textContent).toBe("1 seat crosses the edge of Design System and is not included.");
+    expect(q("quick-thread-confirm")?.textContent).toContain("Send to 2 seats?");
+    expect(spoken()).toContain("1 seat crosses the edge of Design System and is not included.");
+    await press(q("quick-thread-confirm-send"));
+    // It was not in the send.
+    expect(sends.map((entry) => entry.nodeId).sort()).toEqual(["s-design", "s-type"]);
+  });
+
   it("Cancel and Escape on the confirm give the draft back as it was", async () => {
     await mountHost();
     await open();

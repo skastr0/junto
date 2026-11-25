@@ -14,7 +14,7 @@
 import { use$ } from "@legendapp/state/react";
 import { useMemo } from "react";
 import { broadcastSet, seatReading, type BroadcastPick, type BroadcastSet, type SeatReading } from "@shared/broadcast";
-import { asNodeId } from "@shared/model";
+import { asNodeId, regionCrossers, type Region } from "@shared/model";
 import type { Canvas } from "@shared/model/canvas";
 import { agentSeat$, seatEventForBinding } from "./agent-seat-state";
 import { agentSignals$ } from "./agent-signals-state";
@@ -30,6 +30,8 @@ export const picksOf = (seats: ReadonlyArray<string>, regions: ReadonlyArray<Reg
 
 /** Read the set now from what the window holds. Pure over its inputs, so a test can hand it any of them. */
 export const readBroadcastSet = (input: {
+  /** The nodes that cross a region's edge (model/canvas.ts regionCrossers), to tell them apart from members. */
+  readonly crossersOf?: Parameters<typeof broadcastSet>[0]["crossersOf"];
   readonly canvasName: string;
   readonly canvas: Canvas;
   readonly picks: ReadonlyArray<BroadcastPick>;
@@ -45,6 +47,7 @@ export const readBroadcastSet = (input: {
     canvas: input.canvas,
     machineName: input.machineName,
     picks: input.picks,
+    ...(input.crossersOf === undefined ? {} : { crossersOf: input.crossersOf }),
     readingOf: (nodeId): SeatReading => {
       const node = input.canvas.nodes.get(asNodeId(nodeId));
       const bindingId = node !== undefined && "bindingId" in node ? (node.bindingId as string | undefined) : undefined;
@@ -85,6 +88,8 @@ export const useBroadcastReader = (canvasName: string): ((picks: ReadonlyArray<B
           canvas,
           picks,
           machineName,
+          // The seats that straddle a chosen region's edge are told apart from its members.
+          crossersOf: (region) => regionCrossers(canvas, region as Region),
           signals: open,
           eventOf: seatEventForBinding,
         });

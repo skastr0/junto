@@ -112,6 +112,13 @@ export type BroadcastSet = {
   readonly notRunning: number;
   /** Of `seats`, those on another machine. */
   readonly elsewhere: number;
+  /**
+   * Per region picked, in the order picked, the seats that cross its edge:
+   * the frame overlaps the region's but is not wholly inside it, so the seat
+   * is not a member. They are not in `seats` (and a seat another pick reached
+   * is not listed here: it is included). Empty unless `crossersOf` is given.
+   */
+  readonly crossing: ReadonlyArray<{ readonly regionId: string; readonly seats: ReadonlyArray<BroadcastSeat> }>;
 };
 
 const byNodeId = (a: Node, b: Node): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -135,6 +142,8 @@ export const broadcastSet = (input: {
   readonly picks: ReadonlyArray<BroadcastPick>;
   readonly readingOf: (nodeId: string) => SeatReading;
   readonly leaveOut?: string;
+  /** The nodes that cross a region's edge (model/canvas.ts `regionCrossers`); without it no seat is reported as crossing. */
+  readonly crossersOf?: (region: Node) => ReadonlyArray<Node>;
 }): BroadcastSet => {
   const { canvas, canvasName } = input;
   const seats: BroadcastSeat[] = [];
@@ -193,6 +202,19 @@ export const broadcastSet = (input: {
 
   // A seat another pick reached is in the set, so it is not left out.
   const leftOut = unread.filter((seat) => !reached.has(seat.nodeId));
+  // Seats that cross a picked region's edge are told apart, each region once, none that the set reaches.
+  const crossing: Array<{ readonly regionId: string; readonly seats: ReadonlyArray<BroadcastSeat> }> = [];
+  const told = new Set<string>();
+  if (input.crossersOf !== undefined) {
+    for (const pick of input.picks) {
+      if (pick.kind !== "region" || told.has(pick.regionId)) continue;
+      const region = canvas.nodes.get(asNodeId(pick.regionId));
+      if (region?.kind !== "region") continue;
+      told.add(pick.regionId);
+      const across = input.crossersOf(region).filter(isSeat).filter((node) => !reached.has(node.id));
+      if (across.length > 0) crossing.push({ regionId: pick.regionId, seats: across.map(seatOf) });
+    }
+  }
   return {
     seats,
     unread: leftOut,
@@ -200,5 +222,6 @@ export const broadcastSet = (input: {
     count: seats.length,
     notRunning: seats.filter((seat) => !seat.running).length,
     elsewhere: seats.filter((seat) => seat.elsewhere).length,
+    crossing,
   };
 };

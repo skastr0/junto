@@ -4,6 +4,8 @@ import {
   broadcastReceiptSpoken,
   chooseRegion,
   confirmDetail,
+  confirmSpoken,
+  crossLine,
   groupByRegion,
   leftOutLine,
   limitWord,
@@ -46,6 +48,19 @@ describe("picks", () => {
     pick = toggleLimit(pick, { group: "needs", value: "blocked" });
     expect(regionTokenText("Junto", pick)).toBe("Junto, working, idle, blocked, ready for review");
     expect(regionTokenText("Junto", toggleLimit(pick, { group: "doing", value: "idle" }))).toBe("Junto, working, blocked, ready for review");
+  });
+});
+
+describe("the seats that cross a region's edge", () => {
+  it("say one seat in the singular and several in the plural, with the region's name", () => {
+    expect(crossLine("Big", 6)).toBe("6 seats cross the edge of Big and are not included.");
+    expect(crossLine("Big", 1)).toBe("1 seat crosses the edge of Big and is not included.");
+  });
+  it("are said with the confirm when it opens, before what is left out", () => {
+    expect(confirmSpoken(12, 0, 2, [crossLine("Big", 6)])).toBe(
+      "Send to 12 seats? Each gets its own thread. 6 seats cross the edge of Big and are not included. 2 are left out: their machine is out of reach right now, so what they are doing is not known.",
+    );
+    expect(confirmSpoken(1, 0, 0)).toBe("Send to 1 seat? Each gets its own thread.");
   });
 });
 

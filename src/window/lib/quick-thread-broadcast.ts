@@ -150,9 +150,17 @@ export const leftOutLine = (count: number): string =>
     ? "1 is left out: its machine is out of reach right now, so what it is doing is not known."
     : `${count} are left out: their machine is out of reach right now, so what they are doing is not known.`;
 
-/** The confirm said once when it opens, for the live line: the question, the detail and what is left out. */
-export const confirmSpoken = (count: number, later: number, unread: number): string =>
-  [confirmQuestion(count), confirmDetail(later), unread > 0 ? leftOutLine(unread) : undefined].filter((line) => line !== undefined).join(" ");
+/** The seats that straddle a chosen region's edge, which are not members and so not in the send. */
+export const crossLine = (region: string, count: number): string =>
+  count === 1
+    ? `1 seat crosses the edge of ${region} and is not included.`
+    : `${count} seats cross the edge of ${region} and are not included.`;
+
+/** The confirm said once when it opens, for the live line: the question, the detail, the edge lines and what is left out. */
+export const confirmSpoken = (count: number, later: number, unread: number, crossing: ReadonlyArray<string> = []): string =>
+  [confirmQuestion(count), confirmDetail(later), ...crossing, unread > 0 ? leftOutLine(unread) : undefined]
+    .filter((line) => line !== undefined)
+    .join(" ");
 
 /** The send button's own words. */
 export const sendToCount = (count: number): string => `Send to ${count}`;
