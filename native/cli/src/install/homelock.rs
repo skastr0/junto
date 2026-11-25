@@ -109,8 +109,54 @@ fn open_home_lock(state_directory: &Path) -> Result<fs::File, Refused> {
     )
     .map_err(|error| Refused::new(format!("{}: {error}", path.display())))?;
     let file = fs::File::from(fd);
+    // A maker killed between its link and its unlink leaves a second name for
+    // the same inode. It is the maker's own temp in a directory group and other
+    // cannot write, so it goes here rather than blocking every install.
+    clear_maker_temps(state_directory, &file)?;
     check_lock_file(&file)?;
     Ok(file)
+}
+
+/// Remove this lock's maker temps: `<name>.<32-64 hex>`, the same device and
+/// inode as the lock, in the private state directory. A missing one is fine.
+fn clear_maker_temps(state_directory: &Path, file: &fs::File) -> Result<(), Refused> {
+    let metadata = file.metadata().map_err(Refused::from)?;
+    if metadata.nlink() == 1 {
+        return Ok(());
+    }
+    let entries = fs::read_dir(state_directory).map_err(Refused::from)?;
+    for entry in entries {
+        let entry = entry.map_err(Refused::from)?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(suffix) = name.strip_prefix("home.lock.") else {
+            continue;
+        };
+        let shaped = (32..=64).contains(&suffix.len())
+            && suffix
+                .chars()
+                .all(|character| character.is_ascii_hexdigit());
+        if !shaped {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(held) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if held.dev() != metadata.dev() || held.ino() != metadata.ino() {
+            continue;
+        }
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(Refused::new(format!(
+                    "a maker temp of the home lock could not be cleared: {}: {error}",
+                    path.display()
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Make the file and its id, then link it into place; whoever loses the link
@@ -352,6 +398,37 @@ mod tests {
             refused.message,
             "home.lock is not a home lock. No core can hold it: remove it and start Junto again"
         );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_maker_temp_left_by_a_crash_is_cleared_and_the_lock_is_taken() {
+        let root = scratch("temp");
+        let state = root.join(".junto/state");
+        let held = try_lock_home_database(&state)
+            .expect("readable")
+            .expect("hold");
+        drop(held);
+        let lock = state.join("home.lock");
+        let id = fs::read(&lock).expect("the id");
+        let temp = state.join(format!("home.lock.{}", hex(&id)));
+        fs::hard_link(&lock, &temp).expect("a maker temp");
+        assert_eq!(fs::metadata(&lock).expect("the lock").nlink(), 2);
+        let taken = try_lock_home_database(&state)
+            .expect("a maker temp is not a refusal")
+            .expect("the lock");
+        assert!(!temp.exists(), "the temp is cleared");
+        assert_eq!(fs::metadata(&lock).expect("the lock").nlink(), 1);
+        drop(taken);
+        // And the whole thing still behaves as one lock.
+        let again = try_lock_home_database(&state)
+            .expect("readable")
+            .expect("hold");
+        assert!(
+            try_lock_home_database(&state).expect("readable").is_none(),
+            "one holder"
+        );
+        drop(again);
         let _ = fs::remove_dir_all(&root);
     }
 
