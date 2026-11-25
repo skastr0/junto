@@ -187,6 +187,15 @@ export const threadsStatusLine = (input: {
   return input.unread > 0 ? `${threads}, ${input.unread} unread` : threads;
 };
 
+/** A thread asked for from outside (the feed's Open thread): selected as the operator's once the list holds it. */
+export const threadAsked$ = observable<{ readonly threadId: string | null }>({ threadId: null });
+
+/** Ask for a thread: the filters that could hide it clear, and Threads selects it when it opens. */
+export const askThread = (threadId: string): void => {
+  clearThreadsFilters();
+  threadAsked$.threadId.set(threadId);
+};
+
 /** Clear everything the operator narrowed: the region pick, the words, Unread and the seat. */
 export const clearThreadsFilters = (): void => {
   threadsView$.region.set(undefined);

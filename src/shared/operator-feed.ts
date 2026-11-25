@@ -452,6 +452,24 @@ export const seatChipsOf = (
 };
 
 
+/** The signals each thread holds, per held map: read once for the map, not once per card. */
+const threadCounts = new WeakMap<ReadonlyMap<string, AgentSignal>, Map<string, number>>();
+
+/** How many of the seat's own signals this machine holds in the signal's thread, itself counted. */
+const threadSignalCount = (held: ReadonlyMap<string, AgentSignal>, signal: AgentSignal): number => {
+  let counts = threadCounts.get(held);
+  if (counts === undefined) {
+    counts = new Map();
+    for (const one of held.values()) {
+      if (one.threadId === undefined || one.source !== undefined) continue;
+      const key = `${one.canvasName}\u0000${one.nodeId}\u0000${one.threadId}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    threadCounts.set(held, counts);
+  }
+  return counts.get(`${signal.canvasName}\u0000${signal.nodeId}\u0000${signal.threadId}`) ?? 1;
+};
+
 /**
  * Where a signal stands among the seat's others: the thread it is in, the
  * signal it follows, and the signals it comes after, read as remote-security
@@ -463,7 +481,7 @@ export const seatChipsOf = (
 export const signalOrderOf = (
   signal: AgentSignal,
   held: ReadonlyMap<string, AgentSignal>,
-): Pick<FeedItem, "threadId" | "followsSignalId" | "dependsOn" | "ready" | "waitingOn" | "notReceived"> => {
+): Pick<FeedItem, "threadId" | "followsSignalId" | "follows" | "threadSignals" | "dependsOn" | "ready" | "waitingOn" | "notReceived"> => {
   const own = (signalId: string): AgentSignal | undefined => {
     const other = held.get(signalId);
     return other !== undefined && other.canvasName === signal.canvasName && other.nodeId === signal.nodeId && other.source === undefined
@@ -480,7 +498,13 @@ export const signalOrderOf = (
     // The thread link waits for the mail: until both are here and paired, the signal stands alone.
     ...(signal.threadId === undefined || signal.paired !== true ? {} : { threadId: signal.threadId }),
     // What it follows is signal to signal, so it reads with or without the mail.
-    ...(follows === undefined ? {} : { followsSignalId: follows.signalId }),
+    ...(follows === undefined
+      ? {}
+      : {
+          followsSignalId: follows.signalId,
+          follows: { kind: follows.kind, text: follows.text },
+          ...(signal.threadId === undefined ? {} : { threadSignals: threadSignalCount(held, signal) }),
+        }),
     ...(order === undefined
       ? {}
       : {

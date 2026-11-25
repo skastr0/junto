@@ -161,6 +161,10 @@ export const FeedItem = Schema.Struct({
   threadId: Schema.optionalKey(Schema.String),
   /** The nearest earlier signal in its thread, the head counted: present only when this machine holds it as the same seat's own, never itself. */
   followsSignalId: Schema.optionalKey(Schema.String),
+  /** What it follows, named: its kind and its one sentence, so a card says it although that signal is closed. Present with `followsSignalId`. */
+  follows: Schema.optionalKey(Schema.Struct({ kind: AgentSignalKind, text: Schema.String })),
+  /** How many signals its thread holds on this machine, as the seat's own, itself counted. Present with `follows`. */
+  threadSignals: Schema.optionalKey(Schema.Number),
   /** The signals this one comes after, the same seat's own; another seat's id is no dependency and is left out. */
   dependsOn: Schema.optionalKey(Schema.Array(Schema.String)),
   /** Every signal it comes after is closed, or not here: present with `dependsOn`. */

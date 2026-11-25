@@ -3,6 +3,7 @@ import {
   ArrowBigUpDash,
   Bell,
   CirclePause,
+  CornerDownRight,
   ListOrdered,
   MessageCircleQuestion,
   MessageSquareText,
@@ -232,6 +233,34 @@ export function FeedDependsOn({
 }
 
 /**
+ * A signal that comes after another in its thread says so under its sentence
+ * (under Depends on when both): the earlier one by its kind's glyph and its
+ * headline, and how many the thread holds. Two facts, two lines: never merged
+ * with Depends on. The kind word is for a screen reader, since the glyph is
+ * all the eye gets here.
+ */
+export function FeedFollows({ item }: { readonly item: FeedItem }) {
+  const follows = item.follows;
+  if (follows === undefined) return null;
+  const KindIcon = KIND_ICON[follows.kind];
+  const count = item.threadSignals;
+  return (
+    <p className="operator-feed__follows" data-testid="feed-follows">
+      <CornerDownRight size={11} strokeWidth={2} aria-hidden />
+      <span className="operator-feed__depends-label">Follows:</span>
+      <KindIcon size={11} strokeWidth={2} aria-hidden className="operator-feed__follows-glyph" />
+      <span className="operator-feed__follows-what">
+        <span className="sr-only">{`${FEED_KIND_LABEL[follows.kind]}, `}</span>
+        {follows.text}
+      </span>
+      {count !== undefined && count >= 2 ? (
+        <span className="operator-feed__faint operator-feed__follows-count">{`${String(count)} in this thread`}</span>
+      ) : null}
+    </p>
+  );
+}
+
+/**
  * The selected signal's two pill rows: the waking quick replies (1..9) and,
  * apart below them, the quiet notes (Shift+1..9).
  */
@@ -382,6 +411,7 @@ export function FeedCardView({
               {...(onGoTo === undefined ? {} : { onGoTo })}
             />
           ) : null}
+          <FeedFollows item={item} />
           {pills && selected && item.signalId ? (
             <FeedPills
               item={item}

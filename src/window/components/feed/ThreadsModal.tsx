@@ -41,6 +41,7 @@ import {
   clearThreadsFilters,
   lastIsMine,
   reconcileThreadSelection,
+  threadAsked$,
   threadRegionChips,
   threadSeatChips,
   threadsFilterOn,
@@ -372,6 +373,24 @@ export function ThreadsBody({
       });
     },
   });
+
+  // A thread asked for from the feed: selected as the operator's once the list holds it; more of the list is read while it does not.
+  const asked = use$(threadAsked$.threadId);
+  useEffect(() => {
+    if (asked === null) return;
+    if (keys.includes(asked)) {
+      threadAsked$.threadId.set(null);
+      select(asked);
+      return;
+    }
+    if (!read.loaded) return;
+    if (read.hasMore) {
+      if (read.loadingMore !== true) onLoadMore();
+      return;
+    }
+    threadAsked$.threadId.set(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asked, keys, read.loaded, read.hasMore, read.loadingMore]);
 
   // The list's keys are heard anywhere in the modal but where a field, a
   // control or the chat has its own: on open the keyboard is on the frame.

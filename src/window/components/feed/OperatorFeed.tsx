@@ -85,7 +85,8 @@ import {
 } from "../../lib/operator-feed";
 import { feedFilterOn } from "@shared/operator-feed";
 import { canReviewCommit, openCommitReview } from "../../lib/git-summary";
-import { closeOperatorModal, operatorModalPlace } from "../../lib/operator-modal";
+import { closeOperatorModal, openOperatorModalFrom, operatorModalPlace } from "../../lib/operator-modal";
+import { askThread } from "../../lib/threads-view";
 import { isThisMacItem, openRemoteLoginSettings } from "../../lib/phone-reach";
 import { CompanionWindow } from "../../../contract/window/companion";
 import { useWindowRuntime, useWindowService, type WindowRuntime } from "../../rpc/runtime";
@@ -113,6 +114,7 @@ import { SignalWorkForm } from "../signals/SignalWorkForm";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
 import { Button, Dropdown, Kbd } from "../ui";
+import { FeedExchange } from "./FeedExchange";
 import { FeedRegionStrip } from "./FeedRegionStrip";
 import { FeedEmpty, FeedSeatChosen, FeedSeatsRow, FeedSeatsToggle } from "./FeedFilterParts";
 import { feedTasksByNumber, type FeedTaskRef } from "./feed-text";
@@ -265,6 +267,7 @@ function FeedDetail({
   waitsOn = NO_WAITS,
   notHere = 0,
   onGoTo,
+  onOpenThread,
 }: {
   readonly item: FeedItem;
   readonly node: Node | undefined;
@@ -284,6 +287,8 @@ function FeedDetail({
   /** Signals it comes after that are not here yet: a row each, never hidden. */
   readonly notHere?: number;
   readonly onGoTo?: (target: FeedItem) => void;
+  /** Open Threads on the thread this signal is in. */
+  readonly onOpenThread?: (threadId: string) => void;
 }) {
   const runtime = useWindowRuntime();
   const companion = useWindowService(CompanionWindow);
@@ -347,6 +352,9 @@ function FeedDetail({
               ))}
             </ul>
           </div>
+        ) : null}
+        {item.follows !== undefined && item.threadId !== undefined && onOpenThread !== undefined ? (
+          <FeedExchange item={item} nowMs={nowMs} onOpenThread={onOpenThread} />
         ) : null}
         {/* Only a signal carries details, so the signal is always there to read from. */}
         {hasDetails && item.signalId ? (
@@ -1208,6 +1216,14 @@ const feed = useOperatorFeed();
               })}
               notHere={selectedItem.notReceived?.length ?? 0}
               onGoTo={goTo}
+              onOpenThread={(threadId) => {
+                askThread(threadId);
+                openOperatorModalFrom("feed", "threads", {
+                  itemId: selectedItem.itemId,
+                  expanded: [],
+                  scrollTop: scrollRef.current?.scrollTop ?? 0,
+                });
+              }}
               nowMs={feed.generatedAt}
               quickReplies={quickReplies}
               quietNotes={quietNotes}

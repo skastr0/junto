@@ -486,26 +486,33 @@
 
 .operator-feed__card[data-kind="blocked"],
 .operator-threads__signal[data-kind="blocked"],
-.operator-feed__band-row[data-kind="blocked"] { --feed-kind: var(--color-crimson); }
+.operator-feed__band-row[data-kind="blocked"],
+.operator-feed__exchange-row[data-kind="blocked"] { --feed-kind: var(--color-crimson); }
 .operator-feed__card[data-kind="attention"],
 .operator-threads__signal[data-kind="attention"],
-.operator-feed__band-row[data-kind="attention"] { --feed-kind: var(--color-amber); }
+.operator-feed__band-row[data-kind="attention"],
+.operator-feed__exchange-row[data-kind="attention"] { --feed-kind: var(--color-amber); }
 .operator-feed__card[data-kind="escalate"],
 .operator-threads__signal[data-kind="escalate"],
-.operator-feed__band-row[data-kind="escalate"] { --feed-kind: var(--color-orange); }
+.operator-feed__band-row[data-kind="escalate"],
+.operator-feed__exchange-row[data-kind="escalate"] { --feed-kind: var(--color-orange); }
 .operator-feed__card[data-kind="feedback"],
 .operator-threads__signal[data-kind="feedback"],
-.operator-feed__band-row[data-kind="feedback"] { --feed-kind: var(--color-cyan); }
+.operator-feed__band-row[data-kind="feedback"],
+.operator-feed__exchange-row[data-kind="feedback"] { --feed-kind: var(--color-cyan); }
 .operator-feed__card[data-kind="health"],
 .operator-threads__signal[data-kind="health"],
-.operator-feed__band-row[data-kind="health"] { --feed-kind: var(--color-steel); }
+.operator-feed__band-row[data-kind="health"],
+.operator-feed__exchange-row[data-kind="health"] { --feed-kind: var(--color-steel); }
 .operator-feed__card[data-kind="work"],
 .operator-threads__signal[data-kind="work"],
-.operator-feed__band-row[data-kind="work"] { --feed-kind: var(--color-violet); }
+.operator-feed__band-row[data-kind="work"],
+.operator-feed__exchange-row[data-kind="work"] { --feed-kind: var(--color-violet); }
 /* A notice is passive: something happened, to read and clear. Its sentence reads quieter. */
 .operator-feed__card[data-kind="notice"],
 .operator-threads__signal[data-kind="notice"],
-.operator-feed__band-row[data-kind="notice"] { --feed-kind: var(--color-steel); }
+.operator-feed__band-row[data-kind="notice"],
+.operator-feed__exchange-row[data-kind="notice"] { --feed-kind: var(--color-steel); }
 .operator-feed__card[data-kind="notice"] .operator-feed__text { color: var(--color-dim); }
 
 .operator-feed__card:hover {
@@ -835,6 +842,26 @@
 .operator-feed__depends-key { flex: none; }
 .operator-feed__depends-key { margin-left: 4px; }
 
+/* "Follows:" and the earlier signal: a second line under the sentence, never merged with Depends on. */
+.operator-feed__follows {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin: 4px 0 0;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+.operator-feed__follows > svg { flex: none; }
+.operator-feed__follows-what {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.operator-feed__follows-count { flex: none; margin-left: auto; padding-left: 8px; }
+
 /* "7 more in this order": the rest of a chain, in the card slot's width. */
 .operator-feed__fold {
   width: 100%;
@@ -904,4 +931,66 @@
   padding: 3px 4px;
   font-size: var(--text-body);
   color: var(--color-dim);
+}
+
+/* The exchange of a signal that follows another: the thread's signals and answers, oldest first, this signal last and selected. */
+.operator-feed__exchange {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 10px 14px 0;
+}
+.operator-feed__exchange .operator-feed__band-head { margin: 0; }
+.operator-feed__exchange-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.operator-feed__exchange-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-body);
+}
+/* This signal, drawn as a selected row: a tint and a full border. */
+.operator-feed__exchange-row[data-current="true"] {
+  border-color: var(--color-stroke);
+  background: var(--color-overlay-2);
+}
+.operator-feed__exchange-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+.operator-feed__exchange-time {
+  flex: none;
+  margin-left: auto;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+.operator-feed__exchange-note {
+  flex-basis: 100%;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+.operator-feed__exchange-you {
+  padding: 1px 6px 1px 24px;
+  overflow: hidden;
+  font-size: var(--text-body);
+  color: var(--color-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
