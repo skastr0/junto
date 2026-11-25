@@ -126,4 +126,11 @@ describe("the far install's refusal codes", () => {
     expect(line.startsWith("first second")).toBe(true);
     expect(line.length).toBeLessThanOrEqual(2048);
   });
+
+  it("the far text's bidi controls cannot reorder its log line", () => {
+    const line = farLogLine("ok \u202ereversed\u202c \u2066isolated\u2069 \u202a\u202b\u202d\u2067\u2068end");
+    expect(line).not.toMatch(/[\u202a-\u202e\u2066-\u2069]/);
+    // scrubText's control step drops them first; farLogLine's own class holds the line if that step ever changes.
+    expect(line).toBe("ok reversed isolated end");
+  });
 });

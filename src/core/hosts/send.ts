@@ -68,8 +68,8 @@ const Failure = Schema.Struct({ ok: Schema.Literal(false), command: Schema.Liter
 const admitCheck = (value: unknown): MachineInstallCheck | undefined =>
   typeof value === "string" && value.length <= 64 && /^[a-z][a-z-]*$/.test(value)
     && (MACHINE_INSTALL_CHECKS as ReadonlyArray<string>).includes(value) ? value as MachineInstallCheck : undefined;
-/** The far machine's text as one log line: scrubbed, no control characters or line breaks, at most 2 KB. */
-export const farLogLine = (text: string): string => scrubText(text).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").slice(0, 2048);
+/** The far machine's text as one log line: scrubbed, no control characters, line breaks or bidi controls, at most 2 KB. */
+export const farLogLine = (text: string): string => scrubText(text).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]+/g, " ").slice(0, 2048);
 
 export const sendMachine = (
   target:SshTarget,
