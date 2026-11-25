@@ -13,7 +13,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelStoresLive, seedCanvas } from "./support/seed-canvas";
 import { seat as seatNode } from "./support/model-nodes";
 import { WorkLive, WorkService } from "../src/core/work/service";
@@ -203,6 +203,24 @@ describe("a reply the operator types in a thread", () => {
     expect(words).toContain(raised.signalId);
     expect(words).toContain(second.signalId);
     expect(words.trimEnd().endsWith("Both fine.")).toBe(true);
+  });
+
+  it("names the later signal when two are raised in one millisecond", async () => {
+    // A frozen clock puts both signals at one created_at, so only their ids can order them.
+    const frozen = vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    try {
+      for (let round = 0; round < 25; round += 1) {
+        const { threadId, rootId, mails } = await threadOf(1);
+        const first = await raise({ kind: "escalate", text: `Which region ${round}?`, threadId, messageId: rootId });
+        const second = await raise({ kind: "feedback", text: `Ready ${round}.`, threadId, messageId: mails[0]! });
+        expect(first.createdAt).toBe(second.createdAt);
+        expect(second.signalId > first.signalId).toBe(true);
+        const replied = await send({ threadId, text: `Both fine ${round}.` });
+        expect((await stored(replied.messageId)).metadata).toMatchObject({ agentSignalId: second.signalId });
+      }
+    } finally {
+      frozen.mockRestore();
+    }
   });
 
   it("names the signal whose mail the operator replied to, not the newest", async () => {
