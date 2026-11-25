@@ -71,13 +71,24 @@ export const MachineLocalPaths = Schema.Struct({
 });
 export type MachineLocalPaths = typeof MachineLocalPaths.Type;
 
-export const MachineInstallTransition = Schema.Struct({
-  /** `pinned` is the sender's own: the machine pinned this one after it answered. */
-  step: Schema.Literals(["verified", "quiescent", "selected", "started", "ready", "pinned"]),
+/**
+ * A step the far's own installer reports. `pinned` is never one: a far that
+ * sent it would claim to trust this machine without having pinned it
+ * (remote-security, receipt 24), so everything decoded from the far is
+ * closed to these five.
+ */
+export const MachineFarInstallTransition = Schema.Struct({
+  step: Schema.Literals(["verified", "quiescent", "selected", "started", "ready"]),
   build: Schema.optionalKey(Schema.String),
   pid: Schema.optionalKey(Schema.Number),
   startKey: Schema.optionalKey(Schema.String),
   service: Schema.optionalKey(Schema.Literals(["absent", "unloaded", "inactive"])),
+});
+export type MachineFarInstallTransition = typeof MachineFarInstallTransition.Type;
+/** A step of a send as this machine tells it: the far's five, then its own `pinned` once the machine pinned this one. */
+export const MachineInstallTransition = Schema.Struct({
+  ...MachineFarInstallTransition.fields,
+  step: Schema.Literals(["verified", "quiescent", "selected", "started", "ready", "pinned"]),
 });
 export type MachineInstallTransition = typeof MachineInstallTransition.Type;
 /** Closed literals; the window owns the words. */
@@ -88,6 +99,8 @@ export const MachineInstallEvent = Schema.Struct({
   ...MachineInstallTransition.fields,
 });
 export type MachineInstallEvent = typeof MachineInstallEvent.Type;
+/** An installer event as the far writes it: its own five steps only. */
+export const MachineFarInstallEvent = Schema.Struct({ ...MachineInstallEvent.fields, ...MachineFarInstallTransition.fields });
 
 export const MachineInstallResult = Schema.Struct({
   build: Schema.String,
@@ -106,6 +119,12 @@ export const MachineInstallResult = Schema.Struct({
   notices: Schema.optionalKey(Schema.Array(MachineInstallNotice).pipe(Schema.check(Schema.isMaxLength(8)))),
 });
 export type MachineInstallResult = typeof MachineInstallResult.Type;
+/** The far's install receipt: its own steps only, at most five. The sender alone adds `pinned`. */
+export const MachineFarInstallResult = Schema.Struct({
+  ...MachineInstallResult.fields,
+  transitions: Schema.Array(MachineFarInstallTransition).pipe(Schema.check(Schema.isMaxLength(5))),
+});
+export type MachineFarInstallResult = typeof MachineFarInstallResult.Type;
 
 export const MachineUninstallResult = Schema.Struct({
   juntoHome: MachineAbsolutePath,
@@ -159,7 +178,8 @@ export class MachineInstallError extends Schema.TaggedError<MachineInstallError>
   message: Schema.String,
   retryable: Schema.Boolean,
   disposition: Schema.Literals(["staged", "activated", "uncertain", "rolled-back"]),
-  transitions: Schema.optionalKey(Schema.Array(MachineInstallTransition).pipe(Schema.check(Schema.isMaxLength(5)))),
+  /** What the far's installer reported before it failed: never `pinned`. */
+  transitions: Schema.optionalKey(Schema.Array(MachineFarInstallTransition).pipe(Schema.check(Schema.isMaxLength(5)))),
   /** Seats running on the target when an update paused on them, or unknown to an older build. */
   runningSeats: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
   runningSeatsUnknown: Schema.optionalKey(Schema.Literal(true)),

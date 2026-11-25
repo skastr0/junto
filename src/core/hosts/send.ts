@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { Clock, Effect, Schema } from "effect";
 import * as NodeStream from "@effect/platform-node/NodeStream";
-import { MACHINE_INSTALL_CHECKS, MachineInstallError, MachineInstallResult, MachineInstallEvent, type MachineInstallCheck, type MachineSendInput } from "@shared/machine-install";
+import { MACHINE_INSTALL_CHECKS, MachineInstallError, MachineFarInstallResult, MachineFarInstallEvent, type MachineFarInstallTransition, type MachineInstallCheck, type MachineSendInput } from "@shared/machine-install";
 import { installCheckWords } from "./install-check-words";
 import { InstallationId } from "@shared/installation-id";
 import { SshTransport, type SshTarget } from "../ssh";
@@ -52,7 +52,7 @@ const installErrorWith = (machine: string) => (cause: unknown) => {
     : cause instanceof Error ? cause.message : String(cause);
   return new MachineInstallError({message,retryable:true,disposition:"staged",...(own ? { ownWords: true as const } : {}),...failureHere(cause, machine)});
 };
-const Success = Schema.Struct({ok:Schema.Literal(true),command:Schema.Literal("machine install-local"),data:MachineInstallResult});
+const Success = Schema.Struct({ok:Schema.Literal(true),command:Schema.Literal("machine install-local"),data:MachineFarInstallResult});
 const Failure = Schema.Struct({ ok: Schema.Literal(false), command: Schema.Literal("machine install-local"), error: Schema.Struct({
   type: Schema.Literal("MachineInstallError"), message: Schema.String.pipe(Schema.check(Schema.isMaxLength(4096))),
   details: Schema.Struct({
@@ -128,11 +128,11 @@ export const sendMachine = (
   yield* Effect.forkScoped(Effect.forever(Effect.sleep("1 second").pipe(
     Effect.andThen(Effect.sync(() => copy.check(clock.currentTimeMillisUnsafe()))),
   )));
-  const decodeEvent = Schema.decodeUnknownResult(MachineInstallEvent, { onExcessProperty: "error" });
+  const decodeEvent = Schema.decodeUnknownResult(MachineFarInstallEvent, { onExcessProperty: "error" });
   const decoder = new TextDecoder();
   let pending = "";
   let events = 0;
-  const transitions: MachineInstallResult["transitions"][number][] = [];
+  const transitions: MachineFarInstallTransition[] = [];
   let dropped = false;
   const observe = (bytes: Uint8Array): void => {
     if (events >= 5) return;

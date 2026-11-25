@@ -27,7 +27,7 @@ const testLog = makeTestLog();
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
-const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<boolean>; readonly keyState?: "held" | "none" | "unreadable"; readonly cleared?: boolean; platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer; status?: { readonly runningSeats?: number; readonly installationId?: string }; receiptName?: string; setupRefused?: "name-pinned-elsewhere" | "installation-pinned-elsewhere"; linkAnswer?: "never" | "refused" } = {}) => {
+const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<boolean>; readonly keyState?: "held" | "none" | "unreadable"; readonly cleared?: boolean; platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer; status?: { readonly runningSeats?: number; readonly installationId?: string }; receiptName?: string; setupRefused?: "name-pinned-elsewhere" | "installation-pinned-elsewhere"; linkAnswer?: "never" | "refused"; farClaimsPinned?: boolean } = {}) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "junto-copy-")));
   await mkdir(join(root, "bin")); await mkdir(join(root, "core"));
   for (const name of ["bin/node", "bin/junto", "core/junto.cjs"]) await writeFile(join(root, name), "fixture\n");
@@ -70,7 +70,8 @@ const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<bo
       // The far's own refusal of the pin: the CLI's failure line on stderr, with the rule typed (S4).
       if (op === "setup" && options.setupRefused !== undefined) return yield* Effect.fail(SshTransferExitError.of("mac-mini" as never, 1, "", `${JSON.stringify({ ok: false, command: "machine setup",
         error: { type: "io", message: "machine \"macbook\" is pinned to another installation; choose another name", details: { retryable: false, pinRefused: options.setupRefused } } })}\n`));
-      const result = op === "install" ? { ok: true, command: "machine install-local", data: receipt }
+      const result = op === "install" ? { ok: true, command: "machine install-local",
+        data: options.farClaimsPinned === true ? { ...receipt, transitions: [...receipt.transitions, { step: "pinned" }] } : receipt }
         : op === "configure" ? { ok: true, command: "machine configure", data: { machineName: "mini", installationId: receipt.installationId } }
         : (() => { const keyBound = nextKeyBound(); return { ok: true, command: "machine setup", data: { machineName: "macbook", installationId: ownId, boundAt: "now", ...(keyBound === undefined ? {} : { keyBound }) } }; })();
       return { stdout: JSON.stringify(result), stderr: "" };
@@ -373,5 +374,14 @@ it.each(["name-pinned-elsewhere", "installation-pinned-elsewhere"] as const)("en
     expect(error.takeoverRemote).toEqual({ machineName: "mini" });
   }
   expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup", "location"]);
+  expect(await f.runtime.runPromise(f.repository.peer("mini"))).toBeUndefined();
+});
+
+it("refuses a far install receipt that claims the pinned step: only this machine adds it (receipt 24, remote-security)", async () => {
+  const f = await fixture({ farClaimsPinned: true });
+  const error = await f.error("send");
+  expect(error).toBeInstanceOf(MachineInstallError);
+  expect(f.calls).not.toContain("setup");
+  expect(f.events.some((event) => event.event === "machine-install" && event.step === "pinned")).toBe(false);
   expect(await f.runtime.runPromise(f.repository.peer("mini"))).toBeUndefined();
 });

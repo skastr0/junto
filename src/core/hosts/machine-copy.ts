@@ -1,6 +1,6 @@
 import { Effect, Option, Schema, Stream } from "effect";
 import { MachineBuild, MachineConfigured, MachinePeerPin, type MachineCopyInput } from "@shared/machine-control";
-import { MachineInstallError, MachineInstallResult, MachinePinRefused, MachineSetupError, MachineTakeoverRemoteHint } from "@shared/machine-install";
+import { MachineFarInstallResult, MachineInstallError, MachinePinRefused, MachineSetupError, MachineTakeoverRemoteHint } from "@shared/machine-install";
 import type { MachineSendEvent } from "@shared/machine-progress";
 import type { InstallationId } from "@shared/installation-id";
 import type { RemoteHost } from "@shared/remote-hosts";
@@ -177,7 +177,8 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
       ...(pin === undefined ? {} : { expectedInstallationId: pin.installationId }),
       ...(input.stopRunningSeats === true ? { stopRunningSeats: true } : {}),
     }, onTransition, host.id).pipe(Effect.provideService(SshTransport, ssh), Effect.provideService(LogService, log));
-    const receipt = yield* Schema.decodeUnknownEffect(MachineInstallResult)(installed, { onExcessProperty: "error" });
+    // The far's own receipt, closed to its own steps: it can never say it pinned this machine.
+    const receipt = yield* Schema.decodeUnknownEffect(MachineFarInstallResult)(installed, { onExcessProperty: "error" });
     return yield* Effect.gen(function* () {
       if (receipt.build !== build || (pin !== undefined && receipt.installationId !== pin.installationId)) return yield* Effect.fail(refused("identity-mismatch", "The installed Junto identity does not match the selected machine"));
       /**
