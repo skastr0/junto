@@ -447,7 +447,11 @@ install folder field today, so in the window this step runs from the CLI.
 
 `start-rolled-back` claims the old build is back only on the `rolled-back`
 disposition it comes with; `start-failed` is only the uncertain site
-(`mod.rs:714`).
+(`mod.rs:714`). `installed-not-started` claims it is installed and that
+nothing runs there only on the `activated` disposition its site sets
+(`mod.rs:761`); on any other it reads `The new build did not start there.
+Update Junto on this machine, then send again.` (remote-security, on
+7eeab8b04).
 
 Changed from remote-core's draft: no machine name (term 5); `Check this
 machine` is `Check it again`, since `this machine` is the operator's Mac;
