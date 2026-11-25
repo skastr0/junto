@@ -524,7 +524,17 @@ its own.
 - `That machine now trusts this one. Send Junto to it again to finish
   setting it up.`
 
-**The take-over preview's last-heard line.**
+**takeover-remote, refused because that machine changed install since
+the preview** (R2, `installation-changed`).
+
+- `That machine now answers as a different install of Junto than the
+  preview showed. Send Junto to it again to see where it stands.`
+- `junto machine remove <this>` in R3 holds once remote-send's remove
+  retires a peer known only by its pin; until then it answers unknown
+  machine.
+
+**The take-over preview's last-heard line.** From a typed
+`previousSeenAt`; absent means never.
 
 - Today: `It last heard from the old install at 09:12.`
 - Another day: `It last heard from the old install on 24 November.`
