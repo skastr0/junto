@@ -231,7 +231,13 @@ export type AttachOk = {
 
 export type AttachResult = AttachOk | { readonly ok: false; readonly message: string };
 
-/** What a node delete's binding teardown proved. Remote is never refused: unproven waits on the operator's confirm. */
+/**
+ * What a node delete's binding teardown proved. A remote host is never
+ * refused by its machine — unproven waits on the operator's confirm — but
+ * this machine still answers refused for one while quiescing or under a
+ * maintenance cut, because nothing may be asked of a machine this one is
+ * itself tearing down or cutting. That refusal is logged at the gate.
+ */
 export type DeleteBindingReceipt =
   | { readonly kind: "clean" }
   | { readonly kind: "refused" }

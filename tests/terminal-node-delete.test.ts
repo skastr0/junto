@@ -386,3 +386,40 @@ describe("terminal node-delete holds", () => {
 
 });
 
+describe("the unproven reason set has one definition", () => {
+  it("no source file outside shared/terminal-delete.ts declares the four reasons", () => {
+    // pty-lead finding 5: the set was declared four times. The contract
+    // schema now is the canonical array, and this scan keeps every other
+    // file from writing the literals out again.
+    const { readdirSync, readFileSync, statSync } = require("node:fs") as typeof import("node:fs");
+    const { join } = require("node:path") as typeof import("node:path");
+    const walk = (root: string): string[] => {
+      const out: string[] = [];
+      const visit = (dir: string): void => {
+        for (const entry of readdirSync(dir)) {
+          const path = join(dir, entry);
+          if (statSync(path).isDirectory()) {
+            if (entry !== "node_modules" && !entry.startsWith(".")) visit(path);
+          } else if (/\.tsx?$/.test(entry)) out.push(path);
+        }
+      };
+      visit(root);
+      return out;
+    };
+    // A declaration enumerates the set: epoch-changed beside refused within a
+    // few lines. Constructing one value or ordering a display is a use.
+    const declarers = walk("src").filter((path) => {
+      const source = readFileSync(path, "utf8");
+      return source.split('"epoch-changed"').some((part, index, parts) => {
+        if (index === 0) return false;
+        const before = parts[index - 1]!.slice(-150);
+        const after = part.slice(0, 150);
+        return before.includes('"refused"') || after.includes('"refused"');
+      });
+    });
+    // The window's REASON_ORDER is the one other enumeration, and it is a
+    // display order typed against the reason union, not a definition: the
+    // schema that decides validity is the canonical array alone.
+    expect(declarers.sort()).toEqual(["src/shared/terminal-delete.ts", "src/window/lib/delete-unproven.ts"]);
+  });
+});

@@ -12,6 +12,7 @@
  * stays an answer.
  */
 import { Context, Layer, Schema } from "effect";
+import { DELETE_BINDING_UNPROVEN_REASONS } from "@shared/terminal-delete";
 import { Rpc, RpcGroup, type RpcClient, type RpcClientError } from "effect/rpc";
 import { MachineInventory } from "../../shared/harness-domain/inventory";
 import { HostDirectorySnapshot } from "../../shared/host-directory";
@@ -190,9 +191,7 @@ export const TerminalNodeDeleteResource = Schema.Struct({
 
 export const TerminalNodeDeleteOutcome = Schema.Literals(["committed", "aborted"]);
 
-export const TerminalUnstoppedRemoteReason = Schema.Literals([
-  "refused", "epoch-changed", "unreachable", "timeout",
-]);
+export const TerminalUnstoppedRemoteReason = Schema.Literals(DELETE_BINDING_UNPROVEN_REASONS);
 
 export const TerminalBeginNodeDeleteResult = Schema.Union([
   Schema.Struct({
