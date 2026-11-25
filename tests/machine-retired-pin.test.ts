@@ -210,9 +210,9 @@ describe("a first send to a reinstalled machine", () => {
       const ownedServices = Layer.mergeAll(HostRegistryRows.layer, HostsServiceLive)
         .pipe(Layer.provideMerge(testLog.log.loggerLayer), Layer.provideMerge(machines), Layer.provideMerge(ssh));
       const runtime = ManagedRuntime.make(Layer.mergeAll(
-        machineLinkLayer("c".repeat(64), home), noBoatRoutesLayer, machines, ssh,
+        machineLinkLayer("c".repeat(64), home), noBoatRoutesLayer,
         ...(owned ? [ownedServices] : []),
-      ));
+      ).pipe(Layer.provideMerge(machines), Layer.provideMerge(ssh)));
       cleanups.push(async () => { await runtime.dispose(); await rm(home, { recursive: true, force: true }); });
       const self = await runtime.runPromise(Effect.flatMap(MachineRepository, (repository) => repository.installationId));
       await runtime.runPromise(Effect.gen(function* () {
