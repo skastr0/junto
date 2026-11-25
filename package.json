@@ -110,7 +110,7 @@
     "@effect/platform-node": "4.1.2",
     "@electron/fuses": "^2.1.3",
     "@electron/osx-sign": "1.3.3",
-    "@legendapp/state": "3.0.0-beta.47",
+    "@legendapp/state": "3.0.0-next.1",
     "@lezer/common": "1.5.4",
     "@lezer/highlight": "1.2.5",
     "@lezer/markdown": "1.8.1",

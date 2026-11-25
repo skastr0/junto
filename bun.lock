@@ -29,7 +29,7 @@
         "@effect/platform-node": "4.1.2",
         "@electron/fuses": "^2.1.3",
         "@electron/osx-sign": "1.3.3",
-        "@legendapp/state": "3.0.0-beta.47",
+        "@legendapp/state": "3.0.0-next.1",
         "@lezer/common": "1.5.4",
         "@lezer/highlight": "1.2.5",
         "@lezer/markdown": "1.8.1",
@@ -363,7 +363,7 @@
 
     "@keyv/serialize": ["@keyv/serialize@1.1.1", "", {}, "sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA=="],
 
-    "@legendapp/state": ["@legendapp/state@3.0.0-beta.47", "", { "dependencies": { "use-sync-external-store": "^1.2.2" }, "peerDependencies": { "expo-sqlite": "^15.0.0" }, "optionalPeers": ["expo-sqlite"] }, "sha512-MPgPacXXSoAazAv7ulW/o0ZAtK4YHk3twvXZ241l2HqAHciHozb7tg5SMbEAc2HKUUfC3JBh+9+DXfMsYokLpQ=="],
+    "@legendapp/state": ["@legendapp/state@3.0.0-next.1", "", { "dependencies": { "use-sync-external-store": "^1.2.2" }, "peerDependencies": { "@supabase/supabase-js": "^2.56.0", "expo-sqlite": "^15.0.0 || ^16.0.0 || >=55.0.0", "react": ">=16.8" }, "optionalPeers": ["@supabase/supabase-js", "expo-sqlite", "react"] }, "sha512-rP31c7Q9/7pMHCcSkkXac2Sjni198fjFmWui5YYjFehO4LY4eLzxWh6mcreBq9uzo5xIbG793XsaaA1UTxjpeA=="],
 
     "@lezer/common": ["@lezer/common@1.5.4", "", {}, "sha512-xt3Q4z64xM+xhg4M7NXqw1N//1O74bUFo5kz6fwMeC4qwxSuRdwkYSmjcqCEEKYkNw5e67f2hcNqBoNERAEU0w=="],
 
