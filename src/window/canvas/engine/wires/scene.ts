@@ -920,14 +920,16 @@ export const createWireScene = (host: WireHost): WireScene => {
 
   const leadOf = (members: ReadonlySet<WireId>): WireId | undefined => {
     let lead: WireId | undefined;
-    let leadRank = 1;
+    // A tracked wire leads its fold, then the smallest id. This orders wires,
+    // not urgency.
+    let leadOrder = 1;
     for (const id of members) {
       const entry = entries.get(id);
       if (entry === undefined) continue;
-      const rank = isTrackVerb(entry.fact.row.verb) ? 0 : 1;
-      if (lead === undefined || rank < leadRank || (rank === leadRank && id < lead)) {
+      const order = isTrackVerb(entry.fact.row.verb) ? 0 : 1;
+      if (lead === undefined || order < leadOrder || (order === leadOrder && id < lead)) {
         lead = id;
-        leadRank = rank;
+        leadOrder = order;
       }
     }
     return lead;
