@@ -940,9 +940,6 @@ Open, not finished:
   dependencies (`remote-cut`). Later: the `junto` CLI on the bundle's own
   Node, not a second runtime. 0.7.0 ships when the first is proven on a
   signed candidate with a real send to the mini.
-- Leftovers of the old unit: `publishSystemdGenerationReadiness` has no
-  caller, `supervision/systemd-user.ts` and `systemctl-runner.ts` still
-  describe it.
 - Install fault cases not yet run: a transfer cut midway, a full disk, a
   wrong SSH target.
 - The operator's own: sign in again to Codex and Claude Code on the mini;

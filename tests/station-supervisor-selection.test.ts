@@ -8,7 +8,7 @@ import {
   type StationSupervisorLoaders,
 } from "../src/node/supervision/select";
 
-const stubSupervisor = (provider: "launchd" | "systemd-user" | "standalone") =>
+const stubSupervisor = (provider: "launchd" | "standalone") =>
   ({
     metadata: {
       provider,
@@ -21,14 +21,13 @@ const stubSupervisor = (provider: "launchd" | "systemd-user" | "standalone") =>
 
 const makeLoaders = (): StationSupervisorLoaders => ({
   darwin: vi.fn(async () => stubSupervisor("launchd")),
-  linux: vi.fn(async () => stubSupervisor("systemd-user")),
   standalone: vi.fn(async () => stubSupervisor("standalone")),
 });
 
 describe("station supervisor platform selection", () => {
   it.each([
     ["darwin", "darwin", "launchd"],
-    ["linux", "linux", "systemd-user"],
+    ["linux", "standalone", "standalone"],
     ["win32", "standalone", "standalone"],
     ["freebsd", "standalone", "standalone"],
   ] as const)(
@@ -43,9 +42,6 @@ describe("station supervisor platform selection", () => {
       expect(loaders.darwin).toHaveBeenCalledTimes(
         selected === "darwin" ? 1 : 0,
       );
-      expect(loaders.linux).toHaveBeenCalledTimes(
-        selected === "linux" ? 1 : 0,
-      );
       expect(loaders.standalone).toHaveBeenCalledTimes(
         selected === "standalone" ? 1 : 0,
       );
@@ -59,9 +55,8 @@ describe("station supervisor platform selection", () => {
     );
 
     expect(source).toMatch(/await import\(\s*["']\.\/darwin["']\s*\)/);
-    expect(source).toMatch(/await import\(\s*["']\.\/systemd-user["']\s*\)/);
     expect(source).not.toMatch(/from\s+["']\.\/darwin["']/);
-    expect(source).not.toMatch(/from\s+["']\.\/systemd-user["']/);
+    expect(source).not.toContain("./systemd-user");
   });
 
   it("returns explicit standalone behavior on unsupported production platforms", async () => {

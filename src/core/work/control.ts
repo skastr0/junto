@@ -3,13 +3,11 @@ import {
   existsSync,
   lstatSync,
   unlinkSync,
-  writeFileSync,
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import { isOverseerHarness } from "@shared/harness-records";
 import { resolveJuntoHome } from "@shared/junto-home";
-import { join } from "node:path";
 import { Context, Effect, Exit, Layer, Result, Scope } from "effect";
 import { mapWorkCode } from "../work-control/answers";
 import { type OverseerSeat, type WorkCaller } from "../work-control/seat";
@@ -114,40 +112,6 @@ export const resolveWorkHome = (home?: string, workHome?: string): string => {
   const env = process.env.JUNTO_WORK_HOME?.trim();
   if (env) return env;
   return workControlDir(home ?? resolveJuntoHome());
-};
-
-const systemdReadinessReceipt = (): { readonly generation: string; readonly path: string } | undefined => {
-  const generation = process.env.INVOCATION_ID;
-  const runtimeDirectory = process.env.XDG_RUNTIME_DIR;
-  // XDG_RUNTIME_DIR is ambient in ordinary Linux desktop sessions. Only a
-  // systemd invocation id opts this process into Remote readiness publication.
-  if (generation === undefined) return undefined;
-  if (
-    runtimeDirectory === undefined || !/^[0-9a-f]{32}$/.test(generation) ||
-    !runtimeDirectory.startsWith("/") ||
-    runtimeDirectory.includes("\0")
-  ) {
-    throw new Error("invalid systemd generation readiness environment");
-  }
-  return Object.freeze({
-    generation,
-    path: join(runtimeDirectory, "junto-remote", `ready-${generation}`),
-  });
-};
-
-/**
- * Witness the exact systemd invocation after this process has bound the work
- * listener. Deep terminal, browser, and canvas checks belong to Doctor and
- * release qualification; they never block station boot.
- */
-export const publishSystemdGenerationReadiness = (): void => {
-  const readiness = systemdReadinessReceipt();
-  if (readiness === undefined) return;
-  writeFileSync(readiness.path, `${readiness.generation}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
-  const published = lstatSync(readiness.path);
-  if (!published.isFile() || (published.mode & 0o777) !== 0o600) {
-    throw new Error("systemd generation readiness receipt was not private regular file");
-  }
 };
 
 // ---------------------------------------------------------------------------

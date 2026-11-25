@@ -1,9 +1,6 @@
 export const SUPERVISOR_DIAGNOSTIC_MAX_CHARACTERS = 512;
 
-export type StationSupervisorProvider =
-  | "launchd"
-  | "systemd-user"
-  | "standalone";
+export type StationSupervisorProvider = "launchd" | "standalone";
 
 export type StationSupervisorFailureKind =
   | "unsupported"
@@ -37,23 +34,23 @@ export interface StationSupervisorMetadata {
 
 export type StationSupervisorObservation =
   | {
-    readonly provider: "launchd" | "systemd-user";
+    readonly provider: "launchd";
     readonly state: "active";
     readonly ownership: "current" | "other";
   }
   | {
-    readonly provider: "launchd" | "systemd-user";
+    readonly provider: "launchd";
     readonly state: "inactive" | "absent";
     readonly ownership: "none";
   }
   | {
-    readonly provider: "launchd" | "systemd-user";
+    readonly provider: "launchd";
     readonly state: "degraded";
     readonly ownership: "none" | "unknown";
     readonly failure: StationSupervisorFailure;
   }
   | {
-    readonly provider: "launchd" | "systemd-user";
+    readonly provider: "launchd";
     readonly state: "unknown";
     readonly ownership: "unknown";
     readonly failure: StationSupervisorFailure;

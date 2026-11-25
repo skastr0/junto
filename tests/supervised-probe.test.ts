@@ -34,12 +34,12 @@ describe("supervised station probe", () => {
     ["unknown", "unknown"],
   ] as const)("maps provider %s truthfully to %s", async (state, expected) => {
     const observation = state === "active"
-      ? { provider: "systemd-user", state, ownership: "other" }
+      ? { provider: "launchd", state, ownership: "other" }
       : state === "inactive" || state === "absent"
-      ? { provider: "systemd-user", state, ownership: "none" }
+      ? { provider: "launchd", state, ownership: "none" }
       : state === "unsupported"
       ? { provider: "standalone", state, ownership: "none", failure: { kind: "unsupported", diagnostic: "test" } }
-      : { provider: "systemd-user", state, ownership: "unknown", failure: { kind: "service-degraded", diagnostic: "test" } };
+      : { provider: "launchd", state, ownership: "unknown", failure: { kind: "service-degraded", diagnostic: "test" } };
     await expect(createSupervisedProbe(async () => supervisor(observation))()).resolves.toBe(expected);
   });
 

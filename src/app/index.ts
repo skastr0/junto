@@ -1200,8 +1200,8 @@ const recoverRendererSurface = (
 
 
 // A packaged station enters only through its installed platform supervisor.
-// Provider observations are status-only: neither launchd pid nor systemd
-// MainPID ever becomes process-signal authority in this process.
+// Provider observations are status-only: a launchd pid never becomes
+// process-signal authority in this process.
 const ensureSupervised = async (asks: MainIndexCalls): Promise<boolean> => {
   if (!app.isPackaged) return true; // dev runs are never rerouted
   try {
