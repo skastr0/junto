@@ -1,10 +1,17 @@
 import { spawn } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { rename, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const mode = process.argv[2];
 const outputPath = process.argv[3];
 const self = fileURLToPath(import.meta.url);
+// The reader polls for the file to exist, then parses it: write a sibling and
+// rename it into place so the path never appears empty or half-written.
+const writeReceipt = async (path: string, receipt: unknown): Promise<void> => {
+  const partial = `${path}.partial`;
+  await writeFile(partial, JSON.stringify(receipt), { mode: 0o600 });
+  await rename(partial, path);
+};
 const hardExitAfter = (milliseconds: number): void => {
   const timer = setTimeout(() => process.exit(0), milliseconds);
   timer.unref();
@@ -23,11 +30,7 @@ if ((mode === "parent" || mode === "parent-ignore-term") && outputPath !== undef
   if (mode === "parent-ignore-term") {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  await writeFile(
-    outputPath,
-    JSON.stringify({ parentPid: process.pid, grandchildPid: grandchild.pid }),
-    { mode: 0o600 },
-  );
+  await writeReceipt(outputPath, { parentPid: process.pid, grandchildPid: grandchild.pid });
   hardExitAfter(2_000);
   setInterval(() => undefined, 1_000);
 } else if (
@@ -47,11 +50,7 @@ if ((mode === "parent" || mode === "parent-ignore-term") && outputPath !== undef
   if (grandchild.pid === undefined) throw new Error("fixture grandchild has no pid");
   grandchild.unref();
   await new Promise((resolve) => setTimeout(resolve, 100));
-  await writeFile(
-    outputPath,
-    JSON.stringify({ grandchildPid: grandchild.pid }),
-    { mode: 0o600 },
-  );
+  await writeReceipt(outputPath, { grandchildPid: grandchild.pid });
 } else if (mode === "grandchild") {
   hardExitAfter(2_000);
   setInterval(() => undefined, 1_000);
