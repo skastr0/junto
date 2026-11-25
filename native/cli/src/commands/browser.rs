@@ -291,6 +291,81 @@ fn js_number(part: &str) -> Option<f64> {
     value.is_finite().then_some(value)
 }
 
+// --- request admission, before any control I/O ----------------------------------
+
+/// BROWSER_MAX_SESSION_ID_BYTES and BROWSER_MAX_REF_BYTES / URL / EVAL code
+/// bounds (src/shared/browser-limits.ts), and BROWSER_MAX_COMMENT_TEXT_BYTES.
+const MAX_SESSION_ID_BYTES: usize = 256;
+const MAX_REF_BYTES: usize = 4 * 1024;
+const MAX_URL_BYTES: usize = 16 * 1024;
+const MAX_EVAL_CODE_BYTES: usize = 256 * 1024;
+const MAX_COMMENT_TEXT_BYTES: usize = 64 * 1024;
+
+fn too_long(flag: &str, what: &str, max: usize, command: &str) -> Failure {
+    Failure::input(format!("{what} exceeds {max} UTF-8 bytes"), flag)
+        .and("next_step", format!("junto schema show browser.{command}"))
+}
+
+/// isUtf8WithinLimit: the string's UTF-8 bytes, as the route bounds them.
+fn within(text: &str, max: usize) -> bool {
+    text.len() <= max
+}
+
+fn forbidden(message: &str, flag: &str, command: &str) -> Failure {
+    Failure::input(message, flag).and("next_step", format!("junto schema show browser.{command}"))
+}
+
+/// A browser id: nonempty, bounded ASCII, first character alphanumeric.
+fn browser_id(flag: &str, value: &str, what: &str, command: &str) -> Result<String> {
+    let rest = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-');
+    let ok = value
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_alphanumeric)
+        && value.as_bytes().iter().all(|b| rest(*b))
+        && within(value, MAX_SESSION_ID_BYTES);
+    if ok {
+        return Ok(value.to_string());
+    }
+    Err(forbidden(
+        &format!("{what} must be nonempty bounded ASCII"),
+        flag,
+        command,
+    ))
+}
+
+fn session(value: &str, command: &str) -> Result<String> {
+    browser_id("sessionId", value, "sessionId", command)
+}
+
+fn tab(value: Option<String>, command: &str) -> Result<Option<String>> {
+    value
+        .map(|value| browser_id("tab", &value, "tab", command))
+        .transpose()
+}
+
+fn bounded(flag: &str, value: String, what: &str, max: usize, command: &str) -> Result<String> {
+    if within(&value, max) {
+        return Ok(value);
+    }
+    Err(too_long(flag, what, max, command))
+}
+
+/// A box comment's text: bounded, and not only whitespace.
+fn comment_text(value: String) -> Result<String> {
+    if !within(&value, MAX_COMMENT_TEXT_BYTES) {
+        return Err(too_long("text", "text", MAX_COMMENT_TEXT_BYTES, "comment"));
+    }
+    if value.trim().is_empty() {
+        return Err(forbidden(
+            "a comment's text must be non-empty",
+            "text",
+            "comment",
+        ));
+    }
+    Ok(value)
+}
+
 // --- the command line -----------------------------------------------------------
 
 /// Drive a page this seat's navigates edge grants
@@ -360,68 +435,89 @@ impl Run for Browser {
             Command::Profiles => ("profiles", call(Route::Profiles, none)),
             Command::Pages => ("pages", call(Route::Pages, none)),
             Command::Sessions => ("sessions", call(Route::Sessions, none)),
-            Command::Open { r#ref, tab } => {
-                ("open", call(Route::Open, Some(&OpenBody { r#ref, tab })))
+            Command::Open { r#ref, tab: named } => {
+                let body = bounded("ref", r#ref, "ref", MAX_REF_BYTES, "open").and_then(|r#ref| {
+                    Ok(OpenBody {
+                        r#ref,
+                        tab: tab(named, "open")?,
+                    })
+                });
+                ("open", body.and_then(|body| call(Route::Open, Some(&body))))
             }
             Command::Goto {
                 session_id,
                 url,
-                tab,
-            } => (
-                "goto",
-                call(
-                    Route::Goto,
-                    Some(&GotoBody {
+                tab: named,
+            } => {
+                let body = session(&session_id, "goto").and_then(|session_id| {
+                    Ok(GotoBody {
                         session_id,
-                        url,
-                        tab,
-                    }),
-                ),
-            ),
+                        url: bounded("url", url, "url", MAX_URL_BYTES, "goto")?,
+                        tab: tab(named, "goto")?,
+                    })
+                });
+                ("goto", body.and_then(|body| call(Route::Goto, Some(&body))))
+            }
             Command::Eval {
                 session_id,
                 code,
-                tab,
-            } => (
-                "eval",
-                call(
-                    Route::Eval,
-                    Some(&EvalBody {
+                tab: named,
+            } => {
+                let body = session(&session_id, "eval").and_then(|session_id| {
+                    Ok(EvalBody {
                         session_id,
-                        code,
-                        tab,
-                    }),
-                ),
-            ),
-            Command::Shot { session_id, tab } => (
-                "shot",
-                call(Route::Screenshot, Some(&ShotBody { session_id, tab })),
-            ),
+                        code: bounded("code", code, "code", MAX_EVAL_CODE_BYTES, "eval")?,
+                        tab: tab(named, "eval")?,
+                    })
+                });
+                ("eval", body.and_then(|body| call(Route::Eval, Some(&body))))
+            }
+            Command::Shot {
+                session_id,
+                tab: named,
+            } => {
+                let body = session(&session_id, "shot").and_then(|session_id| {
+                    Ok(ShotBody {
+                        session_id,
+                        tab: tab(named, "shot")?,
+                    })
+                });
+                (
+                    "shot",
+                    body.and_then(|body| call(Route::Screenshot, Some(&body))),
+                )
+            }
             Command::Comment {
                 session_id,
                 r#box,
                 text,
-                tab,
-            } => (
-                "comment",
-                Rect::parse(&r#box).and_then(|rect| {
-                    call(
-                        Route::Comment,
-                        Some(&CommentBody {
-                            session_id,
-                            tab,
-                            rect,
-                            text,
-                        }),
-                    )
-                }),
-            ),
-            Command::Close { session_id } => (
-                "close",
-                call(Route::Close, Some(&SessionBody { session_id })),
-            ),
+                tab: named,
+            } => {
+                let body = Rect::parse(&r#box).and_then(|rect| {
+                    Ok(CommentBody {
+                        session_id: session(&session_id, "comment")?,
+                        tab: tab(named, "comment")?,
+                        rect,
+                        text: comment_text(text)?,
+                    })
+                });
+                (
+                    "comment",
+                    body.and_then(|body| call(Route::Comment, Some(&body))),
+                )
+            }
+            Command::Close { session_id } => {
+                let body =
+                    session(&session_id, "close").map(|session_id| SessionBody { session_id });
+                (
+                    "close",
+                    body.and_then(|body| call(Route::Close, Some(&body))),
+                )
+            }
             Command::Stop { session_id } => {
-                ("stop", call(Route::Stop, Some(&SessionBody { session_id })))
+                let body =
+                    session(&session_id, "stop").map(|session_id| SessionBody { session_id });
+                ("stop", body.and_then(|body| call(Route::Stop, Some(&body))))
             }
         };
         envelope::print(&format!("browser {name}"), answer.map(Into::into))

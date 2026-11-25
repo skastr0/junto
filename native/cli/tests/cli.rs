@@ -1512,6 +1512,260 @@ fn task_finish_reads_the_handoff_note() {
     assert_eq!(frame["args"]["handoff"], "Pick up the retry in feed.ts");
 }
 
+// --- input the CLI refuses before the socket -----------------------------------
+
+#[test]
+fn logs_refuse_a_filter_out_of_its_range() {
+    let work = Work::start(vec![]);
+    for (flag, value) in [
+        ("--level", "loud".to_string()),
+        ("--level", "WARN".to_string()),
+        ("--area", "Seats".to_string()),
+        ("--area", "s".repeat(49)),
+        ("--operation", "op 1".to_string()),
+        ("--seat", "a b".to_string()),
+        ("--canvas", "Factory".to_string()),
+        ("--last", "0".to_string()),
+        ("--last", "2001".to_string()),
+    ] {
+        let output = work.run(&["logs", flag, &value]);
+        assert_eq!(code(&output), 1, "{flag} {value}");
+        let printed = stderr_json(&output);
+        assert_eq!(
+            printed["error"]["type"], "InputError",
+            "{flag} {value}: {printed}"
+        );
+        assert_eq!(
+            printed["error"]["message"], "a filter is out of range",
+            "{flag} {value}"
+        );
+        assert!(
+            printed["error"]["details"]["hint"]
+                .as_str()
+                .unwrap()
+                .contains("--last is 1 to 2000"),
+            "{flag} {value}: {printed}"
+        );
+    }
+    assert!(work.frames().is_empty(), "none of them reached the socket");
+}
+
+#[test]
+fn browser_refuses_a_bad_session_a_tab_and_a_comment_text() {
+    let work = Work::start(vec![]);
+    let long_text = "x".repeat(64 * 1024 + 1);
+    let cases: Vec<Vec<&str>> = vec![
+        vec!["browser", "goto", "bad id", "https://example.com"],
+        vec!["browser", "goto", "", "https://example.com"],
+        vec!["browser", "close", "sess 1"],
+        vec![
+            "browser",
+            "goto",
+            "sess-1",
+            "https://example.com",
+            "--tab",
+            "",
+        ],
+        vec!["browser", "shot", "sess-1", "--tab", "tab 2"],
+        vec![
+            "browser", "comment", "sess-1", "--box", "1,2,3,4", "--text", "   ",
+        ],
+        vec![
+            "browser", "comment", "sess-1", "--box", "1,2,3,4", "--text", &long_text,
+        ],
+    ];
+    for args in cases {
+        let output = work.run(&args);
+        assert_eq!(code(&output), 1, "{args:?}");
+        let printed = stderr_json(&output);
+        assert_eq!(
+            printed["error"]["type"], "InputError",
+            "{args:?}: {printed}"
+        );
+        assert!(
+            printed["error"]["details"]["next_step"]
+                .as_str()
+                .is_some_and(|next| next.starts_with("junto schema show browser.")),
+            "{args:?}: {printed}"
+        );
+    }
+    assert!(
+        work.frames().is_empty(),
+        "none of them reached the control socket"
+    );
+}
+
+// --- content staging, through a signal's attachment ----------------------------
+
+/// A staged file's sha256, as the store names it.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+fn closed_ref(sha: &str, byte_length: usize, display_name: &str) -> Answer {
+    Answer::Ok(serde_json::json!({
+        "ref": {
+            "sha256": sha,
+            "byteLength": byte_length,
+            "mediaType": "text/plain",
+            "displayName": display_name,
+        },
+    }))
+}
+
+#[test]
+fn a_small_file_goes_up_in_one_piece_with_its_digest_and_never_its_path() {
+    let dir = temp_dir();
+    let file = dir.join("probe.txt");
+    std::fs::write(&file, b"hello").unwrap();
+    let sha = sha256_hex(b"hello");
+    let work = Work::start(vec![closed_ref(&sha, 5, "probe.txt"), Answer::ok()]);
+    let path = file.to_str().unwrap().to_string();
+    let output = work.run(&["escalate", "Need a look", "--attach", &path]);
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(
+        code(&output),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let frames = work.frames();
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    let stage = &frames[0];
+    assert_eq!(stage["op"], "content.stage");
+    assert_eq!(stage["args"]["bytesBase64"], "aGVsbG8=");
+    assert_eq!(stage["args"]["done"]["expected"]["sha256"], sha);
+    assert_eq!(stage["args"]["done"]["expected"]["byteLength"], 5);
+    assert_eq!(stage["args"]["done"]["mediaType"], "text/plain");
+    assert_eq!(stage["args"]["done"]["displayName"], "probe.txt");
+    assert!(
+        !stage.to_string().contains(&path),
+        "the path stays here: {stage}"
+    );
+    assert_eq!(frames[1]["op"], "signal.raise");
+    assert_eq!(frames[1]["args"]["attach"][0]["ref"]["sha256"], sha);
+    assert!(
+        !frames[1].to_string().contains(".txt"),
+        "no path in the signal either"
+    );
+}
+
+#[test]
+fn a_file_past_one_piece_goes_up_in_pieces_and_the_last_one_closes_it() {
+    let dir = temp_dir();
+    let file = dir.join("big.txt");
+    let piece = 4 * 1024 * 1024;
+    std::fs::write(&file, vec![b'a'; piece + 1]).unwrap();
+    let sha = sha256_hex(&vec![b'a'; piece + 1]);
+    let stage_id = "stg_0123456789abcdef0123456789abcdef";
+    let work = Work::start(vec![
+        Answer::Ok(serde_json::json!({ "stageId": stage_id })),
+        closed_ref(&sha, piece + 1, "big.txt"),
+        Answer::ok(),
+    ]);
+    let output = work.run(&[
+        "escalate",
+        "Too big for one",
+        "--attach",
+        file.to_str().unwrap(),
+    ]);
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(
+        code(&output),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let frames = work.frames();
+    assert_eq!(frames.len(), 3, "two pieces, then the signal");
+    assert_eq!(frames[0]["op"], "content.stage");
+    assert_eq!(
+        frames[0]["args"]["bytesBase64"].as_str().unwrap().len(),
+        piece.div_ceil(3) * 4
+    );
+    assert!(
+        frames[0]["args"].get("done").is_none(),
+        "a full piece stays open"
+    );
+    assert!(
+        frames[0]["args"].get("stageId").is_none(),
+        "the first piece opens the upload"
+    );
+    assert_eq!(frames[1]["args"]["stageId"], stage_id);
+    assert_eq!(frames[1]["args"]["bytesBase64"], "YQ==");
+    assert_eq!(
+        frames[1]["args"]["done"]["expected"]["byteLength"],
+        piece + 1
+    );
+    assert_eq!(frames[1]["args"]["done"]["expected"]["sha256"], sha);
+}
+
+#[test]
+fn a_file_that_ends_on_a_piece_boundary_and_an_empty_file_both_close_in_one_call() {
+    let dir = temp_dir();
+    let piece = 4 * 1024 * 1024;
+    let exact = dir.join("exact.txt");
+    std::fs::write(&exact, vec![b'a'; piece]).unwrap();
+    let exact_sha = sha256_hex(&vec![b'a'; piece]);
+    let work = Work::start(vec![
+        closed_ref(&exact_sha, piece, "exact.txt"),
+        Answer::ok(),
+        closed_ref(&sha256_hex(b""), 0, "empty.txt"),
+        Answer::ok(),
+    ]);
+    let closed = work.run(&[
+        "escalate",
+        "Exactly a piece",
+        "--attach",
+        exact.to_str().unwrap(),
+    ]);
+    let empty_file = dir.join("empty.txt");
+    std::fs::write(&empty_file, b"").unwrap();
+    let empty = work.run(&[
+        "escalate",
+        "Nothing yet",
+        "--attach",
+        empty_file.to_str().unwrap(),
+    ]);
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(
+        code(&closed),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&closed.stderr)
+    );
+    assert_eq!(
+        code(&empty),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&empty.stderr)
+    );
+    let frames = work.frames();
+    assert_eq!(frames.len(), 4, "{frames:?}");
+    assert!(frames[0]["args"].get("stageId").is_none());
+    assert_eq!(frames[0]["args"]["done"]["expected"]["byteLength"], piece);
+    assert_eq!(frames[2]["args"]["bytesBase64"], "");
+    assert_eq!(frames[2]["args"]["done"]["expected"]["byteLength"], 0);
+}
+
+#[test]
+fn a_file_that_cannot_be_read_is_refused_before_anything_is_sent() {
+    let work = Work::start(vec![]);
+    let dir = temp_dir();
+    let missing = dir.join("gone.txt");
+    let output = work.run(&["escalate", "No file", "--attach", missing.to_str().unwrap()]);
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(code(&output), 1);
+    let printed = stderr_json(&output);
+    assert_eq!(printed["error"]["type"], "InputError", "{printed}");
+    assert_eq!(printed["error"]["details"]["path"], "--attach", "{printed}");
+    assert!(work.frames().is_empty());
+}
+
 // --- helpers ------------------------------------------------------------------
 
 fn temp_dir() -> PathBuf {

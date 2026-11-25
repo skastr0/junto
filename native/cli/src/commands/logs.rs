@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::{Run, Timeout};
 use crate::duration::parse_wait_for;
 use crate::envelope;
-use crate::error::{Failure, Result};
+use crate::error::{ErrorType, Failure, Result};
 use crate::{ops, wire};
 
 /// MachineLogQuery (src/shared/machine-log.ts). The runtime decodes it again
@@ -73,9 +73,11 @@ pub struct Filters {
 
 impl Filters {
     /// lowerLogsFlags: `since` is a duration back from now, or an ISO time.
+    /// Every other filter is the query schema's own value, so it is checked
+    /// here, before the socket: main takes the same bounds.
     pub fn lower(self) -> Result<Query> {
         let since = self.since.as_deref().map(since_ms).transpose()?;
-        Ok(Query {
+        let query = Query {
             since,
             level: self.level,
             area: self.area,
@@ -83,8 +85,64 @@ impl Filters {
             seat: self.seat,
             canvas: self.canvas,
             limit: self.last,
-        })
+        };
+        in_range(&query)?;
+        Ok(query)
     }
+}
+
+/// LOG_READ_MAX_LIMIT (src/shared/machine-log.ts): the most rows one read takes.
+pub const LOG_READ_MAX_LIMIT: i64 = 2_000;
+
+const LEVELS: [&str; 6] = ["trace", "debug", "info", "warn", "error", "fatal"];
+
+fn words(value: &str, first: impl Fn(u8) -> bool, rest: impl Fn(u8) -> bool, most: usize) -> bool {
+    let bytes = value.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= most
+        && first(bytes[0])
+        && bytes[1..].iter().all(|b| rest(*b))
+}
+
+/// decodeQuery's check of MachineLogQuery, worded as the CLI words it.
+fn in_range(query: &Query) -> Result<()> {
+    let lower = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit();
+    let area = |b: u8| lower(b) || matches!(b, b'.' | b'_' | b'-');
+    let id = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-');
+    let canvas = |b: u8| lower(b) || matches!(b, b'_' | b'-');
+    let first = |b: u8| b.is_ascii_alphanumeric();
+    let ok = query
+        .level
+        .as_deref()
+        .is_none_or(|level| LEVELS.contains(&level))
+        && query
+            .area
+            .as_deref()
+            .is_none_or(|value| words(value, lower, area, 48))
+        && query
+            .operation_id
+            .as_deref()
+            .is_none_or(|value| words(value, id, id, 64))
+        && query
+            .seat
+            .as_deref()
+            .is_none_or(|value| words(value, id, id, 128))
+        && query
+            .canvas
+            .as_deref()
+            .is_none_or(|value| words(value, lower, canvas, 64))
+        && query
+            .limit
+            .is_none_or(|limit| (1..=LOG_READ_MAX_LIMIT).contains(&limit));
+    if ok {
+        return Ok(());
+    }
+    Err(Failure::new(ErrorType::InputError, "a filter is out of range").and(
+        "hint",
+        format!(
+            "level is trace, debug, info, warn, error or fatal; area is lower-case; --last is 1 to {LOG_READ_MAX_LIMIT}"
+        ),
+    ))
 }
 
 fn since_ms(raw: &str) -> Result<i64> {
