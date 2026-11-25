@@ -16,8 +16,8 @@ import { QuickThread, type QuickThreadSent } from "../src/window/components/quic
 import { resetOperatorGesture } from "../src/window/lib/focus-ownership";
 import { KEY_ACTIONS } from "../src/window/lib/key-actions";
 import { installKeyDispatcher } from "../src/window/lib/key-dispatcher";
-import { operatorModal$ } from "../src/window/lib/operator-modal";
-import { openQuickThread, quickThreadSeats, resetQuickThreads } from "../src/window/lib/quick-thread";
+import { closeOperatorModal, operatorModal$ } from "../src/window/lib/operator-modal";
+import { openQuickThread, quickThreadSeats, resetQuickThreads, setQuickThreadSeats } from "../src/window/lib/quick-thread";
 import { resetSeatThreads } from "../src/window/lib/seat-threads";
 import { state$ } from "../src/window/lib/state";
 import { modelStore } from "../src/window/lib/use-model";
@@ -318,6 +318,21 @@ describe("Quick thread from the canvas", () => {
     await open();
     expect(chosenNames()).toEqual([]);
     expect(messageField().value).toBe("half a thought");
+  });
+
+  it("a canvas switch with it open clears the canvas it opened on, not the new one", async () => {
+    await mountHost();
+    setQuickThreadSeats("other", ["s-cli"]);
+    state$.selectedNodeIds.set(["s-pty"]);
+    await open();
+    expect(quickThreadSeats(CANVAS)).toEqual(["s-pty"]);
+    // The switch makes the new canvas current first, then closes the frame.
+    await act(async () => {
+      state$.canvasName.set("other");
+      closeOperatorModal("quick-thread");
+    });
+    expect(quickThreadSeats(CANVAS)).toEqual([]);
+    expect(quickThreadSeats("other")).toEqual(["s-cli"]);
   });
 
   it("starts with the seats selected on the canvas, every open", async () => {

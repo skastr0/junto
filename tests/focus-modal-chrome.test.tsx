@@ -37,6 +37,11 @@ describe("focus modal chrome: the top bar never eats a click", () => {
     expect(noDrag).toContain('html[data-junto-platform="darwin"] .focus-surface__aside');
   });
 
+  it("an operator modal's frame is no-drag on darwin: Quick thread sits in the bar's band", () => {
+    const noDrag = appRegions(css).filter((r) => r.value === "no-drag").flatMap((r) => r.selectors);
+    expect(noDrag).toContain('html[data-junto-platform="darwin"] .operator-modal__frame');
+  });
+
   it("the station bar stays the only drag region", () => {
     const drag = appRegions(css).filter((r) => r.value === "drag").flatMap((r) => r.selectors);
     expect(drag).toEqual(['html[data-junto-platform="darwin"] .station-bar']);

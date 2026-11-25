@@ -23,6 +23,7 @@ import { asNodeId, regionName, type Canvas } from "@shared/model";
 import { buildFocusSwitcherCatalog } from "./focus-switcher";
 import { makeAttachmentHold, type AttachmentHold } from "./operator-attachments";
 import { isOperatorModalOpen, operatorModal$, toggleOperatorModal } from "./operator-modal";
+import type { Limit, RegionPick } from "./quick-thread-broadcast";
 import { regionTrails } from "./region-path";
 import type { HeldThreadDraft } from "./seat-threads";
 import { state$ } from "./state";
@@ -48,8 +49,10 @@ export type QuickThreadRegion = {
   /** Containing regions, outer to inner. */
   readonly outer: ReadonlyArray<string>;
   readonly color?: string;
-  /** Seats in it and in the regions inside it. */
+  /** Seats in it and in the regions inside it; with a `limit`, the seats that limit alone reaches. */
   readonly seats: number;
+  /** A typed limit offers the region with it already on: "Junto, working". */
+  readonly limit?: Limit;
 };
 
 export type QuickThreadOption = QuickThreadSeat | QuickThreadRegion;
@@ -62,7 +65,10 @@ export type QuickThreadCatalog = {
 };
 
 /** A row's key in the list: a seat and a region never share one. */
-export const quickThreadOptionKey = (option: QuickThreadOption): string => `${option.kind}:${option.id}`;
+export const quickThreadOptionKey = (option: QuickThreadOption): string =>
+  option.kind === "region" && option.limit !== undefined
+    ? `region:${option.id}:${option.limit.group}:${option.limit.value}`
+    : `${option.kind}:${option.id}`;
 
 /** What the picker chooses from, read from the canvas. Pure. */
 export const quickThreadCatalog = (canvas: Canvas, recentIds: ReadonlyArray<string>): QuickThreadCatalog => {
@@ -151,11 +157,13 @@ export const quickThreadOptions = (
 export type QuickThreadKept = {
   /** The seats chosen, in the order chosen. */
   readonly seats: ReadonlyArray<string>;
+  /** The regions chosen, each with its limits, in the order chosen. Never the seats they hold: those are read at the send. */
+  readonly regions: ReadonlyArray<RegionPick>;
   /** After a send that reached only some: why each seat still chosen got nothing. */
   readonly unsent: Readonly<Record<string, string>>;
 };
 
-const NOTHING_KEPT: QuickThreadKept = { seats: [], unsent: {} };
+const NOTHING_KEPT: QuickThreadKept = { seats: [], regions: [], unsent: {} };
 
 // One value per canvas: read whole, written whole.
 const kept$ = observable<{ byCanvas: Readonly<Record<string, QuickThreadKept>> }>({ byCanvas: {} });
@@ -173,6 +181,10 @@ export const keepQuickThread = (canvasName: string, change: Partial<QuickThreadK
 
 /** The seats chosen on this canvas, in the order chosen. */
 export const quickThreadSeats = (canvasName: string): ReadonlyArray<string> => quickThreadKept(canvasName).seats;
+
+/** The regions chosen on this canvas, with their limits. */
+export const setQuickThreadRegions = (canvasName: string, regions: ReadonlyArray<RegionPick>): void =>
+  keepQuickThread(canvasName, { regions });
 
 export const setQuickThreadSeats = (canvasName: string, seatIds: ReadonlyArray<string>): void =>
   keepQuickThread(canvasName, { seats: [...new Set(seatIds)] });
@@ -196,16 +208,25 @@ export const quickThreadDraft = (canvasName: string): HeldThreadDraft => {
 /** Something is waiting to be sent on this canvas: a seat, words or a file. */
 export const hasQuickThreadDraft = (canvasName: string): boolean =>
   quickThreadSeats(canvasName).length > 0 ||
+  quickThreadKept(canvasName).regions.length > 0 ||
   (texts.get(canvasName) ?? "").trim() !== "" ||
   (files.get(canvasName)?.items().length ?? 0) > 0;
 
 /** Closing Quick thread clears the seats chosen on this canvas, and why each got nothing; the words stay. */
 export const clearQuickThreadSeats = (canvasName: string): void => keepQuickThread(canvasName, NOTHING_KEPT);
 
-// A close, not a swap to another operator modal, drops the chosen seats.
+// A close, not a swap to another operator modal, drops the chosen seats of
+// the canvas it opened on: a canvas switch closes it after the new canvas is
+// already current, and that one's seats are not this frame's.
+let openedOn = "";
 operatorModal$.open.onChange(({ value, getPrevious }) => {
+  if (value === "quick-thread") {
+    openedOn = state$.canvasName.peek();
+    return;
+  }
   if (value !== null || getPrevious() !== "quick-thread") return;
-  const canvasName = state$.canvasName.peek();
+  const canvasName = openedOn;
+  openedOn = "";
   if (canvasName !== "") clearQuickThreadSeats(canvasName);
 });
 
