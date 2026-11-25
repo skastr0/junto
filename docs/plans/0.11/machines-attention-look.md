@@ -477,6 +477,31 @@ here says `nothing changed`.
 - Each is followed by the same printed preview line, under the same three
   conditions.
 
+**S6, set up but no link opened in time.** Retryable.
+
+- Core's words, `ownWords: true`: `Junto is set up there, but no link to
+  it opened in time. Send Junto again, and if that fails too, check it
+  again.`
+
+**S4, the far machine already trusts another installation under this
+machine's name**, so it refused to pin this one. Nothing there moves on
+its own.
+
+- Core's words, `ownWords: true`: `It already trusts a different install
+  of Junto under this machine's name, so nothing changed. Preview a
+  take-over there with junto machine takeover-remote to see which seats
+  and automations move.`
+- The step: `machine.takeover-remote` starts a take-over on the far
+  machine that holds the old pin (`MachineTakeoverRemoteInput`,
+  `src/shared/machine-control.ts`), which is this case; `machine takeover`
+  is the other way round, a stale pin held here. The CLI prints the ready
+  preview command on its own line, with the name from this machine's list,
+  under the same conditions as the take-over line above.
+- `so nothing changed` only on a `staged` or `rolled-back` near
+  disposition, as section 6 rules for a far claim: a send may have
+  installed the build before setup refused the pin. Otherwise the clause
+  is dropped and the rest stays.
+
 ## 6. The far install's refusal codes
 
 When a send or update fails on the far machine, its refusal carries one
