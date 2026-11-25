@@ -21,7 +21,6 @@ import {
 } from "../src/core/state/migrations";
 import { migrateMachineNames } from "../src/core/state/migrate-machine-names";
 import { expectedStateSchemaIdentity } from "../src/core/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/core/state/schema";
 import { STATE_SCHEMA_V79_SQL, STATE_SCHEMA_V80_SQL } from "./fixtures/state-v13/schema";
 
 let dir: string | undefined;
@@ -57,10 +56,9 @@ const contents = (database: DatabaseSync): Record<string, string[]> => Object.fr
 ]));
 
 describe("state migration 79 -> 80 (what each peer last said it runs)", () => {
-  it("starts from the version-79 witness and ends at the version-80 one, as a fresh install has it", () => {
+  it("starts from the version-79 witness and ends at the version-80 one", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V79_SQL)).toEqual(STATE_SCHEMA_V79_IDENTITY);
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V80_SQL)).toEqual(STATE_SCHEMA_V80_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V80_IDENTITY);
   });
 
   it("is expand only: it replaces, removes, renames and retires nothing", () => {

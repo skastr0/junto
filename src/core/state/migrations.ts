@@ -24,6 +24,7 @@ import { SHOT_PURGES_SQL } from "../work/shot-purge-schema";
 import {
   AUTOMATION_PLACEMENTS_STATE_SCHEMA_SQL,
   CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL,
+  CANVAS_FILES_CARRIED_STATE_SCHEMA_SQL,
   WORK_EXCHANGE_CURSORS_V16_STATE_SCHEMA_SQL,
 } from "../work/exchange/state-schema";
 import {
@@ -999,6 +1000,18 @@ export const STATE_SCHEMA_V80_IDENTITY = {
     "6f6a0023fe21687fee863ccbb3b4a33afa4ddc958c9b96c759b79a97ef0e27d1",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+/**
+ * Version 81 (0.12.1, X6, remote-security C2): `canvas_files_carried` keeps,
+ * on the machine that edits a canvas, which machine it last sent a Files
+ * node of whole, so a restart then a retarget still sends that machine the
+ * departure copy. Empty at the step: the mark was in memory before it, and
+ * the step's restart lost it. Expand only.
+ */
+export const STATE_SCHEMA_V81_IDENTITY = {
+  actualSchemaSha256:
+    "eddb39905becafb2b32f5d5bfc5163e0a35fe3d4b49fecdf6889158cc0a5cd5b",
+} as const satisfies VerifiedStateSchemaIdentity;
+
 import { CURRENT_STATE_SCHEMA_VERSION } from "../../node/state/schema-version";
 
 export { CURRENT_STATE_SCHEMA_VERSION };
@@ -1653,6 +1666,14 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     safety: STATE_SCHEMA_MIGRATION_SAFETY,
     fromIdentity: STATE_SCHEMA_V79_IDENTITY,
     migrate: (database) => database.exec(MACHINE_PEER_SEEN_STATE_SCHEMA_SQL),
+  },
+  {
+    fromVersion: 80,
+    toVersion: 81,
+    name: "keep which machine was last sent a Files node across a restart",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V80_IDENTITY,
+    migrate: (database) => database.exec(CANVAS_FILES_CARRIED_STATE_SCHEMA_SQL),
   },
 ];
 

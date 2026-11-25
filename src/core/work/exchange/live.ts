@@ -322,19 +322,19 @@ export const makeLiveRowExchange = (
      * machine are read as one state, so no move committed between the reads
      * is sent as standing at the count before it.
      */
-    /**
-     * With files over SSH (0.12.1, X6, remote-security C2): the canvases each
-     * machine was last sent a Files node of whole. Once it has no reason left
-     * it is sent the departure copy, so the node and its root go from it; the
-     * mark goes with that copy. In memory: a restart loses it, and a node
-     * moved away after the restart stays on that machine, unserved, until its
-     * next copy (named to remote-security).
-     */
-    const filesCarriedTo = new Map<InstallationId, Set<string>>();
     /** The copies cut for a machine whose only reason is a Files node: they carry no seat to read placements from. */
     const filesOnlyCopies = new WeakSet<CanvasCopy>();
-    const mayHoldFiles = (canvasName: string, peer: InstallationId): boolean =>
-      FILES_REMOTE_ENABLED && filesCarriedTo.get(peer)?.has(canvasName) === true;
+    /**
+     * With files over SSH (0.12.1, X6, remote-security C2): the machine was
+     * last sent a Files node of this canvas whole, so once it has no reason
+     * left it is sent the departure copy, and the node and its root go from
+     * it. Kept in `canvas_files_carried` with each copy sent, so a restart
+     * never loses it.
+     */
+    const mayHoldFiles = (canvasName: string, peer: InstallationId): Effect.Effect<boolean, unknown> =>
+      FILES_REMOTE_ENABLED
+        ? Effect.map(repository.filesCarriedTo(canvasName), (carried) => carried.has(peer))
+        : Effect.succeed(false);
 
     const cutCopy = (canvasName: string, peer: InstallationId): Effect.Effect<{ readonly copy: CanvasCopy; readonly departing: boolean } | undefined, unknown> =>
       Effect.gen(function* () {
@@ -389,7 +389,7 @@ export const makeLiveRowExchange = (
           // seat reaches it and the window can close. Only the editing
           // machine ever cuts one: this path already returned for non-editors.
           const departing = yield* repository.seatDepartingFrom(canvasName);
-          if (departing.has(peer) || mayHoldFiles(canvasName, peer)) {
+          if (departing.has(peer) || (yield* mayHoldFiles(canvasName, peer))) {
             const departure = exportCanvasCopy(
               {
                 canvasName: asCanvasName(canvasName),
@@ -485,19 +485,13 @@ export const makeLiveRowExchange = (
           seq: copy.seq,
           seats,
           ...(departing ? { departing: true } : {}),
+          ...(!departing && copy.resources.some((resource) => resource.kind === "files") ? { carriesFiles: true } : {}),
           ...(automations === undefined ? {} : { automations }),
         });
         if (departing) {
           const byCanvas = departureCopiesSent.get(copy.target) ?? new Map<string, number>();
           byCanvas.set(copy.canvasName, copy.seq);
           departureCopiesSent.set(copy.target, byCanvas);
-          filesCarriedTo.get(copy.target)?.delete(copy.canvasName);
-        } else if (copy.resources.some((resource) => resource.kind === "files")) {
-          const carried = filesCarriedTo.get(copy.target) ?? new Set<string>();
-          carried.add(copy.canvasName);
-          filesCarriedTo.set(copy.target, carried);
-        } else {
-          filesCarriedTo.get(copy.target)?.delete(copy.canvasName);
         }
       });
 

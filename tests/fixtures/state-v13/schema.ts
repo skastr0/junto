@@ -474,3 +474,9 @@ export const STATE_SCHEMA_V80_SQL = stepped(
   STATE_SCHEMA_V79_SQL,
   STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 80)!.migrate,
 );
+
+/** Step 81 adds `canvas_files_carried`, which machine was last sent a Files node of whole. */
+export const STATE_SCHEMA_V81_SQL = stepped(
+  STATE_SCHEMA_V80_SQL,
+  STATE_SCHEMA_MIGRATIONS.find((step) => step.toVersion === 81)!.migrate,
+);

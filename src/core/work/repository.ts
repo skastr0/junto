@@ -3165,6 +3165,8 @@ export type CanvasCopySent = {
   readonly sentAt?: string;
   /** A header-only departure copy: seat rows reconcile, no copies_sent row, automation rows untouched. */
   readonly departing?: boolean;
+  /** The copy carries a Files node whole (X6, C2): it marks the target in `canvas_files_carried`; any other copy clears the mark. */
+  readonly carriesFiles?: boolean;
 };
 
 /** A frame for a canvas this machine does not hold: nothing taken, nothing to tell. */
@@ -3700,6 +3702,8 @@ export interface WorkRepositoryShape {
    * departure takes its move through rows and is not.
    */
   readonly seatDepartingFrom: (canvasName: string) => Effect.Effect<ReadonlySet<InstallationId>, WorkRepositoryError>;
+  /** The machines this machine last sent a Files node of whole for a canvas (X6, C2): each may still hold it, so it is owed the departure copy. */
+  readonly filesCarriedTo: (canvasName: string) => Effect.Effect<ReadonlySet<InstallationId>, WorkRepositoryError>;
   /** The seat rows keeping a machine in its departure window, by machine: the highest until_seq of its closed rows, or null when one is still open. */
   readonly seatDepartureRows: (canvasName: string) => Effect.Effect<ReadonlyMap<InstallationId, number | null>, WorkRepositoryError>;
   /** Every writer with rows for a canvas that this machine holds. */
@@ -4503,6 +4507,18 @@ export const WorkRepositoryLive = Layer.effect(
                 [input.canvasName, input.target, input.seq, timestamp(input.sentAt)],
               );
             }
+            // The departure mark (X6, C2), in the same transaction as the copy
+            // it follows: set by a copy carrying a Files node, cleared by the
+            // departure copy or a copy without one.
+            if (input.departing !== true && input.carriesFiles === true) {
+              yield* sql.unsafe(
+                `INSERT INTO canvas_files_carried(canvas_name, target, seq) VALUES (?, ?, ?)
+                 ON CONFLICT (canvas_name, target) DO UPDATE SET seq = excluded.seq`,
+                [input.canvasName, input.target, input.seq],
+              );
+            } else {
+              yield* sql.unsafe("DELETE FROM canvas_files_carried WHERE canvas_name = ? AND target = ?", [input.canvasName, input.target]);
+            }
             const open = yield* sql.unsafe<{
               node_id: string;
               from_seq: number;
@@ -4671,6 +4687,15 @@ export const WorkRepositoryLive = Layer.effect(
           return new Map([...byMachine].map(([machine, until]) => [Schema.decodeUnknownSync(InstallationId)(machine), until]));
         }),
         Effect.mapError((error) => toRepositoryError("work.exchange.seat-departure-rows", error)),
+      );
+
+    const filesCarriedTo = (canvasName: string): Effect.Effect<ReadonlySet<InstallationId>, WorkRepositoryError> =>
+      withSqlRead(
+        sql,
+        sql.unsafe<{ target: string }>("SELECT target FROM canvas_files_carried WHERE canvas_name = ?", [canvasName]),
+      ).pipe(
+        Effect.map((rows) => new Set(rows.map((row) => Schema.decodeUnknownSync(InstallationId)(row.target)))),
+        Effect.mapError((error) => toRepositoryError("work.exchange.files-carried", error)),
       );
 
     const seatDepartingFrom = (canvasName: string): Effect.Effect<ReadonlySet<InstallationId>, WorkRepositoryError> =>
@@ -5665,6 +5690,7 @@ export const WorkRepositoryLive = Layer.effect(
       recordCanvasCopySent,
       departingFrom,
       seatDepartingFrom,
+      filesCarriedTo,
       seatDepartureRows,
       exchangeHave,
       exchangeForget,

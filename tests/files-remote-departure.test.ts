@@ -120,6 +120,26 @@ const boot = async (name: string, self: InstallationId, pin: readonly [string, I
   return machine;
 };
 
+/** The machine's core restarts on the same state: everything it held in memory is gone. */
+const restart = async (machine: Machine, pin: readonly [string, InstallationId]): Promise<Machine> => {
+  for (const link of machine.exchange.status()) machine.exchange.closed(link.peer);
+  for (const other of booted) if (other !== machine) other.exchange.closed(machine.self);
+  await machine.runtime.dispose();
+  booted.splice(booted.indexOf(machine), 1);
+  const runtime = makeRuntime(machine.root, machine.name, machine.self);
+  const exchange = await runtime.runPromise(
+    Effect.gen(function* () {
+      const machines = yield* MachineRepository;
+      yield* machines.configureName(machine.name);
+      yield* machines.pinPeer({ machineName: pin[0], installationId: pin[1] });
+      return yield* makeLiveRowExchange({ mailArrived: () => {} });
+    }),
+  );
+  const next: Machine = { ...machine, runtime, exchange, channel: rowsChannel(exchange) };
+  booted.push(next);
+  return next;
+};
+
 const contextOf = (from: Machine, to: Machine): RowsChannelContext => ({
   peer: { installationId: to.self },
   sessionId: `${from.name}-${to.name}`,
@@ -194,6 +214,12 @@ describe("a Files node leaving its machine (X6, remote-security C2)", () => {
     expect(await filesOn(mini)).toMatchObject([{ id: "folder", host: "mini", root: ROOT }]);
   });
 
+  it("marks the folder's machine in state with the copy that carried the node", async () => {
+    const { macbook } = await stage(false);
+    const marked = await macbook.runtime.runPromise(Effect.flatMap(WorkRepository, (repository) => repository.filesCarriedTo("factory")));
+    expect([...marked]).toEqual([MINI]);
+  });
+
   for (const [how, change] of [
     ["moved to another machine", { _tag: "Edit", canvas: "factory", id: "folder", change: { kind: "files", host: "macbook" } }],
     ["deleted", { _tag: "Remove", canvas: "factory", nodes: ["folder"], wires: [] }],
@@ -208,6 +234,24 @@ describe("a Files node leaving its machine (X6, remote-security C2)", () => {
       await operator(macbook, { _tag: "Add", canvas: "factory", nodes: [seat("late", { x: 0, y: 600, width: 200, height: 100, host: "macbook" as never, agentKey: "macbook:claude", bindingId: "binding-late" as never })], wires: [] });
       await committed(macbook);
       expect((await mini.runtime.runPromise(Effect.flatMap(ModelService, (model) => model.canvas("factory")))).seq).toBe(seq);
+    });
+
+    it(`is taken from that machine by the departure copy when ${how} after the editor restarts`, async () => {
+      const staged = await stage(false);
+      expect(await filesOn(staged.mini)).toMatchObject([{ id: "folder", root: ROOT }]);
+      queue.length = 0;
+      const macbook = await restart(staged.macbook, ["mini", MINI]);
+      // The change lands while the link is down: only the kept mark says the mini may hold the node.
+      await operator(macbook, change);
+      await macbook.runtime.runPromise(macbook.exchange.committed("factory"));
+      queue.length = 0;
+      await link(macbook, staged.mini);
+      expect(await filesOn(staged.mini)).toEqual([]);
+      const held = (await staged.mini.runtime.runPromise(Effect.flatMap(ModelService, (model) => model.canvas("factory")))).nodes;
+      expect(JSON.stringify([...held.values()])).not.toContain(ROOT);
+      // The departure copy clears the mark: no machine is left marked.
+      const marked = await macbook.runtime.runPromise(Effect.flatMap(WorkRepository, (repository) => repository.filesCarriedTo("factory")));
+      expect([...marked]).toEqual([]);
     });
 
     it(`leaves a machine with a seat there a stub with no root when ${how}`, async () => {

@@ -87,6 +87,24 @@ export const CANVAS_COPY_HISTORY_STATE_SCHEMA_SQL = `
 `;
 
 /**
+ * With files over SSH (0.12.1, X6, remote-security C2): the canvases each
+ * machine was last sent a Files node of whole, by the machine that edits
+ * them. A row means that machine may still hold the node and its root, so
+ * once it has no reason left it is sent the departure copy. Written in the
+ * transaction that records each copy sent: a copy carrying a Files node sets
+ * it, and the departure copy or a copy without one clears it, so a restart
+ * never loses it. Added by state migration 80 -> 81.
+ */
+export const CANVAS_FILES_CARRIED_STATE_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS canvas_files_carried (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    target TEXT NOT NULL CHECK (length(target) BETWEEN 1 AND 128),
+    seq INTEGER NOT NULL CHECK (seq BETWEEN 0 AND 9007199254740991),
+    PRIMARY KEY (canvas_name, target)
+  ) STRICT, WITHOUT ROWID;
+`;
+
+/**
  * Which machine each automation was on from which count to which, as the
  * machine that edits a canvas sent it in its copies: an automation is judged
  * as a seat is (`canvas_placements`), by its Automations node and its id,
