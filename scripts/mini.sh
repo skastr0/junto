@@ -9,6 +9,12 @@
 #   scripts/mini.sh book take <seat> <minutes> "<what>" | release <seat> | status
 #   scripts/mini.sh rm <folder>               remove the checkout when you are done
 #
+# The mini is for GPU checks only (operator, 2026-11-25): the GPU canvas
+# ladder, texel, atlas, frame and paint proofs, anything that needs the real
+# GPU. `at`, `put` and `run` refuse unless the call says it is one: put --gpu
+# first (scripts/mini.sh --gpu run <folder> ...) or set MINI_GPU=1. Every other
+# real-app run goes to a VM (scripts/vm.sh), under the Linux display.
+#
 # A checkout holds exactly one commit: git worktree of the mini's rig repo
 # (~/junto-perf/repo.git), never the shared checkout's working tree. A sync
 # sends only the commits the mini lacks, as a git bundle. node_modules is an
@@ -44,6 +50,26 @@ remote() { # remote <shell…>: run on the mini with its tools on PATH
   ssh "$MINI" "export PATH=\$HOME/.local/share/mise/shims:/opt/homebrew/bin:\$PATH JUNTO_E2E_SHOW=\${JUNTO_E2E_SHOW:-1}; $*"
 }
 
+# --gpu first, or MINI_GPU=1: the call says it needs the real GPU.
+if [ "${1:-}" = "--gpu" ]; then MINI_GPU=1; shift; fi
+case "${1:-}" in
+  at|put|run)
+    if [ "${MINI_GPU:-}" != 1 ]; then
+      seat=${2:-<seat>}; [ "${1}" = at ] || seat='<seat>'
+      cat >&2 <<REFUSED
+mini.sh: refused. The Mac mini is for GPU checks only (operator, 2026-11-25): the GPU canvas
+ladder, texel, atlas, frame and paint proofs, anything that needs the real GPU. A unit run, a
+build, or a real-app e2e that does not need the GPU belongs on a VM, where the app runs under
+the Linux display:
+  id=\$(VM_SEAT=$seat scripts/vm.sh pool tech)
+  VM_SEAT=$seat scripts/vm.sh sync \$id HEAD [your uncommitted paths]
+  VM_SEAT=$seat scripts/vm.sh run \$id 'bun run cli:build && scripts/run-e2e.sh <spec>'
+If this run does need the real GPU, say so: scripts/mini.sh --gpu $* , or MINI_GPU=1 in front.
+REFUSED
+      exit 2
+    fi
+    ;;
+esac
 case "${1:-}" in
   at)
     seat=${2:?seat name}
