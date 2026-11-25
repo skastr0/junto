@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use rustix::process::getuid;
 
+use super::Check;
 use super::Refused;
 
 /// What the window's machine writes to this one's stdin.
@@ -95,16 +96,17 @@ fn owned_dir(path: &Path) -> Result<PathBuf, Refused> {
     make_private_directories(path)?;
     let metadata = fs::symlink_metadata(path).map_err(Refused::from)?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
-        return Err(Refused::new(format!(
-            "Not a real directory: {}",
-            path.display()
-        )));
+        return Err(
+            Refused::new(format!("Not a real directory: {}", path.display()))
+                .with_check(Check::MachinePathUnsafe),
+        );
     }
     if metadata.uid() != getuid().as_raw() || metadata.mode() & 0o077 != 0 {
         return Err(Refused::new(format!(
             "Boat files must be this user's alone: {}",
             path.display()
-        )));
+        ))
+        .with_check(Check::MachinePathUnsafe));
     }
     Ok(path.to_path_buf())
 }
@@ -166,7 +168,10 @@ pub fn place_machine_key(
     junto_home: &Path,
     delivery: &BoatMachineKeyDelivery,
 ) -> Result<(), Refused> {
-    let refused = || Refused::new("The machine key could not be written in this Junto home");
+    let refused = || {
+        Refused::new("The machine key could not be written in this Junto home")
+            .with_check(Check::BoatKeyNotPlaced)
+    };
     if !delivery.admitted() {
         return Err(refused());
     }

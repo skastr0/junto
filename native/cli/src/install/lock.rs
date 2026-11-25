@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use rustix::fs::{FlockOperation, OFlags};
 use rustix::process::getuid;
 
+use super::Check;
 use super::Refused;
 use super::paths::{ensure_machine_directory, machine_home_path, owned_machine_file};
 
@@ -23,15 +24,17 @@ pub fn admit_install_lock_root(root: &Path, expected_owner: &str) -> Result<Path
     let root = machine_home_path(root, false)?;
     let marker = root.join("owner.json");
     if !owned_machine_file(&marker)? {
-        return Err(Refused::new(
-            "This folder belongs to another Junto installation",
-        ));
+        return Err(
+            Refused::new("This folder belongs to another Junto installation")
+                .with_check(Check::InstallFolderNotOurs),
+        );
     }
     let held = fs::read_to_string(&marker).map_err(Refused::from)?;
     if held != expected_owner {
-        return Err(Refused::new(
-            "This folder belongs to another Junto installation",
-        ));
+        return Err(
+            Refused::new("This folder belongs to another Junto installation")
+                .with_check(Check::InstallFolderNotOurs),
+        );
     }
     Ok(root)
 }
@@ -43,7 +46,8 @@ pub fn acquire_install_lock(root: &Path) -> Result<InstallLock, Refused> {
         Some(lease) => Ok(lease),
         None => Err(Refused::new(
             "Junto is already being sent to this machine. Wait for it to finish, then send again",
-        )),
+        )
+        .with_check(Check::SendInProgress)),
     }
 }
 
@@ -65,7 +69,10 @@ fn take_install_lock(root: &Path) -> Result<Option<InstallLock>, Refused> {
             OFlags::CREATE | OFlags::RDWR | OFlags::NOFOLLOW | OFlags::CLOEXEC,
             rustix::fs::Mode::from_bits_truncate(0o600),
         )
-        .map_err(|error| Refused::new(format!("{}: {error}", path.display())))?;
+        .map_err(|error| {
+            Refused::new(format!("{}: {error}", path.display()))
+                .with_check(Check::InstallLeaseUnavailable)
+        })?;
         fs::File::from(fd)
     };
     {
@@ -77,7 +84,8 @@ fn take_install_lock(root: &Path) -> Result<Option<InstallLock>, Refused> {
         {
             return Err(Refused::new(
                 "The install lock is not owned by Junto. Choose another install folder",
-            ));
+            )
+            .with_check(Check::InstallFolderNotOurs));
         }
     }
     match rustix::fs::flock(&file, FlockOperation::NonBlockingLockExclusive) {
@@ -85,7 +93,7 @@ fn take_install_lock(root: &Path) -> Result<Option<InstallLock>, Refused> {
         Err(rustix::io::Errno::WOULDBLOCK) => Ok(None),
         Err(errno) => Err(Refused::new(format!(
             "The system install lease is unavailable. Check this machine's operating system: {errno}"
-        ))),
+        )).with_check(Check::InstallLeaseUnavailable)),
     }
 }
 
@@ -104,9 +112,10 @@ pub fn write_owner_marker(install_root: &Path, body: &str) -> Result<(), Refused
     if owned_machine_file(&marker)? {
         let held = fs::read_to_string(&marker).map_err(Refused::from)?;
         if held != body {
-            return Err(Refused::new(
-                "install directory belongs to another machine home",
-            ));
+            return Err(
+                Refused::new("install directory belongs to another machine home")
+                    .with_check(Check::InstallFolderNotOurs),
+            );
         }
         return Ok(());
     }

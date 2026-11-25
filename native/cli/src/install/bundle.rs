@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use super::Check;
 use super::Refused;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,7 +112,8 @@ pub fn bundle_files(root: &Path) -> Result<Vec<BundleFile>, Refused> {
             } else {
                 return Err(Refused::new(format!(
                     "bundle contains a link or special file: {text}"
-                )));
+                ))
+                .with_check(Check::BundleSpecialFile));
             }
         }
     }
@@ -123,69 +125,82 @@ pub fn bundle_files(root: &Path) -> Result<Vec<BundleFile>, Refused> {
 pub fn inspect_bundle(root: &Path) -> Result<Manifest, Refused> {
     let directory = fs::symlink_metadata(root).map_err(Refused::from)?;
     if !directory.is_dir() || directory.file_type().is_symlink() {
-        return Err(Refused::new("bundle must be a directory, not a link"));
+        return Err(Refused::new("bundle must be a directory, not a link")
+            .with_check(Check::BundleNotDirectory));
     }
     let manifest_path = root.join("manifest.json");
     let metadata = fs::symlink_metadata(&manifest_path).map_err(Refused::from)?;
     if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return Err(Refused::new("bundle manifest must be a regular file"));
+        return Err(Refused::new("bundle manifest must be a regular file")
+            .with_check(Check::BundleManifestInvalid));
     }
     let text = fs::read_to_string(&manifest_path).map_err(Refused::from)?;
     let manifest: Manifest = serde_json::from_str(&text).map_err(|error| {
         Refused::new(format!(
             "the bundle manifest is not what this build expects: {error}"
         ))
+        .with_check(Check::BundleManifestInvalid)
     })?;
     if !hex64(&manifest.build) {
-        return Err(Refused::new("the bundle manifest build is not a build id"));
+        return Err(Refused::new("the bundle manifest build is not a build id")
+            .with_check(Check::BundleManifestInvalid));
     }
     if manifest.target != "darwin-arm64" && manifest.target != "linux-x64" {
-        return Err(Refused::new(
-            "the bundle manifest target is not one Junto builds",
-        ));
+        return Err(
+            Refused::new("the bundle manifest target is not one Junto builds")
+                .with_check(Check::BundleManifestInvalid),
+        );
     }
     if manifest.files.len() > 128 {
-        return Err(Refused::new("the bundle manifest lists too many files"));
+        return Err(Refused::new("the bundle manifest lists too many files")
+            .with_check(Check::BundleManifestInvalid));
     }
     for file in &manifest.files {
         if !bundle_path(&file.path) {
             return Err(Refused::new(format!(
                 "the bundle manifest names a path it may not hold: {}",
                 file.path
-            )));
+            ))
+            .with_check(Check::BundleManifestInvalid));
         }
         if file.mode > 0o777 {
             return Err(Refused::new(format!(
                 "the bundle manifest names modes outside 0777: {}",
                 file.path
-            )));
+            ))
+            .with_check(Check::BundleManifestInvalid));
         }
         if !hex64(&file.sha256) {
             return Err(Refused::new(format!(
                 "the bundle manifest names no sha256 for {}",
                 file.path
-            )));
+            ))
+            .with_check(Check::BundleManifestInvalid));
         }
     }
     if manifest.files.iter().any(|file| file.mode & 0o022 != 0) {
         return Err(Refused::new(
             "bundle files must not be writable by others; rebuild this machine package",
-        ));
+        )
+        .with_check(Check::BundleWritableByOthers));
     }
     let found = bundle_files(root)?;
     if found != manifest.files {
-        return Err(Refused::new("bundle files do not match the manifest"));
+        return Err(Refused::new("bundle files do not match the manifest")
+            .with_check(Check::BundleMismatch));
     }
     for required in ["bin/node", "bin/junto", "core/junto.cjs"] {
         let Some(file) = found.iter().find(|file| file.path == required) else {
             return Err(Refused::new(format!(
                 "bundle is missing an executable or entry: {required}"
-            )));
+            ))
+            .with_check(Check::BundleMismatch));
         };
         if required.starts_with("bin/") && file.mode & 0o111 == 0 {
             return Err(Refused::new(format!(
                 "bundle is missing an executable or entry: {required}"
-            )));
+            ))
+            .with_check(Check::BundleMismatch));
         }
     }
     Ok(manifest)

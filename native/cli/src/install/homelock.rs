@@ -19,6 +19,7 @@ use std::path::Path;
 use rustix::fs::{Mode, OFlags};
 use rustix::process::getuid;
 
+use super::Check;
 use super::Refused;
 
 /// Fixed words: a boot or an installer that meets a held lock says what to do.
@@ -42,6 +43,7 @@ pub fn try_lock_home_database(state_directory: &Path) -> Result<Option<HomeDatab
         Refused::new(
             "home.lock is not a home lock. No core can hold it: remove it and start Junto again",
         )
+        .with_check(Check::HomeLockRefused)
     })?;
     match bind_socket(&id, &file) {
         Ok(socket) => Ok(Some(HomeDatabaseLock {
@@ -65,24 +67,28 @@ fn prepare_state_directory(state_directory: &Path) -> Result<(), Refused> {
                 "the state directory could not be made: {}: {error}",
                 state_directory.display()
             ))
+            .with_check(Check::DatabaseNotPrivate)
         })?;
     let metadata = fs::symlink_metadata(state_directory).map_err(|error| {
         Refused::new(format!(
             "the state directory could not be read: {}: {error}",
             state_directory.display()
         ))
+        .with_check(Check::DatabaseNotPrivate)
     })?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         return Err(Refused::new(format!(
             "the state directory is not a real directory: {}",
             state_directory.display()
-        )));
+        ))
+        .with_check(Check::DatabaseNotPrivate));
     }
     if metadata.uid() != getuid().as_raw() || metadata.mode() & 0o022 != 0 {
         return Err(Refused::new(format!(
             "the state directory is not this user's alone: {}",
             state_directory.display()
-        )));
+        ))
+        .with_check(Check::DatabaseNotPrivate));
     }
     Ok(())
 }
@@ -99,7 +105,8 @@ fn open_home_lock(state_directory: &Path) -> Result<fs::File, Refused> {
             make_home_lock(state_directory, &path)?;
         }
         Err(error) => {
-            return Err(Refused::new(format!("{}: {error}", path.display())));
+            return Err(Refused::new(format!("{}: {error}", path.display()))
+                .with_check(Check::HomeLockRefused));
         }
     }
     let fd = rustix::fs::open(
@@ -107,7 +114,9 @@ fn open_home_lock(state_directory: &Path) -> Result<fs::File, Refused> {
         OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
         Mode::empty(),
     )
-    .map_err(|error| Refused::new(format!("{}: {error}", path.display())))?;
+    .map_err(|error| {
+        Refused::new(format!("{}: {error}", path.display())).with_check(Check::HomeLockRefused)
+    })?;
     let file = fs::File::from(fd);
     // A maker killed between its link and its unlink leaves a second name for
     // the same inode. It is the maker's own temp in a directory group and other
@@ -152,7 +161,8 @@ fn clear_maker_temps(state_directory: &Path, file: &fs::File) -> Result<(), Refu
                 return Err(Refused::new(format!(
                     "a maker temp of the home lock could not be cleared: {}: {error}",
                     path.display()
-                )));
+                ))
+                .with_check(Check::HomeLockRefused));
             }
         }
     }
@@ -169,7 +179,9 @@ fn make_home_lock(state_directory: &Path, path: &Path) -> Result<(), Refused> {
         OFlags::CREATE | OFlags::EXCL | OFlags::WRONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
         Mode::from_bits_truncate(0o600),
     )
-    .map_err(|error| Refused::new(format!("{}: {error}", temporary.display())))?;
+    .map_err(|error| {
+        Refused::new(format!("{}: {error}", temporary.display())).with_check(Check::HomeLockRefused)
+    })?;
     let file = fs::File::from(file);
     file.set_permissions(fs::Permissions::from_mode(0o600))
         .map_err(Refused::from)?;
@@ -184,7 +196,10 @@ fn make_home_lock(state_directory: &Path, path: &Path) -> Result<(), Refused> {
         Ok(()) => Ok(()),
         // Someone else made the lock first: this read takes their id.
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
-        Err(error) => Err(Refused::new(format!("{}: {error}", path.display()))),
+        Err(error) => {
+            Err(Refused::new(format!("{}: {error}", path.display()))
+                .with_check(Check::HomeLockRefused))
+        }
     }
 }
 
@@ -202,7 +217,8 @@ fn check_lock_file(file: &fs::File) -> Result<(), Refused> {
     {
         return Err(Refused::new(
             "home.lock is not this user's alone. Remove it and start Junto again",
-        ));
+        )
+        .with_check(Check::HomeLockRefused));
     }
     Ok(())
 }
@@ -212,7 +228,10 @@ fn random_id() -> Result<[u8; ID_BYTES], Refused> {
     let mut id = [0u8; ID_BYTES];
     fs::File::open("/dev/urandom")
         .and_then(|mut source| source.read_exact(&mut id))
-        .map_err(|error| Refused::new(format!("a home lock id could not be made: {error}")))?;
+        .map_err(|error| {
+            Refused::new(format!("a home lock id could not be made: {error}"))
+                .with_check(Check::HomeLockRefused)
+        })?;
     Ok(id)
 }
 
@@ -248,11 +267,18 @@ fn bind_socket(id: &[u8; ID_BYTES], _file: &fs::File) -> Result<Socket, Held> {
     use std::os::linux::net::SocketAddrExt;
 
     let name = format!("junto-home-{}", hex(id));
-    let address = std::os::unix::net::SocketAddr::from_abstract_name(name.as_bytes())
-        .map_err(|error| Held::Refused(Refused::new(format!("the home lock address: {error}"))))?;
+    let address =
+        std::os::unix::net::SocketAddr::from_abstract_name(name.as_bytes()).map_err(|error| {
+            Held::Refused(
+                Refused::new(format!("the home lock address: {error}"))
+                    .with_check(Check::HomeLockRefused),
+            )
+        })?;
     let listener = Socket::bind_addr(&address).map_err(|error| match error.kind() {
         std::io::ErrorKind::AddrInUse => Held::Held,
-        _ => Held::Refused(Refused::new(format!("the home lock: {error}"))),
+        _ => Held::Refused(
+            Refused::new(format!("the home lock: {error}")).with_check(Check::HomeLockRefused),
+        ),
     })?;
     // Nothing spawned by this process may inherit the lock.
     let _ = rustix::io::fcntl_setfd(&listener, rustix::io::FdFlags::CLOEXEC);
@@ -271,9 +297,9 @@ fn bind_socket(_id: &[u8; ID_BYTES], file: &fs::File) -> Result<Socket, Held> {
     match rustix::fs::flock(file, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
         Ok(()) => Ok(()),
         Err(rustix::io::Errno::WOULDBLOCK) => Err(Held::Held),
-        Err(errno) => Err(Held::Refused(Refused::new(format!(
-            "the home lock: {errno}"
-        )))),
+        Err(errno) => Err(Held::Refused(
+            Refused::new(format!("the home lock: {errno}")).with_check(Check::HomeLockRefused),
+        )),
     }
 }
 

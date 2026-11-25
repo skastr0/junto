@@ -16,6 +16,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::Check;
 use super::Refused;
 
 const PROTOCOL: u64 = 1;
@@ -38,6 +39,9 @@ pub enum Hold {
     },
     /// Sessions were killed and at least one was still there at the bound.
     SeatsStillRunning(u32),
+    /// The lease is held by another maintenance and no seat is running, so
+    /// this is not the operator's confirm: the install lease is unavailable.
+    LeaseUnavailable,
     Unknown,
 }
 
@@ -265,11 +269,17 @@ fn hold_with(junto_home: &Path, stop_running_seats: bool, stop_bound: Duration) 
             let running = data
                 .get("evidence")
                 .and_then(|evidence| evidence.get("activeTerminalSessions"))
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-                .min(u32::MAX as u64) as u32;
-            Hold::Refused {
-                running_seats: running,
+                .and_then(Value::as_u64);
+            match running {
+                // No count is not zero: the window confirms on unknown, and the
+                // code says the far side did not report it.
+                None => Hold::Unknown,
+                // A refused lease with no seat running is another maintenance
+                // holding it, never a confirm the window would not offer.
+                Some(0) => Hold::LeaseUnavailable,
+                Some(running) => Hold::Refused {
+                    running_seats: running.min(u32::MAX as u64) as u32,
+                },
             }
         }
         None => Hold::Unknown,
@@ -299,7 +309,16 @@ pub fn seats_did_not_stop(count: u32) -> Refused {
             "{count} seats on this machine did not stop when they were asked to, so nothing was changed. Check this machine before sending again"
         )
     };
-    Refused::new(message)
+    Refused::new(message).with_check(Check::SeatsDidNotStop)
+}
+
+/// The refusal another maintenance's lease earns: no seat is running, so the
+/// operator is not asked to confirm, and the code says the lease is not ours.
+pub fn install_lease_unavailable() -> Refused {
+    Refused::new(
+        "Another maintenance holds this machine's install lease, so nothing was changed. Check this machine before sending again",
+    )
+    .with_check(Check::InstallLeaseUnavailable)
 }
 
 /// The refusal an unanswered socket earns.
@@ -307,6 +326,7 @@ pub fn running_seats_unknown() -> Refused {
     Refused::with_running_seats_unknown(
         "This machine's Junto did not answer how many seats it runs, so nothing was stopped or changed. Check this machine before updating",
     )
+    .with_check(Check::RunningSeatsUnreported)
 }
 
 #[cfg(test)]
@@ -532,5 +552,131 @@ mod tests {
         assert!(running_seats_refusal(1).message.contains("One seat is"));
         assert!(running_seats_refusal(3).message.contains("3 seats are"));
         assert!(running_seats_unknown().message.contains("did not answer"));
+    }
+    /// A term control socket that answers the handshake and then refuses the
+    /// lease with the evidence the test names: no count, zero, or N seats.
+    fn refused_lease(
+        home: &Path,
+        evidence: Value,
+    ) -> (Arc<Mutex<Vec<String>>>, std::thread::JoinHandle<()>) {
+        use std::io::{BufRead, BufReader, Write};
+        use std::os::unix::net::UnixListener;
+
+        let term = home.join(".junto/term");
+        std::fs::create_dir_all(&term).expect("a term directory");
+        let token: String = std::iter::repeat_n('a', 64).collect();
+        std::fs::write(term.join("token"), &token).expect("a token");
+        let socket = term.join("control.sock");
+        let _ = std::fs::remove_file(&socket);
+        let listener = UnixListener::bind(&socket).expect("the control socket");
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let record = seen.clone();
+        let handle = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("a client");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            let mut writer = stream;
+            loop {
+                let mut line = String::new();
+                match reader.read_line(&mut line) {
+                    Ok(0) | Err(_) => return,
+                    Ok(_) => {}
+                }
+                let request: Value = match serde_json::from_str(line.trim()) {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                };
+                if request.get("token").is_some() {
+                    record.lock().expect("seen").push("auth".to_string());
+                    let _ = writeln!(
+                        writer,
+                        "{}",
+                        json!({ "v": PROTOCOL, "ok": true, "id": "auth" })
+                    );
+                    continue;
+                }
+                let id = request.get("id").cloned().unwrap_or(Value::Null);
+                let op = request
+                    .get("op")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                record.lock().expect("seen").push(op.to_string());
+                let data = match op {
+                    "maintenance.acquire" => {
+                        json!({ "acquired": false, "evidence": evidence.clone() })
+                    }
+                    other => panic!("unexpected op {other}"),
+                };
+                let _ = writeln!(
+                    writer,
+                    "{}",
+                    json!({ "v": PROTOCOL, "ok": true, "id": id, "data": data })
+                );
+            }
+        });
+        (seen, handle)
+    }
+
+    #[test]
+    fn a_refused_lease_with_no_count_is_unknown_and_carries_the_unreported_code() {
+        let home = scratch("refused-no-count");
+        let (seen, server) = refused_lease(&home, json!({}));
+        match hold_with(&home, false, Duration::from_secs(1)) {
+            Hold::Unknown => {}
+            _ => panic!("a missing count is unknown, never zero"),
+        }
+        let operations = seen.lock().expect("seen").clone();
+        assert_eq!(operations.first().map(String::as_str), Some("auth"));
+        assert!(
+            !operations.iter().any(|op| op == "kill"),
+            "no seat is killed for a lease refusal: {operations:?}"
+        );
+        let refused = running_seats_unknown();
+        assert!(refused.running_seats_unknown);
+        assert_eq!(refused.running_seats, None);
+        assert_eq!(refused.check, Some(Check::RunningSeatsUnreported));
+        drop(server);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_refused_lease_with_zero_seats_is_the_install_lease_unavailable() {
+        let home = scratch("refused-zero");
+        let (seen, server) = refused_lease(&home, json!({ "activeTerminalSessions": 0 }));
+        match hold_with(&home, false, Duration::from_secs(1)) {
+            Hold::LeaseUnavailable => {}
+            _ => panic!("zero is a held lease, not a seat confirm"),
+        }
+        let operations = seen.lock().expect("seen").clone();
+        assert!(
+            !operations.iter().any(|op| op == "kill"),
+            "a held lease kills no seat: {operations:?}"
+        );
+        let refused = install_lease_unavailable();
+        assert_eq!(refused.running_seats, None);
+        assert!(!refused.running_seats_unknown);
+        assert_eq!(refused.check, Some(Check::InstallLeaseUnavailable));
+        drop(server);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_refused_lease_with_seats_keeps_the_confirm() {
+        let home = scratch("refused-n");
+        let (seen, server) = refused_lease(&home, json!({ "activeTerminalSessions": 3 }));
+        match hold_with(&home, false, Duration::from_secs(1)) {
+            Hold::Refused { running_seats: 3 } => {}
+            _ => panic!("a positive count is the operator's confirm"),
+        }
+        let operations = seen.lock().expect("seen").clone();
+        assert!(
+            !operations.iter().any(|op| op == "kill"),
+            "the confirm comes first: {operations:?}"
+        );
+        let refused = running_seats_refusal(3);
+        assert_eq!(refused.running_seats, Some(3));
+        assert!(!refused.running_seats_unknown);
+        assert_eq!(refused.check, None);
+        drop(server);
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

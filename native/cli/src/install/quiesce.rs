@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use regex::Regex;
 
+use super::Check;
 use super::Refused;
 use super::run::{self, PS_BOUND, PS_MAX_BYTES};
 use super::service::{Observed, Provider, Service};
@@ -99,7 +100,8 @@ pub fn quiesce_machine_service(
 ) -> Result<Quiesced, Refused> {
     if !before.loaded {
         if before.pid != 0 {
-            return Err(Refused::new("absent service reported a running process"));
+            return Err(Refused::new("absent service reported a running process")
+                .with_check(Check::ServiceNotQuiescent));
         }
         return Ok(Quiesced {
             service: "absent",
@@ -113,9 +115,10 @@ pub fn quiesce_machine_service(
         match epoch_of(before.pid) {
             Some(rows) => rows.into_iter().next(),
             None => {
-                return Err(Refused::new(
-                    "cannot establish the incumbent process identity",
-                ));
+                return Err(
+                    Refused::new("cannot establish the incumbent process identity")
+                        .with_check(Check::ServiceNotQuiescent),
+                );
             }
         }
     } else {
@@ -132,14 +135,16 @@ pub fn quiesce_machine_service(
         if Instant::now() >= deadline {
             return Err(Refused::new(
                 "incumbent process exit is unconfirmed; inspect machine status before recovering forward",
-            ));
+            ).with_check(Check::ServiceNotQuiescent));
         }
         std::thread::sleep(Duration::from_millis(100));
     }
     let stopped = service.observe()?;
     let still_loaded = service.provider() == Provider::Launchd && stopped.loaded;
     if stopped.pid != 0 || still_loaded {
-        return Err(Refused::new("service did not become quiescent"));
+        return Err(
+            Refused::new("service did not become quiescent").with_check(Check::ServiceNotQuiescent)
+        );
     }
     Ok(Quiesced {
         pid: epoch.as_ref().map(|epoch| epoch.pid),

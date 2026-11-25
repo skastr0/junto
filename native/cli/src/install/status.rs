@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
+use super::Check;
 use super::Refused;
 use super::run;
 
@@ -44,12 +45,15 @@ pub fn read_installed_status(directory: &Path, junto_home: &Path) -> Result<OwnS
         STATUS_BOUND,
         STATUS_MAX_BYTES,
     )
-    .map_err(|error| Refused::new(format!("{program}: {error}")))?;
+    .map_err(|error| {
+        Refused::new(format!("{program}: {error}")).with_check(Check::StatusUnreadable)
+    })?;
     if completed.timed_out {
         return Err(Refused::new(format!(
             "{program} did not answer within {} seconds",
             STATUS_BOUND.as_secs()
-        )));
+        ))
+        .with_check(Check::StatusUnreadable));
     }
     if completed.status != Some(0) {
         let said = completed.stderr.trim();
@@ -60,16 +64,19 @@ pub fn read_installed_status(directory: &Path, junto_home: &Path) -> Result<OwnS
             )
         } else {
             said.to_string()
-        }));
+        })
+        .with_check(Check::StatusUnreadable));
     }
     let envelope: Envelope = serde_json::from_str(completed.stdout.trim()).map_err(|error| {
         Refused::new(format!("machine status answered something else: {error}"))
+            .with_check(Check::StatusUnreadable)
     })?;
     match (envelope.ok, envelope.command.as_str(), envelope.data) {
         (true, "machine status", Some(data)) => Ok(data),
         _ => Err(Refused::new(
             "machine status answered something other than this machine's own status",
-        )),
+        )
+        .with_check(Check::StatusUnreadable)),
     }
 }
 

@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 use rustix::fs::OFlags;
 use rustix::process::getuid;
 
+use super::Check;
 use super::Refused;
 
 pub const DATABASE: &str = "junto.db";
@@ -59,16 +60,17 @@ fn owned_regular_file(path: &Path) -> Result<bool, Refused> {
         Err(error) => return Err(Refused::new(error.to_string())),
     };
     if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err(Refused::new(format!(
-            "not a regular file: {}",
-            path.display()
-        )));
+        return Err(
+            Refused::new(format!("not a regular file: {}", path.display()))
+                .with_check(Check::DatabaseNotPrivate),
+        );
     }
     if metadata.uid() != getuid().as_raw() || metadata.mode() & 0o077 != 0 {
         return Err(Refused::new(format!(
             "not owned by this user with private modes: {}",
             path.display()
-        )));
+        ))
+        .with_check(Check::DatabaseNotPrivate));
     }
     Ok(true)
 }
@@ -81,18 +83,21 @@ fn check_private_directory(path: &Path, what: &str) -> Result<(), Refused> {
             "{what} could not be read: {}: {error}",
             path.display()
         ))
+        .with_check(Check::DatabaseNotPrivate)
     })?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         return Err(Refused::new(format!(
             "{what} is not a real directory: {}",
             path.display()
-        )));
+        ))
+        .with_check(Check::DatabaseNotPrivate));
     }
     if metadata.uid() != getuid().as_raw() || metadata.mode() & 0o077 != 0 {
         return Err(Refused::new(format!(
             "{what} is not this user's alone: {}",
             path.display()
-        )));
+        ))
+        .with_check(Check::DatabaseNotPrivate));
     }
     Ok(())
 }
@@ -115,7 +120,10 @@ fn random_uuid() -> Result<String, Refused> {
     let mut bytes = [0u8; 16];
     fs::File::open("/dev/urandom")
         .and_then(|mut source| source.read_exact(&mut bytes))
-        .map_err(|error| Refused::new(format!("a restore id could not be made: {error}")))?;
+        .map_err(|error| {
+            Refused::new(format!("a restore id could not be made: {error}"))
+                .with_check(Check::DatabaseCopyFailed)
+        })?;
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     let hex: Vec<String> = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -146,7 +154,10 @@ fn copy_member(source: &Path, destination: &Path) -> Result<(), Refused> {
             OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
             rustix::fs::Mode::empty(),
         )
-        .map_err(|error| Refused::new(format!("{}: {error}", source.display())))?;
+        .map_err(|error| {
+            Refused::new(format!("{}: {error}", source.display()))
+                .with_check(Check::DatabaseCopyFailed)
+        })?;
         fs::File::from(fd)
     };
     let mut to = {
@@ -155,7 +166,10 @@ fn copy_member(source: &Path, destination: &Path) -> Result<(), Refused> {
             OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
             rustix::fs::Mode::from_bits_truncate(0o600),
         )
-        .map_err(|error| Refused::new(format!("{}: {error}", destination.display())))?;
+        .map_err(|error| {
+            Refused::new(format!("{}: {error}", destination.display()))
+                .with_check(Check::DatabaseCopyFailed)
+        })?;
         fs::File::from(fd)
     };
     let mut buffer = vec![0u8; COPY_CHUNK];
@@ -254,7 +268,8 @@ pub fn write_restore_marker(point: &RestorePoint) -> Result<(), Refused> {
         return Err(Refused::new(format!(
             "the restore marker is not a private regular file: {}",
             marker.display()
-        )));
+        ))
+        .with_check(Check::DatabaseNotPrivate));
     }
     sync_directory(&point.state_directory)
 }
@@ -296,7 +311,8 @@ pub fn restore_database_marker(point: &RestorePoint) -> Result<(), Refused> {
             return Err(Refused::new(format!(
                 "the restore has neither its kept {name} nor a restored one: {}",
                 point.directory.display()
-            )));
+            ))
+            .with_check(Check::RestoreInterrupted));
         }
     }
     sync_directory(&point.state_directory)?;
@@ -331,6 +347,7 @@ fn read_marker(state_directory: &Path, name: &str, id: &str) -> Result<Vec<Strin
         Refused::new(format!(
             "the database restore marker {name} {why}; inspect it before starting Junto"
         ))
+        .with_check(Check::RestoreInterrupted)
     };
     if !owned_regular_file(&path)? {
         return Err(refused("is not a private regular file"));
@@ -419,7 +436,7 @@ pub fn finish_interrupted_restore(state_directory: &Path) -> Result<Option<PathB
         return Err(Refused::new(format!(
             "more than one database restore was interrupted in {}; inspect them before starting Junto",
             state_directory.display()
-        )));
+        )).with_check(Check::RestoreInterrupted));
     }
     check_state_directory(state_directory)?;
     let name = markers[0].clone();
@@ -433,7 +450,7 @@ pub fn finish_interrupted_restore(state_directory: &Path) -> Result<Option<PathB
         return Err(Refused::new(format!(
             "a database restore was interrupted and its kept copy is missing at {}; inspect it before starting Junto",
             directory.display()
-        )));
+        )).with_check(Check::RestoreInterrupted));
     }
     check_private_directory(&directory, "the kept copy")?;
     let members = read_marker(state_directory, &name, &id)?;

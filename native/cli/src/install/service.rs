@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+use super::Check;
 use super::Refused;
 use super::paths::{
     home, owned_machine_file, remove_machine_service_file, write_machine_service_file,
@@ -45,18 +46,20 @@ pub trait Service {
 /// systemctl targets, so nothing else is ever accepted.
 pub fn admit_label(label: &str) -> Result<(), Refused> {
     let Some(rest) = label.strip_prefix("dev.junto.machine.") else {
-        return Err(Refused::new(
-            "The machine service label is not one Junto minted",
-        ));
+        return Err(
+            Refused::new("The machine service label is not one Junto minted")
+                .with_check(Check::ServiceNotOurs),
+        );
     };
     if rest.len() != 16
         || !rest
             .chars()
             .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&(c as u8)))
     {
-        return Err(Refused::new(
-            "The machine service label is not one Junto minted",
-        ));
+        return Err(
+            Refused::new("The machine service label is not one Junto minted")
+                .with_check(Check::ServiceNotOurs),
+        );
     }
     Ok(())
 }
@@ -161,7 +164,8 @@ pub fn machine_service(
             Box::new(System),
         )));
     }
-    Err(Refused::new("machine services support macOS and Linux"))
+    Err(Refused::new("machine services support macOS and Linux")
+        .with_check(Check::ServicePlatformUnsupported))
 }
 
 fn uid() -> u32 {
@@ -260,9 +264,10 @@ impl Launchd {
         }
         let value = fs::read_to_string(&self.file).map_err(Refused::from)?;
         if value != self.background && value != self.aqua {
-            return Err(Refused::new(
-                "existing service definition belongs to a different install",
-            ));
+            return Err(
+                Refused::new("existing service definition belongs to a different install")
+                    .with_check(Check::ServiceNotOurs),
+            );
         }
         Ok(Some(value))
     }
@@ -301,9 +306,10 @@ impl Launchd {
                 || !has(&home_line)
                 || !arguments_match
             {
-                return Err(Refused::new(
-                    "loaded service does not belong to this install",
-                ));
+                return Err(
+                    Refused::new("loaded service does not belong to this install")
+                        .with_check(Check::ServiceNotOurs),
+                );
             }
             jobs.push(Job {
                 domain: candidate,
@@ -324,9 +330,10 @@ impl Launchd {
             return Ok(());
         };
         if current.pid != job.pid || current.definition != job.definition {
-            return Err(Refused::new(
-                "service changed after admission; stopping refused",
-            ));
+            return Err(
+                Refused::new("service changed after admission; stopping refused")
+                    .with_check(Check::ServiceNotOurs),
+            );
         }
         let target = format!("{}/{}", job.domain, self.label);
         self.runner
@@ -439,9 +446,10 @@ impl Service for Launchd {
                 admitted.pid != current.pid || admitted.definition != current.definition
             });
         if changed {
-            return Err(Refused::new(
-                "service changed after admission; stopping refused",
-            ));
+            return Err(
+                Refused::new("service changed after admission; stopping refused")
+                    .with_check(Check::ServiceNotOurs),
+            );
         }
         for job in jobs {
             self.quiesce_job(&job)?;
@@ -451,9 +459,10 @@ impl Service for Launchd {
 
     fn start(&mut self) -> Result<(), Refused> {
         if !self.snapshot()?.is_empty() {
-            return Err(Refused::new(
-                "Junto service must be quiescent before starting",
-            ));
+            return Err(
+                Refused::new("Junto service must be quiescent before starting")
+                    .with_check(Check::ServiceNotQuiescent),
+            );
         }
         let previous = self.definition()?;
         if let Some(previous) = previous.filter(|held| held != &self.desired) {
@@ -487,7 +496,8 @@ impl Service for Launchd {
         if !self.snapshot()?.is_empty() {
             return Err(Refused::new(
                 "Junto service must be quiescent before removing its definition",
-            ));
+            )
+            .with_check(Check::ServiceNotQuiescent));
         }
         if let Some(value) = self.definition()? {
             remove_machine_service_file(&self.file, &value)?;
@@ -541,9 +551,10 @@ impl Systemd {
         }
         let value = fs::read_to_string(&self.file).map_err(Refused::from)?;
         if value != self.body && value != self.legacy {
-            return Err(Refused::new(
-                "existing service definition belongs to a different install",
-            ));
+            return Err(
+                Refused::new("existing service definition belongs to a different install")
+                    .with_check(Check::ServiceNotOurs),
+            );
         }
         Ok(Some(value))
     }
@@ -634,16 +645,18 @@ impl Service for Systemd {
             || fragment != self.file.to_string_lossy()
             || !exec.contains(&format!("path={} ;", self.node))
         {
-            return Err(Refused::new(
-                "loaded service does not belong to this install",
-            ));
+            return Err(
+                Refused::new("loaded service does not belong to this install")
+                    .with_check(Check::ServiceNotOurs),
+            );
         }
         let digits = !pid_text.is_empty()
             && pid_text.chars().next().is_some_and(|c| c.is_ascii_digit())
             && !pid_text.starts_with('0')
             && pid_text.chars().all(|c| c.is_ascii_digit());
         if !digits && pid_text != "0" {
-            return Err(Refused::new("service returned an invalid process id"));
+            return Err(Refused::new("service returned an invalid process id")
+                .with_check(Check::ServiceNotOurs));
         }
         Ok(Observed {
             loaded: true,

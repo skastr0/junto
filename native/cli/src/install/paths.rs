@@ -9,6 +9,7 @@ use std::path::{Component, Path, PathBuf};
 
 use rustix::process::getuid;
 
+use super::Check;
 use super::Refused;
 
 /// The account home, resolved, as Node's homedir() names it.
@@ -64,7 +65,8 @@ fn owned(path: &Path, metadata: &fs::Metadata) -> Result<(), Refused> {
         return Err(Refused::new(format!(
             "machine path must be owned by this user and not writable by others: {}",
             path.display()
-        )));
+        ))
+        .with_check(Check::MachinePathUnsafe));
     }
     Ok(())
 }
@@ -96,13 +98,16 @@ pub fn resolve_path(value: impl AsRef<Path>) -> PathBuf {
 pub fn machine_home_path(value: impl AsRef<Path>, allow_home: bool) -> Result<PathBuf, Refused> {
     let home = fs::canonicalize(home()).map_err(|error| {
         Refused::new(format!("the account home could not be resolved: {error}"))
+            .with_check(Check::MachinePathUnsafe)
     })?;
     let path = resolve_path(value);
-    let suffix = path
-        .strip_prefix(&home)
-        .map_err(|_| Refused::new("machine files must live under the user home"))?;
+    let suffix = path.strip_prefix(&home).map_err(|_| {
+        Refused::new("machine files must live under the user home")
+            .with_check(Check::MachinePathUnsafe)
+    })?;
     if suffix.as_os_str().is_empty() && !allow_home {
-        return Err(Refused::new("machine files must live under the user home"));
+        return Err(Refused::new("machine files must live under the user home")
+            .with_check(Check::MachinePathUnsafe));
     }
     let mut component = home;
     for part in suffix.components() {
@@ -115,7 +120,8 @@ pub fn machine_home_path(value: impl AsRef<Path>, allow_home: bool) -> Result<Pa
             return Err(Refused::new(format!(
                 "machine directory is not a real directory: {}",
                 component.display()
-            )));
+            ))
+            .with_check(Check::MachinePathUnsafe));
         }
     }
     Ok(path)
@@ -126,6 +132,7 @@ pub fn ensure_machine_directory(path: &Path, allow_home: bool) -> Result<(), Ref
     let resolved = machine_home_path(path, allow_home)?;
     let home = fs::canonicalize(home()).map_err(|error| {
         Refused::new(format!("the account home could not be resolved: {error}"))
+            .with_check(Check::MachinePathUnsafe)
     })?;
     let mut component = home.clone();
     if let Ok(suffix) = resolved.strip_prefix(&home) {
@@ -141,6 +148,7 @@ pub fn ensure_machine_directory(path: &Path, allow_home: bool) -> Result<(), Ref
                             "machine directory could not be made: {}: {error}",
                             component.display()
                         ))
+                        .with_check(Check::MachinePathUnsafe)
                     })?,
             }
         }
@@ -159,7 +167,8 @@ pub fn owned_machine_file(path: &Path) -> Result<bool, Refused> {
         return Err(Refused::new(format!(
             "machine file is not a regular file: {}",
             path.display()
-        )));
+        ))
+        .with_check(Check::MachinePathUnsafe));
     }
     Ok(true)
 }
@@ -186,9 +195,10 @@ pub fn write_machine_service_file(file: &Path, body: &str) -> Result<(), Refused
     if owned_machine_file(file)? {
         let existing = fs::read_to_string(file).map_err(Refused::from)?;
         if existing != body {
-            return Err(Refused::new(
-                "existing service definition belongs to a different install",
-            ));
+            return Err(
+                Refused::new("existing service definition belongs to a different install")
+                    .with_check(Check::ServiceNotOurs),
+            );
         }
         return Ok(());
     }
@@ -210,7 +220,8 @@ pub fn remove_machine_service_file(file: &Path, body: &str) -> Result<(), Refuse
     }
     let existing = fs::read_to_string(file).map_err(Refused::from)?;
     if existing != body {
-        return Err(Refused::new("service definition changed; cleanup refused"));
+        return Err(Refused::new("service definition changed; cleanup refused")
+            .with_check(Check::ServiceNotOurs));
     }
     fs::remove_file(file).map_err(Refused::from)
 }

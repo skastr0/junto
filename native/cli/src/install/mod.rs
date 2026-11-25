@@ -8,6 +8,7 @@
 
 mod boat;
 mod bundle;
+mod check;
 mod hold;
 mod homelock;
 mod lock;
@@ -33,6 +34,7 @@ use crate::error::{ErrorType, Failure};
 use crate::input;
 
 use self::bundle::{BundleFile, Manifest, inspect_bundle};
+pub use self::check::Check;
 use self::paths::{ensure_machine_directory, machine_home_path, owned_machine_file};
 use self::service::Provider;
 use self::status::OwnStatus;
@@ -44,6 +46,7 @@ pub struct Refused {
     pub message: String,
     pub running_seats: Option<u32>,
     pub running_seats_unknown: bool,
+    pub check: Option<Check>,
 }
 
 impl Refused {
@@ -52,6 +55,7 @@ impl Refused {
             message: message.into(),
             running_seats: None,
             running_seats_unknown: false,
+            check: None,
         }
     }
 
@@ -67,6 +71,13 @@ impl Refused {
             running_seats_unknown: true,
             ..Refused::new(message)
         }
+    }
+
+    /// The closed code this refusal carries, for the window's words; the
+    /// message stays for logs.
+    pub fn with_check(mut self, check: Check) -> Self {
+        self.check = Some(check);
+        self
     }
 }
 
@@ -176,7 +187,7 @@ fn absolute_path(value: &str) -> Result<PathBuf, Refused> {
     if value.is_empty() || value.chars().count() > 2048 || !value.starts_with('/') || control {
         return Err(Refused::new(format!(
             "machine paths are absolute, at most 2048 characters, and hold no control character: {value}"
-        )));
+        )).with_check(Check::MachinePathUnsafe));
     }
     Ok(PathBuf::from(value))
 }
@@ -269,7 +280,8 @@ fn copy_bundle(source: &Path, destination: &Path, files: &[BundleFile]) -> Resul
             let target = destination.join(&child);
             let metadata = fs::symlink_metadata(&absolute).map_err(Refused::from)?;
             if target.exists() {
-                return Err(Refused::new("install copy destination already exists"));
+                return Err(Refused::new("install copy destination already exists")
+                    .with_check(Check::InstallFolderNotOurs));
             }
             if metadata.is_dir() && !metadata.file_type().is_symlink() {
                 fs::DirBuilder::new()
@@ -310,9 +322,10 @@ fn verify_generation(path: &Path, admitted: &Manifest) -> Result<(), Refused> {
     paths::check_machine_tree(path)?;
     let installed = inspect_bundle(path)?;
     if &installed != admitted {
-        return Err(Refused::new(
-            "installed bundle differs from the bundle this machine sent",
-        ));
+        return Err(
+            Refused::new("installed bundle differs from the bundle this machine sent")
+                .with_check(Check::BundleMismatch),
+        );
     }
     Ok(())
 }
@@ -438,15 +451,17 @@ fn install_flow_with(
         if owned_machine_file(&marker)? {
             let held = fs::read_to_string(&marker)?;
             if held != expected {
-                return Err(Refused::new(
-                    "install directory belongs to another machine home",
-                ));
+                return Err(
+                    Refused::new("install directory belongs to another machine home")
+                        .with_check(Check::InstallFolderNotOurs),
+                );
             }
         } else {
             if !lock::only_lock_here(&install_root)? {
                 return Err(Refused::new(
                     "install directory contains files not owned by this installation",
-                ));
+                )
+                .with_check(Check::InstallFolderNotOurs));
             }
             lock::write_owner_marker(&install_root, &expected)?;
         }
@@ -459,7 +474,8 @@ fn install_flow_with(
             return Err(Refused::new(format!(
                 "bundle {} does not match this machine",
                 manifest.target
-            )));
+            ))
+            .with_check(Check::BundleMismatch));
         }
         ensure_machine_directory(&junto_home, true)?;
         ensure_machine_directory(&install_root.join("logs"), false)?;
@@ -474,14 +490,16 @@ fn install_flow_with(
             if !pointer.file_type().is_symlink()
                 || pointer.uid() != rustix::process::getuid().as_raw()
             {
-                return Err(Refused::new(
-                    "current must be an owned build selection link",
-                ));
+                return Err(
+                    Refused::new("current must be an owned build selection link")
+                        .with_check(Check::CoreMismatch),
+                );
             }
             let target = fs::read_link(&current)?;
             let text = target.to_string_lossy().into_owned();
             if !generation_path(&text) {
-                return Err(Refused::new("current selects an invalid build directory"));
+                return Err(Refused::new("current selects an invalid build directory")
+                    .with_check(Check::CoreMismatch));
             }
             paths::check_machine_tree(&install_root.join(&text))?;
             previous = Some(text);
@@ -514,21 +532,24 @@ fn install_flow_with(
         let mut installation_id = input.expected_installation_id.clone();
         if before.pid > 0 {
             let Some(previous) = previous.clone() else {
-                return Err(Refused::new(
-                    "running service has no admitted build selection",
-                ));
+                return Err(
+                    Refused::new("running service has no admitted build selection")
+                        .with_check(Check::CoreMismatch),
+                );
             };
             let incumbent = (machinery.status)(&install_root.join(&previous), &junto_home)?;
             if incumbent.pid != before.pid as i64
                 || incumbent.junto_home != junto_home.to_string_lossy()
             {
-                return Err(Refused::new("running core does not match this install"));
+                return Err(Refused::new("running core does not match this install")
+                    .with_check(Check::CoreMismatch));
             }
             if installation_id
                 .as_deref()
                 .is_some_and(|expected| incumbent.installation_id != expected)
             {
-                return Err(Refused::new("running core installation identity changed"));
+                return Err(Refused::new("running core installation identity changed")
+                    .with_check(Check::CoreMismatch));
             }
             installation_id = Some(incumbent.installation_id.clone());
             if previous == generation
@@ -572,6 +593,7 @@ fn install_flow_with(
             Some(hold::Hold::SeatsStillRunning(count)) => {
                 return Err(hold::seats_did_not_stop(*count));
             }
+            Some(hold::Hold::LeaseUnavailable) => return Err(hold::install_lease_unavailable()),
             Some(hold::Hold::Unknown) => return Err(hold::running_seats_unknown()),
             Some(hold::Hold::Lease(_)) => {}
             None => {}
@@ -601,7 +623,7 @@ fn install_flow_with(
                 let _ = service.start();
                 return Err(Refused::new(
                     "Junto could not keep a copy of this machine's database, so nothing was changed",
-                )
+                ).with_check(Check::DatabaseCopyFailed)
                 .with_cause(&error));
             }
         };
@@ -645,13 +667,15 @@ fn install_flow_with(
                         {
                             return Err(Refused::new(
                                 "core build, home, or service process does not match the candidate",
-                            ));
+                            )
+                            .with_check(Check::CoreMismatch));
                         }
                         if installation_id
                             .as_deref()
                             .is_some_and(|expected| observed.installation_id != expected)
                         {
-                            return Err(Refused::new("candidate installation identity changed"));
+                            return Err(Refused::new("candidate installation identity changed")
+                                .with_check(Check::CoreMismatch));
                         }
                         if observed.ready {
                             return Ok(observed);
@@ -661,7 +685,7 @@ fn install_flow_with(
                 }
                 std::thread::sleep(Duration::from_millis(200));
             }
-            Err(Refused::new(detail))
+            Err(Refused::new(detail).with_check(Check::StartFailed))
         })();
         match started {
             Ok(observed) => {
@@ -717,7 +741,7 @@ fn install_flow_with(
                         } else {
                             format!("\n{diagnostics}")
                         }
-                    )));
+                    )).with_check(Check::StartFailed));
                 }
                 if let Some(point) = point.as_ref() {
                     let restored = (|| -> Result<(), Refused> {
@@ -742,7 +766,7 @@ fn install_flow_with(
                         return Err(Refused::new(format!(
                             "Junto did not start on the new build, and its database restore could not finish. The kept copy is at {}; the next boot finishes the restore before opening Junto. {said}",
                             point.directory.display()
-                        )));
+                        )).with_check(Check::StartAndRestoreFailed));
                     }
                     if previous.is_some() && before.pid > 0 {
                         let _ = service.start();
@@ -755,7 +779,7 @@ fn install_flow_with(
                     };
                     return Err(Refused::new(format!(
                         "Junto did not start on the new build. The previous build and its database are back.\n{said}"
-                    )));
+                    )).with_check(Check::StartRolledBack));
                 }
                 let _ = service.remove_definition();
                 flow.disposition = Disposition::Activated;
@@ -766,7 +790,7 @@ fn install_flow_with(
                 };
                 Err(Refused::new(format!(
                     "Junto is installed but did not start. Nothing is running there. Send a fixed build to recover.\n{said}"
-                )))
+                )).with_check(Check::InstalledNotStarted))
             }
         }
     };
@@ -869,9 +893,12 @@ pub fn restore_finish_at(
     // the same family: the folder has to prove it serves this home, and its lock
     // has to be free, or the boot says an install holds this home.
     let install_root = install_root.ok_or_else(|| {
-        RestoreFinish::Fault(Refused::new(
-            "a database restore is owed but no install folder was named for this home",
-        ))
+        RestoreFinish::Fault(
+            Refused::new(
+                "a database restore is owed but no install folder was named for this home",
+            )
+            .with_check(Check::RestoreFinishBlocked),
+        )
     })?;
     let marker = install_root.join("owner.json");
     let expected = lock::owner_marker(
@@ -880,23 +907,27 @@ pub fn restore_finish_at(
     );
     let held = match owned_machine_file(&marker) {
         Ok(true) => fs::read_to_string(&marker).map_err(|error| {
-            RestoreFinish::Fault(Refused::new(format!(
-                "the install marker could not be read: {error}"
-            )))
+            RestoreFinish::Fault(
+                Refused::new(format!("the install marker could not be read: {error}"))
+                    .with_check(Check::RestoreFinishBlocked),
+            )
         })?,
         Ok(false) => {
             return Err(RestoreFinish::Fault(Refused::new(format!(
                 "a database restore is owed and the install folder has no owner marker for this home: {}",
                 install_root.display()
-            ))));
+            )).with_check(Check::RestoreFinishBlocked)));
         }
         Err(refused) => return Err(RestoreFinish::Fault(refused)),
     };
     if held != expected {
-        return Err(RestoreFinish::Fault(Refused::new(format!(
-            "a database restore is owed and the install folder belongs to another home: {}",
-            install_root.display()
-        ))));
+        return Err(RestoreFinish::Fault(
+            Refused::new(format!(
+                "a database restore is owed and the install folder belongs to another home: {}",
+                install_root.display()
+            ))
+            .with_check(Check::RestoreFinishBlocked),
+        ));
     }
     let lease = match lock::try_install_lock(install_root).map_err(RestoreFinish::Fault)? {
         Some(lease) => lease,
@@ -928,13 +959,14 @@ fn lock_for_copy(
         Ok(Some(lock)) => lock,
         Ok(None) => {
             let _ = service.start();
-            return Err(Refused::new(homelock::HELD_WORDS));
+            return Err(Refused::new(homelock::HELD_WORDS).with_check(Check::HomeLockRefused));
         }
         Err(error) => {
             let _ = service.start();
             return Err(Refused::new(
                 "this machine's database is not private to this user, so nothing was changed",
             )
+            .with_check(Check::DatabaseNotPrivate)
             .with_cause(&error));
         }
     };
@@ -968,7 +1000,7 @@ fn restore_under_home_lock(
         return Err(Refused::new(format!(
             "Junto did not start on the new build, and something else is still using this machine's database. The restore is owed and finishes on the next boot, which takes the home lock first. The kept copy is at {}.",
             point.directory.display()
-        )));
+        )).with_check(Check::RestoreOwed));
     };
     restore::restore_database_marker(point)
 }
@@ -1025,25 +1057,30 @@ fn uninstall_flow_with(
         let marker = install_root.join("owner.json");
         let expected = lock::owner_marker(&label, &junto_home);
         if !owned_machine_file(&marker)? || fs::read_to_string(&marker)? != expected {
-            return Err(Refused::new(
-                "install directory ownership is not established",
-            ));
+            return Err(
+                Refused::new("install directory ownership is not established")
+                    .with_check(Check::InstallFolderNotOurs),
+            );
         }
         lock::admit_install_lock_root(&install_root, &expected)?;
         let _lease = lock::acquire_install_lock(&install_root)?;
         let pointer = paths::optional_metadata(&install_root.join("current"))?;
-        let pointer =
-            pointer.ok_or_else(|| Refused::new("current must be an owned build selection link"))?;
+        let pointer = pointer.ok_or_else(|| {
+            Refused::new("current must be an owned build selection link")
+                .with_check(Check::CoreMismatch)
+        })?;
         if !pointer.file_type().is_symlink() || pointer.uid() != rustix::process::getuid().as_raw()
         {
-            return Err(Refused::new(
-                "current must be an owned build selection link",
-            ));
+            return Err(
+                Refused::new("current must be an owned build selection link")
+                    .with_check(Check::CoreMismatch),
+            );
         }
         let generation = fs::read_link(install_root.join("current"))?;
         let generation = generation.to_string_lossy().into_owned();
         if !generation_path(&generation) {
-            return Err(Refused::new("current selects an invalid build directory"));
+            return Err(Refused::new("current selects an invalid build directory")
+                .with_check(Check::CoreMismatch));
         }
         paths::check_machine_tree(&install_root.join(&generation))?;
         let mut service = (machinery.service)(&install_root, &junto_home, &label)?;
@@ -1055,7 +1092,8 @@ fn uninstall_flow_with(
         if before.pid > 0 {
             let core = (machinery.status)(&install_root.join(&generation), &junto_home)?;
             if core.pid != before.pid as i64 || core.junto_home != junto_home.to_string_lossy() {
-                return Err(Refused::new("running core does not match this install"));
+                return Err(Refused::new("running core does not match this install")
+                    .with_check(Check::CoreMismatch));
             }
         }
         let quiesced = quiesce::quiesce_machine_service(
@@ -1113,6 +1151,9 @@ fn install_failure(
     }
     if let (Some(target), true) = (details.as_object_mut(), refused.running_seats_unknown) {
         target.insert("runningSeatsUnknown".into(), json!(true));
+    }
+    if let (Some(target), Some(check)) = (details.as_object_mut(), refused.check) {
+        target.insert("check".into(), json!(check));
     }
     Failure::new(ErrorType::MachineInstallError, &refused.message).with(details)
 }
