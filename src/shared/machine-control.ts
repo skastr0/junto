@@ -239,6 +239,8 @@ export const MachineTakeoverInput = Schema.Struct({
    * local take-over leaves it out.
    */
   checkLive: Schema.optionalKey(Schema.Literal(true)),
+  /** The retired time a preview saw, so a confirm requires that same retired row. */
+  expectedRetiredAt: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(64)))),
 });
 export type MachineTakeoverInput = typeof MachineTakeoverInput.Type;
 export const MachineTakeoverData = Schema.Struct({
@@ -250,6 +252,8 @@ export const MachineTakeoverData = Schema.Struct({
   files: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   /** When the far machine last heard from the old install; absent means never. */
   previousSeenAt: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(64)))),
+  /** When this machine removed the old installation; absent for a live pin. */
+  previousRetiredAt: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(64)))),
   /** The core's own next step after a confirmed remote take-over. */
   message: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(512)))),
   takenOver: Schema.Boolean,
