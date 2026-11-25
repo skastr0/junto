@@ -290,16 +290,20 @@ describe("a first send to a reinstalled machine", () => {
 
     const refused = await call("machine.send", { name: "mini" });
     expect(refused.ok).toBe(false);
-    if (!refused.ok) expect(refused.error.details).toMatchObject({ takeover: {
-      machineName: "mini", installationId: NEW, previousInstallationId: OLD } });
+    let farId: InstallationId = NEW;
+    if (!refused.ok) {
+      const hint = refused.error.details?.takeover as { readonly machineName: string; readonly installationId: InstallationId; readonly previousInstallationId: InstallationId } | undefined;
+      expect(hint).toMatchObject({ machineName: "mini", installationId: NEW, previousInstallationId: OLD });
+      farId = hint!.installationId;
+    }
     expect(await pinOfMini()).toBeUndefined();
 
-    const preview = await call("machine.takeover", { machineName: "mini", installationId: NEW });
+    const preview = await call("machine.takeover", { machineName: "mini", installationId: farId });
     expect(preview).toMatchObject({ ok: true, op: "machine.takeover", data: {
       previousInstallationId: OLD, previousRetiredAt: expect.any(String), seats: 1, automations: 0, files: 0, takenOver: false } });
     const removedAt = preview.ok && preview.op === "machine.takeover" ? preview.data.previousRetiredAt : undefined;
     expect(removedAt).toBeTypeOf("string");
-    const confirmed = await call("machine.takeover", { machineName: "mini", installationId: NEW,
+    const confirmed = await call("machine.takeover", { machineName: "mini", installationId: farId,
       expectedInstallationId: OLD, previousRetiredAt: removedAt, confirm: placed });
     expect(confirmed).toMatchObject({ ok: true, op: "machine.takeover", data: { takenOver: true } });
     expect(await pinOfMini()).toMatchObject({ machineName: "mini", installationId: NEW });
