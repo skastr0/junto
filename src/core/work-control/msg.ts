@@ -10,7 +10,7 @@ import { Result } from "effect";
 import { ulid } from "ulid";
 import { type Message } from "@shared/work-model";
 import { sortMessagesNewestFirst } from "@shared/message-delivery";
-import { MAIL_MESSAGE_ID_SHAPE, isMailMessageId, type MailMessageId, mailExtensionMetadata, mailThreadOf } from "@shared/crew";
+import { MAIL_MESSAGE_ID_SHAPE, isMailMessageId, type MailMessageId, mailExtensionMetadata, mailThreadOf, readMailExtension } from "@shared/crew";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import { mailListFilterOf, mailListMatches } from "@shared/mail-list-filter";
 import { makeAgentMessage, makeUserMessage } from "@shared/task";
@@ -30,6 +30,10 @@ import { asNodeId, seatIdentity, type SeatIdentity } from "@shared/model";
 import { withThread, asSeatReadsIt, mailIdArg, resolveMailTarget, mailTask, seatTaskCaller, replyThreadMetadata, mailSenderStamp, recipientOf, OPERATOR_RECIPIENT } from "./mail";
 import { mapWorkCode, fromWorkResult, exposeWorkMutation } from "./answers";
 import { requireTarget, WorkAdmission, WorkSeat } from "./seat";
+
+/** The refusal of a reply to an overseer's broadcast from a seat with no wire to its sender. */
+export const BROADCAST_REPLY_REFUSAL = "this mail is a one-way broadcast: there is nothing to answer";
+const BROADCAST_REPLY_NEXT_STEP = "carry on with your work; a broadcast takes no answer";
 
 /** The msg ops as this core serves them: each handler is handed its admitted seat. */
 export const MsgServed = MsgRpcs.middleware(WorkAdmission);
@@ -469,6 +473,16 @@ export const MsgHandlers = MsgServed.toLayer(
       // mail of this seat's: the thread is answered on the task.
       const onTask = !toOperator && findNode(board, target)?.kind === "task";
       const taskStep = 'answer in the task\'s thread with junto task comment <task> "...", the task as #42, its id or its junto:// ref';
+      // An overseer's broadcast is one way: a seat with no wire to its sender
+      // is told there is nothing to answer, never how to get a way to answer.
+      const parentMail = parent === undefined ? undefined : readMailExtension(parent.metadata);
+      if (refusedByKind !== undefined && parentMail?.broadcast === true && parentMail.senderNodeId === target) {
+        return yield* Effect.fail({
+          type: refusedByKind.type,
+          message: BROADCAST_REPLY_REFUSAL,
+          details: { path: "inReplyTo", target: inReplyTo, retryable: false, next_step: BROADCAST_REPLY_NEXT_STEP },
+        });
+      }
       if (refusedByKind !== undefined && (parent === undefined || threadSubjectOf(parent)?.nodeId !== target)) {
         return yield* Effect.fail(onTask ? { ...refusedByKind, details: { ...refusedByKind.details, next_step: taskStep } } : refusedByKind);
       }
