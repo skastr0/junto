@@ -19,32 +19,23 @@ test("refusing the delete confirm keeps the note; accepting removes it", async (
   const note = card(page, "note");
   await note.visible({ timeout: 30_000 });
 
-  // Electron's native confirm is not drivable from here: answer it in page.
-  const answerWith = (accept: boolean): Promise<void> =>
-    page.evaluate((answer) => {
-      const host = window as unknown as { __asked?: string[] };
-      host.__asked ??= [];
-      window.confirm = (message?: string) => {
-        host.__asked?.push(message ?? "");
-        return answer;
-      };
-    }, accept);
-  const asked = (): Promise<string[]> =>
-    page.evaluate(() => (window as unknown as { __asked?: string[] }).__asked ?? []);
-  await answerWith(false);
+  // The delete asks in the app's own confirm dialog: Cancel keeps the note.
+  const question = page.getByRole("alertdialog");
 
   // The locator click waits for the opening fit to settle under the note.
   await note.click({ position: { x: 6, y: 6 } });
   await expect.poll(() => note.selected()).toBe(true);
 
   await page.keyboard.press("Backspace");
-  await expect.poll(async () => (await asked()).length).toBe(1);
-  expect((await asked())[0]).toContain("Delete this node?");
+  await expect(question).toBeVisible();
+  await expect(question).toContainText(/^Delete /);
+  await question.getByRole("button", { name: "Cancel" }).click();
+  await expect(question).toHaveCount(0);
   await page.waitForTimeout(1_500);
   await note.visible();
 
-  await answerWith(true);
   await page.keyboard.press("Backspace");
-  await expect.poll(async () => (await asked()).length).toBe(2);
+  await expect(question).toBeVisible();
+  await question.getByRole("button", { name: "Delete node" }).click();
   await expect.poll(() => note.count()).toBe(0);
 });

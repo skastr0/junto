@@ -5,7 +5,8 @@
  * all three back with the undo key and puts all three on again with redo.
  * Every step is read from what main stores, not from what the window draws:
  * an edit is a command, and so is taking it back.
- * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/canvas-undo-redo.spec.ts`
+ * Run: `bunx electron-vite build && bun run build:bundles && bun run test:e2e:fast e2e/scenarios/canvas-undo-redo.spec.ts`
+ * (the app opens no window without build:bundles: main's core process is built there).
  */
 import type { Page } from "@playwright/test";
 import { card, cameraSettled, canvasReady, pane } from "../harness/canvas";

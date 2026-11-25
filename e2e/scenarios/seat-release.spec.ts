@@ -42,23 +42,14 @@ test("a seat's delete names its task, sends it to the backlog, and an undo after
   expect((await apply({ kind: "create", taskId, title: "fix tabs" })).kind).toBe("applied");
   expect((await apply({ kind: "assign", seat: "ada" })).kind).toBe("applied");
 
-  // Electron's native confirm is not drivable from here: answer it in page, keeping what it asked.
-  await page.evaluate(() => {
-    const host = window as unknown as { __asked?: string[] };
-    host.__asked = [];
-    window.confirm = (message?: string) => {
-      host.__asked?.push(message ?? "");
-      return true;
-    };
-  });
   await seat.click({ position: { x: 8, y: 8 } });
   await expect.poll(() => seat.selected()).toBe(true);
   await page.screenshot({ path: "test-results/seat-release/1-seat-selected.png" });
   await page.keyboard.press("Backspace");
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __asked?: string[] }).__asked ?? [])).toHaveLength(1);
-  const asked = (await page.evaluate(() => (window as unknown as { __asked?: string[] }).__asked ?? []))[0] ?? "";
-  console.log(`delete asked: ${JSON.stringify(asked)}`);
-  expect(asked).toContain("“Ada” holds #1 fix tabs; it goes back to the backlog.");
+  // The delete asks in the app's own confirm dialog, and the dialog names the task.
+  const question = page.getByRole("alertdialog");
+  await expect(question).toContainText("“Ada” holds #1 fix tabs; it goes back to the backlog.");
+  await question.getByRole("button", { name: "Delete node" }).click();
   await expect.poll(() => seat.count()).toBe(0);
   await page.screenshot({ path: "test-results/seat-release/2-seat-deleted.png" });
 

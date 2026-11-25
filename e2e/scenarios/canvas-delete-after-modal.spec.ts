@@ -32,18 +32,13 @@ test("the delete chord stands down under a modal and comes back in one press", a
   const { page } = junto;
   const note = (id: string) => card(page, id);
   await note("note-control").visible({ timeout: 30_000 });
-  // The delete asks first; this walk accepts.
-  const asked: string[] = [];
-  await page.evaluate(() => {
-    const host = window as unknown as { __asked?: string[] };
-    host.__asked = [];
-    window.confirm = (message?: string) => {
-      host.__asked?.push(message ?? "");
-      return true;
-    };
-  });
-  const confirmations = (): Promise<string[]> =>
-    page.evaluate(() => (window as unknown as { __asked?: string[] }).__asked ?? []);
+  // The delete asks first, in the app's own confirm dialog; this walk accepts.
+  const question = page.getByRole("alertdialog");
+  let asked = 0;
+  const accept = async (): Promise<void> => {
+    await question.getByRole("button", { name: "Delete node" }).click();
+    asked += 1;
+  };
   const select = async (id: string): Promise<void> => {
     await note(id).click({ position: { x: 6, y: 6 } });
     await expect.poll(() => note(id).selected(), { timeout: 5_000 }).toBe(true);
@@ -52,6 +47,7 @@ test("the delete chord stands down under a modal and comes back in one press", a
   // No modal: one press deletes, as it always did.
   await select("note-control");
   await page.keyboard.press("Backspace");
+  await accept();
   await expect.poll(() => note("note-control").count(), { timeout: 10_000 }).toBe(0);
 
   // A modal in front: the card behind it is not the delete's.
@@ -62,14 +58,17 @@ test("the delete chord stands down under a modal and comes back in one press", a
   await page.keyboard.press("Backspace");
   await page.waitForTimeout(800);
   await expect.poll(() => note("note-behind").count()).toBe(1);
-  expect((await confirmations()).length).toBe(1);
+  // It asked nothing: the delete never reached the card behind the modal.
+  await expect(question).toHaveCount(0);
+  expect(asked).toBe(1);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Quick capture" })).toBeHidden({ timeout: 5_000 });
 
   // The modal closed: one press, not two.
   await select("note-after");
   await page.keyboard.press("Backspace");
+  await accept();
   await expect.poll(() => note("note-after").count(), { timeout: 10_000 }).toBe(0);
-  expect((await confirmations()).length).toBe(2);
+  expect(asked).toBe(2);
   await junto.close();
 });
