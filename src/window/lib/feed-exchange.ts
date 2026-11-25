@@ -33,6 +33,9 @@ export type ExchangeRow =
     }
   | { readonly kind: "answer"; readonly text: string; readonly at: number };
 
+/** The sentence for an answer and a withdrawal that crossed, in the pane's answer area and on an exchange row. */
+export const crossedWords = (seat: string): string => `${seat} withdrew this before your answer reached it.`;
+
 /** More earlier rows than this fold: the last `EXCHANGE_TAIL` show, and the rest sit behind "Show all N". */
 export const EXCHANGE_FOLD_AT = 4;
 export const EXCHANGE_TAIL = 3;

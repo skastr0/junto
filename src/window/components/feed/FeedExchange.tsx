@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { FEED_KIND_LABEL, type FeedItem } from "@shared/operator-feed";
 import { mailAgeLabel } from "@shared/actor-ledger";
 import type { AgentSignalState } from "@shared/wire/agent-signals";
-import { EXCHANGE_STATE_WORD, exchangeRows, exchangeShown, type ExchangeRow } from "../../lib/feed-exchange";
+import { EXCHANGE_STATE_WORD, crossedWords, exchangeRows, exchangeShown, type ExchangeRow } from "../../lib/feed-exchange";
 import { loadOlderMessages, useSeatThreadMessages } from "../../lib/seat-threads";
 import { Button } from "../ui/Button";
 import { KIND_ICON } from "./FeedCardView";
@@ -47,7 +47,7 @@ function SignalRow({ row, nowMs, seat }: { readonly row: Extract<ExchangeRow, { 
       <span className="operator-feed__band-text">{row.text}</span>
       {row.at === undefined ? null : <time className="operator-feed__exchange-time">{mailAgeLabel(nowMs, row.at)}</time>}
       {row.state === "withdrawn" && row.crossed ? (
-        <span className="operator-feed__exchange-note">{`${seat} withdrew this before your answer reached it.`}</span>
+        <span className="operator-feed__exchange-note">{crossedWords(seat)}</span>
       ) : null}
     </li>
   );

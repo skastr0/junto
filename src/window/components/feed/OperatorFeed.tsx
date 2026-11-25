@@ -63,6 +63,8 @@ import {
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { SIGNALS_SECTION, useSignalActions } from "../../lib/agent-signals-view";
+import { agentSignals$ } from "../../lib/agent-signals-state";
+import { crossedClosing } from "@shared/signal-crossing";
 import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 import {
   clearFeedFilters,
@@ -115,6 +117,7 @@ import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
 import { Button, Dropdown, Kbd } from "../ui";
 import { FeedExchange } from "./FeedExchange";
+import { crossedWords } from "../../lib/feed-exchange";
 import { FeedRegionStrip } from "./FeedRegionStrip";
 import { FeedEmpty, FeedSeatChosen, FeedSeatsRow, FeedSeatsToggle } from "./FeedFilterParts";
 import { feedTasksByNumber, type FeedTaskRef } from "./feed-text";
@@ -268,6 +271,7 @@ function FeedDetail({
   notHere = 0,
   onGoTo,
   onOpenThread,
+  crossed = false,
 }: {
   readonly item: FeedItem;
   readonly node: Node | undefined;
@@ -289,6 +293,8 @@ function FeedDetail({
   readonly onGoTo?: (target: FeedItem) => void;
   /** Open Threads on the thread this signal is in. */
   readonly onOpenThread?: (threadId: string) => void;
+  /** The seat withdrew it before the operator's answer reached it: it is closed, and the answer area says so. */
+  readonly crossed?: boolean;
 }) {
   const runtime = useWindowRuntime();
   const companion = useWindowService(CompanionWindow);
@@ -371,7 +377,12 @@ function FeedDetail({
         <SignalResourceChips canvasName={item.canvasName} attachments={item.attachments} beforeOpen={closeOperatorFeed} />
       </div>
       <div className="operator-feed__answer">
-        {item.signalId &&
+        {crossed ? (
+          // Nothing failed for the operator to fix, so it is said in ink, not as an error.
+          <p className="operator-feed__crossed" data-testid="feed-crossed">
+            {crossedWords(item.seat.name)}
+          </p>
+        ) : item.signalId &&
         (form?.kind === "artifact" || form?.kind === "proof" || (form?.kind === "secret" && VAULT_ENABLED)) &&
         answer === form.kind ? (
           <>
@@ -734,6 +745,22 @@ const feed = useOperatorFeed();
     );
   }, [items, selected]);
   const selectedItem = items.find((item) => item.itemId === selected);
+  // The selected card closed because the seat withdrew it before the operator's answer reached it: the pane
+  // keeps it and says so, in the answer area, until the operator moves; the list has already handed on.
+  const [crossed, setCrossed] = useState<FeedItem | null>(null);
+  const paneItem = crossed ?? selectedItem;
+  const lastSelected = useRef<FeedItem | undefined>(undefined);
+  useEffect(() => {
+    const before = lastSelected.current;
+    if (before?.signalId !== undefined && !items.some((item) => item.itemId === before.itemId)) {
+      const closed = agentSignals$[before.signalId].peek();
+      if (closed !== undefined && crossedClosing(closed)) {
+        setCrossed(before);
+        setAnnounceNote(crossedWords(before.seat.name));
+      }
+    }
+    lastSelected.current = selectedItem;
+  }, [items, selectedItem]);
   // A card asked for by openNeedsYouOn: selected and brought into view once
   // the list holds it. A filter hiding it is cleared first; an ask for a card
   // the feed does not hold (closed already) is let go.
@@ -789,6 +816,7 @@ const feed = useOperatorFeed();
   }, [filter, activeRegion]);
   /** A Depends on link, a band row, the W key: select the card and bring it into view. */
   const goTo = (target: FeedItem): void => {
+    setCrossed(null);
     wentTo.current = true;
     feedAsked$.itemId.set(target.itemId);
   };
@@ -873,11 +901,19 @@ const feed = useOperatorFeed();
         selected,
         intent,
       );
+      setCrossed(null);
       setSelected(next);
       setRevealId(next);
       // The keyboard stays on the frame, so the card stepped onto is said by the live line.
       const stepped = items.find((candidate) => candidate.itemId === next);
       if (stepped !== undefined && next !== selected) setAnnounceNote(feedCardSpeech(stepped, chainPlaces.get(stepped.itemId)));
+      return;
+    }
+    // The pane shows a card that closed, not the selected one: a key that would act is only let go of, so no
+    // answer lands on a card the pane is not showing. Tab, Escape and the arrows pass.
+    if (crossed !== null && (event.key.length === 1 || event.key === "Enter")) {
+      event.preventDefault();
+      setCrossed(null);
       return;
     }
     const item = items.find((candidate) => candidate.itemId === selected);
@@ -1197,7 +1233,10 @@ const feed = useOperatorFeed();
                     onOpenTask={openFeedTask}
                     {...cardOrderOf(row.item)}
                     onGoTo={goTo}
-                    onSelect={() => setSelected(row.item.itemId)}
+                    onSelect={() => {
+                      setCrossed(null);
+                      setSelected(row.item.itemId);
+                    }}
                     onQuickReply={(text) => void answer(row.item, { kind: "reply", text })}
                   />
                   ),
@@ -1205,21 +1244,22 @@ const feed = useOperatorFeed();
               </FeedRegionSection>
             ))}
           </div>
-          {selectedItem ? (
+          {paneItem ? (
             <FeedDetail
-              key={selectedItem.itemId}
-              item={selectedItem}
-              node={nodesById.get(selectedItem.seat.nodeId)}
-              waitsOn={(selectedItem.waitingOn ?? []).flatMap((signalId) => {
+              key={paneItem.itemId}
+              item={paneItem}
+              node={nodesById.get(paneItem.seat.nodeId)}
+              waitsOn={(paneItem.waitingOn ?? []).flatMap((signalId) => {
                 const before = everyItem.find((one) => one.signalId === signalId);
                 return before === undefined ? [] : [{ item: before, place: chainPlaces.get(before.itemId) }];
               })}
-              notHere={selectedItem.notReceived?.length ?? 0}
+              notHere={paneItem.notReceived?.length ?? 0}
               onGoTo={goTo}
+              crossed={crossed !== null}
               onOpenThread={(threadId) => {
                 askThread(threadId);
                 openOperatorModalFrom("feed", "threads", {
-                  itemId: selectedItem.itemId,
+                  itemId: paneItem.itemId,
                   expanded: [],
                   scrollTop: scrollRef.current?.scrollTop ?? 0,
                 });
@@ -1227,18 +1267,18 @@ const feed = useOperatorFeed();
               nowMs={feed.generatedAt}
               quickReplies={quickReplies}
               quietNotes={quietNotes}
-              replying={replyFor === selectedItem.itemId}
-              sending={sending.get(selectedItem.itemId) ?? null}
-              error={failure?.itemId === selectedItem.itemId ? failure.message : null}
+              replying={replyFor === paneItem.itemId}
+              sending={sending.get(paneItem.itemId) ?? null}
+              error={failure?.itemId === paneItem.itemId ? failure.message : null}
               taskByNumber={taskByNumber}
               onOpenTask={openFeedTask}
-              onAnswer={(chosen) => void answer(selectedItem, chosen)}
-              onReply={(open) => setReplyFor(open ? selectedItem.itemId : null)}
+              onAnswer={(chosen) => void answer(paneItem, chosen)}
+              onReply={(open) => setReplyFor(open ? paneItem.itemId : null)}
               onReviewCommit={(sha) =>
                 openCommitReview({
-                  nodeId: selectedItem.seat.nodeId,
+                  nodeId: paneItem.seat.nodeId,
                   sha,
-                  place: { itemId: selectedItem.itemId, expanded: [], scrollTop: scrollRef.current?.scrollTop ?? 0 },
+                  place: { itemId: paneItem.itemId, expanded: [], scrollTop: scrollRef.current?.scrollTop ?? 0 },
                 })
               }
             />

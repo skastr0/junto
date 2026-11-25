@@ -15,6 +15,7 @@ import { SignalsWindow } from "../src/contract/window/signals";
 import { WindowRuntimeContext } from "../src/window/rpc/runtime";
 import { OperatorFeed } from "../src/window/components/feed/OperatorFeed";
 import { clearFeedFilters, feedView$ } from "../src/window/lib/operator-feed";
+import { agentSignals$ } from "../src/window/lib/agent-signals-state";
 import { operatorModal$ } from "../src/window/lib/operator-modal";
 import { threadAsked$ } from "../src/window/lib/threads-view";
 import { state$ } from "../src/window/lib/state";
@@ -124,6 +125,7 @@ afterEach(() => {
   host.remove();
   clearFeedFilters();
   threadAsked$.threadId.set(null);
+  agentSignals$.set({});
   operatorModal$.open.set(null);
   state$.canvasName.set(oldCanvas);
   vi.unstubAllGlobals();
@@ -171,4 +173,68 @@ it("opens Threads on the thread, and the feed comes back on close", async () => 
   await act(async () => q('[data-testid="feed-exchange-open"]')!.click());
   expect(threadAsked$.threadId.peek()).toBe("T1");
   expect(operatorModal$.open.peek()).toBe("threads");
+});
+
+/** Two cards open: this seat's s4 and another seat's one. */
+const twoOpen = (s4: AgentSignal | undefined): Feed =>
+  buildOperatorFeed({
+    canvasName: CANVAS,
+    nowMs: NOW,
+    seats: ["atlas", "bravo"].map((seat) => ({ seat: { nodeId: `seat-${seat}`, name: seat, portraitIdentity: seat }, region: REGION })),
+    signals: [
+      ...(s4 === undefined ? [] : [s4]),
+      { signalId: "b1", canvasName: CANVAS, nodeId: "seat-bravo", kind: "feedback", text: "Bravo wants a look", createdAt: NOW - 50_000, state: "open" },
+    ],
+  });
+
+it("keeps a card the seat withdrew before the answer reached it, in the pane, until the operator moves", async () => {
+  const open4 = signal(4);
+  live.set(twoOpen(open4));
+  operatorModal$.open.set("feed");
+  await act(async () =>
+    root.render(
+      <WindowRuntimeContext.Provider value={feedRuntime as never}>
+        <OperatorFeed />
+      </WindowRuntimeContext.Provider>,
+    ),
+  );
+  const selected = (): string | undefined => q('[data-testid="operator-feed-card"][aria-current="true"]')?.dataset.itemId;
+  expect(selected()).toBe("signal:s4");
+  expect(q('[data-testid="feed-crossed"]')).toBeNull();
+  // The answer crossed the withdrawal: closed as withdrawn, holding the answer.
+  await act(async () => {
+    agentSignals$.s4.set({ ...open4, state: "withdrawn", response: { text: "Yes", at: NOW } });
+    live.set(twoOpen(undefined));
+  });
+  // The list handed on; the pane keeps s4 and says why, in the answer area.
+  expect(selected()).toBe("signal:b1");
+  expect(q('[data-testid="feed-crossed"]')?.textContent).toBe("atlas withdrew this before your answer reached it.");
+  expect(q('[data-testid="operator-feed-detail"]')?.dataset.itemId).toBe("signal:s4");
+  expect(q(".operator-feed__announce")?.textContent).toBe("atlas withdrew this before your answer reached it.");
+  // A key that would answer is only let go of: nothing is sent on the card the pane is not showing.
+  const frame = q(".operator-modal__frame")!;
+  await act(async () => {
+    frame.dispatchEvent(new KeyboardEvent("keydown", { key: "1", bubbles: true }));
+  });
+  expect(q('[data-testid="feed-crossed"]')).toBeNull();
+  expect(q('[data-testid="operator-feed-detail"]')?.dataset.itemId).toBe("signal:b1");
+});
+
+it("says nothing of a card that closed an ordinary way", async () => {
+  const open4 = signal(4);
+  live.set(twoOpen(open4));
+  operatorModal$.open.set("feed");
+  await act(async () =>
+    root.render(
+      <WindowRuntimeContext.Provider value={feedRuntime as never}>
+        <OperatorFeed />
+      </WindowRuntimeContext.Provider>,
+    ),
+  );
+  await act(async () => {
+    agentSignals$.s4.set({ ...open4, state: "answered", response: { text: "Yes", at: NOW } });
+    live.set(twoOpen(undefined));
+  });
+  expect(q('[data-testid="feed-crossed"]')).toBeNull();
+  expect(q('[data-testid="operator-feed-detail"]')?.dataset.itemId).toBe("signal:b1");
 });

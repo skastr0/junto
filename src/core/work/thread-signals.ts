@@ -16,6 +16,7 @@
  */
 import { Effect, Option } from "effect";
 import { mailThreadOf } from "@shared/crew";
+import { crossedClosing } from "@shared/signal-crossing";
 import { isSeatRaiseKind, type AgentSignal, type SeatRaiseKind, type SignalForm } from "@shared/wire/agent-signals";
 import type { MailThreadMessage, ThreadHeadSignal, ThreadSignal, ThreadSignalAsks, ThreadSignalRef } from "@shared/wire/mail-threads";
 import type { Message } from "@shared/work-model";
@@ -166,15 +167,6 @@ export const answeredIn = (entry: MailThreadMessage, signals: ThreadSignals, row
 
 const asksOf = (form: SignalForm | undefined): ThreadSignalAsks | undefined =>
   form?.kind === "artifact" ? "document" : form?.kind === "proof" ? "proof" : form?.kind === "secret" ? "secret" : undefined;
-
-/**
- * An answer and a withdrawal that crossed, as either machine keeps them: the
- * editing machine an answered signal with `withdrawnAt` beside it, the seat's
- * machine a withdrawn one holding the answer that came after.
- */
-export const crossedClosing = (signal: AgentSignal): boolean =>
-  (signal.state === "answered" && typeof (signal as { readonly withdrawnAt?: unknown }).withdrawnAt === "number") ||
-  (signal.state === "withdrawn" && signal.response !== undefined);
 
 const faceOf = (signal: AgentSignal & { readonly kind: SeatRaiseKind }): ThreadSignal => {
   const asks = asksOf(signal.form);
