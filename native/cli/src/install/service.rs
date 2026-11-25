@@ -682,6 +682,28 @@ mod tests {
     /// The writer's bytes are the fixture's, byte for byte: a link's start
     /// (native/cli/src/commands/pipes/link/start.rs) writes the same ones.
     #[test]
+    fn the_unit_bodies_carry_no_private_network() {
+        // The home lock's name is an abstract socket, which lives in a network
+        // namespace: a hardened unit that isolated the network would split the
+        // lock in two and let a second core open the database.
+        let (body, legacy) =
+            systemd_bodies(Path::new("/home/peer/machine"), Path::new("/home/peer"));
+        for unit in [body, legacy] {
+            assert!(
+                !unit.contains("PrivateNetwork"),
+                "a unit with PrivateNetwork would split the home lock: {unit}"
+            );
+        }
+        let plist = plist_body(
+            Path::new("/Users/peer/machine"),
+            Path::new("/Users/peer"),
+            "dev.junto.machine.0123456789abcdef",
+            "Aqua",
+        );
+        assert!(!plist.to_lowercase().contains("privatenetwork"));
+    }
+
+    #[test]
     fn the_writers_produce_the_fixture_bodies_exactly() {
         let fixture = fixture();
         let root = PathBuf::from(fixture["root"].as_str().expect("root"));

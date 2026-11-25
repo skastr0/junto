@@ -10,6 +10,7 @@
 mod boat;
 mod bundle;
 mod hold;
+mod homelock;
 mod lock;
 mod paths;
 mod prune;
@@ -394,15 +395,6 @@ fn install_flow(
         disposition: Disposition::Staged,
     };
     let run = |flow: &mut Flow| -> Result<InstallResult, Refused> {
-        // A restore a crash interrupted finishes before this install reads anything.
-        restore::finish_interrupted_restore(&restore::machine_state_directory(&junto_home))?;
-        let manifest = inspect_bundle(&bundle_path)?;
-        if manifest.target != bundle::this_target() {
-            return Err(Refused::new(format!(
-                "bundle {} does not match this machine",
-                manifest.target
-            )));
-        }
         let label = service::service_label(&install_root, &junto_home);
         service::admit_label(&label)?;
         ensure_machine_directory(&install_root, false)?;
@@ -424,7 +416,18 @@ fn install_flow(
             lock::write_owner_marker(&install_root, &expected)?;
         }
         lock::admit_install_lock_root(&install_root, &expected)?;
+        // The lock comes before anything that touches the state directory: a
+        // second installer must be refused while the first still owns a restore.
         let _lease = lock::acquire_install_lock(&install_root)?;
+        // A restore a crash interrupted finishes before this install reads anything.
+        restore::finish_interrupted_restore(&restore::machine_state_directory(&junto_home))?;
+        let manifest = inspect_bundle(&bundle_path)?;
+        if manifest.target != bundle::this_target() {
+            return Err(Refused::new(format!(
+                "bundle {} does not match this machine",
+                manifest.target
+            )));
+        }
         ensure_machine_directory(&junto_home, true)?;
         ensure_machine_directory(&install_root.join("logs"), false)?;
         for name in ["stdout.log", "stderr.log"] {
@@ -546,11 +549,15 @@ fn install_flow(
             lease.take();
             outcome?
         };
-        // Quiescent, so the family cannot change under the copy.
+        // Quiescent, so the family cannot change under the copy. The home lock
+        // proves no other core is on it: the candidate takes the same lock at
+        // its own boot, so it is released before the candidate starts.
         let state_directory = restore::machine_state_directory(&junto_home);
+        let home_lock = lock_for_copy(&state_directory, &mut *service)?;
         let point = match restore::make_restore_point(&state_directory) {
             Ok(point) => point,
             Err(error) => {
+                drop(home_lock);
                 let _ = service.start();
                 return Err(Refused::new(
                     "Junto could not keep a copy of this machine's database, so nothing was changed",
@@ -577,6 +584,8 @@ fn install_flow(
             let _ = fs::remove_file(&next);
             linked?;
         }
+        // The candidate takes the home lock at its own boot.
+        drop(home_lock);
         // The candidate can open state from here; errors never roll back or retry.
         flow.disposition = Disposition::Activated;
         flow.record(Transition::step("selected", Some(manifest.build.clone())));
@@ -649,10 +658,7 @@ fn install_flow(
             Err(error) => {
                 flow.disposition = Disposition::Uncertain;
                 let diagnostics = service_error_tail(&install_root);
-                let stopped = service.reconcile().and_then(|_| {
-                    let seen = service.observe()?;
-                    quiesce::quiesce_machine_service(&mut *service, &seen, || {}).map(|_| ())
-                });
+                let stopped = stop_machine_service(&mut *service);
                 if let Err(stop) = stopped {
                     let kept = point
                         .as_ref()
@@ -683,7 +689,7 @@ fn install_flow(
                             let _ = fs::remove_file(&next);
                             linked?;
                         }
-                        restore::restore_database(point)
+                        restore_under_home_lock(point, &state_directory, &mut *service)
                     })();
                     if let Err(restore_error) = restored {
                         let said: String =
@@ -756,9 +762,140 @@ fn build_generation(name: &str) -> bool {
     hash.is_some()
 }
 
+/// What `machine restore-finish` answers: whether a restore was owed.
+#[derive(Serialize)]
+pub struct FinishRestore {
+    pub finished: bool,
+}
+
+/// Why a boot could not finish a restore: an install holds the home, or the
+/// restore itself refused.
+#[derive(Debug)]
+pub enum RestoreFinish {
+    Updating(Failure),
+    Fault(Refused),
+}
+
+/// `machine restore-finish`: the core's boot step, after it holds the home lock
+/// and before it reads the database. The env names the home and the install
+/// root; no argument and no input, and the caller reads the exit code alone.
+pub fn restore_finish() -> Result<FinishRestore, RestoreFinish> {
+    let junto_home = std::env::var_os("JUNTO_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| paths::home().join(".junto"));
+    let junto_home = junto_home_for_restore(&junto_home).map_err(RestoreFinish::Fault)?;
+    let install_root = std::env::var_os("JUNTO_INSTALL_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| junto_home.join(".junto/machine"));
+    restore_finish_at(&junto_home, Some(&install_root))
+}
+
+fn junto_home_for_restore(value: &Path) -> Result<PathBuf, Refused> {
+    let home = machine_home_path(value, true)?;
+    Ok(home)
+}
+
+/// The boot step against named paths: finish an interrupted restore under the
+/// install lock when a marker is there, and answer updating when an install
+/// holds it. No home lock is taken here: the core holds it already.
+pub fn restore_finish_at(
+    junto_home: &Path,
+    install_root: Option<&Path>,
+) -> Result<FinishRestore, RestoreFinish> {
+    let state_directory = restore::machine_state_directory(junto_home);
+    let pending = restore::restore_pending(&state_directory).map_err(RestoreFinish::Fault)?;
+    if !pending {
+        return Ok(FinishRestore { finished: false });
+    }
+    let mut _lease = None;
+    if let Some(install_root) = install_root {
+        let marker = install_root.join("owner.json");
+        let owned = owned_machine_file(&marker).map_err(RestoreFinish::Fault)?;
+        if owned {
+            let expected = lock::owner_marker(
+                &service::service_label(install_root, junto_home),
+                junto_home,
+            );
+            let held = fs::read_to_string(&marker).map_err(|error| {
+                RestoreFinish::Fault(Refused::new(format!(
+                    "the install marker could not be read: {error}"
+                )))
+            })?;
+            // A root that serves another home is not this boot's serialization.
+            if held == expected {
+                match lock::try_install_lock(install_root).map_err(RestoreFinish::Fault)? {
+                    Some(lease) => _lease = Some(lease),
+                    None => {
+                        return Err(RestoreFinish::Updating(Failure::new(
+                            ErrorType::RuntimeDown,
+                            "an install is sending Junto to this machine, so this boot cannot finish a database restore",
+                        )));
+                    }
+                }
+            }
+        }
+    }
+    restore::finish_interrupted_restore(&state_directory).map_err(RestoreFinish::Fault)?;
+    Ok(FinishRestore { finished: true })
+}
+
 fn restore_uuid() -> Result<String, Refused> {
     // The one uuid source the install already has: the restore module's.
     restore::new_uuid()
+}
+
+/// The home lock before the family is copied. A lock a core holds means the
+/// database can still change, so nothing is copied and the service this run
+/// stopped is started again.
+fn lock_for_copy(
+    state_directory: &Path,
+    service: &mut dyn service::Service,
+) -> Result<homelock::HomeDatabaseLock, Refused> {
+    match homelock::try_lock_home_database(state_directory) {
+        Ok(Some(lock)) => Ok(lock),
+        Ok(None) => {
+            let _ = service.start();
+            Err(Refused::new(homelock::HELD_WORDS))
+        }
+        Err(error) => {
+            let _ = service.start();
+            Err(Refused::new(
+                "this machine's database is not private to this user, so nothing was changed",
+            )
+            .with_cause(&error))
+        }
+    }
+}
+
+/// The restore after a candidate did not start: the marker first, under the
+/// install lock this run holds, then the home lock, one more stop and one more
+/// try, and the double-failure words that leave the marker for the next boot.
+fn restore_under_home_lock(
+    point: &restore::RestorePoint,
+    state_directory: &Path,
+    service: &mut dyn service::Service,
+) -> Result<(), Refused> {
+    restore::write_restore_marker(point)?;
+    let mut lock = homelock::try_lock_home_database(state_directory)?;
+    if lock.is_none() {
+        let _ = stop_machine_service(service);
+        lock = homelock::try_lock_home_database(state_directory)?;
+    }
+    let Some(_lock) = lock else {
+        return Err(Refused::new(format!(
+            "Junto did not start on the new build, and something else is still using this machine's database. The restore is owed and finishes on the next boot, which takes the home lock first. The kept copy is at {}.",
+            point.directory.display()
+        )));
+    };
+    restore::restore_database_marker(point)
+}
+
+/// Prove the service stopped, once: reconcile against the process table and
+/// quiesce what it reports.
+fn stop_machine_service(service: &mut dyn service::Service) -> Result<(), Refused> {
+    service.reconcile()?;
+    let seen = service.observe()?;
+    quiesce::quiesce_machine_service(service, &seen, || {}).map(|_| ())
 }
 
 /// `machine uninstall-local`: retain package and product bytes, remove only the
@@ -992,5 +1129,311 @@ mod tests {
         assert_eq!(details["runningSeatsUnknown"], json!(true));
         assert_eq!(details["retryable"], json!(false));
         assert_eq!(details["disposition"], json!("uncertain"));
+    }
+
+    // --- the home lock, at each of the two points an install meets it ---
+
+    /// A service that answers, and counts what it was asked, so a test can see
+    /// that the flow started the stopped service again and stopped it once more.
+    struct FakeService {
+        starts: usize,
+        stops: usize,
+        running: bool,
+        stop_guard: Option<crate::install::homelock::HomeDatabaseLock>,
+    }
+
+    impl FakeService {
+        fn new() -> Self {
+            Self {
+                starts: 0,
+                stops: 0,
+                running: false,
+                stop_guard: None,
+            }
+        }
+    }
+
+    impl service::Service for FakeService {
+        fn provider(&self) -> service::Provider {
+            service::Provider::SystemdUser
+        }
+        fn reconcile(&mut self) -> Result<Vec<&'static str>, Refused> {
+            Ok(Vec::new())
+        }
+        fn observe(&mut self) -> Result<service::Observed, Refused> {
+            Ok(service::Observed {
+                loaded: self.running,
+                pid: 0,
+                matches_desired_placement: true,
+            })
+        }
+        fn stop(&mut self) -> Result<(), Refused> {
+            self.stops += 1;
+            self.running = false;
+            if let Some(guard) = self.stop_guard.take() {
+                drop(guard);
+            }
+            Ok(())
+        }
+        fn start(&mut self) -> Result<(), Refused> {
+            self.starts += 1;
+            self.running = true;
+            Ok(())
+        }
+        fn remove_definition(&mut self) -> Result<(), Refused> {
+            Ok(())
+        }
+    }
+
+    fn private(root: &Path) {
+        let mut builder = std::fs::DirBuilder::new();
+        builder
+            .recursive(true)
+            .mode(0o700)
+            .create(root)
+            .expect("a private directory");
+        fs::set_permissions(root, fs::Permissions::from_mode(0o700)).expect("private");
+    }
+
+    fn installed(root: &Path) -> (PathBuf, PathBuf) {
+        let junto_home = root.join("home");
+        let install_root = root.join("machine");
+        private(&junto_home);
+        private(&install_root);
+        let label = service::service_label(&install_root, &junto_home);
+        lock::write_owner_marker(&install_root, &lock::owner_marker(&label, &junto_home))
+            .expect("the owner marker");
+        (junto_home, install_root)
+    }
+
+    fn family(state: &Path) {
+        private(state);
+        for (name, body) in [("junto.db", "kept"), ("junto.db-wal", "kept-wal")] {
+            let file = state.join(name);
+            fs::write(&file, body).expect("a member");
+            fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).expect("private");
+        }
+    }
+
+    /// The database family's bytes, the only files a restore moves.
+    fn bytes(state: &Path) -> Vec<(String, Vec<u8>)> {
+        let mut read: Vec<(String, Vec<u8>)> = fs::read_dir(state)
+            .expect("the state directory")
+            .filter_map(|entry| {
+                let entry = entry.expect("an entry");
+                let name = entry.file_name().to_string_lossy().into_owned();
+                name.starts_with("junto.db")
+                    .then(|| (name, fs::read(entry.path()).expect("a family member")))
+            })
+            .collect();
+        read.sort();
+        read
+    }
+
+    #[test]
+    fn a_held_home_lock_at_the_copy_starts_the_service_again_and_changes_nothing() {
+        let root = paths::home().join(format!(".junto-held-copy-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (_home, _install_root) = installed(&root);
+        let state = root.join("state");
+        family(&state);
+        let before = bytes(&state);
+        let holder = homelock::try_lock_home_database(&state)
+            .expect("readable")
+            .expect("the holder");
+        let mut service = FakeService::new();
+        let refused = match lock_for_copy(&state, &mut service) {
+            Err(refused) => refused,
+            Ok(_) => panic!("a held lock is not a lock this install holds"),
+        };
+        assert_eq!(refused.message, homelock::HELD_WORDS);
+        assert_eq!(service.starts, 1, "the service it stopped is started again");
+        assert_eq!(bytes(&state), before, "nothing was changed");
+        drop(holder);
+        assert!(lock_for_copy(&state, &mut service).is_ok());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_home_lock_held_through_the_second_stop_leaves_the_restore_owed() {
+        let root = paths::home().join(format!(".junto-held-restore-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let state = root.join("state");
+        family(&state);
+        let before = bytes(&state);
+        let point = restore::make_restore_point(&state)
+            .expect("a point")
+            .expect("a database");
+        // The candidate replaced the family and left it that way.
+        fs::write(state.join("junto.db"), b"candidate").expect("a candidate");
+        let holder = homelock::try_lock_home_database(&state)
+            .expect("readable")
+            .expect("the holder");
+        let mut service = FakeService::new();
+        service.running = true;
+        let refused = match restore_under_home_lock(&point, &state, &mut service) {
+            Err(refused) => refused,
+            Ok(_) => panic!("the family must not move under a held lock"),
+        };
+        assert!(
+            refused.message.contains("The restore is owed"),
+            "{}",
+            refused.message
+        );
+        assert_eq!(service.stops, 1, "one more stop before the second try");
+        assert!(
+            restore::restore_pending(&state).expect("readable"),
+            "the marker stays for the next boot"
+        );
+        assert_eq!(
+            fs::read(state.join("junto.db")).expect("the db"),
+            b"candidate"
+        );
+        drop(holder);
+        // The next boot's finish is the same restore, under the lock it holds.
+        let finished = restore::finish_interrupted_restore(&state)
+            .expect("the finish")
+            .expect("a restore to finish");
+        let _ = finished;
+        assert!(!restore::restore_pending(&state).expect("readable"));
+        assert_eq!(
+            bytes(&state)
+                .into_iter()
+                .filter(|(name, _)| name == "junto.db")
+                .collect::<Vec<_>>(),
+            before
+                .into_iter()
+                .filter(|(name, _)| name == "junto.db")
+                .collect::<Vec<_>>()
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_home_lock_the_second_stop_releases_is_retried_and_the_restore_finishes() {
+        let root = paths::home().join(format!(".junto-late-restore-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let state = root.join("state");
+        family(&state);
+        let point = restore::make_restore_point(&state)
+            .expect("a point")
+            .expect("a database");
+        fs::write(state.join("junto.db"), b"candidate").expect("a candidate");
+        let holder = homelock::try_lock_home_database(&state)
+            .expect("readable")
+            .expect("the holder");
+        let mut service = FakeService::new();
+        service.running = true;
+        service.stop_guard = Some(holder);
+        restore_under_home_lock(&point, &state, &mut service).expect("the retry restores");
+        assert_eq!(service.stops, 1);
+        assert!(!restore::restore_pending(&state).expect("readable"));
+        assert_eq!(fs::read(state.join("junto.db")).expect("the db"), b"kept");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // --- the boot step ---
+
+    #[test]
+    fn a_boot_with_no_marker_answers_without_taking_anything() {
+        let root = paths::home().join(format!(".junto-boot-none-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let junto_home = root.join("home");
+        private(&junto_home);
+        let data = restore_finish_at(&junto_home, None).expect("nothing owed");
+        assert!(!data.finished);
+        assert!(!junto_home.join(".junto/state/home.lock").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_boot_with_a_marker_and_a_held_install_lock_answers_updating() {
+        let root = paths::home().join(format!(".junto-boot-held-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (junto_home, install_root) = installed(&root);
+        let state = restore::machine_state_directory(&junto_home);
+        family(&state);
+        let point = restore::make_restore_point(&state)
+            .expect("a point")
+            .expect("a database");
+        restore::write_restore_marker(&point).expect("the marker is written");
+        let lease = lock::acquire_install_lock(&install_root).expect("the install lock");
+        match restore_finish_at(&junto_home, Some(&install_root)) {
+            Err(RestoreFinish::Updating(error)) => {
+                assert!(error.message.contains("cannot finish a database restore"));
+            }
+            _ => panic!("an install holds the home, so the boot says so"),
+        }
+        assert!(restore::restore_pending(&state).expect("readable"));
+        drop(lease);
+        let data = restore_finish_at(&junto_home, Some(&install_root)).expect("the finish");
+        assert!(data.finished);
+        assert!(!restore::restore_pending(&state).expect("readable"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_boot_whose_kept_copy_is_gone_refuses_with_the_path_a_local_log_can_name() {
+        let root = paths::home().join(format!(".junto-boot-gone-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let junto_home = root.join("home");
+        private(&junto_home);
+        let state = restore::machine_state_directory(&junto_home);
+        family(&state);
+        let point = restore::make_restore_point(&state)
+            .expect("a point")
+            .expect("a database");
+        restore::write_restore_marker(&point).expect("the marker is written");
+        fs::remove_dir_all(&point.directory).expect("the kept copy is gone");
+        match restore_finish_at(&junto_home, None) {
+            Err(RestoreFinish::Fault(refused)) => {
+                assert!(
+                    refused
+                        .message
+                        .contains(&point.directory.display().to_string()),
+                    "{}",
+                    refused.message
+                );
+            }
+            _ => panic!("a marker whose copy is gone refuses the boot"),
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_install_meets_a_held_lock_before_it_reads_anything_and_changes_nothing() {
+        let root = paths::home().join(format!(".junto-gap-a-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (junto_home, install_root) = installed(&root);
+        let state = restore::machine_state_directory(&junto_home);
+        family(&state);
+        let point = restore::make_restore_point(&state)
+            .expect("a point")
+            .expect("a database");
+        restore::write_restore_marker(&point).expect("the marker is written");
+        let before = bytes(&state);
+        let lease = lock::acquire_install_lock(&install_root).expect("the install lock");
+        let input = json!({
+            "bundle": root.join("no-bundle").display().to_string(),
+            "juntoHome": junto_home.display().to_string(),
+            "installRoot": install_root.display().to_string(),
+        })
+        .to_string();
+        let refused = install_local(&input)
+            .err()
+            .expect("a second installer is refused");
+        assert!(
+            refused.message.contains("already being sent"),
+            "{}",
+            refused.message
+        );
+        assert_eq!(
+            bytes(&state),
+            before,
+            "the marker, the kept copy and the family are untouched"
+        );
+        assert!(restore::restore_pending(&state).expect("readable"));
+        drop(lease);
+        let _ = fs::remove_dir_all(&root);
     }
 }

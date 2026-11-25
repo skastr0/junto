@@ -56,6 +56,11 @@ fn main() -> ExitCode {
         envelope::warn(OWNER_COMMAND_REFUSAL);
         return ExitCode::FAILURE;
     }
+    // The core's one boot step before it opens the database: finish a restore an
+    // install left owed, under the install lock when a marker is there.
+    if words == ["machine", "restore-finish"] {
+        return commands::machine::restore_finish();
+    }
     match words.as_slice() {
         ["--version" | "-v"] => {
             envelope::say(&format!("junto v{CLI_VERSION}"));

@@ -77,6 +77,12 @@ pub fn print(command: &str, answer: Answer) -> ExitCode {
 
 /// The failure envelope on stderr, exit 1.
 pub fn refuse(command: Option<&str>, error: &Failure) -> ExitCode {
+    refuse_with(command, error, ExitCode::FAILURE)
+}
+
+/// The failure envelope on stderr with the code the caller chose: a boot check
+/// that an install owns the machine answers 75 rather than 1.
+pub fn refuse_with(command: Option<&str>, error: &Failure, code: ExitCode) -> ExitCode {
     line(
         &mut std::io::stderr(),
         &Refusal {
@@ -85,7 +91,7 @@ pub fn refuse(command: Option<&str>, error: &Failure) -> ExitCode {
             error,
         },
     );
-    ExitCode::FAILURE
+    code
 }
 
 /// One line of text on stdout. A reader that hung up has no one left to

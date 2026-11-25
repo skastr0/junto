@@ -211,8 +211,26 @@ impl Run for Machine {
 /// the TypeScript installer's helper (src/cli/hosts/install-lock.ts, on the
 /// bundle's Node) while src/cli stands. The lock belongs to that open file
 /// description, so it outlives this process while the caller keeps the file
-/// open; the caller's exit or crash releases it. Exit 0 locked, 1 held by
-/// another install, 2 not lockable.
+/// The core's boot step before it opens the database: finish a restore an
+/// install left owed, under the install lock when a marker is there. Nothing on
+/// stdout is parsed: 0 means nothing was owed or the restore finished, 75 that
+/// an install holds this home, and anything else that the restore refused.
+pub fn restore_finish() -> ExitCode {
+    match install::restore_finish() {
+        Ok(data) => envelope::print("machine restore-finish", envelope::ok(&data)),
+        Err(install::RestoreFinish::Updating(error)) => {
+            envelope::refuse_with(Some("machine restore-finish"), &error, ExitCode::from(75))
+        }
+        Err(install::RestoreFinish::Fault(refused)) => envelope::refuse(
+            Some("machine restore-finish"),
+            &Failure::new(ErrorType::InternalError, refused.message),
+        ),
+    }
+}
+
+/// The install lease on stdin, which Node cannot take itself: it outlives the
+/// caller's exit or crash. Exit 0 locked, 1 held by another install, 2 not
+/// lockable.
 pub fn install_lease() -> ExitCode {
     use rustix::fs::{FlockOperation, flock};
     match flock(std::io::stdin(), FlockOperation::NonBlockingLockExclusive) {

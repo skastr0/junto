@@ -18,7 +18,7 @@
 
 use std::fs;
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use rustix::fs::OFlags;
@@ -73,28 +73,32 @@ fn owned_regular_file(path: &Path) -> Result<bool, Refused> {
     Ok(true)
 }
 
-/// The state directory itself: a real directory of this user's that group and
-/// other may not write.
-fn check_state_directory(path: &Path) -> Result<(), Refused> {
+/// A directory the family is copied into or read from: lstat first, never
+/// through a link, and this user's alone.
+fn check_private_directory(path: &Path, what: &str) -> Result<(), Refused> {
     let metadata = fs::symlink_metadata(path).map_err(|error| {
         Refused::new(format!(
-            "the state directory could not be read: {}: {error}",
+            "{what} could not be read: {}: {error}",
             path.display()
         ))
     })?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         return Err(Refused::new(format!(
-            "the state directory is not a real directory: {}",
+            "{what} is not a real directory: {}",
             path.display()
         )));
     }
-    if metadata.uid() != getuid().as_raw() || metadata.mode() & 0o022 != 0 {
+    if metadata.uid() != getuid().as_raw() || metadata.mode() & 0o077 != 0 {
         return Err(Refused::new(format!(
-            "the state directory is not this user's alone: {}",
+            "{what} is not this user's alone: {}",
             path.display()
         )));
     }
     Ok(())
+}
+
+fn check_state_directory(path: &Path) -> Result<(), Refused> {
+    check_private_directory(path, "the state directory")
 }
 
 fn sync_directory(path: &Path) -> Result<(), Refused> {
@@ -171,9 +175,8 @@ pub fn make_restore_point(state_directory: &Path) -> Result<Option<RestorePoint>
     if !owned_regular_file(&state_directory.join(DATABASE))? {
         return Ok(None);
     }
-    fs::create_dir_all(state_directory).map_err(Refused::from)?;
-    fs::set_permissions(state_directory, fs::Permissions::from_mode(0o700))
-        .map_err(Refused::from)?;
+    // The family was found, so its directory is there to check: never chmod a
+    // path before proving it is a real directory this user owns.
     check_state_directory(state_directory)?;
     let id = random_uuid()?;
     let directory = state_directory.join(format!(".rollback-{id}"));
@@ -181,6 +184,7 @@ pub fn make_restore_point(state_directory: &Path) -> Result<Option<RestorePoint>
         .mode(0o700)
         .create(&directory)
         .map_err(Refused::from)?;
+    check_private_directory(&directory, "the kept copy")?;
     let mut members = Vec::new();
     let copied = (|| -> Result<(), Refused> {
         for name in FAMILY {
@@ -212,7 +216,9 @@ fn marker_of(point: &RestorePoint) -> PathBuf {
         .join(format!(".restore-{}.marker", point.id))
 }
 
-fn write_marker(point: &RestorePoint) -> Result<(), Refused> {
+/// Write the marker: fsynced before any member is unlinked, so a boot that
+/// meets it can finish the restore.
+pub fn write_restore_marker(point: &RestorePoint) -> Result<(), Refused> {
     let marker = marker_of(point);
     let members: Vec<String> = point
         .members
@@ -258,7 +264,15 @@ fn write_marker(point: &RestorePoint) -> Result<(), Refused> {
 /// the kept ones renamed in db, wal, shm order, the state directory fsynced, the
 /// marker removed, the directory fsynced again, then the kept copy removed.
 pub fn restore_database(point: &RestorePoint) -> Result<(), Refused> {
-    write_marker(point)?;
+    check_private_directory(&point.directory, "the kept copy")?;
+    write_restore_marker(point)?;
+    restore_database_marker(point)
+}
+
+/// The renames, under a marker already written: an install writes the marker
+/// first, then takes the home lock, so a boot that meets a held lock knows a
+/// restore is owed.
+pub fn restore_database_marker(point: &RestorePoint) -> Result<(), Refused> {
     for name in FAMILY {
         let kept = point.directory.join(name);
         let target = point.state_directory.join(name);
@@ -366,28 +380,38 @@ fn read_marker(state_directory: &Path, name: &str, id: &str) -> Result<Vec<Strin
     Ok(members)
 }
 
-/// Before anything opens the database: finish a restore a crash interrupted. A
-/// marker whose copy is gone refuses the boot rather than opening a database
-/// whose history is unknown.
-pub fn finish_interrupted_restore(state_directory: &Path) -> Result<Option<PathBuf>, Refused> {
+/// Markers for restores a crash interrupted, by their file names.
+fn restore_markers(state_directory: &Path) -> Result<Vec<String>, Refused> {
     let entries = match fs::read_dir(state_directory) {
         Ok(entries) => entries,
-        Err(error) if missing(&error) => return Ok(None),
+        Err(error) if missing(&error) => return Ok(Vec::new()),
         Err(error) => return Err(Refused::new(error.to_string())),
     };
     let mut markers: Vec<String> = Vec::new();
     for entry in entries {
         let entry = entry.map_err(Refused::from)?;
         let name = entry.file_name().to_string_lossy().into_owned();
-        if let Some(id) = name
+        let named = name
             .strip_prefix(".restore-")
             .and_then(|rest| rest.strip_suffix(".marker"))
-            .filter(|id| is_uuid(id))
-        {
-            let _ = id;
+            .is_some_and(is_uuid);
+        if named {
             markers.push(name);
         }
     }
+    Ok(markers)
+}
+
+/// Whether a restore is owed before the database may be opened.
+pub fn restore_pending(state_directory: &Path) -> Result<bool, Refused> {
+    Ok(!restore_markers(state_directory)?.is_empty())
+}
+
+/// Before anything opens the database: finish a restore a crash interrupted. A
+/// marker whose copy is gone refuses the boot rather than opening a database
+/// whose history is unknown.
+pub fn finish_interrupted_restore(state_directory: &Path) -> Result<Option<PathBuf>, Refused> {
+    let markers = restore_markers(state_directory)?;
     if markers.is_empty() {
         return Ok(None);
     }
@@ -405,16 +429,13 @@ pub fn finish_interrupted_restore(state_directory: &Path) -> Result<Option<PathB
         .unwrap_or_default()
         .to_string();
     let directory = state_directory.join(format!(".rollback-{id}"));
-    let kept = fs::symlink_metadata(&directory).ok();
-    let usable = kept
-        .as_ref()
-        .is_some_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink());
-    if !usable {
+    if fs::symlink_metadata(&directory).is_err() {
         return Err(Refused::new(format!(
             "a database restore was interrupted and its kept copy is missing at {}; inspect it before starting Junto",
             directory.display()
         )));
     }
+    check_private_directory(&directory, "the kept copy")?;
     let members = read_marker(state_directory, &name, &id)?;
     let point = RestorePoint {
         id,
@@ -429,6 +450,7 @@ pub fn finish_interrupted_restore(state_directory: &Path) -> Result<Option<PathB
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     fn scratch(name: &str) -> PathBuf {
         let directory = super::super::paths::home()
@@ -495,7 +517,7 @@ mod tests {
             .expect("a point")
             .expect("a database");
         // A crash after the marker and the database rename, before the wal.
-        write_marker(&point).expect("the marker");
+        write_restore_marker(&point).expect("the marker");
         fs::rename(point.directory.join(DATABASE), state.join(DATABASE)).expect("renamed");
         let finished = finish_interrupted_restore(&state).expect("finished");
         assert_eq!(finished, Some(point.directory.clone()));
@@ -513,7 +535,7 @@ mod tests {
         let point = make_restore_point(&state)
             .expect("a point")
             .expect("a database");
-        write_marker(&point).expect("the marker");
+        write_restore_marker(&point).expect("the marker");
         fs::remove_dir_all(&point.directory).expect("the copy goes");
         let refused = finish_interrupted_restore(&state).expect_err("refused");
         assert!(
@@ -530,7 +552,7 @@ mod tests {
         let point = make_restore_point(&state)
             .expect("a point")
             .expect("a database");
-        write_marker(&point).expect("the marker");
+        write_restore_marker(&point).expect("the marker");
         let second = state.join(".restore-11111111-2222-4333-8444-555555555555.marker");
         fs::write(&second, b"{}").expect("a second marker");
         let refused = finish_interrupted_restore(&state).expect_err("refused");
@@ -570,7 +592,7 @@ mod tests {
         let point = make_restore_point(&state)
             .expect("a point")
             .expect("a database");
-        write_marker(&point).expect("the marker");
+        write_restore_marker(&point).expect("the marker");
         discard_restore_point(&point).expect("discarded");
         assert!(!state.join(format!(".restore-{}.marker", point.id)).exists());
         assert!(!point.directory.exists());

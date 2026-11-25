@@ -40,6 +40,22 @@ pub fn admit_install_lock_root(root: &Path, expected_owner: &str) -> Result<Path
 /// The install lock on an admitted root, or the refusal that names why it could
 /// not be held.
 pub fn acquire_install_lock(root: &Path) -> Result<InstallLock, Refused> {
+    match take_install_lock(root)? {
+        Some(lease) => Ok(lease),
+        None => Err(Refused::new(
+            "Junto is already being sent to this machine. Wait for it to finish, then send again",
+        )),
+    }
+}
+
+/// The lock, or `None` while an install holds it: a boot that finds a restore
+/// pending has to tell held from free, since the installer starts the candidate
+/// core while it holds the lock itself.
+pub fn try_install_lock(root: &Path) -> Result<Option<InstallLock>, Refused> {
+    take_install_lock(root)
+}
+
+fn take_install_lock(root: &Path) -> Result<Option<InstallLock>, Refused> {
     let directory = root.join(".install-lock");
     ensure_machine_directory(&directory, false)?;
     let path = directory.join("lease");
@@ -66,10 +82,8 @@ pub fn acquire_install_lock(root: &Path) -> Result<InstallLock, Refused> {
         }
     }
     match rustix::fs::flock(&file, FlockOperation::NonBlockingLockExclusive) {
-        Ok(()) => Ok(InstallLock { _file: file }),
-        Err(rustix::io::Errno::WOULDBLOCK) => Err(Refused::new(
-            "Junto is already being sent to this machine. Wait for it to finish, then send again",
-        )),
+        Ok(()) => Ok(Some(InstallLock { _file: file })),
+        Err(rustix::io::Errno::WOULDBLOCK) => Ok(None),
         Err(errno) => Err(Refused::new(format!(
             "The system install lease is unavailable. Check this machine's operating system: {errno}"
         ))),
