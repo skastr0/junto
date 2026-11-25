@@ -568,3 +568,48 @@ this release. Main (`973b380d1`) and the tag were pushed to origin after the pub
   publish (`juntoagents.com/download/latest`); the feed is right. The real-app
   pass of the thread features, and the fix for a refused re-seat of several
   seats leaving them stopped (`src/window/lib/agent-reseat.ts:226`).
+
+## 0.12.0 receipt (product-releases, 2026-11-25)
+
+Published on product-lead's word ("GO for 0.12.0", the operator's, 2026-11-25),
+scope exactly `167006e67` (main-verify green 16:19Z, 10113 tests). Tag
+`v0.12.0` = `492d86d5e`, which is `167006e67` plus the bump (package.json and
+CHANGELOG only), on branch `release/0.12.0`. The hold on `9712f7bd2` was lifted
+first: remote-security failed it and `ea37fcdab` reverted it, an ancestor of
+`167006e67`. Pushed to origin: the branch, the tag, and `main` at `167006e67`
+only (local main was 24 commits past it; those are not in this release).
+
+- Checks on a VM (`bx_4tqyr8tc`, at `492d86d5e`): `typecheck`, `lint`,
+  `lint:product-name`, `lint:no-middot`, `schema:identity` (v79
+  `8cbf4724ec4704a957edc8e360580cb4194b32bf1b18a3a646d3467babe78b0a`) pass.
+  The whole suite was not rerun on the branch; `167006e67` is the main-verify
+  green, and the bump adds only package.json and CHANGELOG. The zoom ladder
+  gate (`release:zoom-ladder`, needs the mini) was NOT run: no ruling in the
+  GO names it, read as Mac-only and waived.
+- Database 76 to 79: the migration test files ran on the VM (8 files, 72
+  passed, 1 skipped), fixtures replayed on the production DDL. No copy of an
+  installed database was used; the installed-copy test stayed skipped. NOT
+  proven: a v76 file opened by the packaged 0.12.0 app.
+- Build on the MacBook, no `--verify`: `build-app.sh --target mac --sign
+  --notarize` from a clean clone at `492d86d5e`. The Orb builder was not used:
+  the `linux-x64` machine payload was built on the VM, copied back, and paired
+  with the `darwin-arm64` payload built on the MacBook through
+  `JUNTO_MACHINE_BUNDLES` (both builds `5eb79153ca2a6aae95ec8354ab628d0e65574e2bc976160eaff524b68e6565f9`,
+  `machine-package.ts` accepts the pair).
+- Notarization submission `3d08c30f-8356-4125-8593-1880e83afb9d` Accepted,
+  stapled, `spctl` "Notarized Developer ID" (team `4452968868`), `codesign
+  --verify --deep --strict` ok. Stapled zip sha256
+  `dcbb8aa90735757f215b78bfd39745c014dfce8b45e6f75e1654663da077a529`
+  (133,935,300 bytes), dmg sha256
+  `57cd16eafa375b1928f57039635c3766ea3c876cce02524113c63a8c386af7a0`
+  (135,314,189 bytes).
+- `packaged-runtime-smoke` on the stapled app: ok, exit 0, four process roles,
+  real roots untouched.
+- Source maps: `junto-sourcemaps-0.12.0-492d86d5eaf7.tar.gz` (15,966,083 bytes),
+  sha256 `ffd02188335b02003f2230015e0720a7873f08847b92a09787b104310041b87e`,
+  kept private beside the notarization receipt in
+  `~/junto-receipts/release-0.12.0/`. The publish `--dry-run` listed the zip,
+  blockmap, dmg, `latest-mac.yml` and the machine archives, not the maps; the
+  feed host answers 404 for the archive.
+- The feed `latest-mac.yml` says 0.12.0 and the downloaded zip hashes to the
+  stapled sha256.
