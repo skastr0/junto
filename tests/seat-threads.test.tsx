@@ -1274,8 +1274,11 @@ describe("files on a message", () => {
 describe("the thread composer", () => {
   const sends: unknown[] = [];
   let reply: unknown = { ok: true, messageId: "m9", threadId: "notes", delivery: "delivered" };
+  // Holds the answer of a send until the test lets it through.
+  let gate: Promise<void> | undefined;
 
   beforeEach(() => {
+    gate = undefined;
     sends.length = 0;
     reply = { ok: true, messageId: "m9", threadId: "notes", delivery: "delivered" };
     (window as { junto?: unknown }).junto = {
@@ -1285,6 +1288,7 @@ describe("the thread composer", () => {
       ],
       seatThreadSend: async (input: unknown) => {
         sends.push(input);
+        await gate;
         return reply;
       },
     };
@@ -1473,6 +1477,52 @@ describe("the thread composer", () => {
     }
   });
 
+  it("says the seat has it when the list shows the mail taken before the send's own answer comes back", async () => {
+    vi.useFakeTimers();
+    try {
+      const { state, change } = await open();
+      const heard: string[] = [];
+      new MutationObserver((records) => {
+        for (const record of records) for (const node of record.addedNodes) heard.push(node.textContent ?? "");
+      }).observe(q("seat-threads-said")!, { childList: true });
+      let letThrough!: () => void;
+      gate = new Promise<void>((resolve) => (letThrough = resolve));
+      await type("Thanks.");
+      await key("Enter");
+      // The mail is in the thread, taken, while the send's answer is still on its way.
+      state.messages.notes = [...state.messages.notes, { messageId: "m9", author: "you", mine: true, text: "Thanks.", at: at(1, 6) }];
+      change();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+      expect(heard).toEqual([]);
+      letThrough();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      expect(heard).toEqual(["pty-lead has it."]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says nothing of waiting for a thread that is behind Terminal when its second is up", async () => {
+    vi.useFakeTimers();
+    try {
+      await open();
+      reply = { ok: true, messageId: "m9", threadId: "notes", delivery: "waiting_for_seat" };
+      await type("Are you there?");
+      await key("Enter");
+      await click(q("seat-view-terminal"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      expect(q("seat-threads-said")!.textContent).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("says nothing for a send that failed", async () => {
     await open();
     await type("Thanks.");
@@ -1630,11 +1680,21 @@ describe("the thread composer", () => {
       await click(q("seat-threads-new"));
       reply = { ok: true, messageId: "fresh", threadId: "fresh", delivery: "waiting_for_seat" };
       await type("Are you there?");
+      // Every mark that is ever put in the document, even for one frame.
+      let drawn = 0;
+      new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (node instanceof Element && (node.matches('[data-testid="seat-threads-waiting"]') || node.querySelector('[data-testid="seat-threads-waiting"]'))) drawn += 1;
+          }
+        }
+      }).observe(document.body, { childList: true, subtree: true });
       await click(q("thread-composer-send"));
       state.threads = [thread({ threadId: "fresh", title: "Are you there?", lastAt: at(2, 0) }), ...state.threads];
       state.messages.fresh = [{ messageId: "fresh", author: "you", mine: true, text: "Are you there?", at: at(2, 0), waiting: true }];
       change();
       await later(600);
+      expect(drawn).toBe(0);
       // The new thread's chat is there, with its one voice; its mail is still inside its second, so nothing is drawn or said.
       expect(document.querySelector('[data-thread-id="fresh"]')?.getAttribute("data-selected")).toBe("true");
       expect(q("seat-threads-waiting")).toBeNull();

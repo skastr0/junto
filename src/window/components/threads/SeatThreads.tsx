@@ -535,10 +535,15 @@ export function ThreadChat({
   // The mail sent from here whose outcome is not said yet, by id.
   const followed = useRef(new Set<string>());
   // The mail sent from here whose waiting mark is held back until it has had its second.
-  const [heldBack, setHeldBack] = useState<ReadonlyArray<string>>([]);
+  // A thread just started from here starts with its first mail held back, so
+  // that mark is not drawn even for a frame before an effect could hold it.
+  const [heldBack, setHeldBack] = useState<ReadonlyArray<string>>(() => (started === undefined ? [] : [started.messageId]));
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const messagesNow = useRef(messages);
   messagesNow.current = messages;
+  // Whether the chat is on screen when a timer fires, not when it was set.
+  const shownNow = useRef(shown);
+  shownNow.current = shown;
   useEffect(() => {
     const ids = followed.current;
     const waits = timers.current;
@@ -558,11 +563,17 @@ export function ThreadChat({
         setTimeout(() => {
           timers.current.delete(messageId);
           setHeldBack((ids) => ids.filter((id) => id !== messageId));
-          // Its seat took it inside the second: its arrival is what is said.
           if (!followed.current.has(messageId)) return;
           const mail = messagesNow.current.find((message) => message.messageId === messageId);
-          if (mail !== undefined && mail.waiting !== true) return;
-          say(sentWaiting(name));
+          if (mail !== undefined && mail.waiting !== true) {
+            // The list showed it taken before the send's own answer came back, so
+            // the arrival effect passed it by: its arrival is said here.
+            followed.current.delete(messageId);
+            if (shownNow.current) say(sentArrived(name));
+            return;
+          }
+          // Said only while the thread is on screen, as its arrival is.
+          if (shownNow.current) say(sentWaiting(name));
         }, SENT_WAITING_AFTER_MS),
       );
     },
@@ -610,7 +621,8 @@ export function ThreadChat({
     // unless the headline brought its own.
     if (changed.length > 0) say(changed.reduce((all, one) => `${all}${/[.!?]$/.test(all) ? " " : ". "}${one}`));
   }, [messages, headSignal, shown, name, thread.participants, say]);
-  // A thread just started from here, by this mail. The region is said reliably
+  // A thread just started from here, by this mail. Its chat is new, so `name`
+  // and `shown` as it mounted are the ones that count for the 150 ms below. The region is said reliably
   // only when it is in the document before its words, so its outcome comes a
   // moment after the chat: that the seat has it, or, as for any send, the
   // waiting line when it has not within a second.
