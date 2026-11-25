@@ -11,6 +11,7 @@ import { BodyPuller } from "../content/body-puller";
 import { deliverOperatorAttachmentLines } from "../content/mail-files-pull";
 import { ContentService } from "../content/service";
 import { MachineRepository } from "../machines/repository";
+import { AgentSignalRepository } from "../signals/repository";
 import { ModelActorRefs } from "../model/actor-refs";
 import { ModelRecords } from "../model/records";
 import { ModelService } from "../model/service";
@@ -34,6 +35,8 @@ export const makeMessageDeliveryStore = (
   const puller = yield* Effect.serviceOption(BodyPuller);
   const records = yield* ModelRecords;
   const machines = yield* MachineRepository;
+  // Optional, so no requirement ripples to a caller that holds no signal store.
+  const signals = yield* Effect.serviceOption(AgentSignalRepository);
   const context = yield* Effect.context<SqlClient.SqlClient | WorkRepository | ModelService | ModelActorRefs>();
   const run = Effect.runPromiseWith(context);
   return {
@@ -65,6 +68,12 @@ export const makeMessageDeliveryStore = (
           return editor === undefined || editor === (yield* machines.installationId);
         }).pipe(Effect.orElseSucceed(() => false)),
       ),
+    ...(Option.isNone(signals)
+      ? {}
+      : {
+          signalOf: (signalId: string) =>
+            run(signals.value.get(signalId).pipe(Effect.orElseSucceed(() => undefined))),
+        }),
     acceptMessageDelivery: (canvas, nodeId, messageId, read) =>
       run(
         stampMailboxDeliveryReceipt({

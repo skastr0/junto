@@ -73,6 +73,8 @@ import {
 import { seatIdentity, seatLabel } from "@shared/model/seat-identity";
 import { mailHeaderSender, storedMailAuthorKindOf } from "@shared/mail-sender";
 import type { MailHold } from "@shared/mail-hold";
+import type { AgentSignal } from "@shared/wire/agent-signals";
+import { ANSWER_HELD_WORDS, answerHeld, answeredSignalIdOf } from "@shared/signal-answer-held";
 import {
   wireTrafficOfMail,
   wireTrafficPreview,
@@ -207,6 +209,12 @@ export type MessageDeliveryStore = {
    * how to answer with a signal in its thread. Absent or false: it does not.
    */
   readonly editsCanvas?: (canvas: string) => Promise<boolean>;
+  /**
+   * A signal this machine holds, by id: delivery reads it to tell an answer
+   * held because its seat withdrew the signal first (`answerHeld`). Absent,
+   * or undefined for an id: no signal held, so the mail is ordinary mail.
+   */
+  readonly signalOf?: (signalId: string) => Promise<AgentSignal | undefined>;
   /**
    * Stamp the durable delivery receipt (`deliveredAt`), and with `read` the
    * read receipt (`readAt`) beside it: mail typed whole is read.
@@ -604,6 +612,20 @@ export class MessageDeliveryService {
       this.waiting.delete(key);
       this.forgetHeld(key);
       return "delivered";
+    }
+    // An answer to a signal its seat withdrew before the answer arrived is
+    // held: never typed and never stamped, so it wakes no seat and claims no
+    // receipt. Decided on what this machine holds now (shared/signal-answer-held.ts).
+    const answers = answeredSignalIdOf(message);
+    if (answers !== undefined && store.signalOf !== undefined) {
+      const signal = await store.signalOf(answers).catch(() => undefined);
+      if (!this.active(generation)) return waiting("delivery generation ended during the signal read");
+      if (answerHeld({ canvasName: canvas, nodeId }, message, signal)) {
+        this.waiting.delete(key);
+        this.forgetHeld(key);
+        console.info(`[delivery] held for ${canvas}/${nodeId}/${messageId}: ${ANSWER_HELD_WORDS}`);
+        return "waiting";
+      }
     }
     const noWake = mailHoldsWake(message.metadata);
     this.waiting.set(key, { canvas, nodeId, messageId, bindingId: target.bindingId, noWake });

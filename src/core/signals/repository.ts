@@ -173,7 +173,10 @@ export class AgentSignalRepository extends Context.Service<AgentSignalRepository
     /**
      * Take a signal another machine wrote. Applying it twice changes nothing:
      * a raise is kept once, and a closing lands only on an open signal of the
-     * same seat. Answers the signal when this changed it, undefined when not.
+     * same seat. A closing that crossed the first is kept beside it, never in
+     * its place: a withdrawal on an answered signal as `withdrawnAt`, an answer
+     * on a withdrawn one as its response, the state left as it was. Answers
+     * the signal when this changed it, undefined when not.
      * `AgentSignalNotFound` for a closing of a signal this machine does not
      * hold and the sender may not raise.
      */
@@ -475,6 +478,7 @@ const fromRow = (row: typeof SignalRow.Type): AgentSignal => {
           },
         }),
     ...(row.closed_at === null ? {} : { closedAt: Number(row.closed_at) }),
+    ...(row.withdrawn_at === null ? {} : { withdrawnAt: Number(row.withdrawn_at) }),
     // The answer and the withdrawal crossed, as the editing machine keeps it (answered, then withdrawn_at) or as the seat's machine does (withdrawn, holding the answer).
     ...((row.state === "answered" && row.withdrawn_at !== null) || (row.state === "withdrawn" && row.response_text !== null) ? { crossed: true as const } : {}),
     ...(row.thread_id === null ? {} : { threadId: row.thread_id }),
@@ -847,6 +851,24 @@ export const AgentSignalRepositoryLive: Layer.Layer<
           WHERE signal_id = ${input.signalId} AND state = 'open'
         `.raw.pipe(Effect.flatMap(changes));
         changed = changed || Number(closed.changes) > 0;
+        // A closing that crossed the first is kept beside it and never moves
+        // state off it (step 77). Each machine keeps the one it may be told:
+        // the editing machine an answered signal the seat withdrew after, the
+        // seat's machine a withdrawn signal the answer reached after. Neither
+        // is an answer here, so nothing that acts on one is woken by it.
+        if (closing.state === "withdrawn" && input.raises) {
+          const kept = yield* sql`
+            UPDATE agent_signals SET withdrawn_at = ${closing.closedAt}
+            WHERE signal_id = ${input.signalId} AND state = 'answered' AND withdrawn_at IS NULL
+          `.raw.pipe(Effect.flatMap(changes));
+          changed = changed || Number(kept.changes) > 0;
+        } else if (closing.state === "answered" && !input.raises) {
+          const kept = yield* sql`
+            UPDATE agent_signals SET response_text = ${closing.response.text}, response_at = ${closing.response.at}
+            WHERE signal_id = ${input.signalId} AND state = 'withdrawn' AND response_text IS NULL
+          `.raw.pipe(Effect.flatMap(changes));
+          changed = changed || Number(kept.changes) > 0;
+        }
       }
       if (!changed) return undefined;
       const taken = (yield* readOne(input.signalId))!;

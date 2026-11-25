@@ -450,6 +450,13 @@ export const AgentSignal = Schema.Struct({
   /** Epoch ms of the last state change (answer, dismiss, withdraw). */
   closedAt: Schema.optionalKey(Schema.Number),
   /**
+   * Epoch ms the seat withdrew a signal the operator had already answered on
+   * the editing machine: the two closings crossed, and both are kept. Present
+   * only beside `answered`. The seat's own machine keeps the other face: a
+   * `withdrawn` signal holding the answer that came after (`response`).
+   */
+  withdrawnAt: Schema.optionalKey(Schema.Number),
+  /**
    * The thread between the seat and the operator this signal was raised in.
    * Absent on a signal raised outside a thread, which is every signal before
    * signals could be raised in one.
