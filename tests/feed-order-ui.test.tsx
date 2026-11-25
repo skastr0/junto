@@ -54,15 +54,15 @@ const NOW = 10_000_000;
 const REGION = { regionId: "build", label: "Build", path: ["Build"] };
 
 /** Ten raised by one seat, each after the one before, and one from another seat in no order. */
-const signalsOf = (open: number): AgentSignal[] => [
-  ...Array.from({ length: 10 }, (_, n): AgentSignal => ({
+const signalsOf = (open: number, total = 10): AgentSignal[] => [
+  ...Array.from({ length: total }, (_, n): AgentSignal => ({
     signalId: `s${String(n + 1)}`,
     canvasName: CANVAS,
     nodeId: "seat-atlas",
     kind: "escalate",
     text: `Topic ${String(n + 1)} needs your call`,
     createdAt: NOW - 100_000 + n,
-    state: n < 10 - open ? "answered" : "open",
+    state: n < total - open ? "answered" : "open",
     ...(n === 0 ? {} : { dependsOn: [`s${String(n)}`] }),
   })),
   {
@@ -76,12 +76,12 @@ const signalsOf = (open: number): AgentSignal[] => [
   },
 ];
 
-const feedOf = (open: number): Feed =>
+const feedOf = (open: number, total = 10): Feed =>
   buildOperatorFeed({
     canvasName: CANVAS,
     nowMs: NOW,
     seats: ["atlas", "bravo"].map((seat) => ({ seat: { nodeId: `seat-${seat}`, name: seat, portraitIdentity: seat }, region: REGION })),
-    signals: signalsOf(open),
+    signals: signalsOf(open, total),
   });
 
 let root: Root;
@@ -242,6 +242,19 @@ it("says an answer and the card that takes its place, or that nothing else waits
   await key("1");
   await act(async () => live.set(feedOf(0)));
   expect(q(".operator-feed__announce")?.textContent).toBe("Answered. Next: bravo, ready for review: Bravo wants a look");
+});
+
+it("draws a batch of 50 raised in order as three rows, and walks it one by one with the next always on top", async () => {
+  await open(feedOf(50, 50));
+  expect(rows()).toEqual(["s1", "s2", "48 more in this order", "other"]);
+  expect(all('[data-testid="operator-feed-card"]')[0]!.querySelector('[data-testid="feed-chain-place"]')?.textContent).toBe("1 of 50");
+  for (let left = 50; left >= 1; left -= 1) {
+    const next = `s${String(51 - left)}`;
+    expect(rows()[0]).toBe(next);
+    expect(selectedId()).toBe(next);
+    await act(async () => live.set(feedOf(left - 1, 50)));
+  }
+  expect(rows()).toEqual(["other"]);
 });
 
 it("unfolds the rest of a chain in place", async () => {
