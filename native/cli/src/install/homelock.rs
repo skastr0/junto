@@ -15,7 +15,6 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::Path;
-use std::time::{Duration, Instant};
 
 use rustix::fs::{Mode, OFlags};
 use rustix::process::getuid;
@@ -32,9 +31,6 @@ pub struct HomeDatabaseLock {
     _file: Option<fs::File>,
 }
 
-/// How long a `home.lock` another process is writing has to reach 32 bytes.
-const ID_WAIT: Duration = Duration::from_secs(2);
-const ID_POLL: Duration = Duration::from_millis(20);
 const ID_BYTES: usize = 32;
 
 /// The lock, `None` when a core or another install holds it, or the refusal
@@ -42,35 +38,11 @@ const ID_BYTES: usize = 32;
 pub fn try_lock_home_database(state_directory: &Path) -> Result<Option<HomeDatabaseLock>, Refused> {
     prepare_state_directory(state_directory)?;
     let file = open_home_lock(state_directory)?;
-    let id = match read_id(&file) {
-        Ok(id) => id,
-        Err(short) if short => {
-            // Another process made the file and is writing the id this moment.
-            let deadline = Instant::now() + ID_WAIT;
-            loop {
-                if Instant::now() >= deadline {
-                    return Err(Refused::new(
-                        "home.lock is not a home lock. No core can hold it: remove it and start Junto again",
-                    ));
-                }
-                std::thread::sleep(ID_POLL);
-                match read_id(&file) {
-                    Ok(id) => break id,
-                    Err(short) if short => continue,
-                    Err(_) => {
-                        return Err(Refused::new(
-                            "home.lock is not a home lock. No core can hold it: remove it and start Junto again",
-                        ));
-                    }
-                }
-            }
-        }
-        Err(_) => {
-            return Err(Refused::new(
-                "home.lock is not a home lock. No core can hold it: remove it and start Junto again",
-            ));
-        }
-    };
+    let id = read_id(&file).map_err(|_| {
+        Refused::new(
+            "home.lock is not a home lock. No core can hold it: remove it and start Junto again",
+        )
+    })?;
     match bind_socket(&id, &file) {
         Ok(socket) => Ok(Some(HomeDatabaseLock {
             _socket: socket,
@@ -115,30 +87,19 @@ fn prepare_state_directory(state_directory: &Path) -> Result<(), Refused> {
     Ok(())
 }
 
-/// The lock file, made once with `O_EXCL` and never through a link, then opened
-/// to read: the id is written by whoever makes it first and read by everyone,
-/// so the name is never guessed and never rewritten.
+/// The lock file, made atomically: the id goes to a private temporary file that
+/// is fsynced and then linked to `home.lock`, so a crash leaves either no lock
+/// file or one that already holds its whole id. `link` refuses an existing
+/// name instead of replacing the winner's.
 fn open_home_lock(state_directory: &Path) -> Result<fs::File, Refused> {
     let path = state_directory.join("home.lock");
-    match rustix::fs::open(
-        &path,
-        OFlags::CREATE | OFlags::EXCL | OFlags::WRONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::from_bits_truncate(0o600),
-    ) {
-        Ok(fd) => {
-            let file = fs::File::from(fd);
-            file.set_permissions(fs::Permissions::from_mode(0o600))
-                .map_err(Refused::from)?;
-            check_lock_file(&file)?;
-            write_id(&file)?;
-            drop(file);
+    match fs::symlink_metadata(&path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            make_home_lock(state_directory, &path)?;
         }
-        Err(rustix::io::Errno::EXIST) => {}
-        Err(errno) => {
-            return Err(Refused::new(format!(
-                "the home lock could not be made: {}: {errno}",
-                path.display()
-            )));
+        Err(error) => {
+            return Err(Refused::new(format!("{}: {error}", path.display())));
         }
     }
     let fd = rustix::fs::open(
@@ -150,6 +111,39 @@ fn open_home_lock(state_directory: &Path) -> Result<fs::File, Refused> {
     let file = fs::File::from(fd);
     check_lock_file(&file)?;
     Ok(file)
+}
+
+/// Make the file and its id, then link it into place; whoever loses the link
+/// reads the winner's id.
+fn make_home_lock(state_directory: &Path, path: &Path) -> Result<(), Refused> {
+    let id = random_id()?;
+    let temporary = state_directory.join(format!("home.lock.{}", hex(&id)));
+    let file = rustix::fs::open(
+        &temporary,
+        OFlags::CREATE | OFlags::EXCL | OFlags::WRONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::from_bits_truncate(0o600),
+    )
+    .map_err(|error| Refused::new(format!("{}: {error}", temporary.display())))?;
+    let file = fs::File::from(file);
+    file.set_permissions(fs::Permissions::from_mode(0o600))
+        .map_err(Refused::from)?;
+    let written = (&file).write_all(&id).and_then(|()| file.sync_all());
+    drop(file);
+    let made = match written {
+        Ok(()) => fs::hard_link(&temporary, path),
+        Err(error) => Err(error),
+    };
+    let _ = fs::remove_file(&temporary);
+    match made {
+        Ok(()) => Ok(()),
+        // Someone else made the lock first: this read takes their id.
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => Err(Refused::new(format!("{}: {error}", path.display()))),
+    }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// A regular file of this user's alone, one link.
@@ -167,13 +161,6 @@ fn check_lock_file(file: &fs::File) -> Result<(), Refused> {
     Ok(())
 }
 
-fn write_id(mut file: &fs::File) -> Result<(), Refused> {
-    let id = random_id()?;
-    file.write_all(&id).map_err(Refused::from)?;
-    file.sync_all().map_err(Refused::from)?;
-    Ok(())
-}
-
 /// 32 bytes from the OS random source.
 fn random_id() -> Result<[u8; ID_BYTES], Refused> {
     let mut id = [0u8; ID_BYTES];
@@ -183,12 +170,11 @@ fn random_id() -> Result<[u8; ID_BYTES], Refused> {
     Ok(id)
 }
 
-/// `Ok` the id, `Err(true)` while the file holds fewer than 32 bytes, `Err(false)`
-/// when it holds something else.
-fn read_id(mut file: &fs::File) -> Result<[u8; ID_BYTES], bool> {
+/// The id, or why the file is not a home lock.
+fn read_id(mut file: &fs::File) -> Result<[u8; ID_BYTES], ()> {
     // The id is written before this read, which leaves the offset at its end.
     if file.seek(SeekFrom::Start(0)).is_err() {
-        return Err(false);
+        return Err(());
     }
     let mut bytes = Vec::with_capacity(ID_BYTES + 1);
     match file.read_to_end(&mut bytes) {
@@ -197,9 +183,7 @@ fn read_id(mut file: &fs::File) -> Result<[u8; ID_BYTES], bool> {
             id.copy_from_slice(&bytes);
             Ok(id)
         }
-        Ok(_) if bytes.len() < ID_BYTES => Err(true),
-        Ok(_) => Err(false),
-        Err(_) => Err(false),
+        Ok(_) | Err(_) => Err(()),
     }
 }
 
@@ -217,8 +201,7 @@ type Socket = std::os::unix::net::UnixListener;
 fn bind_socket(id: &[u8; ID_BYTES], _file: &fs::File) -> Result<Socket, Held> {
     use std::os::linux::net::SocketAddrExt;
 
-    let hex: String = id.iter().map(|byte| format!("{byte:02x}")).collect();
-    let name = format!("junto-home-{hex}");
+    let name = format!("junto-home-{}", hex(id));
     let address = std::os::unix::net::SocketAddr::from_abstract_name(name.as_bytes())
         .map_err(|error| Held::Refused(Refused::new(format!("the home lock address: {error}"))))?;
     let listener = Socket::bind_addr(&address).map_err(|error| match error.kind() {
@@ -354,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn a_short_id_waits_and_then_refuses_with_words_that_say_what_to_do() {
+    fn a_short_id_is_refused_at_once_with_words_that_say_what_to_do() {
         let root = scratch("short");
         let state = root.join(".junto/state");
         fs::create_dir_all(&state).expect("state");
@@ -369,6 +352,39 @@ mod tests {
             refused.message,
             "home.lock is not a home lock. No core can hold it: remove it and start Junto again"
         );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn making_the_lock_never_replaces_an_id_that_is_already_there() {
+        let root = scratch("atomic");
+        let state = root.join(".junto/state");
+        let held = try_lock_home_database(&state)
+            .expect("readable")
+            .expect("hold");
+        let first = fs::read(state.join("home.lock")).expect("the id");
+        drop(held);
+        // A second maker loses the link and reads the winner's id, whatever its
+        // own bytes were; no temporary file is left behind either way.
+        make_home_lock(&state, &state.join("home.lock")).expect("the losing maker agrees");
+        assert_eq!(fs::read(state.join("home.lock")).expect("the id"), first);
+        let strays: Vec<String> = fs::read_dir(&state)
+            .expect("state")
+            .map(|entry| {
+                entry
+                    .expect("an entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .filter(|name| name != "home.lock")
+            .collect();
+        assert!(strays.is_empty(), "the temporary file is gone: {strays:?}");
+        let again = try_lock_home_database(&state)
+            .expect("readable")
+            .expect("hold");
+        assert_eq!(fs::read(state.join("home.lock")).expect("the id"), first);
+        drop(again);
         let _ = fs::remove_dir_all(&root);
     }
 

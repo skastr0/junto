@@ -13,6 +13,34 @@ use rustix::process::getuid;
 use super::Refused;
 
 /// The account home, resolved, as Node's homedir() names it.
+/// The install root a canonical executable names, as the accept lock reads it:
+/// `<root>/current/bin/junto` or `<root>/builds/<64 hex>-<target>/bin/junto`.
+pub fn install_root_from_exe(exe: &Path) -> Option<PathBuf> {
+    strip_install_root(&exe.canonicalize().ok()?)
+}
+
+fn strip_install_root(exe: &Path) -> Option<PathBuf> {
+    let text = exe.to_str()?;
+    if let Some(root) = text.strip_suffix("/current/bin/junto") {
+        return (!root.is_empty() && root.starts_with('/')).then(|| PathBuf::from(root));
+    }
+    let (root, rest) = text.rsplit_once("/builds/")?;
+    let (generation, tail) = rest.split_once('/')?;
+    if tail != "bin/junto" || !install_generation_name(generation) {
+        return None;
+    }
+    (!root.is_empty() && root.starts_with('/')).then(|| PathBuf::from(root))
+}
+
+fn install_generation_name(generation: &str) -> bool {
+    let Some((hash, target)) = generation.split_once('-') else {
+        return false;
+    };
+    hash.len() == 64
+        && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        && matches!(target, "darwin-arm64" | "linux-x64")
+}
+
 pub fn home() -> PathBuf {
     let raw = std::env::var_os("HOME")
         .map(PathBuf::from)

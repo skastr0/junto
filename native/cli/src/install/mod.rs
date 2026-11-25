@@ -365,6 +365,18 @@ fn scrub(message: &str) -> String {
 fn install_flow(
     input: InstallInput,
 ) -> Result<InstallResult, (Refused, Disposition, Vec<Transition>)> {
+    install_flow_with(input, &service::machine_service)
+}
+
+/// The machine's service, chosen by the caller of the flow.
+type ServiceFactory = dyn Fn(&Path, &Path, &str) -> Result<Box<dyn service::Service>, Refused>;
+
+/// The flow with its service chosen by the caller: the product passes the one
+/// this machine has, and a test passes a fake that answers without a system.
+fn install_flow_with(
+    input: InstallInput,
+    machine_service: &ServiceFactory,
+) -> Result<InstallResult, (Refused, Disposition, Vec<Transition>)> {
     let bundle_path = match absolute_path(&input.bundle) {
         Ok(path) => path,
         Err(refused) => return Err((refused, Disposition::Staged, Vec::new())),
@@ -419,8 +431,6 @@ fn install_flow(
         // The lock comes before anything that touches the state directory: a
         // second installer must be refused while the first still owns a restore.
         let _lease = lock::acquire_install_lock(&install_root)?;
-        // A restore a crash interrupted finishes before this install reads anything.
-        restore::finish_interrupted_restore(&restore::machine_state_directory(&junto_home))?;
         let manifest = inspect_bundle(&bundle_path)?;
         if manifest.target != bundle::this_target() {
             return Err(Refused::new(format!(
@@ -473,7 +483,7 @@ fn install_flow(
         }
         verify_generation(&directory, &manifest)?;
         flow.record(Transition::step("verified", Some(manifest.build.clone())));
-        let mut service = service::machine_service(&install_root, &junto_home, &label)?;
+        let mut service = machine_service(&install_root, &junto_home, &label)?;
         let mut notices = service.reconcile()?;
         notices.sort_unstable();
         notices.dedup();
@@ -779,20 +789,33 @@ pub enum RestoreFinish {
 /// `machine restore-finish`: the core's boot step, after it holds the home lock
 /// and before it reads the database. The env names the home and the install
 /// root; no argument and no input, and the caller reads the exit code alone.
+/// `machine restore-finish`: the core's boot step, after it holds the home lock
+/// and before it reads the database. The env names the home and the install
+/// root; no argument and no input, and the caller reads the exit code alone.
 pub fn restore_finish() -> Result<FinishRestore, RestoreFinish> {
-    let junto_home = std::env::var_os("JUNTO_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| paths::home().join(".junto"));
-    let junto_home = junto_home_for_restore(&junto_home).map_err(RestoreFinish::Fault)?;
-    let install_root = std::env::var_os("JUNTO_INSTALL_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| junto_home.join(".junto/machine"));
-    restore_finish_at(&junto_home, Some(&install_root))
+    let junto_home = restore_home(std::env::var_os("JUNTO_HOME").map(PathBuf::from))
+        .map_err(RestoreFinish::Fault)?;
+    let install_root =
+        install_root_for_boot(std::env::var_os("JUNTO_INSTALL_ROOT").map(PathBuf::from));
+    restore_finish_at(&junto_home, install_root.as_deref())
 }
 
-fn junto_home_for_restore(value: &Path) -> Result<PathBuf, Refused> {
-    let home = machine_home_path(value, true)?;
-    Ok(home)
+/// The home the boot checks, with the same default the install uses: the
+/// account home itself, whose state is `<home>/.junto/state`.
+fn restore_home(named: Option<PathBuf>) -> Result<PathBuf, Refused> {
+    machine_home_path(named.unwrap_or_else(paths::home), true)
+}
+
+/// The install root the boot serializes against: the one the running binary
+/// sits in when it is `<root>/current/bin/junto` or a build's `bin/junto`, else
+/// the environment's, else the install's default.
+fn install_root_for_boot(named: Option<PathBuf>) -> Option<PathBuf> {
+    let from_exe = std::env::current_exe()
+        .ok()
+        .and_then(|exe| paths::install_root_from_exe(&exe));
+    from_exe
+        .or(named)
+        .or_else(|| Some(paths::home().join(".junto/machine")))
 }
 
 /// The boot step against named paths: finish an interrupted restore under the
@@ -807,35 +830,50 @@ pub fn restore_finish_at(
     if !pending {
         return Ok(FinishRestore { finished: false });
     }
-    let mut _lease = None;
-    if let Some(install_root) = install_root {
-        let marker = install_root.join("owner.json");
-        let owned = owned_machine_file(&marker).map_err(RestoreFinish::Fault)?;
-        if owned {
-            let expected = lock::owner_marker(
-                &service::service_label(install_root, junto_home),
-                junto_home,
-            );
-            let held = fs::read_to_string(&marker).map_err(|error| {
-                RestoreFinish::Fault(Refused::new(format!(
-                    "the install marker could not be read: {error}"
-                )))
-            })?;
-            // A root that serves another home is not this boot's serialization.
-            if held == expected {
-                match lock::try_install_lock(install_root).map_err(RestoreFinish::Fault)? {
-                    Some(lease) => _lease = Some(lease),
-                    None => {
-                        return Err(RestoreFinish::Updating(Failure::new(
-                            ErrorType::RuntimeDown,
-                            "an install is sending Junto to this machine, so this boot cannot finish a database restore",
-                        )));
-                    }
-                }
-            }
+    // A restore owed is never finished beside an install that could be copying
+    // the same family: the folder has to prove it serves this home, and its lock
+    // has to be free, or the boot says an install holds this home.
+    let install_root = install_root.ok_or_else(|| {
+        RestoreFinish::Fault(Refused::new(
+            "a database restore is owed but no install folder was named for this home",
+        ))
+    })?;
+    let marker = install_root.join("owner.json");
+    let expected = lock::owner_marker(
+        &service::service_label(install_root, junto_home),
+        junto_home,
+    );
+    let held = match owned_machine_file(&marker) {
+        Ok(true) => fs::read_to_string(&marker).map_err(|error| {
+            RestoreFinish::Fault(Refused::new(format!(
+                "the install marker could not be read: {error}"
+            )))
+        })?,
+        Ok(false) => {
+            return Err(RestoreFinish::Fault(Refused::new(format!(
+                "a database restore is owed and the install folder has no owner marker for this home: {}",
+                install_root.display()
+            ))));
         }
+        Err(refused) => return Err(RestoreFinish::Fault(refused)),
+    };
+    if held != expected {
+        return Err(RestoreFinish::Fault(Refused::new(format!(
+            "a database restore is owed and the install folder belongs to another home: {}",
+            install_root.display()
+        ))));
     }
+    let lease = match lock::try_install_lock(install_root).map_err(RestoreFinish::Fault)? {
+        Some(lease) => lease,
+        None => {
+            return Err(RestoreFinish::Updating(Failure::new(
+                ErrorType::RuntimeDown,
+                "an install is sending Junto to this machine, so this boot cannot finish a database restore",
+            )));
+        }
+    };
     restore::finish_interrupted_restore(&state_directory).map_err(RestoreFinish::Fault)?;
+    drop(lease);
     Ok(FinishRestore { finished: true })
 }
 
@@ -851,20 +889,29 @@ fn lock_for_copy(
     state_directory: &Path,
     service: &mut dyn service::Service,
 ) -> Result<homelock::HomeDatabaseLock, Refused> {
-    match homelock::try_lock_home_database(state_directory) {
-        Ok(Some(lock)) => Ok(lock),
+    let lock = match homelock::try_lock_home_database(state_directory) {
+        Ok(Some(lock)) => lock,
         Ok(None) => {
             let _ = service.start();
-            Err(Refused::new(homelock::HELD_WORDS))
+            return Err(Refused::new(homelock::HELD_WORDS));
         }
         Err(error) => {
             let _ = service.start();
-            Err(Refused::new(
+            return Err(Refused::new(
                 "this machine's database is not private to this user, so nothing was changed",
             )
-            .with_cause(&error))
+            .with_cause(&error));
         }
+    };
+    // A restore a crash interrupted finishes here, under the home lock, before
+    // anything reads or copies the family: the install lock alone does not keep
+    // a core that a login or a hand started off the database.
+    if let Err(refused) = restore::finish_interrupted_restore(state_directory) {
+        drop(lock);
+        let _ = service.start();
+        return Err(refused);
     }
+    Ok(lock)
 }
 
 /// The restore after a candidate did not start: the marker first, under the
@@ -1332,6 +1379,106 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// A bundle whose manifest is exactly its files, the way one is shipped.
+    fn shipped_bundle(root: &Path) -> Manifest {
+        private(root);
+        for directory in ["bin", "core"] {
+            private(&root.join(directory));
+        }
+        for (path, body, mode) in [
+            ("bin/node", "node", 0o755),
+            ("bin/junto", "junto", 0o755),
+            ("core/junto.cjs", "core", 0o644),
+        ] {
+            let file = root.join(path);
+            fs::write(&file, body).expect("a file");
+            fs::set_permissions(&file, fs::Permissions::from_mode(mode)).expect("modes");
+        }
+        let manifest = Manifest {
+            build: "a".repeat(64),
+            target: bundle::this_target().to_string(),
+            node: "26.10.0".to_string(),
+            app_version: "0.11.15".to_string(),
+            files: bundle::bundle_files(root).expect("files"),
+        };
+        fs::write(
+            root.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("json"),
+        )
+        .expect("the manifest");
+        manifest
+    }
+
+    fn fake_copies(
+        _root: &Path,
+        _home: &Path,
+        _label: &str,
+    ) -> Result<Box<dyn service::Service>, Refused> {
+        Ok(Box::new(FakeService::new()))
+    }
+
+    #[test]
+    fn the_copy_lock_finishes_the_restore_that_was_owed_before_it() {
+        let root = paths::home().join(format!(".junto-owed-copy-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let state = root.join("state");
+        family(&state);
+        let point = restore::make_restore_point(&state)
+            .expect("a point")
+            .expect("a database");
+        fs::write(state.join("junto.db"), b"candidate").expect("a candidate");
+        restore::write_restore_marker(&point).expect("the marker");
+        assert!(restore::restore_pending(&state).expect("readable"));
+        let mut service = FakeService::new();
+        let lock = lock_for_copy(&state, &mut service).expect("the copy lock");
+        assert!(
+            !restore::restore_pending(&state).expect("readable"),
+            "the owed restore is finished under the lock"
+        );
+        assert_eq!(fs::read(state.join("junto.db")).expect("the db"), b"kept");
+        assert_eq!(service.starts, 0, "nothing was started to make room");
+        drop(lock);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_install_meets_a_held_lock_and_a_owed_restore_and_changes_nothing() {
+        let root = paths::home().join(format!(".junto-flow-held-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (junto_home, install_root) = installed(&root);
+        let bundle_root = root.join("bundle");
+        let manifest = shipped_bundle(&bundle_root);
+        let state = restore::machine_state_directory(&junto_home);
+        family(&state);
+        let point = restore::make_restore_point(&state)
+            .expect("a point")
+            .expect("a database");
+        restore::write_restore_marker(&point).expect("the marker");
+        let before = bytes(&state);
+        let holder = homelock::try_lock_home_database(&state)
+            .expect("readable")
+            .expect("the holder");
+        let input: InstallInput = input::decode_text(
+            &json!({
+                "bundle": bundle_root.display().to_string(),
+                "juntoHome": junto_home.display().to_string(),
+                "installRoot": install_root.display().to_string(),
+            })
+            .to_string(),
+            "test",
+        )
+        .expect("the input");
+        let (refused, disposition, _) = install_flow_with(input, &fake_copies).err().expect("held");
+        assert_eq!(refused.message, homelock::HELD_WORDS);
+        assert_eq!(disposition, Disposition::Staged);
+        assert_eq!(bytes(&state), before, "the family is byte-identical");
+        assert!(restore::restore_pending(&state).expect("readable"));
+        assert!(install_root.join("current").symlink_metadata().is_err());
+        drop(holder);
+        let _ = fs::remove_dir_all(&root);
+        let _ = manifest;
+    }
+
     // --- the boot step ---
 
     #[test]
@@ -1343,6 +1490,64 @@ mod tests {
         let data = restore_finish_at(&junto_home, None).expect("nothing owed");
         assert!(!data.finished);
         assert!(!junto_home.join(".junto/state/home.lock").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_boot_home_defaults_to_the_account_home_like_the_install() {
+        let account = fs::canonicalize(paths::home()).expect("the account home");
+        assert_eq!(restore_home(None).expect("the default"), account);
+        let named = paths::home().join(".junto-elsewhere");
+        assert_eq!(
+            restore_home(Some(named.clone())).expect("the named home"),
+            named
+        );
+    }
+
+    #[test]
+    fn an_installed_binary_names_its_root_and_anything_else_names_nothing() {
+        assert_eq!(
+            paths::install_root_from_exe(Path::new("/home/peer/machine/current/bin/junto")),
+            None,
+            "a path is asked only through its canonical form"
+        );
+        let root = paths::home().join(format!(".junto-exe-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        private(&root);
+        fs::create_dir_all(root.join("current/bin")).expect("the shape");
+        fs::write(root.join("current/bin/junto"), b"binary").expect("the binary");
+        let exe = root.join("current/bin/junto");
+        assert_eq!(paths::install_root_from_exe(&exe), Some(root.clone()));
+        assert_eq!(
+            paths::install_root_from_exe(Path::new("/usr/local/bin/junto")),
+            None
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_boot_with_a_marker_and_no_owner_marker_refuses_instead_of_skipping_the_lock() {
+        let root = paths::home().join(format!(".junto-boot-nomarker-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let junto_home = root.join("home");
+        private(&junto_home);
+        let state = restore::machine_state_directory(&junto_home);
+        family(&state);
+        let point = restore::make_restore_point(&state)
+            .expect("a point")
+            .expect("a database");
+        restore::write_restore_marker(&point).expect("the marker");
+        let install_root = root.join("machine");
+        private(&install_root);
+        match restore_finish_at(&junto_home, Some(&install_root)) {
+            Err(RestoreFinish::Fault(refused)) => assert!(
+                refused.message.contains("no owner marker for this home"),
+                "{}",
+                refused.message
+            ),
+            _ => panic!("a named root with no marker is a fault, never a skip"),
+        }
+        assert!(restore::restore_pending(&state).expect("readable"));
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -1385,7 +1590,12 @@ mod tests {
             .expect("a database");
         restore::write_restore_marker(&point).expect("the marker is written");
         fs::remove_dir_all(&point.directory).expect("the kept copy is gone");
-        match restore_finish_at(&junto_home, None) {
+        let install_root = root.join("machine");
+        let label = service::service_label(&install_root, &junto_home);
+        private(&install_root);
+        lock::write_owner_marker(&install_root, &lock::owner_marker(&label, &junto_home))
+            .expect("the owner marker");
+        match restore_finish_at(&junto_home, Some(&install_root)) {
             Err(RestoreFinish::Fault(refused)) => {
                 assert!(
                     refused
