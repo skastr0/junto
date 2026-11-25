@@ -12,7 +12,7 @@
 # checkout (the parent of the common git dir) with that checkout's own index,
 # one at a time (a lock directory; a landing that finds it held is reached by
 # the holder, which loops until it has followed the tip of main), and gives up
-# after JUNTO_FOLLOW_BUDGET seconds (default 5). It remembers the last commit it
+# after JUNTO_FOLLOW_BUDGET seconds (default 20; the landing never waits for it). It remembers the last commit it
 # followed in <common git dir>/junto-follow.head and follows from there to the
 # tip of main one commit of main's own line at a time, so a landing it missed
 # or a give-up is retried by the next landing, never lost.
@@ -25,6 +25,10 @@
 #   - the file is absent and main adds it: it is written.
 #   - the index entry equals the old copy: it moves to the new one.
 #   - anything else is somebody's own work: left alone, named in the log.
+# After each follow it also sweeps: a working file that is an older committed copy of
+# main's goes to main's, and an index entry that is an older committed copy of its path
+# goes to main's (a staged blob no commit holds is left and counted), so what an earlier
+# landing missed does not build up.
 # Removals run before adds (a case-only rename on a case-insensitive disk).
 # A path under a symlinked directory is never written. The index is changed
 # by two commands at most, and not at all when its lock is held: never waited
@@ -43,7 +47,7 @@ exec </dev/null
 # a branch created or deleted is not a move of main
 case $old in *[!0]*) ;; *) exit 0 ;; esac
 case $new in *[!0]*) ;; *) exit 0 ;; esac
-BUDGET=${JUNTO_FOLLOW_BUDGET:-5}
+BUDGET=${JUNTO_FOLLOW_BUDGET:-20}
 
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$common/junto-follow.log"; }
 
@@ -158,6 +162,16 @@ phase() {
   done < "$T/b"
 }
 
+# The index: two commands at most, none when somebody holds its lock.
+apply_index() {
+  if [ -e "$common/index.lock" ]; then
+    skipped="yes (index.lock held)"
+  else
+    if [ -s "$T/stat0" ]; then git update-index --add --remove -z --stdin < "$T/stat0" || skipped="yes (update-index refused)"; fi
+    if [ -s "$T/cache" ]; then git update-index --index-info < "$T/cache" || skipped="yes (update-index refused)"; fi
+  fi
+}
+
 # One step of main's own line: old to new.
 pass() {
   local po=$1 pn=$2 ptag="${1:0:9}..${2:0:9}" meta p
@@ -176,15 +190,76 @@ pass() {
   phase R || { log "$ptag failed in the writes"; return 1; }
   [ "$odd" = 0 ] || { kept=$((kept + odd)); keptlist="$keptlist ($odd path(s) with a tab or newline)"; }
 
-  # the index: two commands at most, none when somebody holds its lock
-  if [ -e "$common/index.lock" ]; then
-    skipped="yes (index.lock held)"
-  else
-    if [ -s "$T/stat0" ]; then git update-index --add --remove -z --stdin < "$T/stat0" || skipped="yes (update-index refused)"; fi
-    if [ -s "$T/cache" ]; then git update-index --index-info < "$T/cache" || skipped="yes (update-index refused)"; fi
-  fi
+  apply_index
   [ "$kept" -le 20 ] || keptlist="$keptlist +$((kept - 20)) more"
   log "$ptag restored $restored, kept $kept${keptlist:+ [${keptlist# }]}, skipped-index $skipped"
+}
+
+# After a follow: working files that are an older committed copy of main's, brought to
+# main's (the same machinery as a step, with the stale copy as the old one). A file
+# that is not a blob the repository has seen is never a candidate: one batch check
+# of the hashes, then the exact test for the few that pass it.
+sweep_work() {
+  local meta p w ty hm hs n
+  git diff --raw -z --no-renames --no-abbrev HEAD > "$T/sraw" 2>/dev/null || return 0
+  : > "$T/sp"; : > "$T/sm"
+  while IFS= read -r -d '' meta && IFS= read -r -d '' p; do
+    set -- ${meta#:}
+    [ "$5" = M ] || continue
+    case "$p" in *$'\t'*|*$'\n'*) continue ;; esac
+    [ -f "$p" ] && [ ! -L "$p" ] || continue
+    has_link_parent "$p" && continue
+    printf '%s\n' "$p" >> "$T/sp"; printf '%s\t%s\n' "$1" "$3" >> "$T/sm"
+  done < "$T/sraw"
+  [ -s "$T/sp" ] || return 0
+  git hash-object --stdin-paths < "$T/sp" > "$T/sh" || return 0
+  git cat-file --batch-check < "$T/sh" | awk '{ print $2 }' > "$T/sty" || return 0
+  : > "$T/d"; n=0
+  paste "$T/sp" "$T/sh" "$T/sty" "$T/sm" > "$T/sj"
+  while IFS=$'\t' read -r p w ty hm hs; do
+    [ "$ty" = blob ] && [ "$w" != "$hs" ] || continue
+    [ -n "$(git log --format=%h -n1 --find-object="$w" HEAD -- "$p")" ] || continue
+    printf 'M\t%s\t%s\t%s\t%s\t%s\n' "$hm" "$hm" "$w" "$hs" "$p" >> "$T/d"; n=$((n + 1))
+  done < "$T/sj"
+  [ "$n" -gt 0 ] || return 0
+  pn=$tip
+  restored=0; kept=0; keptlist=; skipped=no
+  : > "$T/stat0"; : > "$T/cache"; rm -rf "$T/out" "$T/ti"
+  git ls-files -s -z | tr '\0' '\n' > "$T/i" || return 0
+  phase R || { log "swept working files: failed in the writes"; return 1; }
+  apply_index
+  [ "$kept" -le 20 ] || keptlist="$keptlist +$((kept - 20)) more"
+  log "swept working files that were an older copy of main's: restored $restored, kept $kept${keptlist:+ [${keptlist# }]}, skipped-index $skipped"
+}
+
+# After a follow: index entries that are an older committed copy of their path (or a file
+# main removed, or a staged deletion of a file main has) go to main's, the working file
+# untouched. A staged blob that no commit holds is somebody's work: left, and counted.
+sweep_index() {
+  local meta p hm im hs is st swept=0 left=0 leftlist=
+  git diff --cached --raw -z --no-renames --no-abbrev HEAD > "$T/xraw" 2>/dev/null || return 0
+  : > "$T/stat0"; : > "$T/cache"; skipped=no
+  while IFS= read -r -d '' meta && IFS= read -r -d '' p; do
+    set -- ${meta#:}
+    hm=$1; im=$2; hs=$3; is=$4; st=$5
+    case "$p" in *$'\t'*|*$'\n'*) left=$((left + 1)); continue ;; esac
+    case $st in
+      D) if [ -f "$p" ] && [ ! -L "$p" ] && ! has_link_parent "$p"; then
+           printf '%s %s 0\t%s\n' "$hm" "$hs" "$p" >> "$T/cache"; swept=$((swept + 1))
+         else left=$((left + 1)); fi ;;
+      A) if [ -n "$(git log --format=%h -n1 --find-object="$is" HEAD -- "$p")" ]; then
+           printf '0 %s 0\t%s\n' "$zero" "$p" >> "$T/cache"; swept=$((swept + 1))
+         else left=$((left + 1)); [ "$left" -gt 20 ] || leftlist="$leftlist $p"; fi ;;
+      M|T) if [ -n "$(git log --format=%h -n1 --find-object="$is" HEAD -- "$p")" ]; then
+             printf '%s %s 0\t%s\n' "$hm" "$hs" "$p" >> "$T/cache"; swept=$((swept + 1))
+           else left=$((left + 1)); [ "$left" -gt 20 ] || leftlist="$leftlist $p"; fi ;;
+      *) left=$((left + 1)) ;;
+    esac
+  done < "$T/xraw"
+  [ "$swept" -gt 0 ] || [ "$left" -gt 0 ] || return 0
+  [ "$swept" -eq 0 ] || apply_index
+  [ "$left" -le 20 ] || leftlist="$leftlist +$((left - 20)) more"
+  log "swept index entries that were an older copy of main's: reset $swept, left $left staged with content no commit holds${leftlist:+ [${leftlist# }]}, skipped-index $skipped"
 }
 
 # The commit the follow resumes from: the last one followed, else the old main of this landing.
@@ -221,7 +296,13 @@ follow_to_tip() {
       done < "$T/steps"
       continue
     fi
-    # followed to the tip: let go of the lock, then look once more, so a landing
+    # followed to the tip: sweep what earlier landings left behind (JUNTO_FOLLOW_SWEEP=0
+    # turns both sweeps off, JUNTO_FOLLOW_SWEEP_WORK=0 the working-file one)
+    if [ "${JUNTO_FOLLOW_SWEEP:-1}" = 1 ]; then
+      [ "${JUNTO_FOLLOW_SWEEP_WORK:-1}" = 1 ] && sweep_work
+      sweep_index
+    fi
+    # let go of the lock, then look once more, so a landing
     # that came while we were finishing is not left for the next one
     rm -rf "$lock"
     tip=$(git rev-parse -q --verify refs/heads/main) || return 0

@@ -246,5 +246,71 @@ NEW=$(git -C "$d/wt" rev-parse HEAD); land env; quiet
 expect "kept 25, five named as more" yes "$(log | grep -q 'kept 25 \[.*+5 more\]' && echo yes || echo no)"
 expect "every own edit untouched" 25 "$(grep -l '^m mine ' "$R"/many/m*.txt | wc -l | tr -d ' ')"
 
+echo "== 16 the index sweep: an entry that is an older copy of its path goes to main's, staged work stays"
+mk
+git -C "$R" worktree add -q -b feat "$d/wt" 2>/dev/null
+( cd "$d/wt" && echo "a v2" > a.txt && echo "b v2" > b.txt && git add -A && git commit -qm v2 )
+V2=$(git -C "$d/wt" rev-parse HEAD)
+NEW=$V2; land env JUNTO_FOLLOW=0                                   # v2 lands with the follow off: checkout and index stay at v1
+echo "a mine" > "$R/a.txt"                                          # a.txt: a real edit; its index entry is v1, an older copy
+git -C "$R" rm -q --cached d.txt                                   # d.txt: a staged deletion of a file main has
+echo "c staged work" > "$R/c.txt"; git -C "$R" add c.txt           # c.txt: staged content no commit holds
+( cd "$d/wt" && echo "g v3" > g.txt && git add -A && git commit -qm v3 ); V3=$(git -C "$d/wt" rev-parse HEAD)
+OLD=$V2; NEW=$V3; land env; quiet
+expect "a.txt: the real edit is untouched" "a mine" "$(cat "$R/a.txt")"
+expect "git status: a.txt a working edit only, b.txt and d.txt clean, c.txt still staged" " M a.txt|M  c.txt|" "$(status)"
+expect "log: swept, one left staged with content no commit holds (c.txt)" yes "$(log | grep -q 'swept index entries.*reset 2, left 1 staged with content no commit holds \[c.txt\]' && echo yes || echo no)"
+
+echo "== 17 the working-file sweep: a file left at an older copy by a landing the follow missed is brought to main's"
+mk
+git -C "$R" worktree add -q -b feat "$d/wt" 2>/dev/null
+( cd "$d/wt" && echo "a v2" > a.txt && echo "b v2" > b.txt && git add -A && git commit -qm v2 )
+V2=$(git -C "$d/wt" rev-parse HEAD)
+NEW=$V2; land env JUNTO_FOLLOW=0                                   # missed: a.txt and b.txt stay v1 here
+echo "b mine" > "$R/b.txt"                                          # b.txt is a real edit, not an older copy
+( cd "$d/wt" && echo "g v3" > g.txt && git add -A && git commit -qm v3 ); V3=$(git -C "$d/wt" rev-parse HEAD)
+OLD=$V2; NEW=$V3; land env; quiet
+expect "a.txt (an older copy) now follows main" "a v2" "$(cat "$R/a.txt")"
+expect "b.txt (a real edit) untouched" "b mine" "$(cat "$R/b.txt")"
+expect "git status: only the real edit" " M b.txt|" "$(status)"
+expect "log names the sweep" yes "$(log | grep -q 'swept working files that were an older copy of main.s: restored 1, kept 0' && echo yes || echo no)"
+echo "== 17b the same with the sweeps off"
+mk
+git -C "$R" worktree add -q -b feat "$d/wt" 2>/dev/null
+( cd "$d/wt" && echo "a v2" > a.txt && git add -A && git commit -qm v2 )
+V2=$(git -C "$d/wt" rev-parse HEAD); NEW=$V2; land env JUNTO_FOLLOW=0
+( cd "$d/wt" && echo "g v3" > g.txt && git add -A && git commit -qm v3 ); V3=$(git -C "$d/wt" rev-parse HEAD)
+OLD=$V2; NEW=$V3; land env JUNTO_FOLLOW_SWEEP=0; quiet
+expect "JUNTO_FOLLOW_SWEEP=0: a.txt left as it was" "a v1" "$(cat "$R/a.txt")"
+
+echo "== 18 what the sweep costs: 400 stale working files and 400 stale index entries after one more landing"
+mk
+( cd "$R" && mkdir -p bulk && for i in $(seq 1 400); do echo "v1 $i" > bulk/f$i.txt; done && git add -A && git commit -qm bulk1 )
+B1=$(git -C "$R" rev-parse HEAD); quiet; rm -f "$R/.git/junto-follow.head"   # no resume point: the missed landing is the sweep's to find
+git -C "$R" worktree add -q -b feat "$d/wt" 2>/dev/null
+( cd "$d/wt" && for i in $(seq 1 400); do echo "v2 $i" > bulk/f$i.txt; done && git add -A && git commit -qm bulk2 )
+B2=$(git -C "$d/wt" rev-parse HEAD); OLD=$B1; NEW=$B2; land env JUNTO_FOLLOW=0
+( cd "$d/wt" && echo "g v3" > g.txt && git add -A && git commit -qm v3 ); B3=$(git -C "$d/wt" rev-parse HEAD)
+OLD=$B2; NEW=$B3; t0=$(ms); land env JUNTO_FOLLOW_BUDGET=60; quiet; t1=$(ms)
+expect "all 400 stale working files brought to main's" 400 "$(grep -l '^v2 ' "$R"/bulk/f*.txt | wc -l | tr -d ' ')"
+expect "git status clean" "" "$(status)"
+echo "      sweep of 400 stale working files: the follower was done $((t1 - t0 - 600)) ms after the landing (600 ms of that is this test's own settle time removed)"
+mk
+( cd "$R" && mkdir -p bulk && for i in $(seq 1 400); do echo "v1 $i" > bulk/f$i.txt; done && git add -A && git commit -qm bulk1 )
+B1=$(git -C "$R" rev-parse HEAD); quiet; rm -f "$R/.git/junto-follow.head"   # no resume point: the missed landing is the sweep's to find
+git -C "$R" worktree add -q -b feat "$d/wt" 2>/dev/null
+( cd "$d/wt" && for i in $(seq 1 400); do echo "v2 $i" > bulk/f$i.txt; done && git add -A && git commit -qm bulk2 )
+B2=$(git -C "$d/wt" rev-parse HEAD); OLD=$B1; NEW=$B2; land env JUNTO_FOLLOW=0
+( cd "$d/wt" && echo "g v3" > g.txt && git add -A && git commit -qm v3 ); B3=$(git -C "$d/wt" rev-parse HEAD)
+OLD=$B2; NEW=$B3; t0=$(ms); land env JUNTO_FOLLOW_BUDGET=60 JUNTO_FOLLOW_SWEEP_WORK=0; quiet; t1=$(ms)
+echo "      the same landing with the working-file sweep off: $((t1 - t0 - 600)) ms (the 400 files stay stale: $(grep -l '^v1 ' "$R"/bulk/f*.txt | wc -l | tr -d ' '))"
+mk
+( cd "$R" && mkdir -p bulk && for i in $(seq 1 400); do echo "v1 $i" > bulk/f$i.txt; done && git add -A && git commit -qm bulk1 )
+B1=$(git -C "$R" rev-parse HEAD)
+git -C "$R" worktree add -q -b feat "$d/wt" 2>/dev/null
+( cd "$d/wt" && echo "g v3" > g.txt && git add -A && git commit -qm v3 ); B3=$(git -C "$d/wt" rev-parse HEAD)
+OLD=$B1; NEW=$B3; t0=$(ms); land env; quiet; t1=$(ms)
+echo "      a one-file landing with nothing stale, both sweeps on: the follower was done $((t1 - t0 - 600)) ms after the landing"
+
 echo
 if [ "$fails" = 0 ]; then echo "all checks ok"; else echo "$fails check(s) FAILED"; exit 1; fi
