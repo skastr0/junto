@@ -77,7 +77,8 @@ const installPaintProbe = (page: Page) =>
       __paintRead?: () => unknown;
     };
     if (w.__paintProbe !== undefined) return;
-    const probe = (w.__paintProbe = { frames: [], longtasks: [] });
+    const probe: { frames: number[]; longtasks: Array<{ start: number; duration: number }>; raf?: number } = { frames: [], longtasks: [] };
+    w.__paintProbe = probe;
     try {
       new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) probe.longtasks.push({ start: entry.startTime, duration: entry.duration });
