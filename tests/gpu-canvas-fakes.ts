@@ -5,6 +5,7 @@
 import type { GpuEntry } from "../src/window/canvas/engine/device";
 
 export type FakeWrite = { readonly buffer: GPUBuffer; readonly offset: number; readonly size: number };
+export type FakeDraw = { readonly vertexCount: number; readonly instanceCount: number; readonly firstVertex: number; readonly firstInstance: number };
 
 export type FakeDevice = {
   readonly device: GPUDevice;
@@ -13,6 +14,8 @@ export type FakeDevice = {
   readonly destroyed: () => boolean;
   /** Every queue.writeBuffer the engine made, in order. */
   readonly writes: () => ReadonlyArray<FakeWrite>;
+  /** Every direct draw the engine encoded, in order. */
+  readonly draws: () => ReadonlyArray<FakeDraw>;
   /** Lose the device as the browser would (sleep, a GPU process restart). */
   readonly lose: () => void;
 };
@@ -24,6 +27,7 @@ const fakeDevice = (): FakeDevice => {
   let destroyed = false;
   const clears: Array<GPUColor> = [];
   const writes: Array<FakeWrite> = [];
+  const draws: Array<FakeDraw> = [];
   let resolveLost: (info: GPUDeviceLostInfo) => void = () => undefined;
   const lost = new Promise<GPUDeviceLostInfo>((resolve) => {
     resolveLost = resolve;
@@ -31,7 +35,9 @@ const fakeDevice = (): FakeDevice => {
   const pass = {
     setPipeline: () => undefined,
     setBindGroup: () => undefined,
-    draw: () => undefined,
+    draw: (vertexCount: number, instanceCount = 1, firstVertex = 0, firstInstance = 0) => {
+      draws.push({ vertexCount, instanceCount, firstVertex, firstInstance });
+    },
     end: () => undefined,
   };
   const device = {
@@ -79,6 +85,7 @@ const fakeDevice = (): FakeDevice => {
     clears: () => clears,
     destroyed: () => destroyed,
     writes: () => writes,
+    draws: () => draws,
     lose: () => resolveLost({ reason: "unknown", message: "lost" } as GPUDeviceLostInfo),
   };
 };

@@ -276,6 +276,31 @@ describe("seat clusters at far and overview", () => {
     expect(scene.gatheringChanged()).toEqual([]);
   });
 
+  it("draws a region's badge where the plan puts it after a seat moves inside the region, with no member change", () => {
+    const inRegion = (id: string, x: number): CardFact => ({ ...agentFact(), id, row: { ...agentFact().row, id, x, y: 0 }, derived: { ...agentFact().derived, regionId: "r1" } }) as CardFact;
+    const scene = createScene({ painter: oneQuad, zoom: () => 0.3 });
+    const facts = [inRegion("a", 0), inRegion("b", 150), inRegion("c", 300)];
+    load(scene, facts);
+    for (const fact of facts) scene.apply({ kind: "seat", id: fact.id, live: work() });
+    scene.prepare(VIEW, "far");
+    // The badge's disc, drawn: its own quad rectangles through the owner, against where the plan says it is.
+    const drawnCentre = (): { x: number; y: number } => {
+      const disc = scene.badgePartsOf("region:r1").find((part) => part.key.endsWith(".disc"))!;
+      return { x: disc.rect.x + disc.rect.width / 2, y: disc.rect.y + disc.rect.height / 2 };
+    };
+    const planned = (): { x: number; y: number } => {
+      const badge = scene.clusters().find((c) => c.key === "region:r1")!;
+      return { x: badge.x, y: badge.y };
+    };
+    expect(drawnCentre().x).toBeCloseTo(planned().x, 3);
+    // c moves 50 units left, still in the region: same members, same lead, new centroid.
+    scene.apply({ kind: "card", fact: inRegion("c", 250) });
+    scene.prepare(VIEW, "far");
+    expect(planned().x).toBeCloseTo((108 + 258 + 358) / 3, 3);
+    expect(drawnCentre().x).toBeCloseTo(planned().x, 3);
+    expect(drawnCentre().y).toBeCloseTo(planned().y, 3);
+  });
+
   it("a selected seat stays in its badge: the badge repaints and nothing regroups", () => {
     const { scene } = clustered(0.3, "far");
     scene.apply({ kind: "selection", fact: { nodeIds: ["a"] } });
