@@ -399,11 +399,11 @@ Rules, from remote-security's term 5 and this doc:
 | Code | Sentence |
 |---|---|
 | `bundle-not-directory` | `What arrived there was not a Junto package. Send Junto again.` |
-| `bundle-special-file` | `The package that arrived held a link or a special file. Send Junto again.` |
-| `bundle-manifest-invalid` | `The package's list of files could not be read there. Send Junto again.` |
-| `bundle-writable-by-others` | `The package arrived with files others could change. Send Junto again.` |
+| `bundle-special-file` | `The package from this Mac holds a link or a special file. Update Junto on this Mac, then send again.` |
+| `bundle-manifest-invalid` | `The package from this Mac has a list of files that cannot be read. Update Junto on this Mac, then send again.` |
+| `bundle-writable-by-others` | `The package from this Mac has files others can change. Update Junto on this Mac, then send again.` |
 | `bundle-mismatch` | `The files that arrived did not match the package. Send Junto again.` |
-| `install-folder-not-ours` | `Its install folder belongs to another Junto. Check it again.` |
+| `install-folder-not-ours` | `Its install folder belongs to another Junto. Remove it, then add it again with another install folder.` |
 | `send-in-progress` | `Junto is already being sent there. Send again when that send ends.` |
 | `install-lease-unavailable` | `Junto could not take the install lock there. Check it again.` |
 | `machine-path-unsafe` | `A Junto folder there is outside its home or not private. Check it again.` |
@@ -416,6 +416,8 @@ Rules, from remote-security's term 5 and this doc:
 | `restore-owed` | `Its data still waits for a restore, which finishes when Junto starts there. Check it again.` |
 | `restore-interrupted` | `An earlier restore of its data did not finish. Check it again before you send Junto.` |
 | `start-failed` | `Junto did not start there, and it is not confirmed stopped. Check it again before you send.` |
+| `start-rolled-back` | `The new build did not start there, so the old build and its data are back. Check it again before you update.` |
+| `installed-not-started` | `The new build is installed there but did not start, and nothing runs there now. Update Junto on this Mac, then send again.` |
 | `start-and-restore-failed` | `The new build did not start, and its data was not restored. Check it again.` |
 | `home-lock-refused` | `Its Junto home is held by another Junto or another account. Check it again.` |
 | `status-unreadable` | `Junto there did not report its status. Check it again.` |
@@ -432,9 +434,22 @@ on 811334d0a). `start-failed` says `it is not confirmed stopped`; if a site
 raises it after a clean rollback, that site gets its own code rather than
 these words.
 
+**Which fix a bundle code gets.** A send packs a fresh archive, but from
+the same package folder on this Mac (`send.ts:83`). So only
+`bundle-not-directory` and `bundle-mismatch`, transfer faults, say `Send
+Junto again`. The other three are defects of the package here, and only a
+new package fixes them: `Update Junto on this Mac`, as `peer-newer` names
+its fix on this Mac. `this Mac` is the operator's machine and names no
+host. `install-folder-not-ours` points to `machine add` with its
+`installRoot` (`machine-control.ts:161`); the window's add form has no
+install folder field today, so in the window this step runs from the CLI.
+
+`start-rolled-back` claims the old build is back only on the `rolled-back`
+disposition it comes with; `start-failed` is only the uncertain site
+(`mod.rs:714`).
+
 Changed from remote-core's draft: no machine name (term 5); `Check this
 machine` is `Check it again`, since `this machine` is the operator's Mac;
-`Rebuild` is gone, because it is not a Junto action and a send makes the
-package; `Choose another install folder` is `Check it again`, since no Junto
-control chooses one; `Start the installed Junto on it` is gone, because it
+`Rebuild` is `Update Junto on this Mac`, the Junto action that makes a new
+package; `Start the installed Junto on it` is gone, because it
 is not a Junto action; `database` is `data`.
