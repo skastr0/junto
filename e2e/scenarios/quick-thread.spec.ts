@@ -13,6 +13,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
+import { mod } from "../harness/keys";
 import { card, canvasReady, cameraSettled, selectedIds } from "../harness/canvas";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness } from "../harness/crew-fixture";
 import { modelFixture, modelRegion, modelSeat } from "../harness/model";
@@ -45,8 +46,21 @@ const activeTestId = (page: Page): Promise<string | null> =>
   page.evaluate(() => document.activeElement?.getAttribute("data-testid") ?? document.activeElement?.getAttribute("aria-label") ?? null);
 
 const openQuickThread = async (page: Page): Promise<void> => {
-  await page.keyboard.press("Meta+Shift+U");
+  await page.keyboard.press(mod("Shift+U"));
   await expect(frameOf(page)).toBeVisible({ timeout: 10_000 });
+};
+
+/**
+ * Open it with no seat chosen. Quick thread opens with the seat the keyboard was in chosen, and with a seat
+ * chosen the picker sits behind the + (Add a seat), so a line that types in Seat or region starts from here.
+ */
+const openEmpty = async (page: Page): Promise<void> => {
+  await openQuickThread(page);
+  for (let i = 0; i < 6 && (await chosen(page)).length > 0; i += 1) {
+    await frameOf(page).getByTestId("quick-thread-seat").first().getByRole("button").first().click();
+    await settle(150);
+  }
+  await expect(field(page)).toBeVisible({ timeout: 10_000 });
 };
 
 /** Messages in a seat's mailbox whose text includes `text`. */
@@ -147,7 +161,7 @@ test("[fake-tui] Quick thread from the canvas", async () => {
     // 2. Picker: ranking, region narrows, Enter picks and moves on, Shift+Enter stays, re-pick removes, Backspace ladder.
     await check("q2-picker", async (frames) => {
       await emptyCanvas();
-      await openQuickThread(page);
+      await openEmpty(page);
       const notes: string[] = [];
       await field(page).fill("Co");
       const options = frameOf(page).getByTestId("quick-thread-option");
@@ -246,7 +260,7 @@ test("[fake-tui] Quick thread from the canvas", async () => {
     // 4b + lead line. Send to three with a file: one new thread per seat, same text and files.
     await check("q4b-send-three", async (frames) => {
       await emptyCanvas();
-      await openQuickThread(page);
+      await openEmpty(page);
       for (const name of ["Ada", "Bea"]) {
         await field(page).fill(name);
         await page.keyboard.press("Shift+Enter");
@@ -285,7 +299,7 @@ test("[fake-tui] Quick thread from the canvas", async () => {
     // 5. A stopped seat: the receipt, its announcement, Done focused and described, nothing sent twice.
     await check("q5-stopped-seat-receipt", async (frames) => {
       await emptyCanvas();
-      await openQuickThread(page);
+      await openEmpty(page);
       await field(page).fill("Cyd");
       await page.keyboard.press("Enter");
       const text = "Quick thread to a stopped seat";
@@ -321,7 +335,7 @@ test("[fake-tui] Quick thread from the canvas", async () => {
     // 6. Escape with an unsent draft, open again: the chosen seats are cleared, the text and files stay (operator ruling, 50c03bc9c and 904e3da1e).
     await check("q6-draft-kept", async (frames) => {
       await emptyCanvas();
-      await openQuickThread(page);
+      await openEmpty(page);
       await field(page).fill("Bea");
       await page.keyboard.press("Enter");
       await message(page).fill("Draft that must survive");

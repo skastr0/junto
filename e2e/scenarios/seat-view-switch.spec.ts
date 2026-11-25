@@ -15,6 +15,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
+import { mod } from "../harness/keys";
 import { card, canvasReady, cameraSettled, selectedIds } from "../harness/canvas";
 import { crewOccupySeat, crewPlayFactory, crewSeat, installCrewSeatHarness, type CrewSeat } from "../harness/crew-fixture";
 import { modelFixture, modelMessagesWire, modelSeat } from "../harness/model";
@@ -414,7 +415,7 @@ test("[fake-tui] seat view switch: Terminal and Threads in one seat modal", asyn
 
     // (11, modals) Open seat from Global threads lands on Threads; a plain open after is back on the setting (Terminal here).
     const openFromThreads = async (frames: string[], name: string): Promise<void> => {
-      await page.keyboard.press("Meta+U");
+      await page.keyboard.press(mod("U"));
       const list = page.getByTestId("operator-threads").first();
       await expect(list).toBeVisible({ timeout: 10_000 });
       const row = page.getByTestId("operator-threads-row").filter({ hasText: "Ada" }).first();
