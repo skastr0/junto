@@ -245,6 +245,20 @@ machine's, and a node never falls back to the local service.
 **Logs (F8).** The far logs the op, the node and the outcome, with no root
 or path. This is X1's rule, and a test now holds it for the new refusals.
 
+**The copy carries the node to its own machine (found building X6).** A
+copy sends every Files node to every other machine as a stub, with no host
+and no root (`resourceOf`, `src/shared/canvas-copy.ts`). The machine the
+folder is on gets that stub too, so its `nodeFacts` finds no Files node, and
+every op of X1 and X3 there answers `no-node`. X1's and X3's tests seed the
+far's model directly, so they never met this. Two changes, both behind
+`filesRemote`:
+- A copy cut for machine M carries each Files node whose `host` is M whole:
+  kind, place, label, host and root. Every other machine still gets the stub,
+  as today. The root crosses to the one machine whose folder it names, and
+  that machine checks it at every op (F3).
+- A Files node placed on M makes M hold the canvas, beside a seat or an
+  automation, so M is sent a copy.
+
 **For remote-window.**
 - The add and edit choice shows only with `filesRemote` on, on the operator
   source. It lists this machine first, then each active, non-Boat pin.
