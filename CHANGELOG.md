@@ -38,6 +38,12 @@ table to admit the removed end reason. Every existing row is copied as it was.
 - A quoted git path no longer takes down a diff.
 - Every release keeps the source maps of every program outside the app.
 
+Known: deleting a canvas does not reach other machines. Deleted from the
+window, a seat on another machine keeps running under a canvas this machine no
+longer has, and mail to it is dropped. Deleted by an overseer, the far seat
+stops but its hold never clears. Nothing is lost on this machine, and the far
+seat can be stopped from its own machine. The fix is planned for 0.12.1.
+
 ## 0.11.15 — 2026-11-24
 
 Opening the database with 0.11.15 moves it to version 76, and 0.11.14 then
