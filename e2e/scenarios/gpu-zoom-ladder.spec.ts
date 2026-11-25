@@ -57,7 +57,11 @@
  * downsampled to 8 CSS px blocks (scaled with devicePixelRatio, as the stops
  * are), against the reference of the nearest stop of
  * the same tier, mapped to the frame's camera; pixels under DOM at either end
- * of the mapping are skipped. Tolerance: a block is hot when one channel of
+ * of the mapping are skipped, and so is anything that moved between the
+ * frame and a second frame a moment later at the same camera (an unheld
+ * ring's arc sits at whatever phase its clock gives it, so its position is
+ * not a picture fault; a still pixel holding another item's drawing is).
+ * Tolerance: a block is hot when one channel of
  * its mean colour differs by more than 40 of 255, and the frame fails on a
  * connected group of 12 or more hot blocks (about a 28 CSS px square, smaller
  * than a mid-tier portrait). A scaled stand-in blurs or sharpens and keeps
@@ -69,6 +73,8 @@
  *   - ring phase and every clock-driven motion on the canvas: the frame clocks
  *     are held (`holdClocks`) at an epoch multiple of MARK_PHASE_MS, the one
  *     period every ring, band and reach motion divides, so each shows phase 0;
+ *     a zoom-end frame is taken with the clocks unheld instead, and whatever
+ *     moved between it and a second frame a moment later is masked;
  *   - CSS animations in the DOM (rings in the bars): paused at phase 0;
  *   - the DOM minimap: hidden, because it frames to the camera's travel, not
  *     to the camera;
