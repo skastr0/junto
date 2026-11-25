@@ -44,6 +44,14 @@ export const AgentSeatStateEvent = Schema.Struct({
    * seat, whose snapshot moved with it. Carried in its encoded form.
    */
   status: Schema.optionalKey(Schema.toEncoded(AgentSeatStatus)),
+  /**
+   * Only on a seat of another machine, as this core serves it to the window:
+   * whether the reading is current, that is, its machine reported it over a
+   * link not lost since (`RemoteSeatState.current`). False is a reading held
+   * from before a lost link. Absent on a seat of this machine, which is always
+   * current, and on an event a machine sends over the link.
+   */
+  current: Schema.optionalKey(Schema.Boolean),
 });
 export type AgentSeatStateEvent = typeof AgentSeatStateEvent.Type;
 

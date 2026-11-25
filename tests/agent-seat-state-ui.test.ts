@@ -8,6 +8,7 @@ import {
   markAgentSeatSeen,
   presentationForSeat,
   resetAgentSeatState,
+  seatEventForBinding,
   subscribeAgentSeatState,
   workSurfaceFromSeat,
   agentSeat$,
@@ -41,6 +42,26 @@ describe("decodeAgentSeatStateEvent", () => {
       reason: "nudge",
       at: 42,
     })).toBeUndefined();
+  });
+
+  it("keeps whether a seat of another machine's reading is current, only as a boolean", () => {
+    expect(decodeAgentSeatStateEvent(event({ bindingId: "b1", state: "idle", current: true }))?.current).toBe(true);
+    expect(decodeAgentSeatStateEvent(event({ bindingId: "b1", state: "idle", current: false }))?.current).toBe(false);
+    expect(decodeAgentSeatStateEvent(event({ bindingId: "b1", state: "idle" }))).not.toHaveProperty("current");
+    expect(decodeAgentSeatStateEvent(event({ bindingId: "b1", state: "idle", current: "yes" as never }))).not.toHaveProperty("current");
+  });
+
+  it("takes a not-current republish of the same epoch and time into the store, keeping the state", () => {
+    resetAgentSeatState();
+    const reading = event({ bindingId: "far", state: "working", at: 10, current: true });
+    applyAgentSeatStateEvent(reading);
+    expect(seatEventForBinding("far")?.current).toBe(true);
+    applyAgentSeatStateEvent({ ...reading, current: false });
+    expect(seatEventForBinding("far")).toMatchObject({ state: "working", at: 10, current: false });
+    // A later report from the machine is current again.
+    applyAgentSeatStateEvent({ ...reading, at: 11, current: true });
+    expect(seatEventForBinding("far")?.current).toBe(true);
+    resetAgentSeatState();
   });
 
   it("rejects missing bindingId or invalid state", () => {

@@ -7,7 +7,11 @@ import {
 import {
   makeRemoteSeatState,
   mergeSeatStateSnapshot,
+  republishOnLinkLost,
+  servedRemoteEvent,
+  servedRemoteEvents,
 } from "../src/core/term/remote-seat-state";
+import type { InstallationId } from "../src/shared/installation-id";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import { sessionActorMatches } from "../src/shared/terminal";
 
@@ -189,5 +193,57 @@ describe("sessionActorMatches", () => {
         { harness: "grok", agentKey: "mini:grok" },
       ),
     ).toBe(false);
+  });
+});
+
+describe("a remote seat's reading is served with whether it is current", () => {
+  const mini = "mini-installation" as InstallationId;
+  const studio = "studio-installation" as InstallationId;
+  const event = (bindingId: string, at: number): AgentSeatStateEvent => ({ ...remoteHop.event, bindingId, at });
+
+  it("is current while its machine's link holds, and not after the link is lost", () => {
+    const state = makeState();
+    state.publish(event("bind_a", 1), mini);
+    expect(servedRemoteEvents(state)).toEqual([{ ...event("bind_a", 1), current: true }]);
+    state.linkLost(mini);
+    expect(servedRemoteEvents(state)).toEqual([{ ...event("bind_a", 1), current: false }]);
+  });
+
+  it("is not current when it was only remembered, with no machine", () => {
+    const state = makeState();
+    state.remember(event("bind_a", 1));
+    expect(servedRemoteEvent(state, event("bind_a", 1)).current).toBe(false);
+  });
+
+  it("is current again once its machine reports after the loss", () => {
+    const state = makeState();
+    state.publish(event("bind_a", 1), mini);
+    state.linkLost(mini);
+    state.publish(event("bind_a", 2), mini);
+    expect(servedRemoteEvents(state)).toEqual([{ ...event("bind_a", 2), current: true }]);
+  });
+
+  it("tells the window again, not current, of the lost machine's seats only, with the same epoch and time", () => {
+    const state = makeState();
+    state.publish(event("bind_a", 1), mini);
+    state.publish(event("bind_b", 2), mini);
+    state.publish(event("bind_c", 3), studio);
+    const told: AgentSeatStateEvent[] = [];
+    const stop = republishOnLinkLost(state, (served) => told.push(served));
+    state.linkLost(mini);
+    expect(told.map((served) => [served.bindingId, served.epoch, served.at, served.current]).sort()).toEqual([
+      ["bind_a", "e9", 1, false],
+      ["bind_b", "e9", 2, false],
+    ]);
+    stop();
+    state.linkLost(studio);
+    expect(told).toHaveLength(2);
+  });
+
+  it("serves a seat here with no current flag: the spawn host's event wins and is always current", () => {
+    const state = makeState();
+    state.publish(event("bind_a", 1), mini);
+    const local: AgentSeatStateEvent = { ...event("bind_a", 5), state: "idle" };
+    expect(mergeSeatStateSnapshot([local], servedRemoteEvents(state))).toEqual([local]);
   });
 });

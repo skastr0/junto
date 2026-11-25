@@ -20,7 +20,7 @@ import { ModelService } from "../model/service";
 import { CorePushes } from "../push";
 import { seatStateRuntime } from "../term/agent-state";
 import { injectionSupervisor } from "../term/injection-supervisor";
-import { mergeSeatStateSnapshot, RemoteSeatState } from "../term/remote-seat-state";
+import { mergeSeatStateSnapshot, RemoteSeatState, servedRemoteEvents } from "../term/remote-seat-state";
 import { makeSeatsProcessClient, remoteSeatMachine } from "../term/seats-client";
 import { markRead, onReadChanged, readPoints, unreadTotal } from "../work/mail-reads";
 import { messageDelivery } from "../work/message-delivery";
@@ -139,7 +139,7 @@ export const ThreadsHandlers = ThreadsRpcs.toLayer(
             return { ok: true as const, requestId };
           }),
         ),
-      ThreadsSeatStates: () => Effect.sync(() => mergeSeatStateSnapshot(seatStateRuntime.currentEvents(), remoteState.events())),
+      ThreadsSeatStates: () => Effect.sync(() => mergeSeatStateSnapshot(seatStateRuntime.currentEvents(), servedRemoteEvents(remoteState))),
       ThreadsOnboarding: () => Effect.sync(() => injectionSupervisor.currentOnboarding()),
       ThreadsSeatViewed: ({ bindingId }) => {
         if (seatStateRuntime.snapshot(bindingId) !== undefined) return Effect.sync(() => { seatStateRuntime.viewed(bindingId); });

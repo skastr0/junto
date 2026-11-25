@@ -160,6 +160,8 @@ export const decodeAgentSeatStateEvent = (raw: unknown): AgentSeatStateEvent | u
   if (typeof raw.at !== "number" || !Number.isFinite(raw.at)) return undefined;
   const confidence: AgentSeatConfidence = raw.confidence;
   const harness = typeof raw.harness === "string" ? raw.harness : undefined;
+  // Whether a seat of another machine's reading is current, as the core serves it.
+  const current = typeof raw.current === "boolean" ? raw.current : undefined;
   // The status is kept only when it reads as the harness domain says.
   const status = agentSeatStatusOf({ status: raw.status as never });
   return {
@@ -171,6 +173,7 @@ export const decodeAgentSeatStateEvent = (raw: unknown): AgentSeatStateEvent | u
     at: raw.at,
     ...(harness ? { harness } : {}),
     ...(status === undefined ? {} : { status: encodeAgentSeatStatus(status) }),
+    ...(current === undefined ? {} : { current }),
   };
 };
 

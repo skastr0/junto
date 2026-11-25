@@ -19,7 +19,7 @@ import { seatLaunchState } from "../term/seat-launch-state";
 import type { LocalHostEvent } from "../term/local-host";
 import type { TermPlane } from "../term/plane";
 import { injectionSupervisor } from "../term/injection-supervisor";
-import { RemoteSeatState } from "../term/remote-seat-state";
+import { RemoteSeatState, republishOnLinkLost, servedRemoteEvent } from "../term/remote-seat-state";
 import { remoteSeatLaunchOf } from "../term/seats-client";
 import { cardSeatLaunch } from "../term/seats-launch";
 import { liveSeatEnvironment } from "../region-env/live";
@@ -54,12 +54,14 @@ export const bindTermIpcPlane = (
   const onLeaseEnded = (end: { readonly leaseId: string; readonly reason: string }): void => Effect.runSync(pushes.publish(TERM_LEASE_ENDED, end));
   plane.router.on("event", onEvent);
   plane.router.on("lease-ended", onLeaseEnded);
-  const stopSeatState = remoteState.onState((event) => Effect.runSync(pushes.publish(TERM_SEAT_STATE, event)));
+  const stopSeatState = remoteState.onState((event) => Effect.runSync(pushes.publish(TERM_SEAT_STATE, servedRemoteEvent(remoteState, event))));
+  const stopLinkLost = republishOnLinkLost(remoteState, (event) => Effect.runSync(pushes.publish(TERM_SEAT_STATE, event)));
   const stopLocalSeatState = seatStateRuntime.subscribe((event) => Effect.runSync(pushes.publish(TERM_SEAT_STATE, event)));
   return () => {
     plane.router.off("event", onEvent);
     plane.router.off("lease-ended", onLeaseEnded);
     stopSeatState();
+    stopLinkLost();
     stopLocalSeatState();
   };
 };

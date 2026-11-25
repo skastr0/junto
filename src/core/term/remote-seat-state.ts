@@ -118,6 +118,35 @@ export const remoteSeatOccupied = (
   remote: ReadonlyArray<AgentSeatStateEvent>,
 ): boolean => remote.some((event) => event.bindingId === bindingId && event.state !== "gone");
 
+/** A remote seat's event as the window is served it: with whether its reading is current over a live link. */
+export const servedRemoteEvent = (
+  remote: Pick<RemoteSeatState["Service"], "current">,
+  event: AgentSeatStateEvent,
+): AgentSeatStateEvent => ({ ...event, current: remote.current(event.bindingId) });
+
+/** Every remote seat's last event, served with its currency, for a cold start. */
+export const servedRemoteEvents = (
+  remote: Pick<RemoteSeatState["Service"], "current" | "events">,
+): ReadonlyArray<AgentSeatStateEvent> => remote.events().map((event) => servedRemoteEvent(remote, event));
+
+/**
+ * When the link to a machine is lost, the window is told again of each of its
+ * seats' last readings, now not current: a reading is held from before the
+ * loss and a Doing limit must not read it as the seat's state. The same epoch
+ * and time, so the store keeps its state and only learns it is not current.
+ * Returns the unbinder.
+ */
+export const republishOnLinkLost = (
+  remote: Pick<RemoteSeatState["Service"], "onFeed" | "feeds">,
+  publish: (event: AgentSeatStateEvent) => void,
+): (() => void) =>
+  remote.onFeed((feed) => {
+    if (feed._tag !== "Lost") return;
+    for (const held of remote.feeds()) {
+      if (held.machine === feed.machine) publish({ ...held.event, current: false });
+    }
+  });
+
 /** Spawn-host (local runtime) wins on bindingId collision. */
 export const mergeSeatStateSnapshot = (
   local: ReadonlyArray<AgentSeatStateEvent>,
