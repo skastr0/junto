@@ -36,6 +36,7 @@ vi.hoisted(() => {
 
 const { FilesWizard } = await import("../src/window/components/files/FilesWizard");
 const { FilesNode } = await import("../src/window/components/files/FilesNode");
+const { FilesCard } = await import("../src/window/components/files/FilesCard");
 const { NodeFieldEditors } = await import("../src/window/components/InspectorFields");
 const { filesMachineChoices } = await import("../src/window/lib/machines");
 const { installFilesSource, makeLocalFiles, FILES_MACHINE_GONE_LINE } = await import("../src/window/lib/files-source");
@@ -45,7 +46,7 @@ const { state$ } = await import("../src/window/lib/state");
 type Request = { readonly id: string; readonly op: string; readonly args: Record<string, unknown> };
 const ok = (request: Request, data: unknown) => ({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: true, data });
 const listed = (id: string, label: string, setUp: boolean, isThisMachine = false) => ({
-  machine: { id, label, isThisMachine, capabilities: ["terminal"] },
+  machine: { id, label, isThisMachine, capabilities: ["terminal"] as const },
   setUp,
   needsUpdate: false,
   ...(setUp ? { installationId: `inst-${id}` } : {}),
@@ -245,5 +246,46 @@ describe("the core's not-set-up refusal", () => {
     expect(document.body.textContent).toContain(FILES_MACHINE_GONE_LINE);
     expect(byLabel("Open Machines")).not.toBeNull();
     expect(document.querySelector("nav.files-tree-nav")).toBeNull();
+  });
+});
+
+describe("a machine removed while its folder is shown", () => {
+  const rows = () => [
+    listed(THIS_MACHINE, "Studio", true, true).machine,
+    listed(OTHER_MACHINE, "Mac mini", true).machine,
+  ];
+
+  it("refreshes the open modal to the not-set-up line and Open Machines", async () => {
+    installFilesSource(makeLocalFiles({ "a.md": "" }));
+    const id = asNodeId("files-machine-removed");
+    modelStore.node$("files-place", id).set(filesNode("files-machine-removed", { host: OTHER_MACHINE }));
+    modelStore.canvas$("files-place").nodeIds.set([id]);
+    state$.machines.set(rows());
+    await act(async () => root.render(<FilesNode canvasName="files-place" nodeId={id} onClose={() => undefined} />));
+    await flush();
+    expect(document.querySelector("nav.files-tree-nav")).not.toBeNull();
+
+    await act(async () => { state$.machines.set([rows()[0]!]); });
+    await flush();
+
+    expect(document.body.textContent).toContain(FILES_MACHINE_GONE_LINE);
+    expect(byLabel("Open Machines")).not.toBeNull();
+    expect(document.querySelector("nav.files-tree-nav")).toBeNull();
+  });
+
+  it("refreshes the card and asks its count again", async () => {
+    const count = vi.fn(async () => ({ ok: false as const, error: "unreachable" as const, machine: OTHER_MACHINE, lastReachedAt: Date.now() - 30_000 }));
+    installFilesSource({ ...makeLocalFiles(), count });
+    state$.machines.set(rows());
+    await act(async () => root.render(<FilesCard node={filesNode("files-machine-removed-card", { host: OTHER_MACHINE })} />));
+    await flush();
+    expect(document.querySelector('[data-testid="files-card"]')?.textContent).toContain("Cannot reach Mac mini");
+    const asked = count.mock.calls.length;
+
+    await act(async () => { state$.machines.set([rows()[0]!]); });
+    await flush();
+
+    expect(document.querySelector('[data-testid="files-card"]')?.textContent).toContain(FILES_MACHINE_GONE_LINE);
+    expect(count.mock.calls.length).toBeGreaterThan(asked);
   });
 });

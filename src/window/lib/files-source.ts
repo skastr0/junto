@@ -382,16 +382,18 @@ export const refusedOf = (refusal: FilesRefusal): Extract<Loaded<never>, { state
 };
 
 /** Serve the node to this window while the modal shows it: `open` on mount, `close` on unmount. */
-export const useFilesRoot = (ref: FilesNodeRef, place = ""): Loaded<FilesRoot> => {
+export const useFilesRoot = (ref: FilesNodeRef, place = "", hold = false): Loaded<FilesRoot> => {
   const [root, setRoot] = useState<Loaded<FilesRoot>>({ state: "loading" });
   const { canvas, node } = ref;
   /** Bumped when the root folder comes back on disk: it opens again. */
   const [back, setBack] = useState(0);
   // `place` names where the node's folder is (its host and root): a change closes the old one and opens the new.
+  // `hold` keeps a node whose machine left the window's list from opening at all.
   useEffect(() => {
     let live = true;
     nodeCanvas.set(node, canvas);
     setRoot({ state: "loading" });
+    if (hold) return () => { live = false; };
     const source = filesSource();
     void source.open({ canvas, node }).then((result) => {
       if (live) setRoot(result.ok ? { state: "ready", value: result.value } : refusedOf(result));
@@ -408,6 +410,6 @@ export const useFilesRoot = (ref: FilesNodeRef, place = ""): Loaded<FilesRoot> =
       stop();
       void source.close({ canvas, node });
     };
-  }, [canvas, node, place, back]);
+  }, [canvas, node, place, back, hold]);
   return root;
 };

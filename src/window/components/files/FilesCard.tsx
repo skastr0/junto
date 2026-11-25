@@ -8,7 +8,7 @@ import { useFeatureOn } from "../../lib/experimental-features";
 import { CARD_DROP_NOTICE_MS, cardDropNotice, countLine, type CardDropNotice } from "../../lib/files-card";
 import { hasFinderFiles } from "../../lib/files-drop";
 import { filesErrorLine, filesSource, FILES_MACHINE_GONE_LINE, offlineOf, unreachableLine, useMinuteNow } from "../../lib/files-source";
-import { machineLabel, onThisMachine, requestMachineCheck } from "../../lib/machines";
+import { machineLabel, onThisMachine, requestMachineCheck, useMachineLeftList } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
@@ -32,6 +32,8 @@ const useFilesCount = (
   ask: boolean,
   /** Changes when the node's machine is found reachable or not: the count is asked again. */
   reach: boolean | undefined,
+  /** The node's machine left the window's list: count again, so the card says not set up. */
+  gone: boolean,
 ): { readonly count: FilesResult<FilesCount> | undefined; readonly recount: () => void } => {
   const [count, setCount] = useState<FilesResult<FilesCount> | undefined>();
   const recountRef = useRef<() => void>(() => undefined);
@@ -60,7 +62,7 @@ const useFilesCount = (
       live = false;
       stop();
     };
-  }, [ask, canvas, id, root, reach]);
+  }, [ask, canvas, id, root, reach, gone]);
   return { count, recount: () => recountRef.current() };
 };
 
@@ -83,13 +85,16 @@ export function FilesCard({
   const takesDrops = useFeatureOn("files") && here;
   // Files over SSH: another machine's node is counted through its link, and says when that machine cannot be reached.
   const remote = FILES_REMOTE_ENABLED && !here;
+  // A machine removed from the list refreshes the card at once, before its count is asked again.
+  const machineLeft = useMachineLeftList(node.host);
+  const machineGone = remote && machineLeft;
   const reach = use$(() => (remote && node.host !== undefined ? state$.machineFacts[node.host]?.reachable.get() : undefined));
   useEffect(() => {
     if (remote && node.host !== undefined) requestMachineCheck(node.host);
   }, [remote, node.host]);
-  const counted = useFilesCount(use$(state$.canvasName) || "", node, here || remote, reach);
+  const counted = useFilesCount(use$(state$.canvasName) || "", node, here || remote, reach, machineGone);
   const refusedNotSetUp = counted.count !== undefined && !counted.count.ok && counted.count.error === "not-set-up";
-  const offline = counted.count === undefined || counted.count.ok ? undefined : offlineOf(counted.count);
+  const offline = machineGone || counted.count === undefined || counted.count.ok ? undefined : offlineOf(counted.count);
   const now = useMinuteNow(offline !== undefined);
   const count = offline === undefined ? countLine(counted.count) : unreachableLine(machineLabel(offline.machine), offline.lastReachedAt, now);
   const [over, setOver] = useState(false);
@@ -121,7 +126,7 @@ export function FilesCard({
     if (outcome?.ok === true) counted.recount();
   };
 
-  const line = notice?.text ?? (refusedNotSetUp ? FILES_MACHINE_GONE_LINE : count ?? node.root);
+  const line = notice?.text ?? (machineGone || refusedNotSetUp ? FILES_MACHINE_GONE_LINE : count ?? node.root);
 
   return (
     <div

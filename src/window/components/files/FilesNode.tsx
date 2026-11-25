@@ -6,7 +6,7 @@ import { CircleAlert, ExternalLink, Search, FileCode, FilePlus, FileQuestion, Fi
 import type { NodeId } from "@shared/physics/schema";
 import type { FilePlaceAnchor } from "@shared/thread-subject";
 import { titleOf } from "@shared/model/title";
-import { FLEET_UI_ENABLED } from "@shared/features";
+import { FILES_REMOTE_ENABLED, FLEET_UI_ENABLED } from "@shared/features";
 import { baseName, parentOf, parseFilePath, ROOT_PATH, sameStamp, type FilePath, type FileRead, type FilesNodeRef, type FilesResult, type FileStamp } from "@shared/files";
 import { nodeAt, useNode } from "../../lib/use-model";
 import { useFollowOpen } from "../../lib/work-detail-open";
@@ -27,7 +27,7 @@ import {
   type FileView as FileViewKind,
   type Loaded,
 } from "../../lib/files-source";
-import { machineLabel, onThisMachine } from "../../lib/machines";
+import { machineLabel, onThisMachine, useMachineLeftList } from "../../lib/machines";
 import { openMachines } from "../../lib/machines-window";
 import { useSubjectThreads, type SubjectThread } from "../../lib/subject-threads-source";
 import { boxAnchorOf, filePlaceOf, lineAnchorOf, lineDraftOf, placeLabel, placedFileThreads, type LineDraft } from "../../lib/file-comments";
@@ -101,9 +101,13 @@ export function FilesNode({
   const ref = useMemo<FilesNodeRef>(() => ({ canvas: canvasName, node: nodeId }), [canvasName, nodeId]);
   // Read live: the folder reopens when the node's host or root changes under the open modal.
   const node = useNode(canvasName, nodeId);
-  const root = useFilesRoot(ref, node?.kind === "files" ? `${node.host}\u0000${node.root}` : "");
+  // A machine removed from the window's list takes its open folder with it: the modal refreshes to the same refusal a fresh open gets.
+  const machineLeft = useMachineLeftList(node?.kind === "files" ? node.host : undefined);
+  const remote = FILES_REMOTE_ENABLED && node?.kind === "files" && !onThisMachine(node.host);
+  const machineGone = remote && machineLeft;
+  const root = useFilesRoot(ref, node?.kind === "files" ? `${node.host}\u0000${node.root}` : "", machineGone);
   // The core refuses a node whose machine has no active pin here, before any request reaches it.
-  const notSetUp = root.state === "refused" && root.error === "not-set-up";
+  const notSetUp = machineGone || (root.state === "refused" && root.error === "not-set-up");
   const kept = useFilesNodeView(canvasName, nodeId);
   const keptRef = useRef(kept);
   keptRef.current = kept;
@@ -132,11 +136,11 @@ export function FilesNode({
     setPageOnce(initialPage);
   });
   const draftsVersion = useDraftsVersion();
-  const folderName = root.state === "ready" ? root.value.name : node === undefined ? "Files" : titleOf(node);
+  const folderName = notSetUp || root.state !== "ready" ? node === undefined ? "Files" : titleOf(node) : root.value.name;
   /** Open in default app and Reveal in Finder act on this screen: another machine's node offers neither. */
   const here = node?.kind !== "files" || onThisMachine(node.host);
   /** Its machine cannot be reached: the node says so and shows no tree, nothing stale (0.12, X2). */
-  const offline = root.state === "refused" ? root.offline : undefined;
+  const offline = !machineGone && root.state === "refused" ? root.offline : undefined;
   const now = useMinuteNow(offline !== undefined);
 
   /** Read at paint time, so the marks follow the drafts without a new tree. */

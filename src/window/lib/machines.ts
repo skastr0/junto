@@ -1,5 +1,5 @@
 import { use$ } from "@legendapp/state/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FILES_REMOTE_ENABLED } from "@shared/features";
 import { isThisMachine } from "@shared/machine-identity";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
@@ -46,6 +46,30 @@ export const isOnMachine = (host: string | undefined, name: string): boolean =>
 /** Whether `host` names the machine this window runs on. */
 export const onThisMachine = (host: string | undefined): boolean =>
   isOnMachine(host, thisMachineName());
+
+/**
+ * Whether `host` is a machine this window no longer lists. An empty list is
+ * not an answer: nothing is gone until a read has filled it. This machine is
+ * never gone, even if a read left it out.
+ */
+export const machineNoLongerListed = (
+  machines: ReadonlyArray<Pick<RemoteHost, "id">>,
+  host: string | undefined,
+): boolean =>
+  machines.length > 0 && host !== undefined && !onThisMachine(host) && !machines.some((machine) => machine.id === host);
+
+/**
+ * Whether a machine this window showed has since left its list. It latches:
+ * only a host that was in a read list can be gone, so a list that has not
+ * loaded yet, or was reset, never calls a node gone. This machine is never
+ * gone. A change to the list re-renders every caller.
+ */
+export const useMachineLeftList = (host: string | undefined): boolean => {
+  const machines = useMachines();
+  const seen = useRef<Set<string>>(new Set());
+  if (host !== undefined && machines.some((machine) => machine.id === host)) seen.current.add(host);
+  return host !== undefined && seen.current.has(host) && machineNoLongerListed(machines, host);
+};
 
 /** What the operator calls a machine: its label, else its name. */
 export const machineLabelIn = (
