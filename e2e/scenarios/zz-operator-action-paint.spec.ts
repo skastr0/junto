@@ -307,7 +307,7 @@ const stageTable = (name: string, click: number, painted: number, events: Readon
     ...throughPaint.map((event) => ({ stage: labels.get(event)!, t: event.t })),
     { stage: "first painted frame", t: painted },
   ];
-  let largest = { from: "click handler start", to: "first painted frame", ms: painted - click };
+  let largest = { from: "click handler start", to: "click handler start", ms: 0 };
   for (let index = 1; index < timeline.length; index += 1) {
     const gap = timeline[index]!.t - timeline[index - 1]!.t;
     if (gap > largest.ms) largest = { from: timeline[index - 1]!.stage, to: timeline[index]!.stage, ms: gap };
