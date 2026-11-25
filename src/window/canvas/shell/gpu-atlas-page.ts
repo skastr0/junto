@@ -59,6 +59,8 @@ export const pageGpuAtlasAudit = (held?: ReadonlyMap<number, number>): AtlasAudi
 
 /** Texel readback of landed sprite cells against fresh rasters, or null before first mount. */
 export const pageGpuAtlasAuditTexels = (limit?: number): Promise<AtlasTexelAudit> | null => atlas?.auditTexels(limit) ?? null;
+/** The record a cell index names, for a proof: its key, raster scale, asked scale, state and what it shows. */
+export const pageGpuAtlasRecord = (cell: number): Record<string, unknown> | null => atlas?.recordOf(cell) ?? null;
 
 /** The page's atlas, made on first use and kept for the page's life. */
 export const pageGpuAtlas = (): GpuAtlas => {

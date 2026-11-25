@@ -169,6 +169,8 @@ export interface GpuAtlas {
    * `held` counts the references draw records hold per cell. Never mutates.
    */
   audit(held?: ReadonlyMap<number, number>): AtlasAudit;
+  /** The record a cell index names, for a proof: key, raster scale, asked scale, state and what it shows. */
+  recordOf(cell: number): { readonly key: string; readonly contentKey: string; readonly scale: number; readonly askedScale: number | null; readonly state: CellState; readonly shows: "own" | { readonly key: string; readonly scale: number }; readonly standalone: boolean; readonly hasImage: boolean } | null;
   /**
    * Read back the texels of up to `limit` referenced, landed rgba cells and
    * compare each with a fresh synchronous raster of its own quad at its own
@@ -2797,6 +2799,26 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       // A limit that is 0, negative or not a number asks for nothing; slice(-0) would be the whole log.
       const cap = Number.isFinite(limit) ? Math.min(256, Math.max(0, Math.floor(limit))) : 0;
       return cap === 0 ? [] : rerasterLog.slice(-cap);
+    },
+    /**
+     * The record a cell index names, for a proof: its key, the scale its own
+     * pixels were rastered at, the scale it was asked for, its state, and
+     * whether it shows its own pixels or stands in for another cell. A cell
+     * read back is the one the quad drew, so this says what the screen shows.
+     */
+    recordOf: (cell: number) => {
+      const rec = slots[cell];
+      if (rec === undefined) return null;
+      return {
+        key: rec.key,
+        contentKey: rec.contentKey,
+        scale: rec.scale,
+        askedScale: rec.desc?.scale ?? null,
+        state: rec.state,
+        shows: rec.standIn === undefined ? "own" : { key: rec.standIn.key, scale: rec.standIn.scale },
+        standalone: rec.standalone !== undefined,
+        hasImage: hasImage(cell),
+      };
     },
     audit,
     auditTexels,

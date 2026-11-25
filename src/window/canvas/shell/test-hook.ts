@@ -12,7 +12,7 @@ import type { AtlasAudit, AtlasTexelAudit, AtlasPendingEntry, AtlasRerasterEntry
 import type { GpuErrors } from "../engine/device";
 import { drawnMinimap } from "../../components/FactoryMinimap";
 import type { MapPaint, PackedMap } from "../../components/minimap-draw";
-import { pageGpuAtlasAudit, pageGpuAtlasAuditTexels, pageGpuAtlasPendingKeys, pageGpuAtlasRerasterLog, pageGpuAtlasStats } from "./gpu-atlas-page";
+import { pageGpuAtlasAudit, pageGpuAtlasAuditTexels, pageGpuAtlasPendingKeys, pageGpuAtlasRecord, pageGpuAtlasRerasterLog, pageGpuAtlasStats } from "./gpu-atlas-page";
 import { pageDeviceKeeper } from "./gpu-device";
 import { engineStats } from "./gpu-canvas-api";
 import type { SurfaceMirror } from "./surface-mirror";
@@ -43,6 +43,7 @@ type FullHook = CanvasTestHook & {
   readonly partsOf: (id: NodeId) => ReadonlyArray<DrawnPart>;
   /** Whether anything is still easing or animating: the scene's own word. */
   readonly hasMotion: () => boolean;
+  readonly cellRecord: (cell: number) => Record<string, unknown> | null;
   /** Painted quads for a cluster badge, with rect in page screen pixels. */
   readonly badgePartsOf: (key: string) => ReadonlyArray<DrawnPart>;
   /** In-view seats nothing draws or picks, and missing or waiting portraits (issue 912). */
@@ -207,6 +208,7 @@ const build = (
     pick: (screen) => engine()?.pick(screen) ?? null,
     partsOf: (id) => mapParts(engine()?.partsOf?.(id) ?? []),
     hasMotion: () => engine()?.hasMotion?.() ?? false,
+    cellRecord: (cell) => pageGpuAtlasRecord(cell),
     setCull: (mode) => engine()?.setCull?.(mode),
     badgePartsOf: (key) => mapParts(engine()?.badgePartsOf?.(key) ?? []),
     seatStats: () => engine()?.seatStats?.(),
