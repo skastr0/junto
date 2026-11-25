@@ -286,6 +286,10 @@ export const OperatorErrorBody = Schema.Struct({
     disposition: Schema.optionalKey(MachineInstallError.fields.disposition),
     transitions: MachineInstallError.fields.transitions,
     installed: Schema.optionalKey(MachineInstallResult),
+    /** Live seats on the target when an update paused for the operator's confirm. */
+    runningSeats: MachineInstallError.fields.runningSeats,
+    /** An older target could not count its seats; the window still confirms before updating. */
+    runningSeatsUnknown: MachineInstallError.fields.runningSeatsUnknown,
     /** The typed failure behind the message, encoded and scrubbed by the one encoder. */
     failure: Schema.optionalKey(EncodedFailure),
   })),
