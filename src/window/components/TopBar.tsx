@@ -28,6 +28,7 @@ import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
 import { FirstPlayConfirm } from "./FirstPlayConfirm";
 import { UpdateChip } from "./UpdateChip";
 import { NeedsYouButton } from "./feed/NeedsYouButton";
+import { ThreadsButton } from "./feed/ThreadsButton";
 import { QuickCaptureButton } from "./QuickCaptureButton";
 import { UsageHud } from "./UsageHud";
 import { CommandGroupBar } from "./command-groups/CommandGroupBar";
@@ -292,6 +293,7 @@ export function TopBar({
         <UpdateChip />
         <QuickCaptureButton />
         <NeedsYouButton />
+        <ThreadsButton />
         <FactoryPauseControl canvasName={canvasName} />
         {DEV_TOOLS_ENABLED && logsExplorer ? (
           <button
