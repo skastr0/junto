@@ -74,6 +74,11 @@ const key = async (element: Element | null, name: string, init: KeyboardEventIni
   });
   await flush();
 };
+/** The narrow key: Cmd+Enter or Ctrl+Enter, whichever is this platform's. */
+const narrowKey = async (element: Element | null) => {
+  await key(element, "Enter", { metaKey: true });
+  await key(element, "Enter", { ctrlKey: true });
+};
 /** A press with the pointer, as the app hears one. */
 const press = async (element: Element | null) => {
   act(() => {
@@ -190,14 +195,14 @@ describe("Quick thread from the canvas", () => {
     expect(quickThreadSeats(CANVAS)).toEqual([]);
   });
 
-  it("narrows to a region's seats and never adds the region", async () => {
+  it("narrows to a region's seats on the narrow key, and adds nobody", async () => {
     await mountHost();
     await open();
     await typeIn(seatField()!, "design sys");
     expect(all("quick-thread-option")[0]?.getAttribute("data-kind")).toBe("region");
     // Heard for what it is, so narrowing does not surprise.
     expect(all("quick-thread-option")[0]?.textContent).toBe("Design System, region, 2 seats");
-    await key(seatField(), "Enter");
+    await narrowKey(seatField());
     expect(chosenNames()).toEqual([]);
     expect(q("quick-thread-narrowed")?.textContent).toContain("in Design System");
     expect(spoken()).toBe("Design System, 2 seats");
@@ -427,7 +432,7 @@ describe("Quick thread from the canvas", () => {
     await key(seatField(), "Enter");
     await press(q("quick-thread-add"));
     await typeIn(seatField()!, "design sys");
-    await key(seatField(), "Enter");
+    await narrowKey(seatField());
     const showAll = q("quick-thread-narrowed")?.querySelector("button") as HTMLElement;
     act(() => showAll.focus());
     await key(showAll, "Escape");
@@ -557,5 +562,103 @@ describe("Quick thread in a pane of its host's", () => {
     expect(chosenNames()).toEqual([]);
     expect(messageField().value).toBe("");
     expect(seatField()).not.toBeNull();
+  });
+});
+
+describe("Broadcast: a region as a recipient", () => {
+  const tokens = () => all("quick-thread-region").map((token) => token.textContent);
+
+  it("chooses the region on Enter, as one token with its count, and asks before it sends", async () => {
+    await mountHost();
+    await open();
+    await typeIn(seatField()!, "design sys");
+    await key(seatField(), "Enter");
+    // One token, not two seats: the region and the seats it holds now.
+    expect(chosenNames()).toEqual([]);
+    expect(tokens()).toEqual(["Design System2"]);
+    expect(spoken()).toBe("Design System, 2 seats added, 1 region chosen");
+    expect(document.activeElement).toBe(messageField());
+    expect(sendButton().textContent).toBe("Send to 2");
+
+    await typeIn(messageField(), "status?");
+    await key(messageField(), "Enter");
+    // Nothing has gone: the confirm has the press.
+    expect(sends).toEqual([]);
+    expect(q("quick-thread-confirm")?.textContent).toContain("Send to 2 seats?");
+    expect(q("quick-thread-confirm")?.textContent).toContain("Each gets its own thread.");
+    expect(document.activeElement).toBe(q("quick-thread-confirm-send"));
+
+    await press(q("quick-thread-confirm-send"));
+    expect(sends.map((entry) => entry.nodeId).sort()).toEqual(["s-design", "s-type"]);
+    // Both have it: it closes.
+    expect(operatorModal$.open.peek()).toBeNull();
+    expect(quickThreadSeats(CANVAS)).toEqual([]);
+  });
+
+  it("Cancel and Escape on the confirm give the draft back as it was", async () => {
+    await mountHost();
+    await open();
+    await typeIn(seatField()!, "design sys");
+    await key(seatField(), "Enter");
+    await typeIn(messageField(), "status?");
+    await key(messageField(), "Enter");
+    await press(q("quick-thread-confirm-cancel"));
+    expect(q("quick-thread-confirm")).toBeNull();
+    expect(tokens()).toEqual(["Design System2"]);
+    expect(messageField()?.value).toBe("status?");
+    expect(sends).toEqual([]);
+
+    await key(messageField(), "Enter");
+    expect(q("quick-thread-confirm")).not.toBeNull();
+    await key(q("quick-thread-confirm"), "Escape");
+    expect(q("quick-thread-confirm")).toBeNull();
+    expect(operatorModal$.open.peek()).toBe("quick-thread");
+  });
+
+  it("a seat picked one by one never asks", async () => {
+    await mountHost();
+    await open();
+    await typeIn(seatField()!, "ptyl");
+    await key(seatField(), "Enter");
+    await typeIn(messageField(), "status?");
+    await key(messageField(), "Enter");
+    expect(q("quick-thread-confirm")).toBeNull();
+    expect(sends.map((entry) => entry.nodeId)).toEqual(["s-pty"]);
+  });
+
+  it("offers the region with a typed limit, ranked first, and the limits on the token", async () => {
+    await mountHost();
+    await open();
+    await typeIn(seatField()!, "design sys working");
+    const first = all("quick-thread-option")[0]!;
+    expect(first.getAttribute("data-kind")).toBe("region");
+    expect(first.textContent).toContain("Design System, working");
+    await key(seatField(), "Enter");
+    // The seats have no reading in this test, so a doing limit holds none of them: they are left out, not sent to.
+    expect(tokens()).toEqual(["Design System, working0"]);
+    expect(sendButton().disabled).toBe(true);
+  });
+
+  it("a failed seat is named in the receipt and Send again goes to it alone", async () => {
+    refused["s-type"] = "That seat is not reachable.";
+    await mountHost();
+    await open();
+    await typeIn(seatField()!, "design sys");
+    await key(seatField(), "Enter");
+    await typeIn(messageField(), "status?");
+    await key(messageField(), "Enter");
+    await press(q("quick-thread-confirm-send"));
+    expect(q("quick-thread-not-sent")?.textContent).toContain("1 not sent");
+    expect(q("quick-thread-have")?.textContent).toContain("1 have it");
+    expect(q("quick-thread-later")).toBeNull();
+    // Open for a few seats, with its names.
+    expect(q("quick-thread-not-sent")?.textContent).toContain("product-typography");
+
+    delete refused["s-type"];
+    sends = [];
+    await press(q("quick-thread-send-again"));
+    expect(sends.map((entry) => entry.nodeId)).toEqual(["s-type"]);
+    // Everyone has it now: it closes.
+    expect(operatorModal$.open.peek()).toBeNull();
   });
 });

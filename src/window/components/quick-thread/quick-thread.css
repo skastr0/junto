@@ -229,3 +229,204 @@
   max-height: min(70vh, 100%);
   overflow: visible;
 }
+
+/* Broadcast: a region as one token. The holder is the seat token's own; the
+   press inside it opens the limits, the control after it takes the region off. */
+.quick-thread__region {
+  gap: 2px;
+}
+
+.quick-thread__region-press {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: var(--text-body);
+  color: var(--color-ink);
+}
+
+.quick-thread__region-press:hover {
+  background: var(--color-overlay-2);
+}
+
+.quick-thread__region-press:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
+}
+
+.quick-thread__region-name {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.quick-thread__region-limits {
+  margin-left: -6px;
+  color: var(--color-dim);
+  white-space: nowrap;
+}
+
+.quick-thread__region-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-faint);
+}
+
+/* The limits: two groups of the feed's own chips, and the count at the foot. */
+.quick-thread__limits {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.quick-thread__limit-group {
+  display: grid;
+  gap: 6px;
+}
+
+.quick-thread__limit-heading {
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+
+.quick-thread__limit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.quick-thread__limit-foot {
+  margin: 0;
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-faint);
+}
+
+/* The confirm and the receipt of a send with a region, in the input's place. */
+.quick-thread__confirm {
+  display: grid;
+  gap: 8px;
+  padding: 14px 12px 12px;
+}
+
+.quick-thread__confirm-title {
+  margin: 0;
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.quick-thread__confirm-detail,
+.quick-thread__leftout-text {
+  margin: 0;
+  font-size: var(--text-body);
+  color: var(--color-ink);
+}
+
+.quick-thread__leftout {
+  display: grid;
+  gap: 4px;
+}
+
+.quick-thread__confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.quick-thread__disclosure {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.quick-thread__disclosure-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.quick-thread__disclosure-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: var(--text-body);
+  color: var(--color-dim);
+}
+
+.quick-thread__disclosure[data-ink="true"] .quick-thread__disclosure-toggle {
+  color: var(--color-ink);
+}
+
+.quick-thread__disclosure-toggle:hover {
+  color: var(--color-ink);
+}
+
+.quick-thread__disclosure-toggle:focus-visible,
+.quick-thread__names:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 1px;
+}
+
+/* Eight rows of 24px, then it scrolls. */
+.quick-thread__names {
+  display: grid;
+  gap: 6px;
+  max-height: calc(8 * 24px);
+  overflow-y: auto;
+}
+
+.quick-thread__names-group {
+  display: grid;
+  gap: 2px;
+}
+
+.quick-thread__names-region {
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+
+.quick-thread__names-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quick-thread__name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+}
+
+.quick-thread__name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-body);
+  color: var(--color-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The pointer's way to narrow a region: the keyboard has its own key, so this is not in the tab order. */
+.quick-thread__option-narrow {
+  flex: none;
+  margin-left: 4px;
+}
+
+/* The input stays mounted under the confirm and the receipt; it draws as if it had no wrapper. */
+.quick-thread__composer {
+  display: contents;
+}
+
+.quick-thread__composer[hidden] {
+  display: none;
+}

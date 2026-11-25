@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { use$ } from "@legendapp/state/react";
-import { Check, Clock, Plus, X } from "lucide-react";
+import { Check, ChevronRight, Clock, Plus, X } from "lucide-react";
+import type { BroadcastSeat } from "@shared/broadcast";
+import { picksOf, useBroadcastReader } from "../../lib/broadcast-set";
 import { claimFocus, claimFocusOnMount, recentGestureKind } from "../../lib/focus-ownership";
 import { keyAria, keyCaps, keyIs } from "../../lib/key-match";
 import { isMac } from "../../lib/platform";
@@ -11,6 +13,7 @@ import {
   quickThreadKept,
   quickThreadOptionKey,
   quickThreadOptions,
+  setQuickThreadRegions,
   setQuickThreadSeats,
   useQuickThreadKept,
   type QuickThreadOption,
@@ -24,6 +27,19 @@ import {
   unpickSpoken,
   type QuickThreadChange,
 } from "../../lib/quick-thread-keys";
+import {
+  broadcastReceipt,
+  broadcastReceiptSpoken,
+  chooseRegion,
+  limitedRegionOptions,
+  limitWord,
+  regionTokenSpoken,
+  regionTokenText,
+  toggleLimit,
+  type BroadcastReceipt,
+  type Limit,
+  type RegionPick,
+} from "../../lib/quick-thread-broadcast";
 import { regionChipStyle } from "../../lib/region-chip-style";
 import { waitingForSeats, type NewThread, type NewThreadsOutcome, type ThreadRecipient } from "../../lib/seat-threads";
 import { state$ } from "../../lib/state";
@@ -31,6 +47,7 @@ import { useCanvas } from "../../lib/use-model";
 import { AgentPortrait } from "../AgentPortrait";
 import { ThreadComposer } from "../threads/ThreadComposer";
 import { Button, Combobox, IconButton, Kbd, ResourceChip } from "../ui";
+import { BroadcastConfirm, BroadcastReceiptView, RegionToken } from "./BroadcastParts";
 // The thread input's own rules and the region dot live with the screens that drew them first.
 import "../threads/seat-threads.css";
 import "../feed/feed-region-strip.css";
@@ -56,13 +73,20 @@ const seatCount = (seats: number): string => (seats === 1 ? "1 seat" : `${seats}
  * the pane it is given. It draws no frame.
  *
  * - The picker is the house combobox over seats and regions in one ranked
- *   list. A region is never a recipient: picking one narrows the list to its
- *   seats. Picking a seat chips it and moves the keyboard to the message;
- *   picking it again takes it off. Its keys come from the key table
+ *   list. A region picked is a recipient, as wide as the seats it holds now,
+ *   narrowed by limits (what its seats are doing, what they need from the
+ *   operator; "junto working" offers the region with that limit on it). Its
+ *   trailing control, or the narrow key, shows only its seats instead.
+ *   Picking a seat chips it and moves the keyboard to the message; picking
+ *   it again takes it off. Its keys come from the key table
  *   (lib/quick-thread-keys).
  * - The chosen seats sit in a row over the message, each with its portrait
- *   and a control that takes it off; the control at the end brings the
- *   picker back.
+ *   and a control that takes it off, a region as one token with its count
+ *   whose press opens its limits; the control at the end brings the picker
+ *   back.
+ * - A send with a region asks first (BroadcastConfirm) and sends to the seats
+ *   the confirm showed; it comes back as three counted lines
+ *   (BroadcastReceiptView). Seats picked one by one never ask.
  * - The draft (seats, text, files) is kept until it is sent.
  * - A seat that got nothing stays in the row with the reason under it; the
  *   seats that were sent leave, so Send goes to the rest alone.
@@ -95,16 +119,33 @@ export function QuickThread({
   const recent = use$(state$.seatVisitOrder);
   const catalog = useMemo(() => quickThreadCatalog(canvas, recent), [canvas, recent]);
   // The reasons are kept with the draft: closed and opened again, it still says why a seat got nothing.
-  const { seats: seatIds, unsent } = useQuickThreadKept(canvasName);
+  const { seats: seatIds, regions: regionPicks, unsent } = useQuickThreadKept(canvasName);
   // A seat taken off the canvas since it was chosen is no longer a recipient.
   const chosen = useMemo(() => {
     const byId = new Map(catalog.seats.map((seat) => [seat.id, seat]));
     return seatIds.flatMap((id) => byId.get(id) ?? []);
   }, [catalog, seatIds]);
-  const recipients = useMemo<ReadonlyArray<ThreadRecipient>>(
-    () => chosen.map((seat) => ({ seatId: seat.id, name: seat.name })),
-    [chosen],
+  // A region taken off the canvas, or emptied of seats, is no longer a recipient.
+  const regionsChosen = useMemo(
+    () => regionPicks.flatMap((pick) => (catalog.regions.some((region) => region.id === pick.regionId) ? [pick] : [])),
+    [catalog, regionPicks],
   );
+  const regionOfId = useMemo(() => new Map(catalog.regions.map((region) => [region.id, region])), [catalog]);
+  // The seats the choice reaches, read as seats change state: a region is the seats it holds now.
+  const read = useBroadcastReader(canvasName);
+  const choice = useMemo(() => picksOf(chosen.map((seat) => seat.id), regionsChosen), [chosen, regionsChosen]);
+  const set = useMemo(() => read(choice), [read, choice]);
+  const withRegion = regionsChosen.length > 0;
+  const recipients = useMemo<ReadonlyArray<ThreadRecipient>>(
+    () =>
+      withRegion
+        ? set.seats.map((seat) => ({ seatId: seat.nodeId, name: seat.name }))
+        : chosen.map((seat) => ({ seatId: seat.id, name: seat.name })),
+    [withRegion, set, chosen],
+  );
+  const seatByNode = useMemo(() => new Map(catalog.seats.map((seat) => [seat.id, seat])), [catalog]);
+  /** The region a seat sits in, innermost, for the lists of names. */
+  const regionOf = useCallback((nodeId: string): string | undefined => seatByNode.get(nodeId)?.region, [seatByNode]);
   const held = quickThreadDraft(canvasName);
 
   const [query, setQuery] = useState("");
@@ -119,9 +160,28 @@ export function QuickThread({
   // A send is on its way: the row takes no change until it ends.
   const [busy, setBusy] = useState(false);
   const [spoken, setSpoken] = useState({ text: "", turn: 0 });
+  // A send with a region asks first. What it asks about is read once when it opens and is what is sent.
+  const [confirming, setConfirming] = useState<{ readonly seats: ReadonlyArray<BroadcastSeat>; readonly unread: ReadonlyArray<BroadcastSeat> }>();
+  // What a send with a region came to, until Done.
+  const [broadcastResult, setBroadcastResult] = useState<BroadcastReceipt>();
+  // The set a send with a region fixed and what has reached it so far, across tries. A ref: the send reads it after it awaits.
+  const fixed = useRef<{ seats: ReadonlyArray<BroadcastSeat>; sent: ReadonlyArray<NewThread> } | undefined>(undefined);
+  const sendTo = useRef<((to: ReadonlyArray<ThreadRecipient>) => void) | null>(null);
+  const awaiting = useRef(false);
 
   const narrowed = regionId === undefined ? undefined : catalog.regions.find((region) => region.id === regionId);
-  const options = useMemo(() => quickThreadOptions(catalog, query, narrowed?.id), [catalog, query, narrowed]);
+  const listed = useMemo(() => quickThreadOptions(catalog, query, narrowed?.id), [catalog, query, narrowed]);
+  // "junto working": the region with that limit on it comes first, with the count it alone reaches.
+  const options = useMemo(
+    () =>
+      narrowed !== undefined
+        ? listed
+        : [
+            ...limitedRegionOptions(catalog.regions, query, (regionId, limit) => read(picksOf([], [chooseRegion([], regionId, limit)[0]!])).count),
+            ...listed,
+          ],
+    [listed, narrowed, catalog, query, read],
+  );
   // Typing puts the keyboard on the best match, so Enter takes it; the arrows move it from there.
   const activeKey =
     explicit !== undefined && options.some((option) => quickThreadOptionKey(option) === explicit)
@@ -130,7 +190,7 @@ export function QuickThread({
         ? quickThreadOptionKey(options[0])
         : undefined;
   const active = options.find((option) => quickThreadOptionKey(option) === activeKey);
-  const picking = chosen.length === 0 || adding;
+  const picking = chosen.length + regionsChosen.length === 0 || adding;
   const selectedKeys = useMemo(() => new Set(chosen.map((seat) => quickThreadOptionKey(seat))), [chosen]);
 
   const root = useRef<HTMLDivElement | null>(null);
@@ -162,6 +222,7 @@ export function QuickThread({
   const say = (text: string): void => setSpoken((last) => ({ text, turn: last.turn + 1 }));
   const speak = (change: QuickThreadChange): void => say(quickThreadSpoken(change));
   const setSeats = (ids: ReadonlyArray<string>): void => setQuickThreadSeats(canvasName, ids);
+  const setRegions = (next: ReadonlyArray<RegionPick>): void => setQuickThreadRegions(canvasName, next);
 
   /** The picker goes away and the keyboard is in the message. */
   const toMessage = (): void => {
@@ -175,7 +236,32 @@ export function QuickThread({
   const add = (seat: QuickThreadSeat): void => {
     if (busy) return;
     setSeats([...chosen.map((held) => held.id), seat.id]);
-    speak({ kind: "added", seat: seat.name, chosen: chosen.length + 1 });
+    speak({ kind: "added", seat: seat.name, chosen: chosen.length + 1 + regionsChosen.length, regions: regionsChosen.length });
+  };
+
+  /** A region becomes a recipient; chosen again, it takes the new limit on its own token. */
+  const addRegion = (region: QuickThreadRegion): void => {
+    if (busy) return;
+    const next = chooseRegion(regionsChosen, region.id, region.limit);
+    setRegions(next);
+    const held = next.find((entry) => entry.regionId === region.id);
+    if (held === undefined) return;
+    const reached = read(picksOf([], [held])).count;
+    speak({ kind: "added", seat: regionTokenSpoken(region.name, held, reached), chosen: chosen.length + next.length, regions: next.length });
+  };
+
+  const removeRegion = (held: RegionPick): void => {
+    if (busy) return;
+    const name = regionOfId.get(held.regionId)?.name ?? "Region";
+    const next = regionsChosen.filter((entry) => entry !== held);
+    setRegions(next);
+    if (chosen.length === 0 && next.length === 0) setSettled([]);
+    speak({ kind: "removed", seat: name, chosen: chosen.length + next.length, regions: next.length });
+  };
+
+  const toggleRegionLimit = (held: RegionPick, limit: Limit): void => {
+    if (busy) return;
+    setRegions(regionsChosen.map((entry) => (entry === held ? toggleLimit(entry, limit) : entry)));
   };
 
   const remove = (seat: QuickThreadSeat): void => {
@@ -184,8 +270,8 @@ export function QuickThread({
     const { [seat.id]: _gone, ...rest } = unsent;
     keepQuickThread(canvasName, { unsent: rest });
     // With the last seat off, a send that reached only some is over: nothing of it is carried into the next.
-    if (chosen.length === 1) setSettled([]);
-    speak({ kind: "removed", seat: seat.name, chosen: chosen.length - 1 });
+    if (chosen.length === 1 && regionsChosen.length === 0) setSettled([]);
+    speak({ kind: "removed", seat: seat.name, chosen: chosen.length - 1 + regionsChosen.length, regions: regionsChosen.length });
   };
 
   const narrow = (region: QuickThreadRegion): void => {
@@ -201,10 +287,19 @@ export function QuickThread({
     setExplicit(undefined);
   };
 
-  /** Pick an option: a region narrows, a chosen seat comes off, a new seat is chipped. */
+  /** Pick an option: a region becomes a recipient, a chosen seat comes off, a new seat is chipped. */
   const pick = (option: QuickThreadOption, stay: boolean): void => {
     if (busy) return;
-    if (option.kind === "region") return narrow(option);
+    if (option.kind === "region") {
+      addRegion(option);
+      if (!stay) return toMessage();
+      setAdding(true);
+      if (query !== "") {
+        setQuery("");
+        setExplicit(undefined);
+      }
+      return;
+    }
     if (selectedKeys.has(quickThreadOptionKey(option))) return remove(option);
     add(option);
     if (!stay) return toMessage();
@@ -237,7 +332,13 @@ export function QuickThread({
         defaultPrevented: event.defaultPrevented,
         isComposing: event.nativeEvent.isComposing,
       },
-      { query, active: active !== undefined, chosen: chosen.length, narrowed: narrowed !== undefined },
+      {
+        query,
+        active: active !== undefined,
+        ...(active === undefined ? {} : { activeKind: active.kind }),
+        chosen: chosen.length + regionsChosen.length,
+        narrowed: narrowed !== undefined,
+      },
     );
     if (intent === null) return;
     event.preventDefault();
@@ -255,6 +356,12 @@ export function QuickThread({
       case "pickAnother":
         if (active) pick(active, true);
         break;
+      case "narrow":
+        if (active?.kind === "region") {
+          const whole = regionOfId.get(active.id);
+          if (whole !== undefined) narrow(whole);
+        }
+        break;
       case "write":
         toMessage();
         break;
@@ -265,8 +372,11 @@ export function QuickThread({
         widen();
         break;
       case "unpick": {
+        // The last token in the row: a region, which sits after the seats, else the last seat.
+        const lastRegion = regionsChosen.at(-1);
         const last = chosen.at(-1);
-        if (last) remove(last);
+        if (lastRegion) removeRegion(lastRegion);
+        else if (last) remove(last);
         break;
       }
     }
@@ -278,7 +388,72 @@ export function QuickThread({
     onSent?.(all.map(({ seatId, threadId, arrival }) => ({ seatId, threadId, arrival })));
   };
 
+  // A send with a region is over: nothing of its choice is kept, the words stay.
+  const finishBroadcast = (sent: ReadonlyArray<NewThread>): void => {
+    fixed.current = undefined;
+    awaiting.current = false;
+    setBroadcastResult(undefined);
+    setConfirming(undefined);
+    keepQuickThread(canvasName, { seats: [], regions: [], unsent: {} });
+    setSettled([]);
+    onSent?.(sent);
+  };
+
+  const onBroadcastSent = (outcome: NewThreadsOutcome): void => {
+    const held = fixed.current;
+    if (held === undefined) return;
+    awaiting.current = false;
+    // Seats sent again leave the failures; the ones that already had it stay counted.
+    const sent = [...held.sent, ...outcome.sent];
+    fixed.current = { seats: held.seats, sent };
+    setConfirming(undefined);
+    const receiptNow = broadcastReceipt(held.seats, { sent, failed: outcome.failed });
+    // Every seat has it, none waiting where a receipt would say so: it closes.
+    if (outcome.failed.length === 0 && (!receipt || receiptNow.later.length === 0)) return finishBroadcast(sent);
+    setBroadcastResult(receiptNow);
+    say(broadcastReceiptSpoken(receiptNow));
+  };
+
+  /** Send goes to the seats the confirm fixed, whatever the choice reads by now. */
+  const confirmSend = (): void => {
+    if (confirming === undefined || sendTo.current === null) return;
+    fixed.current = { seats: confirming.seats, sent: [] };
+    awaiting.current = true;
+    sendTo.current(confirming.seats.map((seat) => ({ seatId: seat.nodeId, name: seat.name })));
+  };
+
+  const sendAgain = (): void => {
+    const held = fixed.current;
+    if (held === undefined || broadcastResult === undefined || sendTo.current === null) return;
+    awaiting.current = true;
+    sendTo.current(broadcastResult.notSent.map((seat) => ({ seatId: seat.nodeId, name: seat.name })));
+  };
+
+  const cancelConfirm = (): void => {
+    fixed.current = undefined;
+    setConfirming(undefined);
+    claimFocus(message.current, "gesture");
+  };
+
+  // Back to the draft with the seats that were left out as seats of their own: Send asks again with them counted.
+  const addLeftOut = (): void => {
+    if (confirming === undefined) return;
+    const ids = confirming.unread.map((seat) => seat.nodeId);
+    setSeats([...chosen.map((held) => held.id), ...ids]);
+    speak({ kind: "added", seat: seatCount(ids.length), chosen: chosen.length + ids.length + regionsChosen.length, regions: regionsChosen.length });
+    cancelConfirm();
+  };
+
+  // A send that ended with no word of its outcome (the draft could not be carried): the confirm gives the draft back, where the failure is said.
+  useEffect(() => {
+    if (busy || !awaiting.current || confirming === undefined) return;
+    awaiting.current = false;
+    fixed.current = undefined;
+    setConfirming(undefined);
+  }, [busy, confirming]);
+
   const onSentAll = (outcome: NewThreadsOutcome): void => {
+    if (fixed.current !== undefined) return onBroadcastSent(outcome);
     const all = [
       ...settled,
       ...outcome.sent.map((entry) => ({ ...entry, name: chosen.find((seat) => seat.id === entry.seatId)?.name ?? "" })),
@@ -322,6 +497,11 @@ export function QuickThread({
   // Escape, when the picker was brought back to add a seat: back to the message, the row as it was.
   const backOutNow = useRef<() => boolean>(() => false);
   backOutNow.current = () => {
+    // Escape on the confirm is Cancel: the draft as it was.
+    if (confirming !== undefined) {
+      if (!busy) cancelConfirm();
+      return true;
+    }
     // Anywhere in the picker counts: its field, or a control beside it.
     if (!adding || chosen.length === 0 || picker.current?.contains(document.activeElement) !== true) return false;
     toMessage();
@@ -418,21 +598,44 @@ export function QuickThread({
                     <span className="feed-region-chip__swatch" aria-hidden />
                   </span>
                   <span className="quick-thread__option-name">{option.name}</span>
-                  {/* Heard as "Design System, region, 6 seats": Enter on it narrows, it adds nobody. */}
+                  {option.limit !== undefined ? (
+                    <span className="quick-thread__option-region">, {limitWord(option.limit)}</span>
+                  ) : null}
+                  {/* Heard as "Design System, region, 6 seats": Enter on it chooses the region; the narrow key takes its seats one by one. */}
                   <span className="sr-only">, region, </span>
                   <span className="quick-thread__option-count">{seatCount(option.seats)}</span>
+                  {/* The pointer's way to the region's seats; the keyboard has its own key, so this is not a stop. */}
+                  <IconButton
+                    size="xs"
+                    tabIndex={-1}
+                    aria-hidden
+                    className="quick-thread__option-narrow"
+                    data-testid="quick-thread-narrow"
+                    title={`Pick seats in ${option.name}`}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      const whole = regionOfId.get(option.id);
+                      if (whole !== undefined) narrow(whole);
+                    }}
+                  >
+                    <ChevronRight size={12} strokeWidth={2} />
+                  </IconButton>
                 </div>
               )
             }
           />
           <span id={describedBy} className="sr-only">
             {anotherSpoken === undefined
-              ? chosenSeatsSpoken(chosen.length)
-              : `${chosenSeatsSpoken(chosen.length)}. ${anotherSpoken} adds another`}
+              ? chosenSeatsSpoken(chosen.length, regionsChosen.length)
+              : `${chosenSeatsSpoken(chosen.length, regionsChosen.length)}. ${anotherSpoken} adds another`}
           </span>
         </div>
       ) : null}
-      {chosen.length > 0 ? (
+      {chosen.length + regionsChosen.length > 0 ? (
         <div className="quick-thread__chosen" data-testid="quick-thread-chosen">
           {waitingMeanwhile.length > 0 ? (
             <ul role="list" aria-label="Sent, waiting for the seat" className="quick-thread__seats">
@@ -450,7 +653,7 @@ export function QuickThread({
               ))}
             </ul>
           ) : null}
-          <ul role="list" aria-label="Chosen seats" className="quick-thread__seats">
+          <ul role="list" aria-label={regionsChosen.length > 0 ? "Chosen seats and regions" : "Chosen seats"} className="quick-thread__seats">
             {chosen.map((seat) => (
               <li key={seat.id} className="quick-thread__seat" data-testid="quick-thread-seat" data-seat={seat.id}>
                 <ResourceChip kind="seat" seat={seat.id} label={seat.name} />
@@ -476,6 +679,22 @@ export function QuickThread({
                 </IconButton>
               </li>
             ))}
+            {regionsChosen.map((held) => {
+              const region = regionOfId.get(held.regionId);
+              if (region === undefined) return null;
+              return (
+                <RegionToken
+                  key={held.regionId}
+                  region={region}
+                  pick={held}
+                  count={read(picksOf([], [held])).count}
+                  total={read(picksOf([], [{ regionId: held.regionId, doing: [], needs: [] }])).count}
+                  countAlone={(limit) => read(picksOf([], [chooseRegion([], held.regionId, limit)[0]!])).count}
+                  onToggle={(limit) => toggleRegionLimit(held, limit)}
+                  onRemove={() => removeRegion(held)}
+                />
+              );
+            })}
           </ul>
           <IconButton
             size="xs"
@@ -566,22 +785,52 @@ export function QuickThread({
       data-testid="quick-thread"
       onKeyDown={(event) => {
         // Send with nobody chosen does nothing; say why.
-        if (event.target === message.current && chosen.length === 0 && keyIs(event, "inThread.send")) speak({ kind: "noSeat" });
+        if (event.target === message.current && chosen.length === 0 && regionsChosen.length === 0 && keyIs(event, "inThread.send")) speak({ kind: "noSeat" });
       }}
     >
       {live}
-      <ThreadComposer
-        mode="new"
-        canvasName={canvasName}
-        recipients={recipients}
-        recipientsRow={row}
-        onSentAll={onSentAll}
-        onSending={setBusy}
-        held={held}
-        fieldRef={message}
-        // With the picker up the keyboard starts in it; with seats already chosen, in the message.
-        yields={() => pickingNow.current}
-      />
+      {confirming !== undefined ? (
+        <BroadcastConfirm
+          seats={confirming.seats}
+          unread={confirming.unread}
+          regionOf={regionOf}
+          sending={busy}
+          onCancel={cancelConfirm}
+          onConfirm={confirmSend}
+          onAddThem={addLeftOut}
+        />
+      ) : null}
+      {broadcastResult !== undefined ? (
+        <BroadcastReceiptView
+          receipt={broadcastResult}
+          regionOf={regionOf}
+          sending={busy}
+          onSendAgain={sendAgain}
+          onDone={() => finishBroadcast(fixed.current?.sent ?? [])}
+        />
+      ) : null}
+      {/* Kept mounted under the confirm and the receipt, so Cancel gives the draft back as it was and a send can go again. */}
+      <div className="quick-thread__composer" hidden={confirming !== undefined || broadcastResult !== undefined}>
+        <ThreadComposer
+          mode="new"
+          canvasName={canvasName}
+          recipients={recipients}
+          recipientsRow={row}
+          onSentAll={onSentAll}
+          onSending={setBusy}
+          // A send with a region asks first, and sends to the seats the confirm showed.
+          holds={() => {
+            if (!withRegion) return false;
+            setConfirming({ seats: set.seats, unread: set.unread });
+            return true;
+          }}
+          sender={sendTo}
+          held={held}
+          fieldRef={message}
+          // With the picker up the keyboard starts in it; with seats already chosen, in the message.
+          yields={() => pickingNow.current}
+        />
+      </div>
     </div>
   );
 }
