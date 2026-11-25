@@ -5,9 +5,9 @@
  * the open signals, and whether the seat's machine can be read.
  *
  * A seat on this machine is always current. A seat on another machine is
- * current only with an event in hand and its machine neither unreachable nor
- * asleep, as last asked; otherwise a doing limit cannot hold it, so it comes
- * back apart as unread (never dropped, never guessed). The set is recomputed
+ * current only as main serves it (`AgentSeatStateEvent.current`, from the link
+ * that carried its reading); otherwise a doing limit cannot hold it, so it
+ * comes back apart as unread (never dropped, never guessed). The set is recomputed
  * as seats change state, signals change, the canvas changes or a machine's
  * reach is read again.
  */
@@ -35,8 +35,10 @@ export const readBroadcastSet = (input: {
   readonly picks: ReadonlyArray<BroadcastPick>;
   readonly machineName: string;
   readonly signals: Parameters<typeof seatReading>[0]["signals"];
-  readonly eventOf: (bindingId: string | undefined) => Parameters<typeof seatReading>[0]["event"];
-  readonly machineReadable: (host: string) => boolean;
+  /** A seat's last state event; `current` rides it for a seat of another machine only (main serves it, from the link). */
+  readonly eventOf: (
+    bindingId: string | undefined,
+  ) => (NonNullable<Parameters<typeof seatReading>[0]["event"]> & { readonly current?: boolean }) | undefined;
 }): BroadcastSet =>
   broadcastSet({
     canvasName: input.canvasName,
@@ -49,12 +51,14 @@ export const readBroadcastSet = (input: {
       const host = node !== undefined && "host" in node ? (node.host as string | undefined) : undefined;
       const here = node !== undefined && node.kind !== "peer" && (host === undefined || isOnMachine(host, input.machineName));
       // As the core reads it: a seat here with no state yet is off (gone), so a Doing limit holds it as off, never unread.
-      const event = input.eventOf(bindingId) ?? (here ? { state: "gone" as const } : undefined);
+      const held = input.eventOf(bindingId);
+      const event = held ?? (here ? { state: "gone" as const } : undefined);
       return seatReading({
         canvasName: input.canvasName,
         nodeId,
         event,
-        current: here || (node?.kind !== "peer" && host !== undefined && input.machineReadable(host)),
+        // A seat of another machine is current only as main says it is (its link has held since it reported): the core's own fact, never derived here. A peer row never is.
+        current: here || (node !== undefined && node.kind !== "peer" && held?.current === true),
         signals: input.signals,
       });
     },
@@ -71,7 +75,6 @@ export const useBroadcastReader = (canvasName: string): ((picks: ReadonlyArray<B
   // Read for their changes: the seat events and the signals are read whole at the moment of the set.
   const rev = use$(agentSeat$.rev);
   const signals = use$(agentSignals$);
-  const facts = use$(state$.machineFacts);
   const machineName = use$(state$.settings.machine.name);
   return useMemo(
     () => {
@@ -84,11 +87,10 @@ export const useBroadcastReader = (canvasName: string): ((picks: ReadonlyArray<B
           machineName,
           signals: open,
           eventOf: seatEventForBinding,
-          machineReadable: (host) => facts[host]?.reachable !== false && facts[host]?.asleep !== true,
         });
     },
     // `rev` stands for the seat events: a nested write keeps the store's own identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canvasName, canvas, machineName, signals, facts, rev],
+    [canvasName, canvas, machineName, signals, rev],
   );
 };
