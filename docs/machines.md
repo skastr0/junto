@@ -429,7 +429,14 @@ The one interface three seats build against.
   `from` makes an ed25519 key for `to` under `~/.junto/core/link-keys/<to>/`.
   `to` pins `from` with `binding = key` and writes one line,
   `command="... junto link --opener <id>",restrict`, built from typed fields
-  only. The editing machine is keyed the same way to both ends. A bound link
+  only. When no core is listening, `junto link` starts that home's service
+  once: the install lock is taken without waiting (a held lock is the typed
+  `machine updating` answer, exit 4), the definition must be the exact one the
+  install wrote for this label at its fixed path, and with nothing owned to
+  start the answer is `core not running` (exit 3). It never writes a
+  definition, and one invocation runs at most `launchctl bootstrap` then
+  `launchctl kickstart`, or one `systemctl --user start`, for the checked
+  label. The editing machine is keyed the same way to both ends. A bound link
   dials with `-F none`, no agent, that key alone and that known hosts file,
   with strict host key checking, so a changed host key refuses the dial and
   names the machine. The relay names the key's opener in a first frame, and

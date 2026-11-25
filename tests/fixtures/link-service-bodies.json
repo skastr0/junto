@@ -1,0 +1,13 @@
+{
+  "root": "/Users/example/.junto/machine",
+  "home": "/Users/example",
+  "label": "dev.junto.machine.26d96d7bc0190e7e",
+  "launchd": {
+    "aqua": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>Label</key><string>dev.junto.machine.26d96d7bc0190e7e</string><key>ProgramArguments</key><array><string>/Users/example/.junto/machine/current/bin/node</string><string>/Users/example/.junto/machine/current/core/junto.cjs</string></array><key>EnvironmentVariables</key><dict><key>JUNTO_HOME</key><string>/Users/example</string></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ProcessType</key><string>Background</string><key>LimitLoadToSessionType</key><string>Aqua</string><key>StandardOutPath</key><string>/Users/example/.junto/machine/logs/stdout.log</string><key>StandardErrorPath</key><string>/Users/example/.junto/machine/logs/stderr.log</string></dict></plist>\n",
+    "background": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>Label</key><string>dev.junto.machine.26d96d7bc0190e7e</string><key>ProgramArguments</key><array><string>/Users/example/.junto/machine/current/bin/node</string><string>/Users/example/.junto/machine/current/core/junto.cjs</string></array><key>EnvironmentVariables</key><dict><key>JUNTO_HOME</key><string>/Users/example</string></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ProcessType</key><string>Background</string><key>LimitLoadToSessionType</key><string>Background</string><key>StandardOutPath</key><string>/Users/example/.junto/machine/logs/stdout.log</string><key>StandardErrorPath</key><string>/Users/example/.junto/machine/logs/stderr.log</string></dict></plist>\n"
+  },
+  "systemd": {
+    "current": "[Unit]\nDescription=Junto\nAfter=network.target\nStartLimitIntervalSec=0\n\n[Service]\nType=simple\nExecStart=:\"/Users/example/.junto/machine/current/bin/node\" \"/Users/example/.junto/machine/current/core/junto.cjs\"\nEnvironment=\"JUNTO_HOME=/Users/example\"\nRestart=on-failure\nRestartSec=10\nTimeoutStopSec=30\nUMask=0077\n\n[Install]\nWantedBy=default.target\n",
+    "legacy": "[Unit]\nDescription=Junto\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=:\"/Users/example/.junto/machine/current/bin/node\" \"/Users/example/.junto/machine/current/core/junto.cjs\"\nEnvironment=\"JUNTO_HOME=/Users/example\"\nRestart=on-failure\nRestartSec=2\nTimeoutStopSec=30\nUMask=0077\n\n[Install]\nWantedBy=default.target\n"
+  }
+}

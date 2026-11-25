@@ -27,7 +27,7 @@ url = "2"
 jiff = "0.2"
 # The byte pipes (N4) and browser: open flags and statvfs without unsafe, and an HTTP/1.1 response head.
 httparse = "1"
-rustix = { version = "1", features = ["fs"] }
+rustix = { version = "1", features = ["fs", "process"] }
 
 [profile.release]
 lto = true
