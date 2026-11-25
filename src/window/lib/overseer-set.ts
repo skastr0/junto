@@ -1,5 +1,6 @@
 import { flushCanvasEdits } from "./canvas-editor-flush";
 import { asCanvasName, asNodeId } from "@shared/model";
+import { failureWords } from "@shared/model-failure";
 import { modelStore } from "./use-model";
 import { getJuntoApi } from "./junto-api";
 
@@ -24,10 +25,15 @@ export const setOverseerSeat = async (input: {
     throw new OverseerSetError("Overseer control is unavailable.");
   }
   await flushCanvasEdits("background");
-  await modelStore.send({
-    _tag: "GrantOverseer",
-    canvas: asCanvasName(input.canvasName),
-    id: asNodeId(input.nodeId),
-    overseer: input.overseer,
-  });
+  try {
+    await modelStore.send({
+      _tag: "GrantOverseer",
+      canvas: asCanvasName(input.canvasName),
+      id: asNodeId(input.nodeId),
+      overseer: input.overseer,
+    });
+  } catch (error) {
+    // Main marks a command's failure with its kind; this toggle says the words, not the marker.
+    throw new OverseerSetError(failureWords(error));
+  }
 };

@@ -1,4 +1,5 @@
 import { RESOURCE_IPC_CHANNELS } from "@shared/resource-ipc-channels";
+import { noAnswerWords } from "@shared/model-failure";
 import { MENTION_IPC_CHANNELS } from "@shared/mention-ipc-channels";
 import type { MentionIpcApi, MentionsChanged } from "@shared/mention-ipc";
 import { OPERATOR_THREADS_IPC_CHANNELS } from "@shared/operator-threads-channels";
@@ -91,7 +92,10 @@ const AGENT_MESSAGE_TIMEOUT_MS = 200_000;
 const invoke = <T>(channel: string, timeoutMs: number, ...args: unknown[]): Promise<T> =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(ipcNoAnswerMessage(channel)));
+      // A command that got no answer is a transport failure a retry can fix: marked as main marks one
+      // (src/shared/model-failure.ts), so the banner offers retry save. Other channels keep their words.
+      const words = ipcNoAnswerMessage(channel);
+      reject(new Error(noAnswerWords(channel === IPC_CHANNELS.modelCommand, words)));
     }, timeoutMs);
     ipcRenderer.invoke(channel, ...args).then(
       (value) => {

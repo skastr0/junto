@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { Command } from "../src/shared/model";
-import { markFailureKind as withKind, failureCanRetry, failureKindOf, failureKindOfTag, failureWords, withFailureKind } from "../src/shared/model-failure";
+import { markFailureKind as withKind, noAnswerWords, failureCanRetry, failureKindOf, failureKindOfTag, failureWords, withFailureKind } from "../src/shared/model-failure";
 import { ModelFailed } from "../src/contract/core/model";
 import { offersRetry } from "../src/window/lib/save-retry";
 
@@ -50,6 +50,18 @@ describe("a model failure's kind", () => {
     expect(offersRetry("canvas \"a\" did not take that change: x", "canvas \"a\" did not take that change: x")).toBe(true);
     expect(offersRetry("another error", "canvas \"a\" did not take that change: x")).toBe(false);
     expect(offersRetry("", "")).toBe(false);
+  });
+});
+
+describe("a call that got no answer", () => {
+  it("is a transport failure a retry can fix when it was a command, and keeps its words otherwise", () => {
+    const command = new Error(noAnswerWords(true, "Main did not answer (model:command). Try restarting the app."));
+    expect(failureKindOf(command)).toBe("transport");
+    expect(failureCanRetry(command)).toBe(true);
+    expect(failureWords(command)).toBe("Main did not answer (model:command). Try restarting the app.");
+    const other = new Error(noAnswerWords(false, "Main did not answer (doctor). Try restarting the app."));
+    expect(failureKindOf(other)).toBeUndefined();
+    expect(failureWords(other)).toBe("Main did not answer (doctor). Try restarting the app.");
   });
 });
 

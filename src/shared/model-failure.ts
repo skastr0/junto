@@ -80,3 +80,9 @@ export const markFailureKind = async <A>(run: () => Promise<A>): Promise<A> => {
     throw new Error(withFailureKind(kind, message));
   }
 };
+
+/**
+ * The words of a call that got no answer. A command's is a transport failure
+ * (a retry can fix it, so it is marked); any other channel keeps its words.
+ */
+export const noAnswerWords = (isCommand: boolean, words: string): string => (isCommand ? withFailureKind("transport", words) : words);
