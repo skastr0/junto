@@ -9,7 +9,7 @@ mod catalog;
 mod live;
 mod offline;
 
-pub use offline::retired_edge;
+pub use offline::{docs_topic, retired_edge};
 
 use std::process::ExitCode;
 

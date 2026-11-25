@@ -146,6 +146,11 @@ const handCases: ReadonlyArray<Case> = [
   { name: "server closes", argv: ["msg", "reply", `{"target":"a","text":"t","inReplyTo":"i"}`], answer: () => "close" },
   { name: "server silent", argv: ["msg", "send", "--timeout", "300", "--prompt", "peer", "x"], answer: () => "silent" },
   { name: "no runtime", argv: ["msg", "send", "peer", "x"], env: { JUNTO_WORK_HOME: noHome } },
+  // The overseer's offline surface is the native CLI's own (native/cli/corpus/overseer-skill.md).
+  { name: "overseer skill, offline", argv: ["overseer", "skill"], env: { JUNTO_WORK_HOME: noHome } },
+  { name: "overseer capabilities, offline", argv: ["overseer", "capabilities"], env: { JUNTO_WORK_HOME: noHome } },
+  { name: "docs overseer, offline", argv: ["docs", "overseer"], env: { JUNTO_WORK_HOME: noHome } },
+  { name: "docs show overseer, offline", argv: ["docs", "show", "overseer"], env: { JUNTO_WORK_HOME: noHome } },
   { name: "no credential", argv: ["msg", "send", "peer", "x"], env: { JUNTO_WORK_TOKEN: "  " } },
   { name: "concurrency zero", argv: ["msg", "reply", "{}", "--concurrency", "0"] },
   { name: "empty input", argv: ["msg", "reply", " "] },

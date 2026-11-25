@@ -1,12 +1,14 @@
 //! `docs` (src/cli/commands/docs.ts): the doctrine, the node catalog, the
 //! concepts, the overseer's surface and the command surface, answered from
-//! the built-in corpus with nothing running.
+//! the built-in corpus with nothing running; the overseer topic is the
+//! overseer command's own (commands/overseer/offline.rs).
 
 use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
 
 use super::Run;
+use super::overseer::docs_topic;
 use crate::envelope::{self, Answer, Reply};
 use crate::error::Failure;
 use crate::help::corpus::CORPUS;
@@ -51,7 +53,7 @@ impl Command {
             Command::Doctrine => &docs.doctrine,
             Command::Nodes => &docs.nodes,
             Command::Concepts => &docs.concepts,
-            Command::Overseer => &docs.overseer,
+            Command::Overseer => return docs_topic(),
             Command::Contract => &docs.contract,
             Command::Node { kind } => docs
                 .node
@@ -61,7 +63,7 @@ impl Command {
                 "doctrine" => &docs.doctrine,
                 "nodes" => &docs.nodes,
                 "concepts" => &docs.concepts,
-                "overseer" => &docs.overseer,
+                "overseer" => return docs_topic(),
                 "contract" => {
                     return Err(Failure::input(
                         "use `docs contract` for the command surface",

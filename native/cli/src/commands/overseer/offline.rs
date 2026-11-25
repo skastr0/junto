@@ -1,7 +1,8 @@
-//! The overseer's offline surface, answered with nothing running from the
-//! built-in corpus (src/help/corpus.rs): its schemas and examples are the
-//! root catalog's `overseer.*` entries, and its skill and capabilities the
-//! `docs overseer` topic, each as the TypeScript CLI prints it.
+//! The overseer's offline surface, answered with nothing running. The skill
+//! and the capabilities are this crate's own: the skill's markdown is
+//! corpus/overseer-skill.md, and both list this build's catalog. Its schemas
+//! and examples are the root catalog's `overseer.*` entries in the built-in
+//! corpus (src/help/corpus.rs).
 
 use serde_json::{Map, Value, json};
 
@@ -10,12 +11,106 @@ use crate::envelope::{self, Answer, Reply};
 use crate::error::{Failure, Result};
 use crate::help::corpus::CORPUS;
 
-/// The docs topic's two parts: the capabilities, and the skill's markdown.
-fn topic(key: &str) -> Value {
-    serde_json::from_str::<Value>(CORPUS.docs.overseer.get())
-        .ok()
-        .and_then(|mut topic| topic.get_mut(key).map(Value::take))
-        .unwrap_or_default()
+/// The skill an overseer agent reads, with `{{families}}` where this build's
+/// families go.
+const SKILL: &str = include_str!("../../../corpus/overseer-skill.md");
+
+/// What an overseer can never do, and why: the offline capabilities'
+/// `unavailable`, in the order an agent reads them.
+const UNAVAILABLE: &[(&str, &str)] = &[
+    (
+        "grant or revoke overseer",
+        "Human-only toggle. Overseers cannot propagate.",
+    ),
+    (
+        "delete own seat",
+        "Direct, indirect, canvas delete, alias, or binding replacement that removes this seat is refused.",
+    ),
+    (
+        "change what an overseer seat runs, remove it, or reseat it",
+        "Operator only, for any overseer seat, this one included: agent, session, harness, host and launch. Renaming, moving, resizing and recoloring an overseer seat are allowed.",
+    ),
+    (
+        "operator viewport mutation",
+        "No pan, zoom, focus, resize, or switch. Screenshots observe only.",
+    ),
+    (
+        "set a seat's overseer field",
+        "Create, copy, configure, and reseat cannot mint or restore the grant: no draft or change carries it.",
+    ),
+    (
+        "pause/play as authority",
+        "Pause and play gate automated work only. They have no bearing on overseer command.",
+    ),
+    (
+        "direct database or operator socket",
+        "Closed overseer operations over the existing process-bind work socket only.",
+    ),
+    (
+        "caller-supplied principal",
+        "Identity is process-bind. No nodeRef or operator seat impersonation.",
+    ),
+];
+
+/// The skill's markdown for this build: `status` and then each enabled
+/// family, in catalog order.
+pub fn skill_markdown() -> String {
+    let families: Vec<&str> = std::iter::once("status")
+        .chain(
+            catalog::families()
+                .into_iter()
+                .filter(|family| *family != "overseer"),
+        )
+        .collect();
+    SKILL.replacen("{{families}}", &families.join(", "), 1)
+}
+
+/// The offline surface: what this CLI carries, and what no overseer may do.
+pub fn capabilities_data() -> Value {
+    let unavailable: Vec<Value> = UNAVAILABLE
+        .iter()
+        .map(|(capability, reason)| json!({ "capability": capability, "reason": reason }))
+        .collect();
+    let transport: Vec<&str> = catalog::enabled().map(|op| op.name).collect();
+    json!({
+        "offline": true,
+        "daemon_required": false,
+        "transport": {
+            "implemented": true,
+            "work_op": "overseer",
+            "request": { "operation": "OverseerOperation", "args": "optional" },
+            "inner_result": "{ok:true,operation,data}|{ok:false,operation,error}",
+        },
+        "implemented": {
+            "cli_transport": transport,
+            "offline": ["overseer skill", "overseer schema", "overseer examples", "overseer capabilities"],
+        },
+        "unavailable": unavailable,
+        "handlers": {
+            "claimed": false,
+            "note": "CLI ships the full catalog. Live handler availability is not claimed offline. Run overseer status under a live granted seat, or treat Unsupported as missing handler.",
+        },
+        "authority": {
+            "grant": "human-only",
+            "remote": "supported",
+            "edges_required": false,
+            "pause_play_has_bearing": false,
+            "self_deletion": false,
+            "operator_viewport_mutation": false,
+            "propagation": false,
+        },
+    })
+}
+
+/// The `docs overseer` topic: the capabilities, and the skill.
+pub fn docs_topic() -> Answer {
+    envelope::ok(&json!({
+        "topic": "overseer",
+        "offline": true,
+        "daemon_required": false,
+        "capabilities": capabilities_data(),
+        "content": skill_markdown(),
+    }))
 }
 
 pub fn skill() -> Answer {
@@ -24,12 +119,12 @@ pub fn skill() -> Answer {
         "offline": true,
         "daemon_required": false,
         "format": "agent-skill-markdown",
-        "content": topic("content"),
+        "content": skill_markdown(),
     }))
 }
 
 pub fn capabilities() -> Answer {
-    envelope::ok(&topic("capabilities"))
+    envelope::ok(&capabilities_data())
 }
 
 /// matchesOverseerTarget: an operation, its command id or its command, of

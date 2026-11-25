@@ -30,8 +30,6 @@ import {
   DOC_TOPICS,
   NODE_DOCS,
 } from "../src/shared/junto-docs";
-import { OVERSEER_SKILL_MARKDOWN } from "../src/cli/commands/overseer-skill";
-import { overseerOfflineCapabilities } from "../src/cli/commands/overseer";
 
 const SHELLS = ["bash", "zsh", "fish", "sh"] as const;
 
@@ -136,14 +134,6 @@ for (const key of new Set(allExamples.flatMap(keysOf))) {
   });
 }
 
-const overseer = {
-  topic: "overseer",
-  offline: true,
-  daemon_required: false,
-  capabilities: overseerOfflineCapabilities(),
-  content: OVERSEER_SKILL_MARKDOWN,
-};
-
 const corpus = {
   version: CLI_VERSION,
   root_commands: rootCommandNames(),
@@ -179,7 +169,6 @@ const corpus = {
     doctrine: { topic: "doctrine", content: buildDoctrineDoc() },
     nodes: { topic: "nodes", content: buildNodesCatalogDoc() },
     concepts: { topic: "concepts", content: buildConceptsDoc() },
-    overseer,
     contract: {
       topic: "contract",
       content: [

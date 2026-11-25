@@ -70,7 +70,6 @@ pub struct Docs {
     pub doctrine: Box<RawValue>,
     pub nodes: Box<RawValue>,
     pub concepts: Box<RawValue>,
-    pub overseer: Box<RawValue>,
     pub contract: Box<RawValue>,
     pub node: HashMap<String, Box<RawValue>>,
 }
