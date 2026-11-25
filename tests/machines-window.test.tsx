@@ -327,16 +327,21 @@ it("sends Junto with one command, shows its steps, then reads the list again", a
   expect(condition("build-box")).toBe("sending");
   expect(byTest("machine-action-send")).toBeNull();
   const stepText = () => [...byTest("machine-steps")!.querySelectorAll("[data-step]")].map((item) => item.textContent);
-  expect(stepText()).toEqual(["Check the build", "Stop the old Junto", "Put the new build in place", "Start Junto", "Junto answers"]);
+  expect(stepText()).toEqual(["Check the build", "Stop the old Junto", "Put the new build in place", "Start Junto", "Junto answers", "Trust this machine"]);
   expect(byTest("machine-steps")?.textContent).not.toContain("Waiting:");
 
   await act(async () => { owner.step(sent.id, "verified"); owner.step(sent.id, "quiescent"); await flush(); });
   const done = () => [...byTest("machine-steps")!.querySelectorAll('[data-done="true"]')].map((item) => item.getAttribute("data-step"));
   expect(done()).toEqual(["verified", "quiescent"]);
-  expect(stepText()).toEqual(["Done: Build checked", "Done: Old Junto stopped", "Put the new build in place", "Start Junto", "Junto answers"]);
+  expect(stepText()).toEqual(["Done: Build checked", "Done: Old Junto stopped", "Put the new build in place", "Start Junto", "Junto answers", "Trust this machine"]);
   // A step for another command, or one that is not a step, lands nowhere.
   await act(async () => { owner.step("window-other", "ready"); owner.emit({ id: sent.id, event: { step: "ready", secret: "value" } }); await flush(); });
   expect(done()).toEqual(["verified", "quiescent"]);
+
+  // The far trusts this machine: the send's own last step.
+  await act(async () => { owner.step(sent.id, "ready"); owner.step(sent.id, "pinned"); await flush(); });
+  expect(stepText().at(-1)).toBe("Done: Trusts this machine");
+  expect(phases()).toEqual(["done", "done", "unconfirmed", "unconfirmed", "done", "done"]);
 
   await act(async () => { owner.finishCopy("build-box"); await flush(); });
   await settle();
@@ -354,7 +359,7 @@ it("says why a send failed, keeps how far it got, and offers it again", async ()
   expect(byTest("machine-advice")?.textContent).toBe("This Junto has no build for a Linux machine");
   expect(byTest("machine-steps")!.querySelector('[data-step="verified"]')?.getAttribute("data-done")).toBe("true");
   // The owner said the machine was left as it was, so the rest were not reached.
-  expect(phases()).toEqual(["done", "not-reached", "not-reached", "not-reached", "not-reached"]);
+  expect(phases()).toEqual(["done", "not-reached", "not-reached", "not-reached", "not-reached", "not-reached"]);
   expect(byTest("machine-action-send")).not.toBeNull();
 });
 
@@ -372,12 +377,12 @@ it("does not say a send did not happen when it could not be confirmed, and does 
   expect(byTest("machine-headline")?.textContent).toBe("Could not confirm Junto was sent");
   expect(byTest("machine-advice")?.textContent).toBe("junto: backend did not respond");
   // What was confirmed stays; what was not is not called unreached.
-  expect(phases()).toEqual(["done", "done", "unconfirmed", "unconfirmed", "unconfirmed"]);
+  expect(phases()).toEqual(["done", "done", "unconfirmed", "unconfirmed", "unconfirmed", "unconfirmed"]);
   expect(byTest("machine-steps")?.textContent).toContain("Not confirmed: Junto answers");
   expect(byTest("machine-steps")?.textContent).not.toContain("Not reached");
   // A step that arrives late still confirms that step.
   await act(async () => { owner.step(sent.id, "selected"); await flush(); });
-  expect(phases()).toEqual(["done", "done", "done", "unconfirmed", "unconfirmed"]);
+  expect(phases()).toEqual(["done", "done", "done", "unconfirmed", "unconfirmed", "unconfirmed"]);
   expect(owner.ops().filter((op) => op === "machine.send")).toHaveLength(1);
 
   // Checking reads the list again, and the list says what is true.
@@ -419,7 +424,7 @@ it("takes nothing from a failure meant for another command", async () => {
   // Not a plain failure, not its reason, not its step.
   expect(condition("build-box")).toBe("send-unconfirmed");
   expect(byTest("machine-advice")?.textContent).toBe("Junto answered a different question.");
-  expect(phases()).toEqual(["unconfirmed", "unconfirmed", "unconfirmed", "unconfirmed", "unconfirmed"]);
+  expect(phases()).toEqual(["unconfirmed", "unconfirmed", "unconfirmed", "unconfirmed", "unconfirmed", "unconfirmed"]);
 });
 
 it("says Junto is on the machine when the install finished and what came after it failed", async () => {
@@ -432,7 +437,9 @@ it("says Junto is on the machine when the install finished and what came after i
   expect(condition("build-box")).toBe("sent-not-ready");
   expect(byTest("machine-headline")?.textContent).toBe("Junto is on it, but it is not ready");
   expect(byTest("machine-advice")?.textContent).toBe("the machine did not answer its setup");
-  expect(byTest("machine-steps")).toBeNull();
+  // The install is done and the send stopped at its own pin step.
+  expect(phases()).toEqual(["done", "done", "done", "done", "done", "unconfirmed"]);
+  expect(byTest("machine-steps")?.textContent).toContain("Not confirmed: Trust this machine");
   // No second send, and still no setup call of the window's own.
   expect(owner.ops().filter((op) => op === "machine.send")).toHaveLength(1);
   expect(owner.ops()).not.toContain("machine.setup");

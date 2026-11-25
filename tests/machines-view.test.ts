@@ -136,7 +136,7 @@ describe("the state a machine is in", () => {
     });
     expect(machineActions("send-failed")).toEqual(["send", "remove"]);
     expect(machineCondition(listed(), peer(), { ...failed, op: "update" })).toBe("update-failed");
-    expect(machineStepLines(failed).map((line) => line.phase)).toEqual(["done", "not-reached", "not-reached", "not-reached", "not-reached"]);
+    expect(machineStepLines(failed).map((line) => line.phase)).toEqual(["done", "not-reached", "not-reached", "not-reached", "not-reached", "not-reached"]);
   });
 
   it("does not say a send did not happen unless the owner said so", () => {
@@ -154,7 +154,7 @@ describe("the state a machine is in", () => {
         needsYou: true,
       });
       // The steps that were confirmed stay; the rest are not said to be unreached.
-      expect(machineStepLines(copy).map((line) => line.phase)).toEqual(["done", "done", "unconfirmed", "unconfirmed", "unconfirmed"]);
+      expect(machineStepLines(copy).map((line) => line.phase)).toEqual(["done", "done", "unconfirmed", "unconfirmed", "unconfirmed", "unconfirmed"]);
     }
     expect(machineCondition(listed(), peer(), { ...ended("uncertain"), op: "update" })).toBe("update-unconfirmed");
     expect(machineSummary(listed(), peer(), { ...ended(), op: "update", message: " " })).toMatchObject({
@@ -181,8 +181,11 @@ describe("the state a machine is in", () => {
     expect(machineCondition(listed(), peer(), { ...copy, op: "update" })).toBe("updated-not-ready");
     expect(machineActions("sent-not-ready")).toEqual(["check", "send", "remove"]);
     expect(machineActions("updated-not-ready")).toEqual(["check", "update", "remove"]);
-    // The install is over: there is no step left to report on.
-    expect(machineStepLines(copy)).toEqual([]);
+    // A send keeps its sixth pin step: that is where a refused pin stopped.
+    expect(machineStepLines(copy).map((line) => line.phase)).toEqual(["done", "unconfirmed", "unconfirmed", "unconfirmed", "done", "unconfirmed"]);
+    expect(machineStepLines(copy).at(-1)).toMatchObject({ step: "pinned", label: "Trust this machine" });
+    // An update never pins, and once its install is over there is no step left to report.
+    expect(machineStepLines({ ...copy, op: "update" })).toEqual([]);
   });
 
   it("needs an update when it runs another build, before anything is read from it", () => {
@@ -294,15 +297,22 @@ describe("the steps of a send", () => {
     expect(withInstallStep([], "verified")).toEqual(["verified"]);
     expect(withInstallStep(["verified"], "verified")).toEqual(["verified"]);
     expect(withInstallStep(["verified", "started"], "quiescent")).toEqual(["verified", "quiescent", "started"]);
+    // The send's own last step joins after the install.
+    expect(withInstallStep(["verified", "ready"], "pinned")).toEqual(["verified", "ready", "pinned"]);
   });
 
   it("stand as done, waited for now, or still ahead while the send runs", () => {
     const running = (steps: MachineCopy["steps"]): MachineCopy => ({ kind: "running", op: "send", id: "window-1", steps });
-    expect(machineStepLines(running([])).map((line) => line.phase)).toEqual(["now", "ahead", "ahead", "ahead", "ahead"]);
-    expect(machineStepLines(running(["verified", "quiescent"])).map((line) => line.phase)).toEqual(["done", "done", "now", "ahead", "ahead"]);
+    expect(machineStepLines(running([])).map((line) => line.phase)).toEqual(["now", "ahead", "ahead", "ahead", "ahead", "ahead"]);
+    expect(machineStepLines(running(["verified", "quiescent"])).map((line) => line.phase)).toEqual(["done", "done", "now", "ahead", "ahead", "ahead"]);
     // A step nobody reported, before one that was: not confirmed, and not said to be skipped.
-    expect(machineStepLines(running(["verified", "selected"])).map((line) => line.phase)).toEqual(["done", "unconfirmed", "done", "now", "ahead"]);
+    expect(machineStepLines(running(["verified", "selected"])).map((line) => line.phase)).toEqual(["done", "unconfirmed", "done", "now", "ahead", "ahead"]);
     expect(machineStepLines(running(["verified"]))[1]).toEqual({ step: "quiescent", label: "Stop the old Junto", phase: "now" });
+    // The sixth step is the pin, waited for after Junto answers.
+    expect(machineStepLines(running(["verified", "quiescent", "selected", "started", "ready"])).map((line) => line.phase)).toEqual(["done", "done", "done", "done", "done", "now"]);
+    expect(machineStepLines(running(["verified", "quiescent", "selected", "started", "ready", "pinned"])).map((line) => line.phase)).toEqual(["done", "done", "done", "done", "done", "done"]);
+    // An update keeps five steps and never shows the pin.
+    expect(machineStepLines({ ...running(["verified"]), op: "update" }).map((line) => line.phase)).toEqual(["done", "now", "ahead", "ahead", "ahead"]);
     expect(machineStepLines(undefined)).toEqual([]);
   });
 });
@@ -578,6 +588,13 @@ describe("Slice 1 conditions, TopBar summary, and copy law", () => {
     });
     expect(workingOne.rows[0]?.status).toBe("Updating Junto, step 2 of 5");
     expect(workingOne.rows[0]?.action).toBeUndefined();
+
+    const sendingOne = machinesBarSummary([
+      entry(listed({}, { id: "mini", label: "Mac mini" }), {
+        copy: { kind: "running", op: "send", id: "c1", steps: ["verified"] },
+      }),
+    ]);
+    expect(sendingOne.rows[0]?.status).toBe("Sending Junto, step 2 of 6");
 
     const workingTwo = machinesBarSummary([
       entry(listed({}, { id: "m1", label: "Mac mini" }), {

@@ -259,7 +259,7 @@ export const machineActionLabel = (action: MachineAction, condition: MachineCond
   return MACHINE_ACTION_LABEL[action];
 };
 
-/** The steps of a send, in the order they happen. */
+/** The install steps every send and update shares, in the order they happen. */
 export const MACHINE_INSTALL_STEPS: ReadonlyArray<MachineInstallStep> = [
   "verified",
   "quiescent",
@@ -267,6 +267,16 @@ export const MACHINE_INSTALL_STEPS: ReadonlyArray<MachineInstallStep> = [
   "started",
   "ready",
 ];
+
+/**
+ * A send's steps: the shared install, then the far machine trusts this one.
+ * An update never pins and keeps the five.
+ */
+const MACHINE_SEND_STEPS: ReadonlyArray<MachineInstallStep> = [...MACHINE_INSTALL_STEPS, "pinned"];
+
+/** The steps a copy shows: six on a send or add, five on an update. */
+const machineStepsFor = (copy: MachineCopy | undefined): ReadonlyArray<MachineInstallStep> =>
+  copy?.op === "update" ? MACHINE_INSTALL_STEPS : MACHINE_SEND_STEPS;
 
 export const MACHINE_INSTALL_STEP_LABEL: Readonly<Record<MachineInstallStep, { readonly upcoming: string; readonly done: string }>> = {
   verified: { upcoming: "Check the build", done: "Build checked" },
@@ -331,11 +341,16 @@ export const machineCopyStepLines = (copy: MachineCopy | undefined): ReadonlyArr
     phase: transfer.state === "copied" ? "done" : copy.kind === "failed" ? "unconfirmed" : transfer.state === "stalled" ? "stalled" : "copying" }];
 };
 
-/** The steps of a send or an update, each with how it stands. None once the install itself finished. */
+/**
+ * The steps of a send or an update, each with how it stands. An update keeps
+ * its five and shows none once the install finished. A send keeps its sixth
+ * pin step even after the install, so a refused pin shows where it stopped.
+ */
 export const machineStepLines = (copy: MachineCopy | undefined): ReadonlyArray<MachineStepLine> => {
-  if (copy === undefined || (copy.kind === "failed" && copy.installed)) return [];
-  const last = MACHINE_INSTALL_STEPS.reduce((seen, step, index) => (copy.steps.includes(step) ? index : seen), -1);
-  return MACHINE_INSTALL_STEPS.map((step, index) => {
+  if (copy === undefined || (copy.kind === "failed" && copy.installed && copy.op === "update")) return [];
+  const steps = machineStepsFor(copy);
+  const last = steps.reduce((seen, step, index) => (copy.steps.includes(step) ? index : seen), -1);
+  return steps.map((step, index) => {
     const phase: MachineStepPhase = copy.steps.includes(step)
       ? "done"
       : index < last
@@ -356,7 +371,7 @@ export const withInstallStep = (
   steps: ReadonlyArray<MachineInstallStep>,
   step: MachineInstallStep,
 ): ReadonlyArray<MachineInstallStep> =>
-  steps.includes(step) ? steps : MACHINE_INSTALL_STEPS.filter((known) => known === step || steps.includes(known));
+  steps.includes(step) ? steps : MACHINE_SEND_STEPS.filter((known) => known === step || steps.includes(known));
 
 export type MachineSummary = {
   /** What happened, in one line. */
@@ -832,8 +847,9 @@ const workingStatusLine = (condition: MachineCondition, copy: MachineCopy | unde
   if (copy.transfer && copy.transfer.state !== "copied") {
     return `${verb}, copying ${byteAmount(copy.transfer.copiedBytes, copy.transfer.totalBytes)}`;
   }
-  const currentStep = Math.min(copy.steps.length + 1, MACHINE_INSTALL_STEPS.length);
-  return `${verb}, step ${currentStep} of ${MACHINE_INSTALL_STEPS.length}`;
+  const steps = machineStepsFor(copy);
+  const currentStep = Math.min(copy.steps.length + 1, steps.length);
+  return `${verb}, step ${currentStep} of ${steps.length}`;
 };
 
 /**
