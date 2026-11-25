@@ -141,4 +141,17 @@ describe("the Files router", () => {
     // This machine's own node is not asked about the list.
     expect(await router.count(here)).toEqual(counted(3));
   });
+
+  it("never asks the old machine about a node moved to another one: every call reads its host again (X6, C2)", async () => {
+    const { router, calls } = stage();
+    await router.open(1, away);
+    hosts[away.node] = "linux";
+    try {
+      await router.count(away);
+      await router.read(away, "a.md" as never);
+      expect(calls).toEqual(["remote open mini", "remote count linux", "remote read linux"]);
+    } finally {
+      hosts[away.node] = "mini";
+    }
+  });
 });

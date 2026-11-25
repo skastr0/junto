@@ -259,6 +259,16 @@ far's model directly, so they never met this. Two changes, both behind
 - A Files node placed on M makes M hold the canvas, beside a seat or an
   automation, so M is sent a copy.
 
+**The departure mark is in memory (remote-security, C2 disclosure).** The
+editor marks, in memory, each canvas it last sent a machine a Files node of
+whole, and sends that machine the departure copy once it has no reason left.
+A restart of the editor loses the mark: a node moved away or deleted after
+the restart stays on that machine, root included, until its next copy. It is
+never asked of there: the window's router reads the node's host on every call
+(`tests/files-router.test.ts`), and that machine serves only the editor. A
+durable mark needs a state migration, and is a precondition for turning
+`filesRemote` on by default: it is decided again then.
+
 **For remote-window.**
 - The add and edit choice shows only with `filesRemote` on, on the operator
   source. It lists this machine first, then each active, non-Boat pin.
