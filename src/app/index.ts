@@ -6,6 +6,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  crashReporter,
   dialog,
   ipcMain,
   Menu,
@@ -45,6 +46,7 @@ import { coreBrowserProfileStore, coreTouchedOriginStore } from "./core-process/
 import { isCoreUnavailable } from "./core-process/wait-for-core";
 import { armMainThreadBudget } from "../node/observability/main-thread-budget";
 import { startPerfObservation, type PerfObservation } from "./observability/perf-observation";
+import { startCrashReporter } from "./observability/crash-reporter";
 import { mainLog } from "./observability/main-log";
 import { mainIndexCalls, type MainIndexCalls } from "./core-process/main-index-ipc";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc-handlers";
@@ -220,6 +222,20 @@ if (isPreview) {
   app.setPath("userData", unpackagedElectronUserDataPath(resolveJuntoHome()));
   app.setName(`${PRODUCT_NAME} PREVIEW`);
 }
+// Local minidumps, before any window, core, terminal or renderer exists: the
+// handler covers every process created after it (#650). The userData path is
+// final above, which is where Electron keeps the dumps.
+startCrashReporter({
+  start: (options) => {
+    crashReporter.start(options);
+  },
+  crashDumps: () => app.getPath("crashDumps"),
+  version: app.getVersion(),
+  write: (level, message) => {
+    mainLog.writeLog({ level, source: "main", message });
+  },
+});
+
 registerTrustedRendererScheme(protocol, [CONTENT_PROTOCOL_SCHEME_REGISTRATION, FILE_PROTOCOL_SCHEME_REGISTRATION]);
 
 // electron-vite (and some launchd/stdio handoffs) can close the parent pipe

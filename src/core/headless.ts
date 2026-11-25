@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { runningBuildIdentity } from "../node/build-identity";
 import { installServiceCrashLog, readServiceFileTail, recordServiceBoot, serviceInstallRoot } from "../node/hosts/service-runtime";
+import { startHeapLog } from "../node/observability/heap-log";
 import { startCore } from "./core";
 import { closeCoreProcess } from "./core-stop";
 import { HostClientsNoWindow } from "./host-clients";
@@ -30,6 +31,10 @@ const main = async (): Promise<void> => {
   // echoed there but the fixed lines below.
   const log = openCoreLog({ home, echo: false });
   installServiceCrashLog(log);
+  // One `[metrics] core heap` row a minute, as the app's core writes in
+  // entry.ts: a windowless core is the one that grew under fleet work, and no
+  // other process can read its heap (#650).
+  const stopHeapLog = startHeapLog({ label: "core", write: (level, message) => log.writeLog({ level, source: "core", message }) });
   // The 4ms assertion is a development instrument. Bun's bundler inlines
   // NODE_ENV as "development", so without this every installed core reports
   // each kernel pass to stderr. JUNTO_BUDGET still arms it by hand.
@@ -59,7 +64,8 @@ const main = async (): Promise<void> => {
     closing = true;
     // The service manager stopping this core is the first fact a reader of either log needs.
     console.info(`[core] Junto core is stopping: it received ${signal}`);
-    void closeCoreProcess(() => core.close(new LinkUnavailable({ reason: "shutting-down", message: `This machine's Junto core is stopping: it received ${signal}` }))).then(() => { process.exitCode = 0; }, (cause: unknown) => {
+    void closeCoreProcess(() => core.close(new LinkUnavailable({ reason: "shutting-down", message: `This machine's Junto core is stopping: it received ${signal}` }))).then(() => { stopHeapLog(); process.exitCode = 0; }, (cause: unknown) => {
+      stopHeapLog();
       console.error("[core] Junto could not stop cleanly", cause);
       process.stderr.write(`Junto could not stop cleanly; the reason is in ${machineLogDir(home)}\n`);
       process.exitCode = 1;
