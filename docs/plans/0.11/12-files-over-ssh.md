@@ -91,6 +91,94 @@ Order: X1, X2, X4, X3, X5 with each landing. Behind a `files-remote` feature,
 off in ship until remote-verify walks it on the mini and a Linux machine:
 link cut mid-save, host asleep, a 25 MB PDF beside a typing seat.
 
+## X3, the bytes (design, remote-core, for remote-security)
+
+X3 lands behind `filesRemote`, for 0.12.1. It closes three gaps that X1 and X2
+left:
+
+- a remote node's `junto-file:` bytes, refused `elsewhere` today;
+- an editor read over one frame, about 900 KB, read `too-large` today;
+- a Finder drop onto a remote node, refused today.
+
+A write over one frame stays `too-large`, as the plan names reads and drops
+only.
+
+**A channel of its own, `file-bytes`.** Bytes do not ride on `files`, so a
+listing, a save or a change event never waits behind a chunk. The channel is a
+contract channel of requests, closed like `files`. Its ops:
+
+- `ReadOpen {canvas, node, path}` answers `{stream, size, stamp}`. The host
+  opens the file through `FilesService.bytes`, so realpath scoping and the
+  deny list hold, and keeps the handle under a random stream id held by that
+  link session.
+- `ReadChunk {stream, offset, length}` answers at most 48 KiB, as base64, so
+  one frame stays under about 64 KiB.
+- `ReadClose {stream}`.
+- `ImportOpen {canvas, node, into, name, size}` answers `{upload}`. The host
+  makes a private stage, `mkdtemp`, 0700, outside the root and outside
+  Junto's home, because `importInto` refuses sources under its home. `name` is
+  one path part and must pass the same name check as `rename`.
+- `ImportChunk {upload, offset, data}`, in order. `offset` must equal the
+  bytes already written, and data is at most 48 KiB.
+- `ImportEnd {upload, sha256}`. The host checks the size and the hash, then
+  runs `FilesService.import` with the staged file, so the import's own
+  numbered names and refusals hold. The stage is then removed.
+
+**The window.** A request is the credit. Each end keeps at most 2 byte
+requests in flight per link, so at most about 128 KiB of file bytes is ever
+out on one link. The host enforces it: a third concurrent byte request from a
+peer, or a chunk over 48 KiB, is refused `denied`, logged, and the stream is
+closed. The link stays up. This is the bound remote-security reads instead of
+the event credit window. The event window is push, and ranges and a cancel
+from pdf.js are pull: a viewer that aborts just stops asking.
+
+**Behind everything else in the write queue.** The session writes a
+`file-bytes` frame only when no frame of another channel is waiting, so a
+seat start, a rows event or a save never queues behind a chunk. Inside the
+session this is the only change: one bulk lane beside the FIFO, used only by
+`file-bytes`. A bulk frame already handed to the stream is not taken back, so
+the most a seat start waits is one chunk frame.
+
+**Bounds per link session.**
+
+- At most 8 open read streams and 4 open uploads. More are refused `denied`.
+- A stream or upload idle for 60 s is closed, and its stage removed.
+- An upload is at most 512 MiB, checked at open against `size`, and again on
+  every chunk.
+- The link closing closes every stream and removes every stage.
+- Ids are random, 128 bits, and good only on the session that made them.
+- Every message runs `admitFilesPeer` again, against the canvas and node the
+  stream was opened for. A stream id never names a path.
+
+**What crosses and what is logged.** Bytes and the dropped file's name cross
+to the other machine and nowhere else. A log line holds op, node and outcome,
+with no path, name, size or hash.
+
+**The window machine's side.**
+
+- The router sends `FilesBytesOpen` for another host's node to the link
+  client, whose reader's `read(offset, length)` asks `ReadChunk`, and whose
+  `close` asks `ReadClose`. `junto-file:` and its range handling are
+  unchanged.
+- An editor read answered `too-large` under `FILE_TEXT_MAX_BYTES`, 5 MiB, is
+  read through a stream, decoded as UTF-8, and checked against the stamp the
+  open named.
+- A drop reads only a source the preload saw dropped, as today, files only. A
+  dropped folder on another machine's node is refused `is-dir`; folders are a
+  follow-up.
+- `unreachable` is made from the link, as in X1.
+
+**Tests.**
+
+- The closed decode of every op.
+- The window bound, with a third request refused and the stream closed.
+- The bulk lane: a seat request sent after 16 chunks are queued is written
+  first.
+- The stage is removed on end, refusal, idle and link close.
+- A hash mismatch writes nothing into the root.
+- A 25 MB PDF read by ranges beside a typing seat, with the seat's frames
+  never behind more than one chunk.
+
 ## Decided (product-lead, 2026-10-29)
 
 1. **No offline view.** A node whose machine is unreachable says that its
