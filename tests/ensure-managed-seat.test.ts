@@ -113,20 +113,20 @@ describe("managed-seat wake decision", () => {
   });
 });
 
-const managedNode = (): Seat => Schema.decodeUnknownSync(Node)({
+const managedNode = (bindingId = "binding-alpha"): Seat => Schema.decodeUnknownSync(Node)({
   id: "actor", kind: "agent", x: 0, y: 0, width: 240, height: 100, z: 0,
-  label: "actor", agentKey: "box-a:codex", host: "box-a", bindingId: "binding-alpha", harness: "codex",
+  label: "actor", agentKey: "box-a:codex", host: "box-a", bindingId, harness: "codex",
   overseer: false,
 }) as Seat;
 
-const managedFixture = () => {
-  const node = managedNode();
+const managedFixture = (bindingId = "binding-alpha") => {
+  const node = managedNode(bindingId);
   const installationId = Schema.decodeUnknownSync(InstallationId)("install-a");
   return {
     node,
     authority: {
       actor: {
-        seatId: deriveActorSeatId(installationId, "binding-alpha"),
+        seatId: deriveActorSeatId(installationId, bindingId),
         canvasName: "factory",
         nodeId: node.id,
       },
@@ -187,6 +187,65 @@ describe("managed-seat occupation", () => {
         }),
       );
     } finally {
+      get.mockRestore();
+    }
+  });
+
+  it("refuses a wake already under a held delete", async () => {
+    resetAutoRestartBudgetsForTest();
+    const bindingId = "binding-alpha-delete-held";
+    const fixture = managedFixture(bindingId);
+    const get = vi.spyOn(termPlane.host, "get").mockReturnValue(undefined);
+    const held = termPlane.nodeDelete.holdDelete(bindingId, "box-a", { canvas: "factory", seatId: fixture.node.id });
+    const occupy = vi.fn((_spec: ActorOccupySpec) => Effect.succeed({ ...runningSummary, bindingId }));
+    const actorSeatOccupy = ActorSeatOccupy.of({
+      occupy,
+      occupancy: () => Effect.die(new Error("unexpected occupancy call")),
+    });
+
+    try {
+      expect(
+        await Effect.runPromise(
+          ensureManagedSeatRunning("factory", fixture.node, fixture.authority, actorSeatOccupy),
+        ),
+      ).toBe(false);
+      expect(occupy).not.toHaveBeenCalled();
+    } finally {
+      termPlane.nodeDelete.releaseHeldDelete(held.key);
+      get.mockRestore();
+    }
+  });
+
+  it("refuses the spawn when a delete is held while a wake is being prepared", async () => {
+    resetAutoRestartBudgetsForTest();
+    const bindingId = "binding-alpha-delete-during-wake";
+    const fixture = managedFixture(bindingId);
+    const get = vi.spyOn(termPlane.host, "get").mockReturnValue(undefined);
+    let heldKey: string | undefined;
+    let spawnPrepared = false;
+    const occupy = vi.fn((spec: ActorOccupySpec) =>
+      Effect.gen(function* () {
+        heldKey = termPlane.nodeDelete.holdDelete(bindingId, "box-a", { canvas: "factory", seatId: fixture.node.id }).key;
+        if (spec.beforeSpawn !== undefined) yield* spec.beforeSpawn;
+        spawnPrepared = true;
+        return { ...runningSummary, bindingId };
+      }),
+    );
+    const actorSeatOccupy = ActorSeatOccupy.of({
+      occupy,
+      occupancy: () => Effect.die(new Error("unexpected occupancy call")),
+    });
+
+    try {
+      expect(
+        await Effect.runPromise(
+          ensureManagedSeatRunning("factory", fixture.node, fixture.authority, actorSeatOccupy),
+        ),
+      ).toBe(false);
+      expect(occupy).toHaveBeenCalledOnce();
+      expect(spawnPrepared).toBe(false);
+    } finally {
+      if (heldKey !== undefined) termPlane.nodeDelete.releaseHeldDelete(heldKey);
       get.mockRestore();
     }
   });

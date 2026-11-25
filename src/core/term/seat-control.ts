@@ -47,16 +47,23 @@ export type SeatControlOptions = {
   readonly pin?: typeof ensureSeatSessionId;
 };
 
+type SeatModel = Pick<ModelService["Service"], "canvas" | "listCanvases">;
+
+const readSeatFrom = (model: SeatModel, canvas: CanvasName, seatId: NodeId) =>
+  Effect.gen(function* () {
+    if (!(yield* model.listCanvases()).includes(canvas))
+      return yield* new SeatNotFound({ canvas, seatId, message: "No canvas by that name on this machine." });
+    const node = (yield* model.canvas(canvas)).nodes.get(seatId);
+    if (node === undefined)
+      return yield* new SeatNotFound({ canvas, seatId, message: "No node with that id on this canvas." });
+    if (node.kind !== "agent")
+      return yield* new NotASeat({ canvas, seatId, kind: node.kind, message: "This node is not an agent seat." });
+    return node;
+  });
+
 const readSeat = Effect.fn("SeatControl.read")(function* (canvas: CanvasName, seatId: NodeId) {
   const model = yield* ModelService;
-  if (!(yield* model.listCanvases()).includes(canvas))
-    return yield* new SeatNotFound({ canvas, seatId, message: "No canvas by that name on this machine." });
-  const node = (yield* model.canvas(canvas)).nodes.get(seatId);
-  if (node === undefined)
-    return yield* new SeatNotFound({ canvas, seatId, message: "No node with that id on this canvas." });
-  if (node.kind !== "agent")
-    return yield* new NotASeat({ canvas, seatId, kind: node.kind, message: "This node is not an agent seat." });
-  return node;
+  return yield* readSeatFrom(model, canvas, seatId);
 });
 
 /**
@@ -72,7 +79,8 @@ export const startSeat = Effect.fn("SeatControl.start")(function* (input: {
   const plane = options.plane ?? termPlane;
   const { canvas, seatId } = input;
   const changed = (message: string) => new SeatChangedWhileStarting({ canvas, seatId, message });
-  const node = yield* readSeat(canvas, seatId);
+  const model = yield* ModelService;
+  const node = yield* readSeatFrom(model, canvas, seatId);
   if (!managedHarnessEnabled(node.harness))
     return yield* new HarnessDisabled({ canvas, seatId, harness: node.harness,
       message: `The ${node.harness} harness is disabled in this build.` });
@@ -88,7 +96,7 @@ export const startSeat = Effect.fn("SeatControl.start")(function* (input: {
   const assertCurrent = Effect.gen(function* () {
     yield* Effect.try({ try: () => plane.nodeDelete.assertCreate(admission),
       catch: () => changed("This seat was deleted while it was starting.") });
-    const current = yield* readSeat(canvas, seatId);
+    const current = yield* readSeatFrom(model, canvas, seatId);
     if (current.bindingId !== node.bindingId || current.host !== node.host ||
       current.harness !== node.harness || current.agentKey !== node.agentKey)
       return yield* changed("This seat changed while it was starting.");
@@ -119,6 +127,7 @@ export const startSeat = Effect.fn("SeatControl.start")(function* (input: {
   const seats = yield* ActorSeatOccupy;
   return yield* seats.occupy({ bindingId: node.bindingId, harness: node.harness, agentKey: node.agentKey,
     hostId: node.host, spawnIntent, canvasName: canvas, nodeId: node.id, label: node.label,
+    beforeSpawn: assertCurrent,
     seatRect: { x: node.x, y: node.y, width: node.width, height: node.height },
     ...(input.operationId === undefined ? {} : { operationId: input.operationId }),
   }) satisfies Effect.Effect<TerminalSessionSummary, unknown>;

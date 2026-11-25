@@ -67,7 +67,10 @@ afterEach(async () => {
   clearMachines();
 });
 
-const fixture = async (nodes: ReadonlyArray<Node> = [localSeat, plainTerminal]) => {
+const fixture = async (
+  nodes: ReadonlyArray<Node> = [localSeat, plainTerminal],
+  seatEnvironment: typeof noSeatEnvironment = noSeatEnvironment,
+) => {
   const root = await mkdtemp(join(tmpdir(), "junto-seat-control-"));
   const fake = makeFakeTerminalProcessAuthority(() => ({ pid: 42_818, exitOnSignal: "SIGTERM" }));
   const host = new LocalSessionHost(fake.authority, { killGraceMs: 5, shutdownGraceMs: 5, lateExitGraceMs: 5 });
@@ -77,7 +80,7 @@ const fixture = async (nodes: ReadonlyArray<Node> = [localSeat, plainTerminal]) 
   const actors = Layer.effect(ActorSeatOccupy, Effect.gen(function* () {
     const machine = yield* MachineRepository;
     return makeActorSeatOccupy({
-      local: host, localHostId: () => machine.machineName, seatEnvironment: noSeatEnvironment,
+      local: host, localHostId: () => machine.machineName, seatEnvironment,
       clientForOccupy: async () => { throw new Error("local only"); },
     });
   }));
@@ -95,11 +98,12 @@ const fixture = async (nodes: ReadonlyArray<Node> = [localSeat, plainTerminal]) 
     kill: vi.fn(async (bindingId: string) => host.kill(bindingId)),
     list: async () => host.list(),
   };
+  const nodeDelete = new TerminalNodeDeleteService(router as never);
   const options: SeatControlOptions = {
-    plane: { router, nodeDelete: new TerminalNodeDeleteService(router as never) } as never,
+    plane: { router, nodeDelete } as never,
     pin: async () => ({ ok: true as const, sessionId: "named-session", minted: true }),
   };
-  return { host, fake, runtime, router, options };
+  return { host, fake, runtime, router, nodeDelete, options };
 };
 
 describe("seat start and stop", () => {
@@ -162,5 +166,36 @@ describe("seat start and stop", () => {
       { ...f.options, pin: async () => ({ ok: false as const, reason: "the session store is locked" }) })));
     expect(refused).toMatchObject({ _tag: "SeatSessionUnavailable", reason: "the session store is locked" });
     expect(f.fake.controllers).toHaveLength(0);
+  });
+
+  it("refuses an operator start already under a held delete", async () => {
+    const f = await fixture();
+    const held = f.nodeDelete.holdDelete(localSeat.bindingId, THIS_MACHINE, { canvas, seatId: localSeat.id });
+    try {
+      const refused = await f.runtime.runPromise(Effect.flip(startSeat({ canvas, seatId: localSeat.id }, f.options)));
+      expect(refused).toMatchObject({ _tag: "SeatChangedWhileStarting" });
+      expect(f.fake.controllers).toHaveLength(0);
+    } finally {
+      f.nodeDelete.releaseHeldDelete(held.key);
+    }
+  });
+
+  it("refuses the spawn when a delete is held during operator start preparation", async () => {
+    let nodeDelete: TerminalNodeDeleteService | undefined;
+    let heldKey: string | undefined;
+    const environment: typeof noSeatEnvironment = async (seat) => {
+      if (nodeDelete === undefined) throw new Error("fixture is not ready");
+      heldKey = nodeDelete.holdDelete(localSeat.bindingId, THIS_MACHINE, { canvas, seatId: localSeat.id }).key;
+      return noSeatEnvironment(seat);
+    };
+    const f = await fixture([localSeat, plainTerminal], environment);
+    nodeDelete = f.nodeDelete;
+    try {
+      const refused = await f.runtime.runPromise(Effect.flip(startSeat({ canvas, seatId: localSeat.id }, f.options)));
+      expect(refused).toMatchObject({ _tag: "SeatChangedWhileStarting" });
+      expect(f.fake.controllers).toHaveLength(0);
+    } finally {
+      if (heldKey !== undefined) f.nodeDelete.releaseHeldDelete(heldKey);
+    }
   });
 });

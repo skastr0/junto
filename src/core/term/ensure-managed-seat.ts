@@ -3,7 +3,7 @@
  * Used by kernel claim tick so play does not require a prior UI open.
  */
 
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { runOnSeatStartTurn } from "./seat-start-turn";
 import type { Node } from "@shared/model";
 import type { InstallationId } from "@shared/installation-id";
@@ -175,6 +175,20 @@ export const ensureManagedSeatRunning = (
     // The locality proof above already established this exact managed surface.
     if (node.kind !== "agent") return false;
     const surface = { ...node, hostId: node.host };
+    const admission = yield* Effect.result(Effect.try({
+      try: () => termPlane.nodeDelete.admitCreate(surface.bindingId, surface.hostId),
+      catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
+    }));
+    if (Result.isFailure(admission)) {
+      console.error(
+        `[wake] refused ${canvasName}/${node.id}: ${admission.failure.message}`,
+      );
+      return false;
+    }
+    const beforeSpawn = Effect.try({
+      try: () => termPlane.nodeDelete.assertCreate(admission.success),
+      catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
+    });
     const context = yield* Effect.context<never>();
     const run = Effect.runPromiseWith(context);
 
@@ -235,6 +249,7 @@ export const ensureManagedSeatRunning = (
       canvasName,
       nodeId: node.id,
       label: node.label,
+      beforeSpawn,
       harness: surface.harness,
       agentKey: surface.agentKey,
       spawnIntent: makeManagedSpawnIntent({
