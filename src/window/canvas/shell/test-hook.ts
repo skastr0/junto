@@ -204,6 +204,7 @@ const build = (
     ...(pulse === undefined ? {} : { pulse }),
     pick: (screen) => engine()?.pick(screen) ?? null,
     partsOf: (id) => mapParts(engine()?.partsOf?.(id) ?? []),
+    hasMotion: () => engine()?.hasMotion?.() ?? false,
     setCull: (mode) => engine()?.setCull?.(mode),
     badgePartsOf: (key) => mapParts(engine()?.badgePartsOf?.(key) ?? []),
     seatStats: () => engine()?.seatStats?.(),

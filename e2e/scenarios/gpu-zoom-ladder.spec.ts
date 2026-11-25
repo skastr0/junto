@@ -1028,6 +1028,24 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           camera = after;
           frame = await shot(page, pane);
         }
+        // The engine's own word on whether anything is still easing: a tier
+        // crossing eases every card's drawing over STYLE_TRANSITION_MS, and a
+        // frame caught mid-ease differs from a settled reference at every mark.
+        // Wait for it (bounded), then take the frame.
+        let easedMs = 0;
+        for (let waited = 0; waited < 2_000; waited += 100) {
+          const busy = await page.evaluate(() => (window as unknown as { __juntoCanvas?: { hasMotion?: () => boolean } }).__juntoCanvas?.hasMotion?.() ?? false);
+          if (!busy) break;
+          await page.waitForTimeout(100);
+          easedMs += 100;
+        }
+        for (let retry = 0; retry < 4; retry += 1) {
+          const after = await stillCamera(page);
+          if (sameCamera(after, camera)) break;
+          camera = after;
+          await page.waitForTimeout(100);
+        }
+        frame = await shot(page, pane);
         // What the engine says moves this frame: its own moving records, not
         // every pixel that changed (a pop is a change and must fail).
         const moving = await movingRecords(page, board.model.nodes.map((node) => node.id), dpr, frame.width, frame.height);
@@ -1049,7 +1067,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
         const ref = references.get(refKey(place.name, nearest))!;
         const { worstGroup, hot, diff } = compareZoomEnd({ image: ref.unheld, mask: ref.mask, camera: ref.camera }, frame, state.camera, dpr, overlay.mask, moving.mask);
         const name = `c${String(cycle)}-${place.name}-zoomend-${String(from)}-${String(to)}`;
-        log(`zoomend ${name}`, { aimed: Math.round(mid * 1000) / 1000, zoom: Math.round(state.camera.zoom * 1000) / 1000, tier: state.tier, against: nearest, hot, worstGroup, masked: Math.round(moving.share * 1000) / 1000, records: moving.records, largestRecord: moving.largest });
+        log(`zoomend ${name}`, { aimed: Math.round(mid * 1000) / 1000, zoom: Math.round(state.camera.zoom * 1000) / 1000, tier: state.tier, against: nearest, hot, worstGroup, eased: easedMs, masked: Math.round(moving.share * 1000) / 1000, records: moving.records, largestRecord: moving.largest });
         if (worstGroup >= 12) {
           const framePath = join(OUT, "stops", `${name}-frame.png`);
           const diffPath = join(OUT, "stops", `${name}-diff.png`);

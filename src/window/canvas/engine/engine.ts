@@ -1075,6 +1075,7 @@ export const createEngine = (host: EngineHost): SeamEngine => {
     // animation, and a last-frame angle can be a frame behind it.
     ringAngle: (id) => scene.ringAngle(id, wallNow()),
     partsOf: (id) => scene.partsOf(id),
+    hasMotion: () => scene.hasMotion(),
     seatStats: () => scene.seatStats(),
     heldCells: () => scene.heldCells(),
     popWatch: (what) => {

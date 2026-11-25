@@ -862,6 +862,8 @@ export interface Engine {
   readonly ringAngle?: (id: NodeId) => number | undefined;
   /** Every quad the scene has built for a card, as drawn in the last frame (the part-level ink check). */
   readonly partsOf?: (id: NodeId) => ReadonlyArray<DrawnPart>;
+  /** Whether anything is still easing or animating (a style transition, a turning ring, a one-shot): the scene's own word. */
+  readonly hasMotion?: () => boolean;
   /** Cull the draw list on the CPU (as built) or the GPU (a compute pass, per quad). */
   readonly setCull?: (mode: "cpu" | "gpu") => void;
   /** The same for a cluster badge, by its key. */
