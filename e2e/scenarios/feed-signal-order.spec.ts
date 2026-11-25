@@ -158,6 +158,39 @@ test("[fake-tui] the feed with a chain of signals", async () => {
       return `Ready chip ${JSON.stringify(before)} then ${JSON.stringify(after)}`;
     });
 
+    await check("f4b-j-k-step-line", async (frames) => {
+      await feedOpen();
+      const says: string[] = [];
+      // The keys act in the list: put the keyboard on a card first (the last line left it on the Ready chip).
+      await cards().first().click();
+      await settle(500);
+      const first = await selectedHeadline();
+      for (const key of ["j", "j", "k"]) {
+        await page.keyboard.press(key);
+        await settle(600);
+        says.push(`${key}: "${await announce()}" (selected ${(await selectedHeadline()).slice(0, 60)})`);
+      }
+      frames.push(await shot("f4b-after-jk"));
+      return `from "${first.slice(0, 60)}": ${JSON.stringify(says)}; focus ${await focusNow()}`;
+    });
+
+    await check("f4c-the-fold-name-and-enter", async (frames) => {
+      await feedOpen();
+      const fold = page.getByTestId("feed-chain-fold");
+      if ((await fold.count()) === 0) throw new Error(`no fold; cards ${JSON.stringify(await cardTexts())}`);
+      const button = fold.getByRole("button").or(fold).first();
+      const name = (await button.getAttribute("aria-label")) ?? (await button.textContent());
+      const cardsBefore = await cards().count();
+      await button.focus();
+      const focusOn = await focusNow();
+      await page.keyboard.press("Enter");
+      await settle(700);
+      const said = await announce();
+      const cardsAfter = await cards().count();
+      frames.push(await shot("f4c-fold-opened"));
+      return `the fold is named "${String(name).trim()}"; focus ${focusOn}; Enter: live line "${said}", cards ${cardsBefore} to ${cardsAfter}; focus then ${await focusNow()}`;
+    });
+
     await check("f5-withdrawn-before-the-answer-with-a-half-typed-draft", async (frames) => {
       await feedOpen();
       const bea = cards().filter({ hasText: "Bea" }).first();

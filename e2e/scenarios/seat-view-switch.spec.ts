@@ -239,7 +239,13 @@ test("[fake-tui] seat view switch: Terminal and Threads in one seat modal", asyn
       );
       if (!pillHidden) throw new Error("the count pill is in the accessibility tree");
       const role = await tab.getAttribute("role");
-      return `accessible name "Threads, ${String(count)} unread", role ${String(role)}, pill aria-hidden (accessibility tree, not a VoiceOver run)`;
+      // Whether the same words reach a screen reader twice: the name, then a description or title that repeats it.
+      const words = await tab.evaluate((el) => ({ label: el.getAttribute("aria-label"), title: el.getAttribute("title"), description: el.getAttribute("aria-description"), tooltip: el.getAttribute("data-junto-tooltip"), describedby: (el.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent?.trim() ?? "").join(" | ") }));
+      // data-junto-tooltip is the visual tooltip: it is not in the accessibility tree, only title, aria-description and aria-describedby are.
+      const second = [words.title, words.description, words.describedby].filter((x) => x !== null && x !== "");
+      const twice = second.some((x) => x === words.label || (words.label ?? "").startsWith(x ?? "\u0000"));
+      if (twice) throw new Error(`the tab's name is read again by a second string: ${JSON.stringify(words)}`);
+      return `accessible name "Threads, ${String(count)} unread", role ${String(role)}, pill aria-hidden; strings on the tab ${JSON.stringify(words)}: none repeats the name (accessibility tree, not a VoiceOver run)`;
     });
 
     // (3, modals) Keys under Threads never reach the terminal.
