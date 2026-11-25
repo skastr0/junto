@@ -114,6 +114,8 @@ export const state$ = observable({
   canUndo: false,
   canRedo: false,
   error: "",
+  /** The banner's text when it is a failure a retry can fix (a storage failure, a core that did not answer); empty otherwise. Compared as a whole with `error`, so a later error never inherits it. */
+  retryableError: "",
 });
 
 export const clearGraphFilters = (): void => {

@@ -9,6 +9,7 @@ import type { IpcMain } from "electron";
 import { Context, Effect, Schema } from "effect";
 import { Command } from "@shared/model";
 import { IPC_CHANNELS } from "@shared/ipc";
+import { markFailureKind } from "@shared/model-failure";
 import { ModelCanvasQuery, ModelCore } from "../../contract/core/model";
 import { AppRuntime } from "../runtime";
 
@@ -28,7 +29,7 @@ export const registerModelIpc = (
     AppRuntime.runPromise(Effect.flatMap(decodeCanvasQuery(raw), (query) => model.ModelOpen(query))),
   );
   ipc.handle(IPC_CHANNELS.modelCommand, (_event, raw: unknown) =>
-    authoring(() => AppRuntime.runPromise(Effect.flatMap(decodeCommand(raw), (command) => model.ModelCommand({ command })))),
+    authoring(() => markFailureKind(() => AppRuntime.runPromise(Effect.flatMap(decodeCommand(raw), (command) => model.ModelCommand({ command }))))),
   );
   ipc.handle(IPC_CHANNELS.modelActorRefs, (_event, raw: unknown) =>
     AppRuntime.runPromise(Effect.flatMap(decodeCanvasQuery(raw), (query) => model.ModelActorRefs(query))),

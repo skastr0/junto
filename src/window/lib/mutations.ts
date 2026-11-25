@@ -4,6 +4,7 @@ import { batch, observe } from "@legendapp/state";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { TASKS_ENABLED } from "@shared/features";
+import { failureCanRetry, failureWords } from "@shared/model-failure";
 import { removalTasks, removalWarnings, signalRemovalWarnings, deleteSubjectName } from "./deletion-impact";
 import { agentSignals$ } from "./agent-signals-state";
 import { askConfirm } from "./confirm";
@@ -95,8 +96,19 @@ const activeCanvasAuthoringOperations = new Set<Promise<void>>();
 // clearAbandonedCanvas (open/create of that name).
 const abandonedNames = new Set<string>();
 
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+// A failure's words, without the kind main marks it with (src/shared/model-failure.ts).
+const messageOf = (error: unknown): string => failureWords(error);
+
+/**
+ * A save or an undo that failed, said in the banner. Whether the banner offers
+ * a retry is decided from the failure's kind, not its words: a storage failure
+ * or a core that did not answer can be tried again, a refused change cannot.
+ */
+const raiseSaveError = (text: string, error: unknown): void => {
+  state$.saveState.set("error");
+  state$.error.set(text);
+  state$.retryableError.set(failureCanRetry(error) ? text : "");
+};
 
 // When main refuses an edit the store is ahead of the canvas: it is read
 // again from main.
@@ -134,8 +146,7 @@ const sendAct = (name: string, commands: ReadonlyArray<Command>, remember: boole
     (error: unknown) => {
       outcome.onRefused?.(messageOf(error));
       if (state$.canvasName.peek() === name) {
-        state$.saveState.set("error");
-        state$.error.set(`canvas "${name}" did not take that change: ${messageOf(error)}`);
+        raiseSaveError(`canvas "${name}" did not take that change: ${messageOf(error)}`, error);
         // The refused act is not a step anyone can take back.
         syncHistoryState();
       }
@@ -269,8 +280,8 @@ export const commitCommands = (
   try {
     commands = edit(modelStore.canvasOf(name));
   } catch (error) {
-    state$.saveState.set("error");
-    state$.error.set(`canvas "${name}" did not take that change: ${messageOf(error)}`);
+    // The edit itself threw before anything was sent: nothing for a retry to send again.
+    raiseSaveError(`canvas "${name}" did not take that change: ${messageOf(error)}`, undefined);
     return;
   }
   sendAct(name, commands, remember, options);
@@ -356,8 +367,7 @@ const turnBack = (direction: "undo" | "redo"): void => {
     () => settled(name),
     (error: unknown) => {
       if (state$.canvasName.peek() === name) {
-        state$.saveState.set("error");
-        state$.error.set(`canvas "${name}" could not ${direction} that: ${messageOf(error)}`);
+        raiseSaveError(`canvas "${name}" could not ${direction} that: ${messageOf(error)}`, error);
       }
       readAgain(name);
     },

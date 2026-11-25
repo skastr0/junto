@@ -426,11 +426,17 @@ export function QuickThread({
   const sendFixed = (to: ReadonlyArray<BroadcastSeat>): void => {
     if (awaiting.current || sendTo.current === null) return;
     awaiting.current = true;
-    void sendTo.current(to.map((seat) => ({ seatId: seat.nodeId, name: seat.name }))).then((started) => {
-      if (started) return;
-      awaiting.current = false;
-      say("Nothing was sent. The message is not ready to send.");
-    });
+    void sendTo.current(to.map((seat) => ({ seatId: seat.nodeId, name: seat.name })))
+      .then((started) => {
+        if (started) return;
+        awaiting.current = false;
+        say("Nothing was sent. The message is not ready to send.");
+      })
+      .catch((error: unknown) => {
+        // The send itself threw (a link failure): nothing is awaited, and the confirm or receipt gives the press back.
+        awaiting.current = false;
+        say(`Nothing was sent. ${error instanceof Error ? error.message : String(error)}`);
+      });
   };
 
   /**

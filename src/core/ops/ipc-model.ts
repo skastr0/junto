@@ -6,6 +6,7 @@
  */
 import { Effect } from "effect";
 import { ModelFailed, ModelRpcs } from "../../contract/core/model";
+import { failureKindOfTag } from "@shared/model-failure";
 import { ModelActorRefs } from "../model/actor-refs";
 import { ModelService } from "../model/service";
 import { commandReleasingSeats } from "../work/seat-release";
@@ -14,7 +15,8 @@ import { commandReleasingSeats } from "../work/seat-release";
 const failed = (error: unknown): ModelFailed => {
   const message = error instanceof Error ? error.message : String(error);
   const tag = typeof error === "object" && error !== null && "_tag" in error ? String(error._tag) : "the model failed";
-  return new ModelFailed({ message: message.length > 0 ? message : tag });
+  const kind = failureKindOfTag(typeof error === "object" && error !== null && "_tag" in error ? String(error._tag) : undefined);
+  return new ModelFailed({ message: message.length > 0 ? message : tag, ...(kind === undefined ? {} : { kind }) });
 };
 
 export const ModelHandlers = ModelRpcs.toLayer({

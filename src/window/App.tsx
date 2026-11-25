@@ -9,6 +9,8 @@ import { impactModeActive$ } from "./lib/impact-mode";
 import { clearSelection, selectNode, state$ } from "./lib/state";
 import { scheduleTerminalCodeWarmup } from "./lib/terminal-code-warmup";
 import { asCanvasName } from "@shared/model";
+import { failureWords } from "@shared/model-failure";
+import { offersRetry } from "./lib/save-retry";
 import { CountedSurface } from "./lib/performance/surface-commits";
 import type { ActorRef } from "@shared/work-protocol";
 import { canvasCommandGroups } from "./lib/command-groups";
@@ -103,8 +105,7 @@ import { isOperatorTyping } from "./lib/focus-ownership";
 import { topModal } from "./lib/modal-stack";
 import { warmDetachOnEscape } from "./lib/browser-escape";
 
-const setError = (error: unknown) =>
-  state$.error.set(error instanceof Error ? error.message : String(error));
+const setError = (error: unknown) => state$.error.set(failureWords(error));
 
 const refreshList = async () => {
   if (!window.junto) return;
@@ -334,10 +335,9 @@ const deleteCanvas = async (name: string) => {
   });
 };
 
-const retryActionForError = (message: string): { readonly label: string; readonly run: () => Promise<void> } | undefined => {
-  if (message.includes("write-canvas") || message.includes("cannot write")) return { label: "retry save", run: async () => retrySave() };
-  return undefined;
-};
+/** Retry is offered for the failure main marked as one a retry can fix (src/shared/model-failure.ts), never from its words. */
+const retryActionForError = (message: string, retryable: string): { readonly label: string; readonly run: () => Promise<void> } | undefined =>
+  offersRetry(message, retryable) ? { label: "retry save", run: async () => retrySave() } : undefined;
 
 // One-shot across the app lifetime, so StrictMode's mount/remount and any
 // re-mount never re-run the boot sequence. Subscriptions, by contrast, are set
@@ -351,7 +351,8 @@ export function App() {
   const booting = use$(state$.booting);
   const canvasName = use$(state$.canvasName);
   const machinesOpen = use$(state$.machinesOpen);
-  const errorAction = retryActionForError(error);
+  const retryable = use$(state$.retryableError);
+  const errorAction = retryActionForError(error, retryable);
 
   useEffect(() => followAuthority(), []);
 

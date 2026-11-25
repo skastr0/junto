@@ -29,6 +29,8 @@ export type ModelCommandResult = typeof ModelCommandResult.Type;
 /** The model refused, or could not be read or written; the window shows the words. */
 export class ModelFailed extends Schema.TaggedError<ModelFailed>()("ModelFailed", {
   message: Schema.String,
+  /** Why, as a tag the window can decide on (src/shared/model-failure.ts); absent for a failure of no known kind. */
+  kind: Schema.optionalKey(Schema.Literals(["refused", "missing", "storage", "transport"])),
 }) {}
 
 export const ModelRpcs = RpcGroup.make(
