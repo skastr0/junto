@@ -39,6 +39,11 @@ const live = vi.hoisted(() => {
   };
 });
 
+vi.mock("../src/window/lib/quick-reply-rules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/window/lib/quick-reply-rules")>()),
+  sendSignalAnswer: async () => ({ ok: true }),
+}));
+
 vi.mock("../src/window/lib/operator-feed", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/window/lib/operator-feed")>()),
   useOperatorFeed: (): Feed => useSyncExternalStore(live.subscribe, live.read),
@@ -227,6 +232,16 @@ it("says the card a key steps onto in the live line", async () => {
   expect(q(".operator-feed__announce")?.textContent).toBe(
     "atlas, waiting on you, waiting on another signal, 2 of 10: Topic 2 needs your call",
   );
+});
+
+it("says an answer and the card that takes its place, or that nothing else waits", async () => {
+  await open(feedOf(2));
+  await key("1");
+  await act(async () => live.set(feedOf(1)));
+  expect(q(".operator-feed__announce")?.textContent).toBe("Answered. Next: atlas, waiting on you: Topic 10 needs your call");
+  await key("1");
+  await act(async () => live.set(feedOf(0)));
+  expect(q(".operator-feed__announce")?.textContent).toBe("Answered. Next: bravo, ready for review: Bravo wants a look");
 });
 
 it("unfolds the rest of a chain in place", async () => {

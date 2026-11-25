@@ -798,6 +798,19 @@ const feed = useOperatorFeed();
     };
   };
 
+  // An answer that went through: said once its card has left and the next one holds the selection.
+  const [closedBy, setClosedBy] = useState<{ readonly itemId: string; readonly word: string } | null>(null);
+  useEffect(() => {
+    if (closedBy === null || items.some((candidate) => candidate.itemId === closedBy.itemId)) return;
+    if (items.length > 0 && (selectedItem === undefined || selected === closedBy.itemId)) return;
+    setClosedBy(null);
+    setAnnounceNote(
+      selectedItem === undefined
+        ? `${closedBy.word}. Nothing else waiting`
+        : `${closedBy.word}. Next: ${feedCardSpeech(selectedItem, chainPlaces.get(selectedItem.itemId))}`,
+    );
+  }, [closedBy, items, selected, selectedItem, chainPlaces]);
+
   const answer = async (item: FeedItem, chosen: SignalAnswer): Promise<void> => {
     if (!item.signalId || sendingRef.current.has(item.itemId)) return;
     setSending((current) => new Map(current).set(item.itemId, answerLabel(chosen)));
@@ -808,6 +821,7 @@ const feed = useOperatorFeed();
         dismiss: signalActions.dismiss,
       });
       if (!result.ok) setFailure({ itemId: item.itemId, message: result.message });
+      else setClosedBy({ itemId: item.itemId, word: chosen.kind === "dismiss" ? "Dismissed" : "Answered" });
     } finally {
       setSending((current) => {
         const next = new Map(current);
