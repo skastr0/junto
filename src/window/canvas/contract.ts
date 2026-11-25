@@ -903,6 +903,8 @@ export type DrawnPart = {
   readonly band: Quad["band"];
   readonly tiers: TierMask;
   readonly drawn: boolean;
+  /** The motion this quad carries (`turn`, `pulse`, `reach`, `rise`, ...), or absent when it holds still. */
+  readonly motion?: string;
   readonly rect: Rect;
   /** The atlas cell its record holds, or undefined for none. */
   readonly cell?: number;

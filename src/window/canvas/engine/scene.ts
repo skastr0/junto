@@ -3058,6 +3058,7 @@ export const createScene = (options: {
       tiers: ref.tiers,
       drawn: drawnOwner && (ref.tiers & liveMask) !== 0 && gateOpen(quad),
       rect: placedRect(ref, owner),
+      ...(quad.motion === undefined ? {} : { motion: quad.motion.kind }),
       ...(held === NO_ATLAS_CELL ? {} : { cell: held }),
       ...(ref.atlas ? { hasImage: held !== NO_ATLAS_CELL && hasImage(held) } : {}),
       ...(ink !== undefined && "token" in ink ? { ink: ink.token } : {}),

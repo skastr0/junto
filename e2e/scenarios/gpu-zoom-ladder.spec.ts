@@ -59,10 +59,11 @@
  * downsampled to 8 CSS px blocks (scaled with devicePixelRatio, as the stops
  * are), against the reference of the nearest stop of
  * the same tier, mapped to the frame's camera; pixels under DOM at either end
- * of the mapping are skipped, and so is anything that moved between the
- * frame and a second frame a moment later at the same camera (an unheld
- * ring's arc sits at whatever phase its clock gives it, so its position is
- * not a picture fault; a still pixel holding another item's drawing is).
+ * of the mapping are skipped, and so is everything the engine says it draws
+ * moving at that frame: the placed rects of the parts that carry a motion
+ * (`turn` for a ring, `pulse`, `reach`, `rise`), read from the test hook, with
+ * the still sprites inside them unmasked. Never "every pixel that changed": a
+ * card or a portrait that pops is a change, and a change is the fault.
  * Tolerance: a block is hot when one channel of
  * its mean colour differs by more than 40 of 255, and the frame fails on a
  * connected group of 12 or more hot blocks (about a 28 CSS px square, smaller
@@ -525,14 +526,6 @@ const compareStop = (reference: PngImage, now: PngImage, dpr: number): { changed
 };
 
 /** Grown mask of the pixels that differ between two frames of the same camera, in device px. */
-const grownDifference = (a: PngImage, b: PngImage, dpr: number): Uint8Array => {
-  const grow = Math.round(3 * dpr);
-  const { width, height } = a;
-  const moving = new Uint8Array(width * height);
-  for (let p = 0; p < width * height; p += 1) if (b.width !== width || b.height !== height || delta(a, p * 4, b, p * 4) > 24) moving[p] = 1;
-  return growMask(moving, width, height, grow);
-};
-
 const growMask = (moving: Uint8Array, width: number, height: number, grow: number): Uint8Array => {
   const grown = new Uint8Array(width * height);
   for (let y = 0; y < height; y += 1) {
@@ -559,6 +552,55 @@ const motionMask = (shots: ReadonlyArray<PngImage>, dpr: number): Uint8Array => 
     for (let p = 0; p < width * height; p += 1) if (delta(shots[0]!, p * 4, shots[s]!, p * 4) > 24) moving[p] = 1;
   }
   return growMask(moving, width, height, grow);
+};
+
+/**
+ * What the engine says it draws moving, at this frame: every drawn part that
+ * carries a motion (`turn` for a ring, `pulse`, `reach`, `rise`, ...), its
+ * placed rect in page CSS px, grown by 2 CSS px. Whatever holds still is not
+ * masked even inside a moving record's box: a portrait or a picture that pops
+ * inside a turning ring's box is still compared. canvas-lead's ruling,
+ * 2026-11-25: mask the engine's moving records, never every pixel that
+ * changed, because a changed pixel is exactly what the operator reported.
+ */
+const movingRecords = async (
+  page: Page,
+  ids: ReadonlyArray<string>,
+  dpr: number,
+  width: number,
+  height: number,
+): Promise<{ mask: Uint8Array; share: number; records: number; largest: Rect | null }> => {
+  const parts = await page.evaluate((nodeIds) => {
+    const hook = (window as unknown as { __juntoCanvas?: { partsOf?: (id: string) => ReadonlyArray<{ kind: string; drawn: boolean; rect: { x: number; y: number; width: number; height: number }; motion?: string }> } }).__juntoCanvas;
+    const out: Array<{ kind: string; drawn: boolean; rect: { x: number; y: number; width: number; height: number }; motion?: string }> = [];
+    for (const id of nodeIds) for (const part of hook?.partsOf?.(id) ?? []) out.push(part);
+    return out;
+  }, [...ids]);
+  const grow = Math.round(2 * dpr);
+  const mask = new Uint8Array(width * height);
+  const fill = (rect: Rect, value: number): void => {
+    const x0 = Math.max(0, Math.floor(rect.x * dpr) - grow);
+    const y0 = Math.max(0, Math.floor(rect.y * dpr) - grow);
+    const x1 = Math.min(width, Math.ceil((rect.x + rect.width) * dpr) + grow);
+    const y1 = Math.min(height, Math.ceil((rect.y + rect.height) * dpr) + grow);
+    for (let y = y0; y < y1; y += 1) mask.fill(value, y * width + x0, y * width + x1);
+  };
+  let records = 0;
+  let largest: Rect | null = null;
+  for (const part of parts) {
+    if (part.drawn !== true || part.motion === undefined) continue;
+    records += 1;
+    if (largest === null || part.rect.width * part.rect.height > largest.width * largest.height) largest = part.rect;
+    fill(part.rect, 1);
+  }
+  // A picture holds still inside a turning ring's box: unmask the sprites that carry no motion.
+  for (const part of parts) {
+    if (part.drawn !== true || part.kind !== "sprite" || part.motion !== undefined) continue;
+    fill(part.rect, 0);
+  }
+  let masked = 0;
+  for (let p = 0; p < mask.length; p += 1) masked += mask[p]!;
+  return { mask, share: masked / mask.length, records, largest };
 };
 
 /**
@@ -624,7 +666,7 @@ const compareZoomEnd = (
   camera: Camera,
   dpr: number,
   overlay: Uint8Array,
-  movedNow: Uint8Array | undefined,
+  moving: Uint8Array | undefined,
 ): { worstGroup: number; hot: number; diff: PngImage } => {
   const B = Math.round(8 * dpr);
   const bw = Math.floor(frame.width / B);
@@ -661,7 +703,7 @@ const compareZoomEnd = (
             ref.mask[ry * ref.image.width + rx] === 1 ||
             overlay[y * frame.width + x] === 1 ||
             overlay[ry * ref.image.width + rx] === 1 ||
-            movedNow?.[y * frame.width + x] === 1
+            moving?.[y * frame.width + x] === 1
           ) {
             skip = true;
             break;
@@ -986,23 +1028,9 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           camera = after;
           frame = await shot(page, pane);
         }
-        // The board's own motion at this moment: a second frame a moment later,
-        // at the same camera. A ring's arc sits at whatever phase the unheld
-        // clock gives it, so where a ring has moved between the two is masked;
-        // a still pixel that holds another item's drawing is not. The reference
-        // launch's own motion mask covers the same thing on its side.
-        let movingNow: Uint8Array | undefined;
-        for (let retry = 0; retry < 3 && movingNow === undefined; retry += 1) {
-          await page.waitForTimeout(250);
-          const later = await shot(page, pane);
-          const held = await stillCamera(page);
-          if (!sameCamera(held, camera)) {
-            camera = held;
-            frame = await shot(page, pane);
-            continue;
-          }
-          movingNow = grownDifference(frame, later, dpr);
-        }
+        // What the engine says moves this frame: its own moving records, not
+        // every pixel that changed (a pop is a change and must fail).
+        const moving = await movingRecords(page, board.model.nodes.map((node) => node.id), dpr, frame.width, frame.height);
         const state = { ...(await readProofState(page)), camera };
         await pinch(page, centre, state.camera.zoom, to);
         await stillCamera(page);
@@ -1019,9 +1047,9 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           (a, b) => Math.abs(Math.log2(a / state.camera.zoom)) - Math.abs(Math.log2(b / state.camera.zoom)),
         )[0]!;
         const ref = references.get(refKey(place.name, nearest))!;
-        const { worstGroup, hot, diff } = compareZoomEnd({ image: ref.unheld, mask: ref.mask, camera: ref.camera }, frame, state.camera, dpr, overlay.mask, movingNow);
+        const { worstGroup, hot, diff } = compareZoomEnd({ image: ref.unheld, mask: ref.mask, camera: ref.camera }, frame, state.camera, dpr, overlay.mask, moving.mask);
         const name = `c${String(cycle)}-${place.name}-zoomend-${String(from)}-${String(to)}`;
-        log(`zoomend ${name}`, { aimed: Math.round(mid * 1000) / 1000, zoom: Math.round(state.camera.zoom * 1000) / 1000, tier: state.tier, against: nearest, hot, worstGroup });
+        log(`zoomend ${name}`, { aimed: Math.round(mid * 1000) / 1000, zoom: Math.round(state.camera.zoom * 1000) / 1000, tier: state.tier, against: nearest, hot, worstGroup, masked: Math.round(moving.share * 1000) / 1000, records: moving.records, largestRecord: moving.largest });
         if (worstGroup >= 12) {
           const framePath = join(OUT, "stops", `${name}-frame.png`);
           const diffPath = join(OUT, "stops", `${name}-diff.png`);
