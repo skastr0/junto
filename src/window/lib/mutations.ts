@@ -235,6 +235,18 @@ export const replaceActiveActorRefs = (
 export const canvasAsItStands = (): Canvas => modelStore.canvasOf(state$.canvasName.peek());
 
 /**
+ * Whether the window would say a command on the open canvas now: admission
+ * is open, the canvas is not being removed, and the node store holds it. A
+ * writer that must do something irreversible before it says its commands
+ * (stop a process) asks this first, so a canvas that refuses costs nothing.
+ */
+export const canvasTakesEdits = (): boolean => {
+  if (!canvasMutationAdmissionOpen) return false;
+  const name = state$.canvasName.peek();
+  return !abandonedNames.has(name) && storeHolds(name);
+};
+
+/**
  * Do one act on the open canvas, said as commands. This is how a writer
  * changes the canvas: `edit` is given the canvas as it stands and answers the
  * commands (model-edits.ts makes them), which go out as one act, undone
@@ -251,11 +263,9 @@ export const commitCommands = (
   edit: (canvas: Canvas) => ReadonlyArray<Command>,
   options: { readonly remember?: boolean } & ActOutcome = {},
 ): void => {
-  if (!canvasMutationAdmissionOpen) return;
+  if (!canvasTakesEdits()) return;
   const name = state$.canvasName.peek();
-  if (abandonedNames.has(name)) return;
   const remember = options.remember ?? true;
-  if (!storeHolds(name)) return;
   let commands: ReadonlyArray<Command>;
   try {
     commands = edit(modelStore.canvasOf(name));

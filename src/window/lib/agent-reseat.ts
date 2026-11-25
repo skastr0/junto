@@ -14,7 +14,7 @@ import {
   type AgentConfigurationChoices,
 } from "../components/node-palette/agent-launch-model";
 import { getJuntoApi } from "./junto-api";
-import { commitCommands } from "./mutations";
+import { canvasTakesEdits, commitCommands } from "./mutations";
 import { openTerminal } from "./terminal-actions";
 import { terminal$ } from "./terminal-state";
 import { nodeAt } from "./use-model";
@@ -170,6 +170,8 @@ const stopSeatProcess = async (seat: Seat): Promise<void> => {
   }
 };
 
+const CANVAS_REFUSES_EDITS = "the canvas is not open for edits";
+
 /** Say the commands as one act and wait for main to take or refuse it. */
 const sayReseats = (commands: ReadonlyArray<Command>): Promise<string | undefined> =>
   new Promise((resolve) => {
@@ -182,7 +184,7 @@ const sayReseats = (commands: ReadonlyArray<Command>): Promise<string | undefine
       { onTaken: () => resolve(undefined), onRefused: (reason) => resolve(reason) },
     );
     // The canvas was not open for edits: nothing was said, so nothing moved.
-    if (!said) resolve("the canvas is not open for edits");
+    if (!said) resolve(CANVAS_REFUSES_EDITS);
   });
 
 /**
@@ -222,6 +224,15 @@ export const reseatSeats = async (
     }
   }
   if (plans.length === 0) return { moved: [], unchanged, failed };
+  // Learn that the canvas takes edits before any old process is stopped: a
+  // refusal after the stop would leave every picked seat dead on its old harness.
+  if (!canvasTakesEdits()) {
+    return {
+      moved: [],
+      unchanged,
+      failed: [...failed, ...plans.map((plan) => ({ id: plan.seat.id, message: CANVAS_REFUSES_EDITS }))],
+    };
+  }
 
   await Promise.all(plans.map((plan) => stopSeatProcess(plan.seat)));
   // Drop each open surface before its binding changes, so attach cannot race.
