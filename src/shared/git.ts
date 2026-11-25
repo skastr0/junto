@@ -463,6 +463,75 @@ export type CappedPatch = {
 const FILE_HEADER = "diff --git ";
 const HUNK_HEADER = "@@";
 
+const GIT_DIFF_NAMES =
+  /^diff --git (?:"a\/((?:\\.|[^"\\])*)"|a\/(.+?)) (?:"b\/((?:\\.|[^"\\])*)"|b\/(.+?))$/u;
+
+const C_ESCAPES: Readonly<Record<string, string>> = {
+  a: "\x07",
+  b: "\b",
+  t: "\t",
+  n: "\n",
+  v: "\v",
+  f: "\f",
+  r: "\r",
+  "\\": "\\",
+  '"': '"',
+};
+
+const UTF8 = new TextDecoder();
+
+/** The contents of git's C-style quoted path, decoded as the bytes git encoded. */
+const decodeGitQuotedPath = (quoted: string): string => {
+  let decoded = "";
+  let bytes: number[] = [];
+  const flushBytes = (): void => {
+    if (bytes.length === 0) return;
+    decoded += UTF8.decode(Uint8Array.from(bytes));
+    bytes = [];
+  };
+  for (let index = 0; index < quoted.length; index += 1) {
+    const char = quoted[index];
+    if (char !== "\\") {
+      flushBytes();
+      decoded += char;
+      continue;
+    }
+    const octal = quoted.slice(index + 1, index + 4);
+    if (/^[0-7]{3}$/u.test(octal)) {
+      bytes.push(Number.parseInt(octal, 8));
+      index += 3;
+      continue;
+    }
+    flushBytes();
+    const escaped = quoted[index + 1];
+    decoded += escaped === undefined ? "\\" : (C_ESCAPES[escaped] ?? escaped);
+    index += 1;
+  }
+  flushBytes();
+  return decoded;
+};
+
+/**
+ * A patch whose `diff --git` names are unquoted. @pierre/diffs 1.1.21 reads
+ * the wrong capture groups for git's quoted form, so a name with a space or
+ * non-ASCII byte comes back undefined and takes the diff down. The renderer
+ * only needs the name for its header; the patch body is byte for byte what it
+ * was.
+ */
+export const unquoteGitPatchPaths = (patch: string): string =>
+  patch
+    .split("\n")
+    .map((line) => {
+      const match = GIT_DIFF_NAMES.exec(line);
+      if (!match) return line;
+      const [, quotedOld, plainOld, quotedNew, plainNew] = match;
+      if (quotedOld === undefined && quotedNew === undefined) return line;
+      const oldPath = quotedOld === undefined ? (plainOld ?? "") : decodeGitQuotedPath(quotedOld);
+      const newPath = quotedNew === undefined ? (plainNew ?? "") : decodeGitQuotedPath(quotedNew);
+      return `diff --git a/${oldPath} b/${newPath}`;
+    })
+    .join("\n");
+
 const splitBefore = (lines: ReadonlyArray<string>, starts: string): string[][] => {
   const sections: string[][] = [];
   let current: string[] = [];

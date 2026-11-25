@@ -13,7 +13,7 @@ import { Component, useMemo, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { File, MultiFileDiff, PatchDiff } from "@pierre/diffs/react";
 import { getFiletypeFromFileName, type DiffLineAnnotation } from "@pierre/diffs";
-import { splitPatchFiles } from "@shared/git";
+import { splitPatchFiles, unquoteGitPatchPaths } from "@shared/git";
 import { themeMode$ } from "../../lib/theme-mode";
 import "./code-view.css";
 
@@ -124,7 +124,10 @@ export function DiffView<A = undefined>({
 }) {
   const themeType = useThemeType();
   const patch = "patch" in source ? source.patch : undefined;
-  const sections = useMemo(() => (patch === undefined ? [] : splitPatchFiles(patch)), [patch]);
+  const sections = useMemo(
+    () => (patch === undefined ? [] : splitPatchFiles(patch).map(unquoteGitPatchPaths)),
+    [patch],
+  );
   const options = {
     theme: THEME,
     themeType,
@@ -137,7 +140,7 @@ export function DiffView<A = undefined>({
   if ("patch" in source) {
     return (
       <div className="code-view" data-kind="diff">
-        {(sections.length > 0 ? sections : [source.patch]).map((section, index) => (
+        {(sections.length > 0 ? sections : [unquoteGitPatchPaths(source.patch)]).map((section, index) => (
           <PlainOnFailure key={`${String(index)}:${section.slice(0, 200)}`} text={section}>
             <PatchDiff<A>
               patch={section}
