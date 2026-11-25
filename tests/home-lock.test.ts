@@ -5,7 +5,7 @@
  * Terms from remote-security's read, 25 November.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, linkSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:net";
@@ -101,11 +101,16 @@ describe("the home lock", () => {
 });
 
 describe("the home lock's maker", () => {
-  it("takes a lock file whose second name is still its maker's temporary beside it, as a reader that lost the race to make it sees", async () => {
-    const at = await home();
-    await (await take(at)).release();
-    linkSync(join(stateOf(at), HOME_LOCK_FILE), join(stateOf(at), `${HOME_LOCK_FILE}.${"ab".repeat(16)}`));
-    await (await take(at)).release();
+  it("clears a maker's temporary still linked beside the lock file, as a reader that lost the race to make it, or a crash, leaves it, then takes the lock", async () => {
+    for (const hex of ["ab".repeat(16), "cd".repeat(32)]) {
+      const at = await home();
+      await (await take(at)).release();
+      const temporary = join(stateOf(at), `${HOME_LOCK_FILE}.${hex}`);
+      linkSync(join(stateOf(at), HOME_LOCK_FILE), temporary);
+      await (await take(at)).release();
+      expect(existsSync(temporary)).toBe(false);
+      expect(lstatSync(join(stateOf(at), HOME_LOCK_FILE)).nlink).toBe(1);
+    }
   });
 });
 

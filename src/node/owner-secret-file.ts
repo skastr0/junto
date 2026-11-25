@@ -33,29 +33,59 @@ export class OwnerSecretFileRefused extends Error {
 const makerTemporary = (path: string, entry: string): boolean =>
   entry.startsWith(`${basename(path)}.`) && /^[0-9a-f]{32,64}$/u.test(entry.slice(basename(path).length + 1));
 
-/**
- * Its second name, when it has one, is a maker's temporary beside it: a file
- * just linked into place keeps that name until its maker unlinks it, and a
- * reader that loses the race to make it opens it in that window.
- */
-const secondNameIsMakers = (path: string, stat: { dev: bigint; ino: bigint }): boolean => {
+/** A real directory of this uid that no group or other user can write, so only this uid can name a file in it. */
+const ownerOnlyDirectory = (directory: string): boolean => {
   try {
-    return readdirSync(dirname(path)).some((entry) => {
-      if (!makerTemporary(path, entry)) return false;
-      const other = lstatSync(join(dirname(path), entry), { bigint: true });
-      return other.isFile() && other.dev === stat.dev && other.ino === stat.ino;
-    });
+    const stat = lstatSync(directory, { bigint: true });
+    const uid = ownUid();
+    return stat.isDirectory() && (uid === undefined || stat.uid === uid) && (stat.mode & 0o022n) === 0n;
   } catch {
     return false;
   }
 };
 
-/** A regular file of this uid, no group or other bits, one link, or two while its maker still holds the second beside it. */
-const ownerPrivate = (fd: number, path: string): boolean => {
-  const stat = fstatSync(fd, { bigint: true });
+/**
+ * A file just linked into place keeps its maker's temporary name until the
+ * maker unlinks it, and a crash between the two leaves it for good. A second
+ * name that is a maker's temporary beside it, in a directory only this uid can
+ * write, on the same inode, is unlinked here: the maker tolerates ENOENT. The
+ * file then must have one link. Any other second name is refused.
+ */
+const dropMakerTemporary = (path: string, stat: { dev: bigint; ino: bigint; nlink: bigint }): void => {
+  if (stat.nlink !== 2n || !ownerOnlyDirectory(dirname(path))) return;
+  let entries: string[];
+  try {
+    entries = readdirSync(dirname(path));
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!makerTemporary(path, entry)) continue;
+    const temporary = join(dirname(path), entry);
+    try {
+      const other = lstatSync(temporary, { bigint: true });
+      if (!other.isFile() || other.dev !== stat.dev || other.ino !== stat.ino) continue;
+      unlinkSync(temporary);
+    } catch (error) {
+      if (code(error) !== "ENOENT") return;
+    }
+  }
+};
+
+/**
+ * `fd`, open on `path`: a regular file of this uid, no group or other bits,
+ * one link once any maker's temporary beside it is gone. The home lock's
+ * reader and the Darwin flock (control-filesystem.ts) hold every lock file to this.
+ */
+export const ownerPrivateFile = (fd: number, path: string): boolean => {
+  let stat = fstatSync(fd, { bigint: true });
   const uid = ownUid();
   if (!stat.isFile() || (uid !== undefined && stat.uid !== uid) || (stat.mode & 0o077n) !== 0n) return false;
-  return stat.nlink === 1n || (stat.nlink === 2n && secondNameIsMakers(path, stat));
+  if (stat.nlink !== 1n) {
+    dropMakerTemporary(path, stat);
+    stat = fstatSync(fd, { bigint: true });
+  }
+  return stat.nlink === 1n;
 };
 
 /** Make `path` with `bytes` random bytes unless it exists; never replaces one that does. */
@@ -98,7 +128,7 @@ export const ownerSecretFile = (path: string, bytes: number): Buffer => {
     }
   }
   try {
-    if (!ownerPrivate(fd, path)) throw new OwnerSecretFileRefused("not-owner-private", path);
+    if (!ownerPrivateFile(fd, path)) throw new OwnerSecretFileRefused("not-owner-private", path);
     const secret = Buffer.alloc(bytes + 1);
     let read = 0;
     for (;;) {

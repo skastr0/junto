@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { closeSync, constants, fchmodSync, fsyncSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, Socket, type Server } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
+import { ownerPrivateFile } from "./owner-secret-file";
 
 export const CONTROL_DIRECTORY_MODE = 0o700;
 export const CONTROL_FILE_MODE = 0o600;
@@ -187,7 +188,7 @@ export const acquireDarwinFileLock = async (
     if (currentUid !== undefined && stat.uid !== currentUid) {
       throw new Error("control listener lock is not owned by this user");
     }
-    if (stat.nlink !== 1n || (stat.mode & 0o077n) !== 0n) {
+    if (!ownerPrivateFile(fd, lockPath)) {
       throw new Error("control listener lock is not an owner-private inode");
     }
   } catch (error) {
