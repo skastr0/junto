@@ -216,6 +216,9 @@ describe("V4-ENTRY managed runtime domain entry", () => {
       // Main's terminal router makes no runtime of its own any more: 2f64c200f
       // took its SSH runner out, so the shell and the core are the only sites.
       "src/app/runtime.ts",
+      // The live overseer host is its own process with its own runtime, moved
+      // unchanged from src/cli in b824a2920.
+      "src/node/overseer-host/main.ts",
     ].sort());
   });
 });
