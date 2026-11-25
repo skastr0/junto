@@ -237,3 +237,76 @@ In bright, the bare-hue pill fails, so the badge uses the `-fg` fills.
 tints bare amber. product-design has sent its owner the move of both, the
 pill fills and the icon, to the `-fg` tokens, so the pair matches in
 bright.
+
+## 4. Delete anyway: when a seat's machine cannot confirm the stop
+
+The second step of the node delete. The first step is the shared
+`ConfirmDialog` from `deleteNodesInternal` (`src/window/lib/mutations.ts`,
+514b30e16), unchanged. When `terminalBeginNodeDelete` comes back not ok
+with `unstoppedRemote`, the window asks again through the same
+`askConfirm`, instead of today's error line ("Junto could not stop the
+managed terminal cleanly"). Delete anyway sends the same seats again with
+`confirmedUnreachable: true`. Cancel keeps every node and every seat.
+
+A seat on this Mac that fails to stop never gets this step: it keeps
+today's error.
+
+**The request.**
+
+| Field | One seat | Several nodes |
+|---|---|---|
+| `source` | `node-delete` | same |
+| `title` | `Delete quasar-lead anyway?` | `Delete 3 nodes anyway?` (the subject of step one) |
+| `confirmLabel` | `Delete anyway` | same |
+| `cancelLabel` | `Cancel` | same |
+| `tone` | `danger` | same |
+
+**The body**, one sentence a line, in this order:
+
+1. For each machine, its reason line (below). The dialog has no label line
+   above it, so here the machine and the seat are named.
+2. Right after it, what Delete anyway does there:
+   `Delete anyway removes it here, and it may keep running on Mac mini.`
+   With several seats on that machine: `Delete anyway removes them here,
+   and they may keep running on Mac mini.`
+3. The open signal line from step one, as it is: `2 open signals close
+   with it.` Only when above zero.
+4. The connected edges line from step one, as it is.
+
+Line 2 promises no later stop on purpose. Read at 952df5d6d: the seat's
+machine finishes a delete only for a stop it received and holds
+(`finishHeldSeatDeletes`, `src/core/work/exchange/live.ts:475`). A machine
+that was asleep or out of reach never received it, and nothing calls
+`sweepOwedMachine` yet, so its seat can keep running after the node is
+gone. When that is built and run on two machines, line 2 becomes `Junto
+stops it there the next time it reaches Mac mini.`
+
+**The reason line.** The core gives four reasons
+(`src/shared/terminal-delete.ts`). Asleep is the window's own: a Boat
+machine whose power reads `asleep` or `falling-asleep` says asleep in
+place of `unreachable` or `timeout`.
+
+| Reason | Line |
+|---|---|
+| `epoch-changed` | `quasar-lead restarted on Mac mini while Junto was stopping it.` |
+| `refused` | `Mac mini would not stop quasar-lead.` |
+| `timeout` | `Mac mini did not answer in time, so Junto could not stop quasar-lead there.` |
+| `unreachable` | `Junto cannot reach Mac mini, so it could not stop quasar-lead there.` |
+| asleep (Boat) | `Mac mini is asleep, so Junto could not stop quasar-lead there.` |
+
+Several seats on one machine with one reason are named up to three, then
+the rest by count: `Junto cannot reach Mac mini, so it could not stop
+quasar-lead, quasar-db and 2 more there.` Seats on different machines, or
+with different reasons, take a pair of lines each, in the table's order,
+then by machine label.
+
+**Sample, one seat:**
+
+    Delete quasar-lead anyway?
+    Junto cannot reach Mac mini, so it could not stop quasar-lead there.
+    Delete anyway removes it here, and it may keep running on Mac mini.
+    2 open signals close with it.
+                                            [Cancel] [Delete anyway]
+
+Words that stay out: terminal, binding, receipt, proven, managed, lease,
+occupant. No middle dots.
