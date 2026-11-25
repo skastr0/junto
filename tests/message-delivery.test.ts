@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ulid } from "ulid";
 import type { Message } from "../src/shared/work-model";
 import { AUTOMATION_SEAT_ID, NOTICE_SEAT_ID } from "../src/shared/mail-author";
+import { OPERATOR_SEAT_ID } from "../src/shared/work-reference";
 import {
   composeMailBatch,
   composeMessageDeliveryPayload,
@@ -15,6 +16,7 @@ import {
   isPendingDelivery,
   MAIL_BATCH_BODY_MAX,
   MAIL_BATCH_POINTER_MAX,
+  MAIL_BROADCAST_WORDS,
   MAIL_ONBOARD_POINTER,
   MAIL_TYPED_BODY_MAX,
   mailTypedWhole,
@@ -487,5 +489,90 @@ describe("a batch of mail for one seat", () => {
     expect(batch.whole).toEqual([true, true, false]);
     expect(batch.text.endsWith("\n\nmail from pty-lead (Junto / PTY), id 01C — junto msg read 01C")).toBe(true);
     expect(header(mails[0]!)).toBe("mail from agent-a, id 01A — reply: junto msg reply '{\"target\":\"agent-a\",\"inReplyTo\":\"01A\",\"text\":\"...\"}'");
+  });
+});
+
+describe("a row of an overseer's broadcast", () => {
+  const SEAT = `seat_${"b".repeat(64)}`;
+  // A broadcast row as the executor stamps it: the whole mail extension, broadcast on.
+  const row = (messageId: string, text: string, over: Record<string, unknown> = {}): Message =>
+    userMsg({
+      messageId,
+      // An `undefined` in `over` drops that key, as an unstamped row has none.
+      metadata: Object.fromEntries(
+        Object.entries({
+          factoryMail: true,
+          mailKind: "notice",
+          fromSeat: SEAT,
+          senderNodeId: "agent-overseer",
+          senderName: "cli-overseer",
+          senderGeneration: "ep_test",
+          senderHarness: "claude",
+          broadcast: true,
+          ...over,
+        }).filter(([, value]) => value !== undefined),
+      ),
+      parts: [{ kind: "text", text }],
+    });
+  const oneWay = `mail from cli-overseer, id 01B — ${MAIL_BROADCAST_WORDS}`;
+
+  it("says it is one way in the reply's place, with no reply command and no signal pointer", () => {
+    const typed = composeMessageDeliveryPayload(row("01B", "Freeze main until 18:00."), { signalInThread: true });
+    expect(typed).toBe(`${oneWay}\nFreeze main until 18:00.`);
+    expect(typed).not.toContain("junto msg reply");
+    expect(typed).not.toContain("junto escalate");
+    // The same row without the stamp answers its sender as any mail does.
+    expect(composeMessageDeliveryPayload(row("01B", "x", { broadcast: undefined })).split("\n")[0]).toBe(
+      `mail from cli-overseer, id 01B — reply: junto msg reply '{"target":"agent-overseer","inReplyTo":"01B","text":"..."}'`,
+    );
+  });
+
+  it("keeps the onboard pointer after the broadcast words, on the same line", () => {
+    const first = composeMessageDeliveryPayload(row("01B", "x"), { onboarded: false }).split("\n")[0];
+    expect(first).toBe(`${oneWay} — ${MAIL_ONBOARD_POINTER}`);
+  });
+
+  it("leaves the operator's mail its reply and signal pointer whatever the row says", () => {
+    const operator = row("01B", "Which store?", {
+      mailKind: "prompt",
+      fromSeat: OPERATOR_SEAT_ID,
+      senderNodeId: "operator",
+      senderName: "operator",
+    });
+    const header = composeImmediatePromptPayload(operator, { signalInThread: true }).split("\n")[0];
+    expect(header).toBe(
+      `mail from operator, id 01B — reply: junto msg reply '{"target":"operator","inReplyTo":"01B","text":"..."}', or a signal in it: junto escalate "..." --thread 01B`,
+    );
+    expect(header).not.toContain(MAIL_BROADCAST_WORDS);
+  });
+
+  it("puts the words on every whole section's header in a batch; the count, pointer lines and cap are unchanged", () => {
+    const fill = (letter: string): string => letter.repeat(MAIL_TYPED_BODY_MAX);
+    const mails = [
+      row("01A", fill("a")),
+      row("01B", fill("b"), { broadcast: undefined }),
+      row("01C", "c".repeat(MAIL_BATCH_BODY_MAX - 2 * MAIL_TYPED_BODY_MAX)),
+      row("01D", "past the cap"),
+    ];
+    const batch = composeMailBatch(mails.map((message) => ({ message })), { onboarded: false, signalInThread: true });
+    const sections = batch.text.split("\n\n");
+    expect(sections[0]).toBe(`4 mails, oldest first; the last 1 are past the 6000-character cap, by id only — ${MAIL_ONBOARD_POINTER}`);
+    expect(sections.slice(1, 4).map((section) => section.split("\n")[0])).toEqual([
+      `mail from cli-overseer, id 01A — ${MAIL_BROADCAST_WORDS}`,
+      `mail from cli-overseer, id 01B — reply: junto msg reply '{"target":"agent-overseer","inReplyTo":"01B","text":"..."}'`,
+      `mail from cli-overseer, id 01C — ${MAIL_BROADCAST_WORDS}`,
+    ]);
+    expect(sections[4]).toBe("mail from cli-overseer, id 01D — junto msg read 01D");
+    expect(batch.whole).toEqual([true, true, true, false]);
+    expect(batch.text).not.toContain("junto escalate");
+  });
+
+  it("cuts a long broadcast body where any notice is cut", () => {
+    const long = `${"y".repeat(MAIL_TYPED_BODY_MAX)}TAIL`;
+    const [, ...broadcastBody] = composeMessageDeliveryPayload(row("01B", long)).split("\n");
+    const [, ...plainBody] = composeMessageDeliveryPayload(row("01B", long, { broadcast: undefined })).split("\n");
+    expect(broadcastBody).toEqual(plainBody);
+    expect(broadcastBody[0]).toHaveLength(MAIL_TYPED_BODY_MAX);
+    expect(mailTypedWhole(row("01B", long))).toBe(false);
   });
 });

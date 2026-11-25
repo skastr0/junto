@@ -135,6 +135,12 @@ const briefWithoutFactoryEnvelope = (message: Message): string =>
 export const MAIL_ONBOARD_POINTER = "new to this seat? run `junto onboard` first";
 
 /**
+ * Takes the reply command's place on one row of an overseer's broadcast. A
+ * broadcast is one way: the header offers no reply and no signal to answer it.
+ */
+export const MAIL_BROADCAST_WORDS = "broadcast, one way: do not reply or acknowledge";
+
+/**
  * Who sent a mail, as the recipient reads it ("cli-lead (Junto / CLI)"), and
  * where a reply goes: the sender's node id for a seat or the operator, and no
  * reply command at all for a notice or an automation, by type.
@@ -219,7 +225,8 @@ const replyTargetOf = (message: Message, sender: MailSender): string | undefined
 /**
  * The header a factory notice and a prompt share: who sent it and the regions
  * around them, its id, its thread when it is a reply, the subject it is on,
- * and the exact `junto msg reply` that answers it.
+ * and the exact `junto msg reply` that answers it; on a broadcast row, that it
+ * is one way in that reply's place.
  */
 const mailHeader = (message: Message, options: MailLineOptions | undefined): string => {
   const sender = options?.sender ?? stampedSender(message);
@@ -233,6 +240,10 @@ const mailHeader = (message: Message, options: MailLineOptions | undefined): str
     ...(subject === undefined ? [] : [`on ${sanitizeDeliveryLine(subjectLabel(subject))}`]),
   ].join(", ");
   const replyTarget = replyTargetOf(message, sender);
+  // A broadcast row says it is one way; the operator's mail keeps its reply whatever the row says.
+  if (replyTarget !== "operator" && readMailExtension(message.metadata)?.broadcast === true) {
+    return withOnboardPointer(`${named} — ${MAIL_BROADCAST_WORDS}`, options);
+  }
   const reply = replyTarget === undefined
     ? ""
     : ` — reply: junto msg reply '${JSON.stringify({ target: sanitizeDeliveryLine(replyTarget), inReplyTo: id, text: "..." })}'`;
