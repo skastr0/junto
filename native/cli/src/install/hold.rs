@@ -157,41 +157,41 @@ impl Client {
 }
 
 impl Client {
+    /// The incumbent's own session table, or nothing at all when its answer
+    /// does not hold one: a missing or malformed table is never read as empty,
+    /// since an empty table is what lets the lease be asked for.
     fn sessions(&mut self) -> Option<Vec<SessionRow>> {
         let data = self.call("list", json!({}), REQUEST_TIMEOUT)?;
-        Some(
-            data.get("sessions")
-                .cloned()
-                .and_then(|value| serde_json::from_value(value).ok())
-                .unwrap_or_default(),
-        )
+        let value = data.get("sessions")?.clone();
+        serde_json::from_value(value).ok()
     }
 }
 
-/// Every killed session is gone from the incumbent's own table, or the bound
-/// passed without that.
-fn wait_until_gone(client: &mut Client, killed: &[String], bound: Duration) -> bool {
+/// What the wait proved about the sessions it killed.
+enum Stopped {
+    Gone,
+    StillThere,
+    /// The table stopped being readable: nothing here can prove the seats are
+    /// gone, and the lease is not the place to guess.
+    Unreadable,
+}
+
+fn wait_until_gone(client: &mut Client, killed: &[String], bound: Duration) -> Stopped {
     let deadline = std::time::Instant::now() + bound;
     loop {
-        match client.sessions() {
-            Some(sessions) => {
-                let alive = killed.iter().any(|binding| {
-                    sessions
-                        .iter()
-                        .any(|row| &row.binding_id == binding && row.status != "exited")
-                });
-                if !alive {
-                    return true;
-                }
-            }
-            None => {
-                // The table went quiet: nothing here can prove the seats are
-                // gone, and the lease is not the place to guess.
-                return false;
-            }
+        let Some(sessions) = client.sessions() else {
+            return Stopped::Unreadable;
+        };
+        let alive = killed.iter().any(|binding| {
+            sessions
+                .iter()
+                .any(|row| &row.binding_id == binding && row.status != "exited")
+        });
+        if !alive {
+            return Stopped::Gone;
         }
         if std::time::Instant::now() >= deadline {
-            return false;
+            return Stopped::StillThere;
         }
         std::thread::sleep(STOP_POLL);
     }
@@ -244,8 +244,14 @@ fn hold_with(junto_home: &Path, stop_running_seats: bool, stop_bound: Duration) 
             );
             killed.push(session.binding_id);
         }
-        if !killed.is_empty() && !wait_until_gone(&mut client, &killed, stop_bound) {
-            return Hold::SeatsStillRunning(killed.len().min(u32::MAX as usize) as u32);
+        if !killed.is_empty() {
+            match wait_until_gone(&mut client, &killed, stop_bound) {
+                Stopped::Gone => {}
+                Stopped::StillThere => {
+                    return Hold::SeatsStillRunning(killed.len().min(u32::MAX as usize) as u32);
+                }
+                Stopped::Unreadable => return Hold::Unknown,
+            }
         }
     }
     let Some(data) = client.call("maintenance.acquire", json!({}), MAINTENANCE_TIMEOUT) else {
@@ -316,6 +322,15 @@ mod tests {
         home: &Path,
         exit_after_lists: Option<usize>,
     ) -> (Arc<Mutex<Vec<String>>>, std::thread::JoinHandle<()>) {
+        incumbent_with(home, exit_after_lists, false)
+    }
+
+    /// The same socket, with a table that goes blank after its kill.
+    fn incumbent_with(
+        home: &Path,
+        exit_after_lists: Option<usize>,
+        blank_after_kill: bool,
+    ) -> (Arc<Mutex<Vec<String>>>, std::thread::JoinHandle<()>) {
         use std::io::{BufRead, BufReader, Write};
         use std::os::unix::net::UnixListener;
 
@@ -365,6 +380,7 @@ mod tests {
                     .unwrap_or_default();
                 record.lock().expect("seen").push(op.to_string());
                 let data = match op {
+                    "list" if blank_after_kill && killed => json!({}),
                     "list" => {
                         let status = if !killed {
                             "running"
@@ -437,6 +453,29 @@ mod tests {
                 .count()
                 >= 4,
             "the lease is asked only after the table showed the session gone: {operations:?}"
+        );
+        drop(server);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_table_that_goes_unreadable_after_a_kill_fails_closed() {
+        let home = scratch("blank");
+        let (seen, server) = incumbent_with(&home, Some(1), true);
+        match hold_with(&home, true, Duration::from_secs(2)) {
+            Hold::Unknown => {}
+            _ => panic!("a blank table is not a proof that the seats are gone"),
+        }
+        let operations = seen.lock().expect("seen").clone();
+        assert!(
+            !operations.iter().any(|op| op == "maintenance.acquire"),
+            "the lease is never asked for on a guess: {operations:?}"
+        );
+        let refused = running_seats_unknown();
+        assert!(
+            refused.message.contains("did not answer"),
+            "{}",
+            refused.message
         );
         drop(server);
         let _ = std::fs::remove_dir_all(&home);
