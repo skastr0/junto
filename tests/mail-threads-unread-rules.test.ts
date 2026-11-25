@@ -21,6 +21,7 @@ import {
   unreadPast,
   type MailReadPoint,
   type MailThreadsInput,
+  operatorIn,
   type ThreadGroup,
 } from "../src/shared/mail-threads";
 import { makeAgentMessage, makeUserMessage } from "../src/shared/task";
@@ -55,6 +56,16 @@ const seatMeta = mailExtensionMetadata({
   senderNodeId: SEAT,
   senderName: "agent",
   senderGeneration: "agent",
+  senderHarness: "unknown",
+});
+
+/** An overseer's mail to a seat: a user-role row stamped with the overseer's own seat, never the operator's. */
+const overseerMeta = mailExtensionMetadata({
+  mailKind: "prompt",
+  fromSeat: ActorSeatId.make(`seat_${"d".repeat(64)}`),
+  senderNodeId: "overseer-1",
+  senderName: "overseer",
+  senderGeneration: "overseer",
   senderHarness: "unknown",
 });
 
@@ -110,6 +121,27 @@ describe("rule 1: only threads the operator is in count", () => {
       expect(between).toMatchObject({ canReply: false, unread: 0, messageCount: 3 });
       expect(total(input, nodeId)).toBe(0);
     }
+  });
+
+  it("never puts an overseer's mail to a seat in the operator's threads, unread count or Global rows", () => {
+    const sent = makeUserMessage({ messageId: ulid(minute(0)), text: "from the overseer", contextId: "factory", metadata: { factoryMail: true, ...overseerMeta } });
+    const again = makeUserMessage({ messageId: ulid(minute(1)), text: "and again", contextId: "factory", metadata: { factoryMail: true, ...overseerMeta, ...thread(sent.messageId, sent.messageId) } });
+    const input = inputOf([sent, again]);
+
+    // Between seats: readable, never counted, never repliable, never the operator's.
+    expect(summary(input, sent.messageId)).toMatchObject({ canReply: false, unread: 0, messageCount: 2 });
+    expect(total(input)).toBe(0);
+    const entries = seatMailThreadEntries(input, SEAT).get(sent.messageId)!;
+    expect(operatorIn(entries)).toBe(false);
+    expect(entries.every((entry) => !entry.mine)).toBe(true);
+    expect(seatMailThreadsPage(input, SEAT, { limit: 50, group: "with-you" }).threads).toEqual([]);
+    expect(seatMailThreadsPage(input, SEAT, { limit: 50, group: "between" }).threads.map((item) => item.threadId)).toEqual([sent.messageId]);
+
+    // Beside the operator's own thread it stays out of the count and the list.
+    const asked = operatorMail(minute(2));
+    const both = inputOf([sent, again, asked, replyToOperator(minute(3), asked.messageId, asked.messageId)]);
+    expect(total(both)).toBe(1);
+    expect(seatMailThreadsPage(both, SEAT, { limit: 50, group: "with-you" }).threads.map((item) => item.threadId)).toEqual([asked.messageId]);
   });
 
   it("counts a thousand seat mails as nothing, beside one reply to the operator", () => {
