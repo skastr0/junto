@@ -540,6 +540,19 @@ the preview** (R2, `installation-changed`).
 - Another day: `It last heard from the old install on 24 November.`
 - Never: `It has never heard from the old install.`
 
+**A send after remove and a reinstall there, with work still placed on
+its name** (remote-security P2): seats, automations or Files nodes on this
+machine's canvases still name it from before the remove.
+
+- Core's words, `ownWords: true`: `Seats, automations or Files nodes here
+  are still placed on it from before it was removed, so nothing changed.
+  Preview a take-over with junto machine takeover to see which seats,
+  automations and Files nodes move.`
+- `nothing changed` holds on this side: the send refuses before it changes
+  anything. Files nodes are named because the preview counts them
+  (`MachineTakeoverData.files`). The printed preview line follows, under
+  the take-over conditions above.
+
 **The send's own `pinned` step.** It shows, on a send only, as a sixth
 step after `Junto answers`, so a refused pin shows where it stopped
 instead of five done steps beside a failure. An update never pins and
