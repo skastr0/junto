@@ -115,6 +115,7 @@ import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { PERF_ENABLED } from "../lib/performance/perf-flag";
 import { CountedSurface } from "../lib/performance/surface-commits";
 import { useCanvasGroupFocus } from "./useCanvasGroupFocus";
+import { useOverlayHold } from "../lib/overlay-open";
 
 /**
  * A node's class: agents carry junto-flow-agent (convert.ts), which keeps them
@@ -829,6 +830,8 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
   // "message" turns the menu into a composer in place: same spot, same
   // selection, and the selection changing still closes it.
   const [composing, setComposing] = useState(false);
+  // The message form is a dialog that floats over the canvas: the bar is no window drag while it is up.
+  useOverlayHold(composing);
 
   const hostRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ readonly x: number; readonly y: number } | null>(null);

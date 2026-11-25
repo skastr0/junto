@@ -68,6 +68,8 @@ export function OperatorModalShell({
   const layer = useModalLayer({
     layer: "operator",
     containerRef: frameRef,
+    // A panel under the bar crosses none of it: the bar keeps dragging the window.
+    coversBar: !belowBar,
     returnFocusTo: operatorModalOpener(),
     // A swap: the next operator modal is already open and takes the keyboard.
     keepFocusOnClose: isOperatorModalOpen,

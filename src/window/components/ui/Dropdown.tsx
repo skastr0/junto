@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 import { claimFocus } from "../../lib/focus-ownership";
 import { FOCUS_RING_INSET } from "./focus";
+import { useOverlayHold } from "../../lib/overlay-open";
 
 export type DropdownOption = {
   readonly value: string;
@@ -78,6 +79,8 @@ export function Dropdown({
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [box, setBox] = useState<MenuBox | null>(null);
+  // The menu floats over the page while it is drawn: the bar is no window drag meanwhile.
+  useOverlayHold(open && box !== null);
   const [highlight, setHighlight] = useState(0);
   const typeaheadRef = useRef({ buffer: "", at: 0 });
 

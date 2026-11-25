@@ -1,5 +1,6 @@
 import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
 import { Kbd } from "./Kbd";
+import { useOverlayHold } from "../../lib/overlay-open";
 
 /**
  * HelpMap — instrument chrome for protocol / interaction / shortcut maps.
@@ -39,6 +40,7 @@ export function HelpMap({
   readonly className?: string;
   readonly "aria-label"?: string;
 } & Omit<HTMLAttributes<HTMLElement>, "title" | "children">) {
+  useOverlayHold();
   return (
     <aside
       className={["help-map", tone === "cyan" ? "help-map--cyan" : "", className ?? ""]

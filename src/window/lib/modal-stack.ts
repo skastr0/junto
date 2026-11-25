@@ -5,6 +5,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from "react";
+import { holdOverlay, resetOverlays } from "./overlay-open";
 import {
   claimFocus,
   closestComposed,
@@ -46,6 +47,11 @@ export type ModalEntry = {
   readonly onEscape: () => boolean;
   /** Close this modal outright, whatever Escape means inside it. */
   readonly onClose: () => void;
+  /**
+   * False for a panel that sits under the top bar and crosses none of it: it
+   * does not take the bar out of the window drag (lib/overlay-open.ts).
+   */
+  readonly coversBar?: boolean;
 };
 
 type Stacked = ModalEntry & { readonly seq: number };
@@ -455,12 +461,14 @@ export const pushModal = (
   ensureListening();
   const stacked: Stacked = { ...entry, seq: nextSeq++ };
   stack.push(stacked);
+  const releaseBar = entry.coversBar === false ? undefined : holdOverlay();
   syncHidden();
   announceStack();
   return {
     leave: () => {
       const index = stack.indexOf(stacked);
       if (index >= 0) stack.splice(index, 1);
+      releaseBar?.();
       syncHidden();
       announceStack();
     },
@@ -471,6 +479,7 @@ export const pushModal = (
 /** Test seam: forget every open modal. */
 export const resetModalStack = (): void => {
   stack.length = 0;
+  resetOverlays();
   syncHidden();
   announceStack();
 };
@@ -486,6 +495,7 @@ export const useModalLayer = ({
   containerRef,
   trap = true,
   isolate = true,
+  coversBar = true,
   onEscape,
   onClose,
   returnFocusTo,
@@ -504,6 +514,8 @@ export const useModalLayer = ({
    * modals, whose bodies still use app-wide shortcuts.
    */
   readonly isolate?: boolean;
+  /** False for a panel under the top bar, which crosses none of it (ModalEntry.coversBar). */
+  readonly coversBar?: boolean;
   /**
    * Escape for this modal, when nothing inside it took the key first.
    * Return false when the key is not this modal's (a terminal keeps Escape).
@@ -542,6 +554,7 @@ export const useModalLayer = ({
     const { leave, isTop } = pushModal({
       layer,
       trap,
+      coversBar,
       container: () => containerRef.current,
       onEscape: () => onEscapeRef.current() !== false,
       onClose: () => onCloseRef.current(),
@@ -555,7 +568,7 @@ export const useModalLayer = ({
       if (!opener || keepFocusRef.current?.() === true) return;
       returnKeyboardFrom(opener, borrowedRef.current);
     };
-  }, [layer, trap, containerRef]);
+  }, [layer, trap, coversBar, containerRef]);
 
   return {
     onKeyDown: (event) => {

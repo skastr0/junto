@@ -24,6 +24,7 @@ import { Button } from "../ui/Button";
 import { Eyebrow } from "../ui/Eyebrow";
 import { IconButton } from "../ui/IconButton";
 import { ConnectEditor } from "./ConnectEditor";
+import { useOverlayHold } from "../../lib/overlay-open";
 import "./connections-panel.css";
 
 const WAY_ICON: Readonly<Record<ConnectionWay, typeof ArrowRight>> = {
@@ -81,6 +82,7 @@ type RemovalFocus = {
  * Each row is a line of its own, so a row can take more later.
  */
 export function ConnectionsPanel({ nodeId, onClose }: { readonly nodeId: string; readonly onClose: () => void }) {
+  useOverlayHold();
   const canvas = useCanvas(use$(state$.canvasName));
   const seat = canvas.nodes.get(asNodeId(nodeId));
   const seatName = seat ? titleOf(seat) : nodeId;

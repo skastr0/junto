@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { placeBesideRect, type Align, type Side } from "../../lib/menu-placement";
 import { claimFocus, focusPrimaryControl } from "../../lib/focus-ownership";
 import { FOCUSABLE_SELECTOR, openerBorrowedKeyboard, returnKeyboardFrom, topModal } from "../../lib/modal-stack";
+import { useOverlayHold } from "../../lib/overlay-open";
 
 // Module-level so the default is one stable array: a fresh literal per render
 // would re-run the placement layout effect every render and never settle.
@@ -60,6 +61,8 @@ export function Popover({
   readonly testId?: string;
   readonly children: ReactNode;
 }) {
+  // Open while mounted: the bar is no window drag while a panel can cross it.
+  useOverlayHold();
   const panelRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ readonly x: number; readonly y: number } | null>(null);
   const onCloseRef = useRef(onClose);

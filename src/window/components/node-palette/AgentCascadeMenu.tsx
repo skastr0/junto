@@ -38,6 +38,7 @@ import {
 } from "./agent-launch-model";
 import { claimFocus } from "../../lib/focus-ownership";
 import { arrangeModels, MODEL_SEARCH_MIN, orderModels } from "./model-choices";
+import { useOverlayHold } from "../../lib/overlay-open";
 
 export type { AgentConfigurationChoices };
 
@@ -179,6 +180,7 @@ function MenuColumn({
   readonly search?: ReactNode;
   readonly children: ReactNode;
 }) {
+  useOverlayHold();
   // The whole column is the menu, its search field included, so moving
   // between the field and the rows stays inside one focus scope.
   return (

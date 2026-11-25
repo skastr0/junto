@@ -558,10 +558,12 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 /* A drag region ignores z-index, so any overlay that crosses the bar's band
    would hand its clicks to the window drag unless it cut itself out. One rule
    for the whole class: while anything is open over the window (a dialog, a
-   menu, a listbox that is not the bar's own), the bar is no drag region at
-   all. A surface need not remember to cut itself out; the rules above stay as
-   the second line for what draws without one of these roles. */
-html[data-junto-platform="darwin"]:has([role="dialog"]:not([data-below-bar="true"] *), [role="menu"], [role="listbox"]:not(.station-bar *), [data-overlay-open]) .station-bar {
+   menu, a popover), the bar is no drag region at all. The overlays say so on
+   <html> through one counted attribute (lib/overlay-open.ts), set by the modal
+   stack and by the floating menus and panels. A panel under the bar crosses
+   none of it and does not say so. It is an attribute, never a :has() on the
+   root, which invalidates the style of the whole document at every DOM change. */
+html[data-junto-platform="darwin"][data-junto-overlay="open"] .station-bar {
   -webkit-app-region: no-drag;
 }
 
