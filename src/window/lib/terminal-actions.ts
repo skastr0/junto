@@ -159,6 +159,32 @@ export function openTerminal(
   return openTerminalNode(row, first);
 }
 
+const askedOpenListeners = new Set<(nodeId: string) => void>();
+
+/**
+ * Hear that the operator asked for one terminal on its own (see
+ * `openTerminalAsked`). The grid lives in a module that imports this one, so
+ * it listens here instead of being called. Returns the way to stop.
+ */
+export const onTerminalAskedOpen = (listener: (nodeId: string) => void): (() => void) => {
+  askedOpenListeners.add(listener);
+  return () => void askedOpenListeners.delete(listener);
+};
+
+/**
+ * Open one terminal because the operator asked for it: Open seat, cmd+k, the
+ * bar. Whatever else shows it lets go (the grid closes, since it sits over a
+ * seat modal and would stay on top of the one asked for). Opens made by the
+ * product's own doing, a relaunch or a cycled mirror, use `openTerminal` and
+ * leave the grid as it is.
+ */
+export const openTerminalAsked = (canvas: string, id: string): Promise<void> => {
+  // The open joins the terminal to the workbench before anyone lets go.
+  const opening = openTerminal(canvas, id);
+  for (const listener of askedOpenListeners) listener(id);
+  return opening;
+};
+
 const openTerminalNode = async (
   node: Seat | Terminal,
   canvas = state$.canvasName.peek(),

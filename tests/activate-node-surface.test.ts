@@ -9,7 +9,7 @@ import { TASKS_ENABLED } from "../src/shared/features";
 import { seat, note, region, taskBoard, terminal } from "./support/model-nodes";
 
 const opens = vi.hoisted(() => vi.fn());
-vi.mock("../src/window/lib/terminal-actions", () => ({ openTerminal: opens }));
+vi.mock("../src/window/lib/terminal-actions", () => ({ openTerminalAsked: opens }));
 const canvas = "native-surface-activation";
 const oldCanvas = state$.canvasName.peek();
 beforeEach(() => { state$.canvasName.set(canvas); opens.mockClear(); });

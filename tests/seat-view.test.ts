@@ -11,15 +11,14 @@ vi.mock("../src/window/lib/use-model", () => ({
   nodeAt: (canvas: string, id: string) => (canvas === "factory" ? world.nodes.get(id) : undefined),
 }));
 vi.mock("../src/window/lib/terminal-actions", () => ({
-  openTerminal: vi.fn(async () => undefined),
+  openTerminalAsked: vi.fn(async () => undefined),
 }));
 
 import { answerSeatViewAsk, openSeatOn, seatViewAsked$ } from "../src/window/lib/seat-view";
-import { openTerminal } from "../src/window/lib/terminal-actions";
-import { terminalGrid$ } from "../src/window/lib/terminal-grid-state";
+import { openTerminalAsked } from "../src/window/lib/terminal-actions";
 import { dropTerminalView, terminal$ } from "../src/window/lib/terminal-state";
 
-const opened = vi.mocked(openTerminal);
+const opened = vi.mocked(openTerminalAsked);
 const put = (...nodes: Node[]): void => {
   for (const node of nodes) world.nodes.set(node.id, node);
 };
@@ -29,14 +28,10 @@ beforeEach(() => {
   opened.mockClear();
   seatViewAsked$.set({});
   terminal$.openByNodeId.set({});
-  terminal$.gridOwnedByNodeId.set({});
-  terminalGrid$.nodeIds.set([]);
 });
 afterEach(() => {
   seatViewAsked$.set({});
   terminal$.openByNodeId.set({});
-  terminal$.gridOwnedByNodeId.set({});
-  terminalGrid$.nodeIds.set([]);
 });
 
 describe("openSeatOn", () => {
@@ -98,33 +93,5 @@ describe("openSeatOn", () => {
     });
     await openSeatOn("factory", "seat-1", "threads");
     expect(seatViewAsked$["seat-1"].peek()).toBe("threads");
-  });
-
-  it("opens a seat the grid shows out of the grid: the grid closes, the seat stays open on the view, the other cells go", async () => {
-    const one = seat("seat-1");
-    const two = seat("seat-2");
-    put(one, two);
-    terminal$.openByNodeId.set({ "seat-1": one, "seat-2": two });
-    terminal$.gridOwnedByNodeId.set({ "seat-1": true, "seat-2": true });
-    terminalGrid$.nodeIds.set(["seat-1", "seat-2"]);
-    // The real open takes the seat out of the grid's hands as it joins the workbench.
-    opened.mockImplementationOnce(async () => {
-      terminal$.gridOwnedByNodeId["seat-1"].delete();
-    });
-    await openSeatOn("factory", "seat-1", "threads");
-    expect(terminalGrid$.nodeIds.peek()).toEqual([]);
-    expect(terminal$.openByNodeId.peek()["seat-1"]).toBe(one);
-    expect(terminal$.openByNodeId.peek()["seat-2"]).toBeUndefined();
-    expect(seatViewAsked$["seat-1"].peek()).toBe("threads");
-  });
-
-  it("leaves the grid alone when the seat is not one of its cells", async () => {
-    const one = seat("seat-1");
-    const two = seat("seat-2");
-    put(one, two);
-    terminal$.openByNodeId.set({ "seat-2": two });
-    terminalGrid$.nodeIds.set(["seat-2"]);
-    await openSeatOn("factory", "seat-1", "threads");
-    expect(terminalGrid$.nodeIds.peek()).toEqual(["seat-2"]);
   });
 });

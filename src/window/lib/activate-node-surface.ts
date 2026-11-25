@@ -16,7 +16,7 @@ import {
 } from "./dock-state";
 import { hostOf } from "./presentation";
 import { state$ } from "./state";
-import { openTerminal } from "./terminal-actions";
+import { openTerminalAsked } from "./terminal-actions";
 import { openWorkDetail } from "./work-detail-open";
 
 export type ActivateNodeSurfaceResult =
@@ -57,7 +57,7 @@ export function activateNodeSurface(nodeId: string): ActivateNodeSurfaceResult {
 
   switch (surface) {
     case "terminal": {
-      void openTerminal(state$.canvasName.peek(), node.id);
+      void openTerminalAsked(state$.canvasName.peek(), node.id);
       return { opened: true, kind: "terminal" };
     }
     case "work": {

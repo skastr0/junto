@@ -1,7 +1,7 @@
 import { observable } from "@legendapp/state";
 import { nodeAt } from "./use-model";
 import { state$ } from "./state";
-import { openAgentGridTerminals } from "./terminal-actions";
+import { onTerminalAskedOpen, openAgentGridTerminals } from "./terminal-actions";
 import { closeGridTerminalSurfaces } from "./terminal-state";
 import type { GridChoice } from "./terminal-grid";
 
@@ -44,3 +44,10 @@ export const closeTerminalGrid = (): void => {
   terminalGrid$.nodeIds.set([]);
   closeGridTerminalSurfaces();
 };
+
+// A seat the grid shows, asked for on its own, is opened out of the grid: the
+// open has already taken that seat out of the grid's hands, and closing
+// releases the other cells.
+onTerminalAskedOpen((nodeId) => {
+  if (terminalGrid$.nodeIds.peek().includes(nodeId)) closeTerminalGrid();
+});

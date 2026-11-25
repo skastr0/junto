@@ -31,7 +31,7 @@ import { state$ } from "../../lib/state";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { terminalBindingOf } from "@shared/terminal";
 import { openDockBrowser, openTaskCreateSurface } from "../../lib/dock-state";
-import { openTerminal } from "../../lib/terminal-actions";
+import { openTerminalAsked } from "../../lib/terminal-actions";
 import { openAgentEditor } from "../../lib/agent-editor-state";
 import { isProfileSeat } from "../../lib/agent-profiles";
 import { openSaveProfile } from "../../lib/profiles-state";
@@ -371,7 +371,7 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
             <KindKey
               label="Open terminal"
               title="Open agent terminal (double-click node or re-tap slot)"
-              onClick={() => void openTerminal(state$.canvasName.peek(), node.id)}
+              onClick={() => void openTerminalAsked(state$.canvasName.peek(), node.id)}
             >
               <Terminal size={ICON} />
             </KindKey>
@@ -403,7 +403,7 @@ export function KindActions({ nodeId }: { readonly nodeId: string }) {
         <KindKey
           label="Open terminal"
           title="Open terminal"
-          onClick={() => void openTerminal(state$.canvasName.peek(), node.id)}
+          onClick={() => void openTerminalAsked(state$.canvasName.peek(), node.id)}
         >
           <Terminal size={ICON} />
         </KindKey>
