@@ -14,6 +14,7 @@ import {
   useSeatThreadMessages,
   useSeatThreads,
   useSeatUnread,
+  WAITING_AFTER_MS,
   type SeatAddress,
   type SeatThreadSummary,
 } from "../../lib/seat-threads";
@@ -171,13 +172,6 @@ const LIST_NEAR_END = 400;
 const CHAT_NEAR_TOP = 240;
 /** How long a chat is in the document before it says how the send that started its thread went. */
 const SAID_AFTER_MOUNT_MS = 150;
-/**
- * How long a send may stay unarrived before the chat says its seat is away: a
- * seat that takes the mail within this has it, and nothing about waiting was
- * ever drawn or said. A running seat, or a stopped one the send wakes, takes
- * it inside a second.
- */
-const SENT_WAITING_AFTER_MS = 1000;
 
 /** Two messages from one seat this close together share a head: the second folds. */
 const FOLD_MS = 10 * 60 * 1000;
@@ -537,9 +531,6 @@ export function ThreadChat({
   // The mail sent from here whose outcome is not said yet, by id.
   const followed = useRef(new Set<string>());
   // The mail sent from here whose waiting mark is held back until it has had its second.
-  // A thread just started from here starts with its first mail held back, so
-  // that mark is not drawn even for a frame before an effect could hold it.
-  const [heldBack, setHeldBack] = useState<ReadonlyArray<string>>(() => (started === undefined ? [] : [started.messageId]));
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   // The signals this thread already says crossed, on the signal itself: their answer says nothing more.
   const crossedSignals = useMemo(() => {
@@ -560,18 +551,15 @@ export function ThreadChat({
       ids.clear();
       for (const timer of waits.values()) clearTimeout(timer);
       waits.clear();
-      setHeldBack([]);
     };
   }, [threadId]);
   const follow = useCallback(
     (messageId: string) => {
       followed.current.add(messageId);
-      setHeldBack((ids) => (ids.includes(messageId) ? ids : [...ids, messageId]));
       timers.current.set(
         messageId,
         setTimeout(() => {
           timers.current.delete(messageId);
-          setHeldBack((ids) => ids.filter((id) => id !== messageId));
           if (!followed.current.has(messageId)) return;
           const mail = messagesNow.current.find((message) => message.messageId === messageId);
           if (mail !== undefined && mail.waiting !== true) {
@@ -583,7 +571,7 @@ export function ThreadChat({
           }
           // Said only while the thread is on screen, as its arrival is.
           if (shownNow.current) say(sentWaiting(name));
-        }, SENT_WAITING_AFTER_MS),
+        }, WAITING_AFTER_MS),
       );
     },
     [name, say],
@@ -594,7 +582,6 @@ export function ThreadChat({
       const timer = timers.current.get(message.messageId);
       if (timer !== undefined) clearTimeout(timer);
       timers.current.delete(message.messageId);
-      setHeldBack((ids) => (ids.includes(message.messageId) ? ids.filter((id) => id !== message.messageId) : ids));
       // Said only while the thread is on screen. Behind Terminal it is not
       // said, then or later, and the waiting it answered is let go.
       if (shown) say(sentArrived(name));
@@ -642,12 +629,9 @@ export function ThreadChat({
   const startedId = started?.messageId;
   useEffect(() => {
     if (startedId === undefined) return;
-    // Its waiting mark is held back from the chat's first frame, not from the moment it can be said.
-    setHeldBack((ids) => (ids.includes(startedId) ? ids : [...ids, startedId]));
     const timer = setTimeout(() => {
       const mail = messagesNow.current.find((message) => message.messageId === startedId);
       if (mail !== undefined && mail.waiting !== true) {
-        setHeldBack((ids) => ids.filter((id) => id !== startedId));
         if (shown) say(sentArrived(name));
         return;
       }
@@ -818,7 +802,7 @@ export function ThreadChat({
                     {words}
                     {files}
                     {/* The operator's own mail that its seat does not have yet. */}
-                    {message.mine && message.waiting && !message.held && !heldBack.includes(message.messageId) ? <WaitingMark name={name} /> : null}
+                    {message.mine && message.waiting && !message.held ? <WaitingMark name={name} messageId={message.messageId} /> : null}
                     {/* An answer its seat withdrew the signal before it arrived: kept from the seat, said in the crossed note's own style. */}
                     {message.mine && message.held && !(message.answers !== undefined && crossedSignals.has(message.answers.signalId)) ? (
                       <p className="seat-threads__signal-note seat-threads__signal-note--held" data-testid="seat-threads-answer-held">{answerHeldWords(name)}</p>

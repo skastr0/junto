@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { FEED_KIND_LABEL } from "@shared/operator-feed";
 import { crossedWords } from "@shared/signal-crossing";
 import type { AgentSignalState, SeatRaiseKind } from "@shared/wire/agent-signals";
-import { waitingForSeats } from "../../lib/seat-threads";
+import { useWaitingMarkHeld, waitingForSeats } from "../../lib/seat-threads";
 import { KIND_ICON } from "../feed/FeedCardView";
 import { Button } from "../ui/Button";
 import { ThreadHeadline, threadHeadlineText } from "./ThreadHeadline";
@@ -174,7 +174,10 @@ export function AnswerTo({
  * Plain words, not a status: a thread can hold many of them, and its history
  * is never said aloud. The send that comes back waiting is said by `ThreadSaid`.
  */
-export function WaitingMark({ name }: { readonly name: string }) {
+export function WaitingMark({ name, messageId }: { readonly name: string; readonly messageId?: string }) {
+  // Mail sent from here draws nothing inside its first second, and nothing at all if it has arrived by then.
+  const held = useWaitingMarkHeld(messageId ?? "");
+  if (held) return null;
   return (
     <p className="seat-threads__waiting" data-testid="seat-threads-waiting">
       <Clock size={11} strokeWidth={2.25} aria-hidden />

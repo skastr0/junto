@@ -982,6 +982,33 @@ export type NewThread = {
 };
 
 /**
+ * How long a send may stay unarrived before anything about waiting is drawn
+ * or said: a seat that takes the mail inside it has it, and the operator
+ * never sees the mail wait. A running seat, or a stopped one the send wakes,
+ * takes it inside a second.
+ */
+export const WAITING_AFTER_MS = 1000;
+
+// The mail sent from here whose waiting mark is held back until its second is up, by message id.
+// One store for every place that draws the mark (a message in a thread, a row in Global threads),
+// so no place draws it from a read before the others do.
+const markHeld$ = observable<Record<string, true>>({});
+const holdTimers = new Set<ReturnType<typeof setTimeout>>();
+
+/** The operator's mail was sent from here: its waiting mark is held back for a second. */
+export const holdWaitingMark = (messageId: string): void => {
+  markHeld$[messageId].set(true);
+  const timer = setTimeout(() => {
+    holdTimers.delete(timer);
+    markHeld$[messageId].delete();
+  }, WAITING_AFTER_MS);
+  holdTimers.add(timer);
+};
+
+/** Whether this mail's waiting mark is still held back. */
+export const useWaitingMarkHeld = (messageId: string): boolean => use$(markHeld$[messageId]) === true;
+
+/**
  * Who the operator's mail has not reached yet, in one sentence about the
  * seat. The one wording for every place that says it: under a message in a
  * thread, and on Quick thread's receipt.
@@ -1032,7 +1059,11 @@ export const sendSeatThread = async (
   if (typeof send !== "function") return { ok: false, reason: "failed", message: "Junto could not reach this seat." };
   try {
     const result = await send({ canvasName, nodeId: seatId, ...mail });
-    if (result.ok) refreshSeatThreads({ canvasName, seatId });
+    if (result.ok) {
+      // Before the read the send asks for, so no read can draw the mark inside its second.
+      holdWaitingMark(result.messageId);
+      refreshSeatThreads({ canvasName, seatId });
+    }
     return result;
   } catch (error) {
     return { ok: false, reason: "failed", message: errorText(error) };
@@ -1054,5 +1085,8 @@ export const resetSeatThreads = (): void => {
   paces.clear();
   flights.clear();
   closedOn.clear();
+  for (const timer of holdTimers) clearTimeout(timer);
+  holdTimers.clear();
+  markHeld$.set({});
   seatThreads$.set({ seats: {}, messages: {}, unread: {} });
 };

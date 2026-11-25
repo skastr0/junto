@@ -31,7 +31,7 @@ import { regionChipStyle } from "../../lib/region-chip-style";
 import { claimFocus, focusPrimaryControl } from "../../lib/focus-ownership";
 import { useListNav } from "../../lib/list-nav";
 import { regionPickKey, regionPickName } from "../../lib/operator-feed";
-import { previewText, waitingForSeats } from "../../lib/seat-threads";
+import { previewText, useWaitingMarkHeld, waitingForSeats } from "../../lib/seat-threads";
 import { ThreadTime } from "../threads/ThreadTime";
 import { provideThreadKey } from "../../lib/thread-keys";
 import { threadHeadline } from "../../lib/thread-text";
@@ -139,6 +139,8 @@ function ThreadListRow({
 }) {
   const unread = row.unread > 0;
   const mine = lastIsMine(row);
+  // A reply just sent from here is not drawn as waiting inside its first second.
+  const waitingHeld = useWaitingMarkHeld(row.last.messageId);
   return (
     <li>
       <button
@@ -182,7 +184,7 @@ function ThreadListRow({
         </span>
         <span className="operator-threads__last">
           {/* The operator's own last mail, not yet with its seat. */}
-          {mine && row.last.waiting === true ? (
+          {mine && row.last.waiting === true && !waitingHeld ? (
             <>
               <span className="operator-threads__waiting" title={waitingForSeats([row.seat.name])} data-testid="operator-threads-row-waiting">
                 <Clock size={11} strokeWidth={2} aria-hidden />
