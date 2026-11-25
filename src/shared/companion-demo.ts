@@ -1,6 +1,6 @@
 /**
- * `junto companion-stdio --demo`: the full protocol against a built-in,
- * deterministic canvas, for the phone team to develop against without a Mac.
+ * The wire tests' stand-in host: the full protocol against a built-in,
+ * deterministic canvas, so a test drives every op with no app running.
  *
  * Three regions, eight seats, every feed kind (blocked, attention, escalate,
  * feedback, health) and a mail history. It never touches the app or ~/.ssh.

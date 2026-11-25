@@ -1,6 +1,6 @@
 /**
  * The companion demo's data, and nothing else: the regions, seats, signals,
- * mail history, health readings and clock that `junto companion-stdio --demo`
+ * mail history, health readings and clock that the wire tests' stand-in host
  * serves. A wire module (effect-only closure), so another client (the in-app
  * demo transport in junto-app) can sync the same fixture instead of copying
  * it. The projections that turn it into feeds and seats live in

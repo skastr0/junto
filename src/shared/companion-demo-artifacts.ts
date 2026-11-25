@@ -1,8 +1,8 @@
 /**
- * The demo's artifact reads (`junto companion-stdio --demo`): the same ops the
+ * The stand-in host's artifact reads, for the wire tests: the same ops the
  * Mac answers, over the demo fixture's nodes and artifacts
- * (`wire/companion-demo-fixture.ts`), so the phone's artifact screens run with
- * no Mac. One world per demo: the Inbox the phone sets here is the one it reads
+ * (`wire/companion-demo-fixture.ts`), so a test reads artifacts with no app
+ * running. One world per demo: the Inbox a test sets here is the one it reads
  * back.
  */
 import { outcomeFail, outcomeOk, type CompanionBackend } from "./companion-core";
