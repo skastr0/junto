@@ -118,6 +118,8 @@ export const validateLinuxRuntimeArchive = ({
 const executableNames = new Set([
   "junto",
   "resources/bin/junto",
+  // Electron spawns this at boot; a 0644 copy kills the app with SIGTRAP.
+  "chrome_crashpad_handler",
 ]);
 
 const normalizeModes = async (root: string, relative = ""): Promise<void> => {
@@ -145,6 +147,47 @@ const normalizeModes = async (root: string, relative = ""): Promise<void> => {
       throw new Error(`runtime tree contains unsupported entry: ${childRelative}`);
     }
   }
+};
+
+const ELF_MAGIC = Buffer.from([0x7f, 0x45, 0x4c, 0x46]);
+const SHARED_OBJECT = /(?:\.so(?:\.[0-9]+)*|\.node)$/u;
+
+const isElfFile = async (file: string): Promise<boolean> => {
+  const handle = await open(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const head = Buffer.alloc(ELF_MAGIC.length);
+    const { bytesRead } = await handle.read(head, 0, head.length, 0);
+    return bytesRead === head.length && head.equals(ELF_MAGIC);
+  } finally {
+    await handle.close();
+  }
+};
+
+/**
+ * Every ELF file that is not a shared object (`.so`, `.node`) is a program
+ * Electron or the app may spawn, and must carry an execute bit. A program
+ * missing from `executableNames` fails the build here, not the launch.
+ */
+export const listUnexecutableElfPrograms = async (
+  root: string,
+  relative = "",
+): Promise<readonly string[]> => {
+  const found: string[] = [];
+  const entries = await readdir(path.join(root, relative), { withFileTypes: true });
+  entries.sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of entries) {
+    const childRelative = path.posix.join(relative, entry.name);
+    const child = path.join(root, childRelative);
+    if (entry.isDirectory()) {
+      found.push(...(await listUnexecutableElfPrograms(root, childRelative)));
+    } else if (entry.isFile() && !SHARED_OBJECT.test(entry.name)) {
+      const metadata = await lstat(child);
+      if ((metadata.mode & 0o111) === 0 && (await isElfFile(child))) {
+        found.push(childRelative);
+      }
+    }
+  }
+  return found;
 };
 
 const sha256File = async (file: string): Promise<string> => {
@@ -270,6 +313,12 @@ export const createLinuxRuntimeDraft = async ({
   await rename(source, artifact);
   await chmod(artifact, 0o755);
   await normalizeModes(artifact);
+  const unexecutable = await listUnexecutableElfPrograms(artifact);
+  if (unexecutable.length > 0) {
+    throw new Error(
+      `Linux runtime holds programs without the execute bit; add them to executableNames: ${unexecutable.join(", ")}`,
+    );
+  }
 
   const archiveHandle = await createExclusiveRegularFile(archive);
   try {
