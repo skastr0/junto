@@ -137,6 +137,16 @@ describe("the seat's bubble through a withdrawal", () => {
     release();
   });
 
+  it("takes the raise note off the bubble when the operator answers, and tells the answer", async () => {
+    set(signal("S1", "escalate", PLAIN));
+    await later(1_000);
+    set(signal("S1", "escalate", PLAIN, { state: "answered", closedAt: Date.now(), response: { text: "ship 1.2", at: Date.now() } }));
+    await later(0);
+    const showing = host.querySelector(".junto-preamble__line:not(.junto-preamble__line--was) .junto-preamble__text")?.textContent ?? "";
+    expect(showing).toContain("answered: ship 1.2");
+    expect(showing).not.toContain("wants you");
+  });
+
   it("leaves the bubble empty when the note closed was the only one", async () => {
     set(signal("S1", "escalate", PLAIN));
     await later(1_000);

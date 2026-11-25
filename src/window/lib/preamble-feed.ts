@@ -210,6 +210,8 @@ export const dropPending = (state: FeedState, nodeId: string, id: string): FeedS
  * A note's signal closed: if that note is the one showing, it leaves, and the
  * note held behind it (if any, and not expired) shows in its place at once,
  * with no trail; otherwise the bubble is empty. Another note showing is left.
+ * The held note keeps the expiry it was fed with, as any note held behind the
+ * dwell does: one that waited most of its life shows for the rest of it.
  */
 export const retireNote = (state: FeedState, nodeId: string, id: string, now: number): FeedState => {
   const feed = state.get(nodeId);
