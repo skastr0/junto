@@ -51,7 +51,13 @@ const installErrorWith = (machine: string) => (cause: unknown) => {
 const Success = Schema.Struct({ok:Schema.Literal(true),command:Schema.Literal("machine install-local"),data:MachineInstallResult});
 const Failure = Schema.Struct({ ok: Schema.Literal(false), command: Schema.Literal("machine install-local"), error: Schema.Struct({
   type: Schema.Literal("MachineInstallError"), message: Schema.String.pipe(Schema.check(Schema.isMaxLength(4096))),
-  details: Schema.Struct({ retryable: Schema.Boolean, disposition: MachineInstallError.fields.disposition, transitions: MachineInstallError.fields.transitions }),
+  details: Schema.Struct({
+    retryable: Schema.Boolean,
+    disposition: MachineInstallError.fields.disposition,
+    transitions: MachineInstallError.fields.transitions,
+    runningSeats: MachineInstallError.fields.runningSeats,
+    runningSeatsUnknown: MachineInstallError.fields.runningSeatsUnknown,
+  }),
 }) });
 
 export const sendMachine = (
@@ -83,6 +89,7 @@ export const sendMachine = (
     ...(input.juntoHome===undefined?{}:{juntoHome:input.juntoHome}),
     ...(input.installRoot===undefined?{}:{installRoot:input.installRoot}),
     ...(input.expectedInstallationId===undefined?{}:{expectedInstallationId:input.expectedInstallationId}),
+    ...(input.stopRunningSeats===true?{stopRunningSeats:true}:{}),
   }).pipe(Effect.mapError(installError));
   const ssh=yield* SshTransport;
   const archiveBytes = yield* Effect.tryPromise({ try: async () => (await stat(archive)).size, catch: installError });
@@ -132,6 +139,8 @@ export const sendMachine = (
       if (decoded._tag === "Success") return new MachineInstallError({ message: scrubText(decoded.success.error.message),
         disposition: decoded.success.error.details.disposition, retryable: false, ...failureHere(cause, machine),
         ...(decoded.success.error.details.transitions === undefined ? {} : { transitions: decoded.success.error.details.transitions }),
+        ...(decoded.success.error.details.runningSeats === undefined ? {} : { runningSeats: decoded.success.error.details.runningSeats }),
+        ...(decoded.success.error.details.runningSeatsUnknown === undefined ? {} : { runningSeatsUnknown: decoded.success.error.details.runningSeatsUnknown }),
       });
     }
     return new MachineInstallError({ message: cause instanceof Error ? cause.message : String(cause), retryable: false, disposition: "uncertain", transitions, ...failureHere(cause, machine) });

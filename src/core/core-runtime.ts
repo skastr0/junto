@@ -91,6 +91,8 @@ export interface MachineCoreOptions {
   readonly bundles: MachineCopyOptions["bundles"];
   readonly acquireBundle?: MachineCopyOptions["acquireBundle"];
   readonly ready: () => boolean;
+  /** Seats this machine runs right now, every canvas; absent when this process cannot count them. */
+  readonly runningSeats?: () => number;
   /** The core process's log, built by its boot; the runtime provides it to every effect. */
   readonly log: Log;
   /**
@@ -323,14 +325,22 @@ export const machineCoreStatusLayer = (options: Omit<MachineCoreOptions, "host">
   );
   const own = Effect.all({
     build: Effect.succeed(options.build),
+    version: Effect.succeed(typeof __JUNTO_APP_VERSION__ === "string" ? __JUNTO_APP_VERSION__ : undefined),
+    builtAt: Effect.succeed(typeof __JUNTO_BUILT_AT__ === "string" ? __JUNTO_BUILT_AT__ : undefined),
     form: Effect.succeed(form),
     keychain: Effect.succeed(keychain),
     installationId: machines.installationId,
     machineName: machines.machineName,
     juntoHome: Effect.succeed(options.home),
     pid: Effect.succeed(process.pid),
+    runningSeats: Effect.sync(() => options.runningSeats?.()),
     ready: Effect.sync(options.ready),
-  });
+  }).pipe(Effect.map(({ version, builtAt, runningSeats, ...rest }) => ({
+    ...rest,
+    ...(version === undefined ? {} : { version }),
+    ...(builtAt === undefined ? {} : { builtAt }),
+    ...(runningSeats === undefined ? {} : { runningSeats }),
+  })));
   const harnesses = Effect.gen(function* () {
     const installed = yield* Effect.promise(() => probeManagedHarnessInstalls());
     return {

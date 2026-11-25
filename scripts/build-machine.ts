@@ -27,6 +27,9 @@ const BuildInput = Schema.Struct({
   target: Target,
   cache: Schema.optionalKey(Schema.String),
 });
+/** When this bundle was built, shown beside its version; build equality alone admits a link. */
+const BUILT_AT = new Date().toISOString();
+
 export type BuildMachineInput = typeof BuildInput.Type;
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -122,7 +125,7 @@ export const bundleMachineCore = async (outdir: string, input: {
     // Bun otherwise replaces __filename with each source module's build path,
     // and folds NODE_ENV to "development" for every package in the core.
     banner: "const __JUNTO_CORE_FILENAME__ = __filename;",
-    define: { __filename: "__JUNTO_CORE_FILENAME__", "process.env.NODE_ENV": JSON.stringify("production"), __JUNTO_BUILD_ID__: JSON.stringify(input.build), __JUNTO_APP_VERSION__: JSON.stringify(input.version), __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(""), __JUNTO_MACHINE_RELEASE_CATALOG__: "undefined", ...featureViteDefines(input.features) },
+    define: { __filename: "__JUNTO_CORE_FILENAME__", "process.env.NODE_ENV": JSON.stringify("production"), __JUNTO_BUILD_ID__: JSON.stringify(input.build), __JUNTO_APP_VERSION__: JSON.stringify(input.version), __JUNTO_BUILT_AT__: JSON.stringify(BUILT_AT), __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(""), __JUNTO_MACHINE_RELEASE_CATALOG__: "undefined", ...featureViteDefines(input.features) },
     plugins: [{name: "native-fs", setup(builder) {
       builder.onResolve({filter: /^original-fs$/}, () => ({path: "native", namespace: "native-fs"}));
       // jsonc-parser's UMD main requires ./impl/* at runtime, which a bundle cannot

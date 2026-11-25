@@ -17,3 +17,12 @@ export const setupMachine = (target: SshTarget, location: Location, peer: { read
   ownerCommand(target, location, "setup", peer);
 export const machinePlatform = (target: SshTarget) =>
   makeRemoteCommand("/usr/bin/uname", ["-sm"]).pipe(Effect.map(command => oneShot(target, command, { budget: "short" })));
+
+/** The remote machine's own status program, over the operator's SSH route. */
+export const machineStatusProgram = (target: SshTarget, location: Location) => Effect.gen(function* () {
+  if (![location.juntoHome, location.installRoot].every(path => /^\/[^\u0000-\u001f\u007f]*$/.test(path))) return yield* new SshCommandInputError({ check: "install-paths", message: "machine status requires absolute install paths" });
+  const command = yield* makeRemoteCommand("/usr/bin/env", [
+    `JUNTO_HOME=${location.juntoHome}`, `${location.installRoot}/current/bin/junto`, "machine", "status", "{}",
+  ]);
+  return oneShot(target, command, { budget: "status" });
+});

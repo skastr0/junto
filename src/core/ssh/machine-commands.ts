@@ -59,7 +59,7 @@ fs.writeFileSync(process.argv[3], JSON.stringify(input), {mode: 384});
 export const receiveMachineBundle = (
   target: SshTarget,
   archiveSha256: string,
-  input: { readonly juntoHome?: string; readonly installRoot?: string; readonly expectedInstallationId?: string },
+  input: { readonly juntoHome?: string; readonly installRoot?: string; readonly expectedInstallationId?: string; readonly stopRunningSeats?: boolean },
 ) => Effect.gen(function* () {
   if (!/^[0-9a-f]{64}$/.test(archiveSha256)) return yield* new SshCommandInputError({ check: "package-checksum", message: "invalid package checksum" });
   const command = yield* makeRemoteCommand("/bin/sh",["-c",RECEIVE,"junto-send",archiveSha256,JSON.stringify(input)]);

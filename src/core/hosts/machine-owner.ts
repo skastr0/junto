@@ -230,6 +230,8 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
             ...(cause instanceof MachineInstallError ? {
               disposition: cause.disposition,
               ...(cause.transitions === undefined ? {} : { transitions: cause.transitions }),
+              ...(cause.runningSeats === undefined ? {} : { runningSeats: cause.runningSeats }),
+              ...(cause.runningSeatsUnknown === undefined ? {} : { runningSeatsUnknown: cause.runningSeatsUnknown }),
             } : {}),
             ...(cause instanceof MachineSetupError ? { installed: cause.installed } : {}),
             ...(failure === undefined ? {} : { failure }),

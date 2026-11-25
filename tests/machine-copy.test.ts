@@ -25,7 +25,7 @@ const testLog = makeTestLog();
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
-const fixture = async (options: { platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer } = {}) => {
+const fixture = async (options: { platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer; status?: { readonly runningSeats?: number } } = {}) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "junto-copy-")));
   await mkdir(join(root, "bin")); await mkdir(join(root, "core"));
   for (const name of ["bin/node", "bin/junto", "core/junto.cjs"]) await writeFile(join(root, name), "fixture\n");
@@ -45,6 +45,13 @@ const fixture = async (options: { platform?: string; helloFailure?: boolean; bun
       if (!Command.isStandardCommand(command)) throw new Error("expected argv command");
       if (wordsText(command.args).at(-1)!.includes("junto-preflight")) {
         calls.push("preflight"); return { stdout: "ready\n", stderr: "" };
+      }
+      if (wordsText(command.args).at(-1)!.includes("'status'")) {
+        calls.push("status");
+        return { stdout: JSON.stringify({ ok: true, command: "machine status", data: {
+          build, form: "mac-mini", installationId: receipt.installationId, machineName: "mini", juntoHome: receipt.juntoHome,
+          pid: 71, ...(options.status?.runningSeats === undefined ? {} : { runningSeats: options.status.runningSeats }), ready: true,
+        } }), stderr: "" };
       }
       calls.push("platform"); return { stdout: options.platform ?? "Darwin arm64\n", stderr: "" };
     }),
@@ -76,8 +83,11 @@ const fixture = async (options: { platform?: string; helloFailure?: boolean; bun
       return yield* repository.pinPeer({ machineName: host.id, installationId });
     }),
   }));
-  const host = Schema.decodeUnknownSync(RemoteHost)({ id: "mini", label: "Mini", isThisMachine: false, sshEndpoint: "mac-mini", capabilities: ["terminal"] });
-  return { root, calls, receipt, repository, runtime, copy: (mode: "send" | "update") => runtime.runPromise(copy(host, { name: "mini" }, mode)), error: (mode: "send" | "update", bundle?: string) => runtime.runPromise(copy(host, { name: "mini", ...(bundle === undefined ? {} : { bundle }) }, mode).pipe(Effect.flip)) };
+  const host = Schema.decodeUnknownSync(RemoteHost)({ id: "mini", label: "Mini", isThisMachine: false, sshEndpoint: "mac-mini", capabilities: ["terminal"],
+    ...(options.status === undefined ? {} : { juntoHome: receipt.juntoHome, installRoot: receipt.installRoot }) });
+  return { root, calls, receipt, repository, runtime,
+    copy: (mode: "send" | "update", input: { readonly stopRunningSeats?: boolean } = {}) => runtime.runPromise(copy(host, { name: "mini", ...input }, mode)),
+    error: (mode: "send" | "update", bundle?: string) => runtime.runPromise(copy(host, { name: "mini", ...(bundle === undefined ? {} : { bundle }) }, mode).pipe(Effect.flip)) };
 };
 
 it("installs and configures before binding through the checked first hello", async () => {
@@ -91,6 +101,38 @@ it("updates an active pin without configuring or reviving a binding", async () =
   const f = await fixture();
   await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
   await f.copy("update");
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "location", "connect"]);
+});
+
+it("refuses an update before the transfer when seats run there, and keeps the link", async () => {
+  const f = await fixture({ status: { runningSeats: 2 } });
+  await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
+  const error = await f.error("update");
+  expect(error).toBeInstanceOf(MachineInstallError);
+  if (error instanceof MachineInstallError) {
+    expect(error.disposition).toBe("staged");
+    expect(error.runningSeats).toBe(2);
+    expect(error.message).toContain("2 seats are running");
+  }
+  expect(f.calls).toEqual(["platform", "status"]);
+});
+
+it("fails closed when the machine cannot say how many seats it runs", async () => {
+  const f = await fixture({ status: {} });
+  await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
+  const error = await f.error("update");
+  expect(error).toBeInstanceOf(MachineInstallError);
+  if (error instanceof MachineInstallError) {
+    expect(error.disposition).toBe("staged");
+    expect(error.runningSeatsUnknown).toBe(true);
+  }
+  expect(f.calls).toEqual(["platform", "status"]);
+});
+
+it("skips the fast gate only when the operator confirmed stopping the seats", async () => {
+  const f = await fixture({ status: { runningSeats: 2 } });
+  await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
+  await f.copy("update", { stopRunningSeats: true });
   expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "location", "connect"]);
 });
 

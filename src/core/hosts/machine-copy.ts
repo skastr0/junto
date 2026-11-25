@@ -11,7 +11,8 @@ import { LogService } from "../../node/observability/logger";
 import { MachineRepository } from "../machines/repository";
 import { parseHostSshRoute, SshTransport, type ScopedStreamProgram, type SshError } from "../ssh";
 import { SshTransferExitError } from "../ssh/service";
-import { configureMachine, setupMachine, machinePlatform } from "../ssh/machine-owner-commands";
+import { configureMachine, setupMachine, machineStatusProgram, machinePlatform } from "../ssh/machine-owner-commands";
+import { decodeMachineOwnStatus } from "./machine-status";
 import { inspectMachineBundle } from "../../node/hosts/bundle";
 import { sendMachine } from "./send";
 import { HostsService } from "./service";
@@ -66,6 +67,25 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
     const reported = platform.stdout.trim();
     const targetPlatform: Target | undefined = reported === "Darwin arm64" ? "darwin-arm64" : reported === "Linux x86_64" ? "linux-x64" : undefined;
     if (targetPlatform === undefined) return yield* Effect.fail(staged(refused("platform-unsupported", "This machine's platform is not supported by Junto")));
+    // The whole-machine count over the operator's SSH route, before the
+    // transfer. The maintenance lease inside the install is the gate; this
+    // check only saves the download and the copy.
+    if (mode === "update" && input.stopRunningSeats !== true && host.juntoHome !== undefined && host.installRoot !== undefined) {
+      const statusProgram = yield* machineStatusProgram(target, { juntoHome: host.juntoHome, installRoot: host.installRoot }).pipe(Effect.mapError(staged));
+      const statusAnswer = yield* ssh.run(statusProgram).pipe(Effect.mapError(staged));
+      const status = yield* decodeMachineOwnStatus(statusAnswer.stdout).pipe(Effect.mapError(staged));
+      if (status.machineName !== host.id || (pin !== undefined && status.installationId !== pin.installationId)) {
+        return yield* Effect.fail(staged(refused("identity-mismatch", "The machine that answered is not the machine this update was for")));
+      }
+      if (status.runningSeats === undefined) return yield* Effect.fail(new MachineInstallError({
+        message: "This machine's Junto did not say how many seats it runs, so nothing was changed. Check this machine before updating",
+        disposition: "staged", retryable: true, runningSeatsUnknown: true,
+      }));
+      if (status.runningSeats > 0) return yield* Effect.fail(new MachineInstallError({
+        message: `${status.runningSeats === 1 ? "One seat is" : `${String(status.runningSeats)} seats are`} running on this machine. Confirm to stop ${status.runningSeats === 1 ? "it" : "them"} and update`,
+        disposition: "staged", retryable: true, runningSeats: status.runningSeats,
+      }));
+    }
     const bundle = options.acquireBundle === undefined ? input.bundle ?? options.bundles[targetPlatform]
       : yield* options.acquireBundle(targetPlatform, onTransition);
     if (bundle === undefined) return yield* Effect.fail(staged(refused("no-bundle", targetPlatform === "linux-x64" ? "This Junto has no build for a Linux machine" : "This Junto has no build for a Mac machine")));
@@ -78,6 +98,7 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
       ...(host.juntoHome === undefined ? {} : { juntoHome: host.juntoHome }),
       ...(host.installRoot === undefined ? {} : { installRoot: host.installRoot }),
       ...(pin === undefined ? {} : { expectedInstallationId: pin.installationId }),
+      ...(input.stopRunningSeats === true ? { stopRunningSeats: true } : {}),
     }, onTransition).pipe(Effect.provideService(SshTransport, ssh), Effect.provideService(LogService, log));
     const receipt = yield* Schema.decodeUnknownEffect(MachineInstallResult)(installed, { onExcessProperty: "error" });
     return yield* Effect.gen(function* () {

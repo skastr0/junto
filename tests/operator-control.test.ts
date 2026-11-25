@@ -34,6 +34,15 @@ describe("operator control contract", () => {
     });
     expect(Result.isFailure(extra)).toBe(true);
 
+    const confirmed = decodeOperatorRequest({
+      protocol: OPERATOR_PROTOCOL_VERSION,
+      id: "request-1",
+      op: "machine.update",
+      args: { name: "mini", stopRunningSeats: true },
+    });
+    expect(Result.isSuccess(confirmed)).toBe(true);
+    if (Result.isSuccess(confirmed)) expect(confirmed.success.args).toEqual({ name: "mini", stopRunningSeats: true });
+
     for (const op of ["companion.shell", "fleet.deploy", "qualification.work.prepare"]) {
       const unknown = decodeOperatorRequest({
         protocol: OPERATOR_PROTOCOL_VERSION,

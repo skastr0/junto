@@ -31,6 +31,8 @@ export const MachineInstallInput = Schema.Struct({
   juntoHome: Schema.optionalKey(MachineAbsolutePath),
   installRoot: Schema.optionalKey(MachineAbsolutePath),
   expectedInstallationId: Schema.optionalKey(InstallationId),
+  /** Set only by the operator's own confirm on a manual update, never by the coordinator. */
+  stopRunningSeats: Schema.optionalKey(Schema.Boolean),
 });
 export type MachineInstallInput = typeof MachineInstallInput.Type;
 
@@ -87,8 +89,11 @@ export type MachineUninstallResult = typeof MachineUninstallResult.Type;
 export class MachineInstallError extends Schema.TaggedError<MachineInstallError>()("MachineInstallError", {
   message: Schema.String,
   retryable: Schema.Boolean,
-  disposition: Schema.Literals(["staged", "activated", "uncertain"]),
+  disposition: Schema.Literals(["staged", "activated", "uncertain", "rolled-back"]),
   transitions: Schema.optionalKey(Schema.Array(MachineInstallTransition).pipe(Schema.check(Schema.isMaxLength(5)))),
+  /** Seats running on the target when an update paused on them, or unknown to an older build. */
+  runningSeats: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
+  runningSeatsUnknown: Schema.optionalKey(Schema.Literal(true)),
   /**
    * The typed chain behind the message, from the one encoder, set where this
    * machine wraps a cause. The install-local CLI never sets it: the sender
@@ -114,5 +119,6 @@ export const MachineSendInput = Schema.Struct({
   juntoHome: Schema.optionalKey(MachineAbsolutePath),
   installRoot: Schema.optionalKey(MachineAbsolutePath),
   expectedInstallationId: Schema.optionalKey(InstallationId),
+  stopRunningSeats: Schema.optionalKey(Schema.Boolean),
 });
 export type MachineSendInput = typeof MachineSendInput.Type;

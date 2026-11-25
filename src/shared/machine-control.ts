@@ -18,6 +18,52 @@ import { MachineVaultView, type MachineVaultTokenData, type MachineVaultTokenInp
 
 export const MachineName = Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName)));
 export const MachineBuild = Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/)));
+/**
+ * The release a build says it is, and when it was built: a machine's own
+ * claim, shown as text and used to say which of two machines is behind. Never
+ * admission or compatibility: build equality alone decides those
+ * (docs/security-doctrine.md, The link).
+ */
+export const MachineVersion = Schema.String.pipe(Schema.check(Schema.isMaxLength(32)),
+  Schema.check(Schema.isPattern(/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$/)));
+export type MachineVersion = typeof MachineVersion.Type;
+export const MachineBuiltAt = Schema.String.pipe(Schema.check(Schema.isMaxLength(32)),
+  Schema.check(Schema.isPattern(/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,3})?Z$/)));
+export type MachineBuiltAt = typeof MachineBuiltAt.Type;
+/** Which of two machines on different builds is behind, as each says what it runs. */
+export const MachineUpdateDirection = Schema.Literals(["peer-older", "this-older", "different"]);
+export type MachineUpdateDirection = typeof MachineUpdateDirection.Type;
+export type MachineRelease = { readonly version?: string | undefined; readonly builtAt?: string | undefined };
+
+const versionParts = (version: string): readonly [number, number, number, string | undefined] => {
+  const [core, pre] = version.split(/-(.*)/su, 2) as [string, string | undefined];
+  const [major = 0, minor = 0, patch = 0] = core.split(".").map(Number);
+  return [major, minor, patch, pre];
+};
+/** Semver order, a prerelease before its release; 0 when equal. */
+export const compareMachineVersions = (a: string, b: string): number => {
+  const x = versionParts(a); const y = versionParts(b);
+  for (let index = 0; index < 3; index += 1) if (x[index] !== y[index]) return (x[index] as number) < (y[index] as number) ? -1 : 1;
+  if (x[3] === y[3]) return 0;
+  if (x[3] === undefined) return 1;
+  if (y[3] === undefined) return -1;
+  return x[3] < y[3] ? -1 : 1;
+};
+/**
+ * Which machine is behind, for two machines on different builds. A peer that
+ * names no version runs a build from before builds named one, so it is the
+ * older; equal versions are ordered by when each was built; anything else
+ * cannot be told apart.
+ */
+export const machineUpdateDirection = (peer: MachineRelease, own: MachineRelease): MachineUpdateDirection => {
+  const valid = (value: string | undefined): value is string => value !== undefined && Schema.is(MachineVersion)(value);
+  if (!valid(own.version)) return "different";
+  if (!valid(peer.version)) return peer.version === undefined ? "peer-older" : "different";
+  const order = compareMachineVersions(peer.version, own.version);
+  if (order !== 0) return order < 0 ? "peer-older" : "this-older";
+  if (peer.builtAt === undefined || own.builtAt === undefined || peer.builtAt === own.builtAt) return "different";
+  return peer.builtAt < own.builtAt ? "peer-older" : "this-older";
+};
 export const MachineForm = Schema.Literals(["macbook", "mac-mini", "mac-studio", "mac", "linux"]);
 export type MachineForm = typeof MachineForm.Type;
 export const MachineKeychainStatus = Schema.Literals(["available", "unavailable", "not-applicable"]);
@@ -26,6 +72,9 @@ export const MachineHarnessSignIn = Schema.Literals(["not-installed", "sign-in-u
 export type MachineHarnessSignIn = typeof MachineHarnessSignIn.Type;
 export const MachineOwnStatus = Schema.Struct({
   build: MachineBuild,
+  /** This build's release and build time; absent on a build from before builds named one. */
+  version: Schema.optionalKey(MachineVersion),
+  builtAt: Schema.optionalKey(MachineBuiltAt),
   form: MachineForm,
   // Older builds do not report this fact; absence means unknown.
   keychain: Schema.optionalKey(MachineKeychainStatus),
@@ -33,6 +82,8 @@ export const MachineOwnStatus = Schema.Struct({
   machineName: MachineName,
   juntoHome: MachineAbsolutePath,
   pid: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThan(0))),
+  /** Seats this machine runs right now, every canvas; absent when it could not count. */
+  runningSeats: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
   ready: Schema.Boolean,
 });
 export type MachineOwnStatus = typeof MachineOwnStatus.Type;
@@ -94,7 +145,12 @@ export const MachineAddInput = Schema.Struct({
   installRoot: Schema.optionalKey(MachineAbsolutePath),
 });
 export type MachineAddInput = typeof MachineAddInput.Type;
-export const MachineCopyInput = Schema.Struct({ name: MachineName, bundle: Schema.optionalKey(MachineAbsolutePath) });
+export const MachineCopyInput = Schema.Struct({
+  name: MachineName,
+  bundle: Schema.optionalKey(MachineAbsolutePath),
+  /** The operator's own confirm to stop running seats on a manual update; never the coordinator's. */
+  stopRunningSeats: Schema.optionalKey(Schema.Boolean),
+});
 export type MachineCopyInput = typeof MachineCopyInput.Type;
 export const MachineRemoved = Schema.Struct({ machineName: MachineName, removed: Schema.Literal(true) });
 export type MachineRemoved = typeof MachineRemoved.Type;

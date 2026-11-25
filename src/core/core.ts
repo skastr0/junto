@@ -1,4 +1,4 @@
-import { Context, Effect, Option, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import { join } from "node:path";
 import type { CoreRuntime, MachineCoreOptions } from "./core-runtime";
 import { makeCoreRuntime } from "./core-runtime";
@@ -149,6 +149,7 @@ export const startCore = async (options: CoreOptions) => {
   }
   let admitted = false;
   let stopping = false;
+  let compositionReady = false;
   let owner: OperatorControlServer | undefined;
   let listener: MachineLinkListener | undefined;
   let work: WorkControlServer | undefined;
@@ -167,7 +168,12 @@ export const startCore = async (options: CoreOptions) => {
   let releaseRunner: (() => void) | undefined;
   // An on-demand operator socket not yet asked for is not a core that is down.
   const ownerReady = (): boolean => owner === undefined ? options.operator?.listen === "on-demand" : owner.ready();
-  const runtime = makeCoreRuntime({ ...options, log, ready: () => admitted && !stopping && ownerReady() && listener?.ready() === true });
+  const runtime = makeCoreRuntime({
+    ...options,
+    log,
+    runningSeats: () => termPlane.host.runningCount(),
+    ready: () => admitted && compositionReady && !stopping && ownerReady() && listener?.ready() === true,
+  });
   let ownerStart: Promise<void> | undefined;
   /** Opens the operator socket once; the desktop asks when a phone pairs. */
   let ensureOperatorListening: () => Promise<void> = () => Promise.resolve();
@@ -183,6 +189,7 @@ export const startCore = async (options: CoreOptions) => {
     if (closeFlight !== undefined) return closeFlight;
     stopping = true;
     admitted = false;
+    compositionReady = false;
     owner?.beginShutdown();
     listener?.beginShutdown(cause);
     work?.beginShutdown();
@@ -279,22 +286,6 @@ export const startCore = async (options: CoreOptions) => {
       });
     }
     if (options.overseerLive === true) overseerLive = await composeOverseerLive((effect) => runtime.runPromise(effect));
-    work = await startWorkControlServer({
-      home: options.home, workHome: workControlDir(options.home),
-      version: typeof __JUNTO_APP_VERSION__ === "string" ? __JUNTO_APP_VERSION__ : "dev",
-      run: effect => runtime.runPromise(effect),
-      ...(overseer === undefined ? {} : { onOverseer: overseer.onOverseer }),
-      ...(overseerLive === undefined ? {} : { onOverseerLive: overseerLive.onHost, validateOverseerLive: overseerLive.validateOperation }),
-      ...(options.onPreamble === undefined && options.companion === undefined ? {} : {
-        onPreamble: (event: PreambleEvent) => {
-          if (options.companion !== undefined) companionNotePreamble(event);
-          options.onPreamble?.(event);
-        },
-      }),
-    });
-    if (options.canvasControl === true) {
-      canvas = await startCanvasControlServer({ home: options.home, run: effect => runtime.runPromise(effect) });
-    }
     // One terminal plane, here. The desktop core's PTYs run in the terminal
     // process over a port main hands it, never in this process; a windowless
     // core's run in this process.
@@ -330,7 +321,6 @@ export const startCore = async (options: CoreOptions) => {
       ...(filesRemote === undefined ? {} : { onEvent: filesRemote.onEvent, onOpened: filesRemote.onOpened, onClosed: filesRemote.onClosed }),
     }));
     await runtime.runPromise(link.setChannels({ status: status.handler, rows: rows.handler, content: rows.content, seats: seats.handler, inventory, settings, "native-config": nativeConfig, files, consensus: unboundYet("consensus"), authority: unboundYet("authority") }));
-    listener = await runtime.runPromise(link.listen(options.home));
     const machineDispatch = (request: OperatorRequestEnvelope) => runtime.runPromise(actions.dispatch(request));
     if (options.companion !== undefined) {
       const unbind = bindCompanionHost({ runPromise: (effect) => runtime.runPromise(effect), showSignal: options.companion.showSignal });
@@ -355,6 +345,7 @@ export const startCore = async (options: CoreOptions) => {
     const desk = options.operator === undefined || companion === undefined ? options.operator
       : { ...options.operator, companion: options.operator.companion ?? companion.dispatch };
     const dispatch = desk === undefined ? machineDispatch : async (request: OperatorRequestEnvelope): Promise<OperatorResponseEnvelope> => {
+      if (!admitted) return operatorRefusal(request, "runtime_down", "Junto is still starting");
       if (OPERATOR_COMPANION_OPS.has(request.op)) {
         return (await desk.companion?.(request)) ?? operatorRefusal(request, "runtime_down", "the phone companion is not available");
       }
@@ -373,7 +364,6 @@ export const startCore = async (options: CoreOptions) => {
         ownerStart = undefined;
         throw cause;
       }));
-    if (desk?.listen !== "on-demand") await ensureOperatorListening();
     if (companion !== undefined) {
       const service = companion;
       // A paired phone needs the socket from boot; the first pairing opens it later.
@@ -443,8 +433,30 @@ export const startCore = async (options: CoreOptions) => {
       stopReadiness();
       stopSeatViewQuestionPushes();
     };
+    // Every socket opens only once the core is composed, and the last thing
+    // before it says ready is its link. A socket command before that is
+    // refused, so a candidate never admits work it would then roll back.
+    work = await startWorkControlServer({
+      home: options.home, workHome: workControlDir(options.home),
+      version: typeof __JUNTO_APP_VERSION__ === "string" ? __JUNTO_APP_VERSION__ : "dev",
+      run: effect => compositionReady && admitted ? runtime.runPromise(effect) : Promise.reject(new Error("Junto is still starting")),
+      ...(overseer === undefined ? {} : { onOverseer: overseer.onOverseer }),
+      ...(overseerLive === undefined ? {} : { onOverseerLive: overseerLive.onHost, validateOverseerLive: overseerLive.validateOperation }),
+      ...(options.onPreamble === undefined && options.companion === undefined ? {} : {
+        onPreamble: (event: PreambleEvent) => {
+          if (options.companion !== undefined) companionNotePreamble(event);
+          options.onPreamble?.(event);
+        },
+      }),
+    });
+    if (options.canvasControl === true) {
+      canvas = await startCanvasControlServer({ home: options.home, run: effect => compositionReady && admitted ? runtime.runPromise(effect) : Promise.reject(new Error("Junto is still starting")) });
+    }
+    listener = await runtime.runPromise(link.listen(options.home));
+    if (desk?.listen !== "on-demand") await ensureOperatorListening();
     admitted = true;
-    return { runtime, close, overseer, overseerLive, seatSessions: sessions, ensureOperatorListening, ready: () => admitted && !stopping && ownerReady() && listener!.ready() };
+    compositionReady = true;
+    return { runtime, close, overseer, overseerLive, seatSessions: sessions, ensureOperatorListening, ready: () => admitted && compositionReady && !stopping && ownerReady() && listener!.ready() };
   } catch (cause) {
     // The start failure is the reason worth keeping; a stop that also fails is logged beside it.
     await close().catch((closeCause: unknown) => {

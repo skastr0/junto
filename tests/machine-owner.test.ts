@@ -188,6 +188,15 @@ it("marks only a bound peer with a known different hello build as needing an upd
   expect((await f.call("machine.list", {})).ok).toBe(false);
 });
 
+it("passes the operator's stop-confirm through to the installer", async () => {
+  let received: { readonly name: string; readonly stopRunningSeats?: boolean } | undefined;
+  const f = await fixture({ copy: (_host, input) => Effect.sync(() => { received = input; return readyInstall(); }) });
+  await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
+  await f.call("machine.setup", { machineName: "mini", installationId: "mini-install" });
+  expect((await f.call("machine.update", { name: "mini", stopRunningSeats: true })).ok).toBe(true);
+  expect(received).toMatchObject({ name: "mini", stopRunningSeats: true });
+});
+
 it("returns the installed receipt when setup failed after a successful copy", async () => {
   const installed = readyInstall();
   const f = await fixture({ copy: () => Effect.fail(new MachineSetupError({ message: "Junto is installed, but the name is bound to another installation; choose another name", retryable: false, installed })) });

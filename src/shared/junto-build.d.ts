@@ -18,6 +18,8 @@ declare const __JUNTO_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
 declare const __JUNTO_MAC_UPDATE_FEED_URL__: string | undefined;
 declare const __JUNTO_APP_VERSION__: string | undefined;
+/** When this build was made, ISO UTC: shown beside its version, and orders two builds of one version. */
+declare const __JUNTO_BUILT_AT__: string | undefined;
 declare const __JUNTO_MAC_SIGNING_IDENTITY__: string | undefined;
 declare const __JUNTO_MAC_TEAM_ID__: string | undefined;
 /** True in a build made with a premium overlay (JUNTO_OVERLAY), false in the open-source one. */

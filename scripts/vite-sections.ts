@@ -15,6 +15,9 @@ import { electronNamespaceImports } from "./electron-namespace-imports";
  */
 export type BuildContext = { readonly command: "build" | "serve"; readonly mode: string };
 
+/** When this bundle was built, shown beside its version; build equality alone admits a link. */
+const BUILT_AT = new Date().toISOString();
+
 export const buildContext = ({ command, mode }: BuildContext) => {
   // Plus is preview-only until checkout and entitlement delivery are released.
   // Vite's build command/mode, not NODE_ENV or an ambient override, owns intent.
@@ -35,6 +38,8 @@ export const buildContext = ({ command, mode }: BuildContext) => {
 
   const productDefines = {
     __JUNTO_BUILD_ID__: JSON.stringify(buildIdentity(process.cwd())),
+    // Display only: build equality, never this, admits a link (docs/machines.md).
+    __JUNTO_BUILT_AT__: JSON.stringify(BUILT_AT),
     __JUNTO_PREVIEW_BUILD__: JSON.stringify(process.env.JUNTO_PREVIEW_BUILD === "1"),
     __JUNTO_MACHINE_RELEASE_CATALOG__: machineCatalog === undefined ? "undefined" : JSON.stringify(machineReleaseCatalogConstant(machineCatalog)),
     __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(updateFeedUrl),

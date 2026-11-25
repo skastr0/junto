@@ -6,6 +6,19 @@ import { executeJsonCommand, loadJsonInput } from "./json-command";
 import { parseSshRoute, SshTransportLive } from "../src/core/ssh";
 import { sendMachine } from "../src/core/hosts/send";
 import { createLogger, LogService } from "../src/node/observability/logger";
+import { installCoreReads } from "../src/core/core-runner";
+import { shellEnvironment } from "../src/core/shell-environment";
+
+// This script sends a build without starting a core. The SSH transport resolves
+// the spawn environment through the core reads, so install the shell read here,
+// before any layer is built. No canvas, machine name or vault is used on this path.
+installCoreReads({
+  canvas: async () => undefined,
+  machineName: async () => "send-machine",
+  vaultScope: async () => undefined,
+  spawnEnv: async () => ({ ...(await shellEnvironment.ensure()) }),
+  spawnEnvNow: () => ({ ...shellEnvironment.environmentNow() }),
+});
 
 const log = createLogger({ process: "core", echo: false });
 
