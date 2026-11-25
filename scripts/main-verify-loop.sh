@@ -17,8 +17,11 @@
 #   runs.log     one line per run; logs/<hash>.log is its full output
 # A landing seat reads P with:  cut -d' ' -f1 "$(git rev-parse --git-common-dir)/main-verify/last-green"
 #
-# The loop exits on a red (code 1), a parity break (3) or an infra failure (4)
-# so its owner is told at once, and does not restart itself.
+# A red never stops the loop (tech-lead, 2026-11-25): it mails TO the lead the
+# span (last green..red head) and the failing tests, then goes on to the next
+# head. A red whose failing tests repeat on the next head is mailed again as a
+# REPEAT, a real red. The loop exits only on a parity break (3) or an infra
+# failure (4), so its owner is told at once; it does not restart itself.
 set -uo pipefail
 
 ROOT=$(git rev-parse --show-toplevel)
@@ -33,7 +36,36 @@ mkdir -p "$STATE/logs"
 stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 head_of() { git -C "$ROOT" rev-parse --verify "$BRANCH^{commit}"; }
 
-last=$(cut -d' ' -f1 "$STATE/last-run" 2>/dev/null || true)
+LEAD=${LEAD:-tech-lead}
+# fails <log>: the failing tests and type errors of one run, one per line.
+fails() {
+  sed 's/\x1b\[[0-9;]*m//g' "$1" | { grep -E '^ FAIL |error TS' || true; } | sed -E 's/^ FAIL +//' | cut -c1-200 | sort -u | head -12
+}
+mail() { # mail <text>
+  jq -n --arg target "$LEAD" --arg text "$1" '{target: $target, text: $text}' |
+    xargs -0 junto msg send >/dev/null 2>&1 || echo "main-verify: mail to $LEAD failed" >&2
+}
+red_mail() { # red_mail <head> <previous result> <previous head>
+  local head=$1 prev=$2 prevhead=$3 green span now kind common
+  green=$(cut -d' ' -f1 "$STATE/last-green" 2>/dev/null || true)
+  span=$(git -C "$ROOT" rev-list --count "${green:-$head}..$head" 2>/dev/null || echo '?')
+  fails "$STATE/logs/$head.log" >"$STATE/logs/$head.fails"
+  kind="RED"
+  if [ "$prev" = red ] && [ -f "$STATE/logs/$prevhead.fails" ]; then
+    common=$(comm -12 "$STATE/logs/$prevhead.fails" "$STATE/logs/$head.fails")
+    if [ -n "$common" ]; then
+      kind="REPEAT RED (a real red, also red at ${prevhead:0:9})"
+    fi
+  fi
+  now=$(cat "$STATE/logs/$head.fails")
+  mail "main verify $kind at ${head:0:9}. Span ${green:0:9}..${head:0:9} ($span commits, last green ${green:0:9}); the loop goes on to the next head. Failing:
+$now
+Log: $STATE/logs/$head.log"
+}
+
+prev_result=$(cut -d' ' -f2 "$STATE/last-run" 2>/dev/null || true)
+prev_head=$(cut -d' ' -f1 "$STATE/last-run" 2>/dev/null || true)
+last=$prev_head
 while :; do
   M=$(head_of) || { echo "main-verify: cannot read $BRANCH" >&2; exit 4; }
   if [ "$M" = "$last" ]; then
@@ -66,8 +98,14 @@ while :; do
   echo "main-verify: $(stamp) $M $result (${secs}s)" >&2
   if [ "$result" = green ]; then
     echo "$M $(stamp) $secs" >"$STATE/last-green.tmp" && mv "$STATE/last-green.tmp" "$STATE/last-green"
+    prev_result=green prev_head=$M
+    continue
+  fi
+  if [ "$result" = red ]; then
+    red_mail "$M" "$prev_result" "$prev_head"
+    prev_result=red prev_head=$M
     continue
   fi
   echo "main-verify: log $log" >&2
-  case $result in red) exit 1 ;; parity) exit 3 ;; *) exit 4 ;; esac
+  case $result in parity) exit 3 ;; *) exit 4 ;; esac
 done
