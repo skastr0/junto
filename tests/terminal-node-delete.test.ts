@@ -64,6 +64,7 @@ describe("terminal node-delete fence", () => {
       ok: false,
       error:
         "terminal binding-dirty did not produce an exact clean teardown receipt",
+      failedLocal: [{ bindingId: "binding-dirty", hostId: "workbench" }],
     });
     expect(service.isLocked("binding-dirty", "workbench")).toBe(false);
     const admitted = service.admitCreate("binding-dirty", "workbench");
