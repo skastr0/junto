@@ -3,6 +3,8 @@ import { asNodeId, type Canvas, type Wire } from "@shared/model";
 import { titleOf } from "@shared/model/title";
 import { isClosedTaskState, type TaskView } from "@shared/task-model";
 import { taskName } from "@shared/task-notices";
+import type { AgentSignal } from "@shared/agent-signals";
+import { signalsCloseLine } from "./canvas-delete";
 import { tasksSource } from "./tasks-source";
 
 const count = (value: number, singular: string, plural = `${singular}s`): string =>
@@ -148,4 +150,19 @@ export const wireRemovalWarnings = (
     }
     return warnings;
   });
+};
+
+/**
+ * Deleting seats closes their open signals (Remote term 5). One line, only when
+ * the count is above zero: every signal in state open on a removed node, summed
+ * over the nodes, whatever raised it. Empty means no signal is lost.
+ */
+export const signalRemovalWarnings = (
+  removedNodeIds: ReadonlySet<string>,
+  signals: Iterable<AgentSignal>,
+): ReadonlyArray<string> => {
+  let open = 0;
+  for (const signal of signals) if (signal.state === "open" && removedNodeIds.has(signal.nodeId)) open += 1;
+  const line = signalsCloseLine(open);
+  return line === undefined ? [] : [line];
 };

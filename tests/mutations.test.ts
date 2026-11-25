@@ -14,6 +14,9 @@ import { initialWorkbenchState } from "../src/window/lib/surface-registry";
 import { formatNodeRef } from "../src/shared/node-ref";
 import { setTasksSource, tasksSource } from "../src/window/lib/tasks-source";
 import type { TaskView } from "../src/shared/task-model";
+import { answerConfirm, confirm$, type ConfirmRequest } from "../src/window/lib/confirm";
+import { agentSignals$ } from "../src/window/lib/agent-signals-state";
+import type { AgentSignal } from "../src/shared/agent-signals";
 
 /** Bun's vitest shim lacks `vi.waitFor` — poll until assertion holds. */
 const waitFor = async (
@@ -55,6 +58,15 @@ const runtimeWindow = {
 };
 (globalThis as unknown as { window: typeof runtimeWindow }).window = runtimeWindow;
 
+/** A node delete asks through the shared ConfirmDialog; these cases answer it. */
+let nodeDeleteAnswer = true;
+const nodeDeleteAsks: ConfirmRequest[] = [];
+confirm$.pending.onChange(({ value }) => {
+  if (value === null) return;
+  nodeDeleteAsks.push(value);
+  queueMicrotask(() => answerConfirm(nodeDeleteAnswer));
+});
+
 /** Two seats, the canvas most cases start from. */
 const base = (): ReadonlyArray<Node> => [
   fixtures.seat("source", { agentKey: "local:worker", label: "agent", bindingId: "binding-worker" as never, height: 80 }),
@@ -85,6 +97,9 @@ const regionNow = (): NodeOf<"region"> | undefined => {
 describe("renderer graph mutations", () => {
   afterEach(() => {
     runtimeWindow.confirm = () => true;
+    nodeDeleteAnswer = true;
+    nodeDeleteAsks.length = 0;
+    agentSignals$.set({});
     state$.error.set("");
     browserStop.mockReset();
     browserStop.mockResolvedValue({ ok: true });
@@ -390,17 +405,38 @@ describe("renderer graph mutations", () => {
   it("requires confirmation before deleting signals and connected relations", async () => {
     state$.canvasName.set("mutation-test");
     load(base(), [fixtures.wire("edge-1", "source", "target", "messages")]);
-    runtimeWindow.confirm = () => false;
+    nodeDeleteAnswer = false;
 
     // Deleting a seat runs its kill ceremony only once the operator confirms.
     deleteNode("target");
+    await waitFor(() => expect(nodeDeleteAsks).toHaveLength(1));
+    await Promise.resolve();
     expect(docNow().nodes).toHaveLength(2);
     expect(docNow().edges).toHaveLength(1);
+    expect(nodeDeleteAsks[0]).toMatchObject({ title: "Delete this node?", confirmLabel: "Delete node", tone: "danger" });
+    expect(nodeDeleteAsks[0]!.body).toEqual(["Connected edges (1) will also be removed."]);
 
-    runtimeWindow.confirm = () => true;
+    nodeDeleteAnswer = true;
     deleteNode("target");
     await waitFor(() => expect(docNow().nodes.map((node) => node.id)).toEqual(["source"]));
     expect(docNow().edges).toHaveLength(0);
+  });
+
+  it("says how many open signals a deleted seat closes, one line, counting only the open ones", async () => {
+    state$.canvasName.set("mutation-test");
+    load(base());
+    const signal = (signalId: string, nodeId: string, state: AgentSignal["state"]): AgentSignal =>
+      ({ signalId, canvasName: "mutation-test", nodeId, kind: "feedback", text: "x", createdAt: 1, state } as AgentSignal);
+    agentSignals$.set({
+      a: signal("a", "target", "open"),
+      b: signal("b", "target", "open"),
+      c: signal("c", "target", "answered"),
+      d: signal("d", "source", "open"),
+    });
+
+    deleteNode("target");
+    await waitFor(() => expect(docNow().nodes.map((node) => node.id)).toEqual(["source"]));
+    expect(nodeDeleteAsks[0]!.body).toEqual(["2 open signals close with it."]);
   });
 
   it("requires confirmation before deleting relations", () => {

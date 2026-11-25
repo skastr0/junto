@@ -25,6 +25,7 @@ import type { Intent, SelectionFact } from "../src/window/canvas/contract";
 import { canvasMenu$, closeCanvasMenu } from "../src/window/canvas/shell/canvas-menu";
 import { openCanvasMenu } from "../src/window/canvas/shell/canvas-menu";
 import { note, seat, taskBoard } from "./support/model-nodes";
+import { answerConfirm, confirm$ } from "../src/window/lib/confirm";
 
 const canvas = asCanvasName("hands");
 let sent: Command[] = [];
@@ -58,7 +59,14 @@ const settle = async (): Promise<void> => {
   for (let i = 0; i < 8; i += 1) await Promise.resolve();
 };
 
+// A delete asks through the shared ConfirmDialog; these cases answer it.
+let answerNext = true;
+confirm$.pending.onChange(({ value }) => {
+  if (value !== null) queueMicrotask(() => answerConfirm(answerNext));
+});
+
 beforeEach(() => {
+  answerNext = true;
   sent = [];
   state$.canvasName.set("");
   state$.selectedNodeId.set("");
@@ -335,7 +343,7 @@ describe("a delete asks first, then writes one Remove", () => {
 
   it("leaves everything when the operator says no", async () => {
     open([note("a")]);
-    (globalThis as unknown as { window: { confirm: () => boolean } }).window.confirm = () => false;
+    answerNext = false;
     handleIntent({ kind: "delete", nodeIds: ["a"], wireIds: [] });
     await settle();
     expect(sent.filter((command) => command._tag === "Remove")).toEqual([]);

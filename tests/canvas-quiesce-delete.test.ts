@@ -9,6 +9,12 @@ import { page } from "./support/model-nodes";
 import { held, openCanvas } from "./support/open-canvas";
 import { quiesceAndFlushCanvasEdits } from "../src/window/lib/canvas-editor-flush";
 import { state$ } from "../src/window/lib/state";
+import { answerConfirm, confirm$ } from "../src/window/lib/confirm";
+
+// A node delete asks through the shared ConfirmDialog; this case answers yes.
+confirm$.pending.onChange(({ value }) => {
+  if (value !== null) queueMicrotask(() => answerConfirm(true));
+});
 
 const pageNode = page("page", { url: "https://example.com", profile: "personal", onRemove: "kill-session" });
 

@@ -4,7 +4,9 @@ import { batch, observe } from "@legendapp/state";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { TASKS_ENABLED } from "@shared/features";
-import { removalTasks, removalWarnings } from "./deletion-impact";
+import { removalTasks, removalWarnings, signalRemovalWarnings } from "./deletion-impact";
+import { agentSignals$ } from "./agent-signals-state";
+import { askConfirm } from "./confirm";
 import type { Color, Command, Node, NodeOf, RegionContract, RegionDefaults, RegionEnvironment } from "@shared/model";
 import type { TasksContract } from "@shared/work-model";
 import { authoring } from "./authoring";
@@ -77,9 +79,6 @@ const syncHistoryState = (): void => {
   state$.canRedo.set(name !== "" && authoring.canRedo(name));
 };
 authoring.onChange(syncHistoryState);
-
-const confirmDestructive = (message: string): boolean =>
-  typeof window === "undefined" || typeof window.confirm !== "function" || window.confirm(message);
 
 // --- sending edits ---------------------------------------------------------
 //
@@ -405,18 +404,27 @@ const deleteNodesInternal = async (
   );
   const connectedEdges = removedWires.length;
   const nodeLabel = existingNodes.length === 1 ? "this node" : `${existingNodes.length} nodes`;
-  const relationLabel = connectedEdges === 0 ? "" : ` Connected edges (${connectedEdges}) will also be removed.`;
   const tasksOf = await removalTasks(canvasName, canvas, removed, removedWires);
   // The canvas changed while the tasks were read: the question would be about
   // a canvas the operator is no longer looking at.
   if (state$.canvasName.peek() !== canvasName || state$.docEpoch.peek() !== docEpoch) return;
-  const impactWarnings = removalWarnings(canvas, removed, removedWires, tasksOf);
-  const impactCopy =
-    impactWarnings.length === 0 ? "" : `\n${impactWarnings.join("\n")}`;
-  if (
-    confirmedPageStops === undefined &&
-    !confirmDestructive(`Delete ${nodeLabel}?${impactCopy}${relationLabel}`)
-  ) return;
+  const body = [
+    ...removalWarnings(canvas, removed, removedWires, tasksOf),
+    ...signalRemovalWarnings(removed, Object.values(agentSignals$.peek())),
+    ...(connectedEdges === 0 ? [] : [`Connected edges (${connectedEdges}) will also be removed.`]),
+  ];
+  if (confirmedPageStops === undefined) {
+    const confirmed = await askConfirm({
+      source: "node-delete",
+      title: `Delete ${nodeLabel}?`,
+      body,
+      confirmLabel: existingNodes.length === 1 ? "Delete node" : `Delete ${existingNodes.length} nodes`,
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    // The operator took time to answer: the canvas may be another one now.
+    if (state$.canvasName.peek() !== canvasName || state$.docEpoch.peek() !== docEpoch) return;
+  }
 
   // A page follows what it says happens when it is removed: its session is
   // closed, or left running when the operator chose to detach.

@@ -14,6 +14,7 @@ import { canvasMenu$, closeCanvasMenu, openCanvasMenu } from "../src/window/canv
 import { authoring } from "../src/window/lib/authoring";
 import { modelStore } from "../src/window/lib/use-model";
 import { state$ } from "../src/window/lib/state";
+import { answerConfirm, confirm$ } from "../src/window/lib/confirm";
 import { note } from "./support/model-nodes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -32,6 +33,11 @@ const open = (): void => {
     wires: [],
   });
 };
+
+// A node delete asks through the shared ConfirmDialog; these cases answer yes.
+confirm$.pending.onChange(({ value }) => {
+  if (value !== null) queueMicrotask(() => answerConfirm(true));
+});
 
 beforeEach(() => {
   sent = [];

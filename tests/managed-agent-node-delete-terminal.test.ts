@@ -10,8 +10,13 @@ import {
 import { seat } from "./support/model-nodes";
 import { held, openCanvas } from "./support/open-canvas";
 import { state$ } from "../src/window/lib/state";
+import { answerConfirm, confirm$ } from "../src/window/lib/confirm";
 
 const confirmDelete = vi.fn(() => true);
+// A node delete asks through the shared ConfirmDialog; the stub answers it with confirmDelete.
+confirm$.pending.onChange(({ value }) => {
+  if (value !== null) queueMicrotask(() => answerConfirm(confirmDelete()));
+});
 type TerminalDeleteResource = { readonly bindingId: string; readonly hostId?: string };
 const cleanTerminalDelete = (resources: ReadonlyArray<TerminalDeleteResource>) => ({
   ok: true as const,
