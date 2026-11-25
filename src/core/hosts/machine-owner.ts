@@ -224,7 +224,8 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
         Effect.map(failure => ({ protocol: OPERATOR_PROTOCOL_VERSION, id: request.id, op: request.op, ok: false,
         error: { type: cause instanceof RemoteHostsError ? cause.code : "io",
           // Each message is written by hand, and still passes the scrub: a value a cause carried never leaves.
-          message: cause instanceof Error ? scrubText(cause.message.includes("pinned to another installation") ? `${cause.message}; choose another name` : cause.message).slice(0, 4096) : "machine operation failed",
+          message: cause instanceof Error ? scrubText(cause.message.includes("choose another name") || !cause.message.includes("pinned to another installation")
+            ? cause.message : `${cause.message}; choose another name`).slice(0, 4096) : "machine operation failed",
           details: {
             retryable: request.op === "machine.status" || request.op === "machine.list" || request.op === "machine.harnesses" || request.op === "machine.logs",
             ...(cause instanceof MachineInstallError ? {

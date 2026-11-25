@@ -80,7 +80,10 @@ it("joins active pins on the list and retires the pin with route removal", async
   await f.call("machine.add", { name: "mini", sshTarget: "mac-mini" });
   const changed = await f.call("machine.setup", { machineName: "mini", installationId: "another-install" });
   expect(changed.ok).toBe(false);
-  if (!changed.ok) expect(changed.error.message).toContain("choose another name");
+  if (!changed.ok) {
+    expect(changed.error.message).toContain("choose another name");
+    expect(changed.error.message.match(/choose another name/g)).toHaveLength(1);
+  }
 });
 
 it("rolls back peer retirement if deleting the route fails", async () => {
