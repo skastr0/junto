@@ -630,6 +630,45 @@ describe("overseer native adapters", () => {
     expect((parts?.launch.argv ?? []).length).toBeGreaterThan(0);
   });
 
+  it("a refused reseat stops nothing: the old generation is killed only once the canvas has taken it", async () => {
+    const kill = vi.fn(async () => true);
+    const commitAgentReseat = vi.fn(async () => ({ ok: false as const, message: "the canvas refused" }));
+    const native = live([{ name: "factory", doc: board }], {
+      termPlane: makeTermPlane({ kill }),
+      commitAgentReseat,
+    });
+    const reseated = await run(native, "agent.reseat", { nodeId: "a1", harness: "claude" });
+    expect(commitAgentReseat).toHaveBeenCalledTimes(1);
+    expect(reseated.ok).toBe(false);
+    if (reseated.ok) return;
+    expect(reseated.error.type).toBe("Conflict");
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("a taken reseat is committed before the old generation is killed, and the kill names the old binding", async () => {
+    const order: string[] = [];
+    const kill = vi.fn(async () => {
+      order.push("kill");
+      return true;
+    });
+    const commitAgentReseat = vi.fn(async () => {
+      order.push("commit");
+      return { ok: true as const };
+    });
+    const native = live([{ name: "factory", doc: board }], {
+      termPlane: makeTermPlane({ kill }),
+      commitAgentReseat,
+    });
+    const reseated = await run(native, "agent.reseat", { nodeId: "a1", harness: "claude" });
+    expect(reseated.ok).toBe(true);
+    expect(order).toEqual(["commit", "kill"]);
+    const parts = (commitAgentReseat.mock.calls as unknown as ReadonlyArray<
+      ReadonlyArray<{ parts: SeatParts }>
+    >)[0]?.[0]?.parts;
+    expect(kill).toHaveBeenCalledWith("bind-a1", THIS_MACHINE);
+    expect(kill).not.toHaveBeenCalledWith(parts?.bindingId, expect.anything());
+  });
+
   it("refuses reseat without the canvas commit hook", async () => {
     const native = live([{ name: "factory", doc: board }]);
     const reseated = await run(native, "agent.reseat", { nodeId: "a1", harness: "claude" });
