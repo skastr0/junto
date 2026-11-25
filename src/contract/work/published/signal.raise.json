@@ -1025,6 +1025,12 @@
                 "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
               },
               "maxItems": 8
+            },
+            "paired": {
+              "type": "boolean",
+              "enum": [
+                true
+              ]
             }
           },
           "required": [

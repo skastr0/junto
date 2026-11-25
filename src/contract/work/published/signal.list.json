@@ -715,6 +715,12 @@
                 },
                 "maxItems": 8
               },
+              "paired": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
               "level": {
                 "type": "string",
                 "enum": [
