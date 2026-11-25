@@ -502,6 +502,9 @@ phase, and attention/occupancy are separate planes.
     `P..M` is at most 2 hours or 30 commits. Otherwise rerun the whole suite on
     M. After landing, the main verify run is the backstop: a red traced to the
     landing is fixed or reverted by its author at once.
+    P is the newest main that passed whole: `cut -d' ' -f1
+    "$(git rev-parse --git-common-dir)/main-verify/last-green"`, kept by
+    `scripts/main-verify-loop.sh`, which verifies each new main head in turn.
   - The operator's database never leaves this machine, whole or in part, by
     any means: not to a VM and not to the mini. Both scripts refuse a SQLite
     file. A real board goes to the mini as its shapes only: the JSON that
