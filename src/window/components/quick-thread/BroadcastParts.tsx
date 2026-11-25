@@ -156,13 +156,13 @@ function Names({
   seats,
   regionOf,
   label,
-  apart = [],
+  marked = true,
 }: {
   readonly seats: ReadonlyArray<BroadcastSeat>;
   readonly regionOf: (nodeId: string) => string | undefined;
   readonly label: string;
-  /** Seats listed under a heading of their own, after the rest: those that cross a region's edge. */
-  readonly apart?: ReadonlyArray<{ readonly heading: string; readonly seats: ReadonlyArray<BroadcastSeat> }>;
+  /** False for seats that are not sent to: no clock for "gets it when back". */
+  readonly marked?: boolean;
 }) {
   const groups = groupByRegion(seats, regionOf);
   const heading = useId();
@@ -185,25 +185,10 @@ function Names({
           <ul role="list" className="quick-thread__names-list" {...(group.region !== "" ? { "aria-labelledby": `${heading}-${at}` } : {})}>
             {group.seats.map((seat) => (
               <li key={seat.nodeId} className="quick-thread__name-row" data-testid="quick-thread-name" data-seat={seat.nodeId}>
-                {seat.running ? null : <Clock size={11} aria-hidden className="quick-thread__arrival" />}
+                {marked && !seat.running ? <Clock size={11} aria-hidden className="quick-thread__arrival" /> : null}
                 <AgentPortrait identity={seat.nodeId} size={18} frame="round" outline={false} badge={false} />
                 <span className="quick-thread__name">{seat.name}</span>
-                {seat.running ? null : <span className="sr-only">, gets it when back</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-      {apart.map((group) => (
-        <div key={group.heading} className="quick-thread__names-group" data-testid="quick-thread-names-apart">
-          <span id={`${heading}-apart-${group.heading}`} className="quick-thread__names-region">
-            {group.heading}
-          </span>
-          <ul role="list" className="quick-thread__names-list" aria-labelledby={`${heading}-apart-${group.heading}`}>
-            {group.seats.map((seat) => (
-              <li key={seat.nodeId} className="quick-thread__name-row" data-testid="quick-thread-name-apart" data-seat={seat.nodeId}>
-                <AgentPortrait identity={seat.nodeId} size={18} frame="round" outline={false} badge={false} />
-                <span className="quick-thread__name">{seat.name}</span>
+                {marked && !seat.running ? <span className="sr-only">, gets it when back</span> : null}
               </li>
             ))}
           </ul>
@@ -219,7 +204,7 @@ function Disclosure({
   lineId,
   label,
   names: namesLabel,
-  apart,
+  marked,
   seats,
   regionOf,
   initiallyOpen = false,
@@ -236,8 +221,8 @@ function Disclosure({
   readonly names: string;
   readonly seats: ReadonlyArray<BroadcastSeat>;
   readonly regionOf: (nodeId: string) => string | undefined;
-  /** Seats under a heading of their own in the list of names (see Names). */
-  readonly apart?: ReadonlyArray<{ readonly heading: string; readonly seats: ReadonlyArray<BroadcastSeat> }>;
+  /** False for seats that are not sent to: their names carry no mark for getting it later. */
+  readonly marked?: boolean;
   readonly initiallyOpen?: boolean;
   readonly ink?: boolean;
   readonly testId: string;
@@ -256,7 +241,7 @@ function Disclosure({
         {aside}
       </div>
       <div id={names} hidden={!open}>
-        {open ? <Names seats={seats} regionOf={regionOf} label={namesLabel} {...(apart === undefined ? {} : { apart })} /> : null}
+        {open ? <Names seats={seats} regionOf={regionOf} label={namesLabel} {...(marked === undefined ? {} : { marked })} /> : null}
       </div>
     </div>
   );
@@ -321,20 +306,31 @@ export function BroadcastConfirm({
       <p id={detail} className="quick-thread__confirm-detail">
         {confirmDetail(later)}
       </p>
-      {crossing.map((entry, at) => (
-        <p key={entry.region} id={`${edge}-${at}`} className="quick-thread__confirm-detail" data-testid="quick-thread-crossing">
-          {crossLine(entry.region, entry.seats.length)}
-        </p>
-      ))}
       <Disclosure
         text={`Show the ${seats.length}`}
         label={`Show the ${seatsWord(seats.length)}`}
         names={`The ${seatsWord(seats.length)} that get it`}
-        apart={crossing.map((entry) => ({ heading: `Cross the edge of ${entry.region}, not included`, seats: entry.seats }))}
         seats={seats}
         regionOf={regionOf}
         testId="quick-thread-confirm-names"
       />
+      {/* One line per region, with its own disclosure under it: these seats do not get the thread, so they are not in the list above or its count. */}
+      {crossing.map((entry, at) => (
+        <div key={entry.region} className="quick-thread__crossing" data-testid="quick-thread-crossing-block">
+          <p id={`${edge}-${at}`} className="quick-thread__confirm-detail" data-testid="quick-thread-crossing">
+            {crossLine(entry.region, entry.seats.length)}
+          </p>
+          <Disclosure
+            text={`Show the ${entry.seats.length}`}
+            label={`Show the ${seatsWord(entry.seats.length)} partly inside ${entry.region}`}
+            names={`The ${seatsWord(entry.seats.length)} partly inside ${entry.region}, not included`}
+            marked={false}
+            seats={entry.seats}
+            regionOf={regionOf}
+            testId="quick-thread-crossing-names"
+          />
+        </div>
+      ))}
       {unread.length > 0 ? (
         <div className="quick-thread__leftout" data-testid="quick-thread-leftout">
           <p id={leftOut} className="quick-thread__leftout-text">

@@ -437,3 +437,9 @@
 .quick-thread__composer[hidden] {
   display: none;
 }
+
+/* The seats a region only partly holds: their line, and the toggle for their names right under it. */
+.quick-thread__crossing {
+  display: grid;
+  gap: 4px;
+}

@@ -51,14 +51,14 @@ describe("picks", () => {
   });
 });
 
-describe("the seats that cross a region's edge", () => {
+describe("the seats partly inside a region", () => {
   it("say one seat in the singular and several in the plural, with the region's name", () => {
-    expect(crossLine("Big", 6)).toBe("6 seats cross the edge of Big and are not included.");
-    expect(crossLine("Big", 1)).toBe("1 seat crosses the edge of Big and is not included.");
+    expect(crossLine("Big", 6)).toBe("6 seats are partly inside Big and are not included.");
+    expect(crossLine("Big", 1)).toBe("1 seat is partly inside Big and is not included.");
   });
   it("are said with the confirm when it opens, before what is left out", () => {
     expect(confirmSpoken(12, 0, 2, [crossLine("Big", 6)])).toBe(
-      "Send to 12 seats? Each gets its own thread. 6 seats cross the edge of Big and are not included. 2 are left out: their machine is out of reach right now, so what they are doing is not known.",
+      "Send to 12 seats? Each gets its own thread. 6 seats are partly inside Big and are not included. 2 are left out: their machine is out of reach right now, so what they are doing is not known.",
     );
     expect(confirmSpoken(1, 0, 0)).toBe("Send to 1 seat? Each gets its own thread.");
   });

@@ -628,9 +628,9 @@ describe("Broadcast: a region as a recipient", () => {
     await key(seatField(), "Enter");
     await typeIn(messageField(), "status?");
     await key(messageField(), "Enter");
-    expect(q("quick-thread-crossing")?.textContent).toBe("1 seat crosses the edge of Design System and is not included.");
+    expect(q("quick-thread-crossing")?.textContent).toBe("1 seat is partly inside Design System and is not included.");
     expect(q("quick-thread-confirm")?.textContent).toContain("Send to 2 seats?");
-    expect(spoken()).toContain("1 seat crosses the edge of Design System and is not included.");
+    expect(spoken()).toContain("1 seat is partly inside Design System and is not included.");
     await press(q("quick-thread-confirm-send"));
     // It was not in the send.
     expect(sends.map((entry) => entry.nodeId).sort()).toEqual(["s-design", "s-type"]);

@@ -56,21 +56,38 @@ describe("the confirm's edge lines", () => {
       { region: "Small", seats: [seat("w")] },
     ]);
     expect([...host.querySelectorAll('[data-testid="quick-thread-crossing"]')].map((line) => line.textContent)).toEqual([
-      "3 seats cross the edge of Big and are not included.",
-      "1 seat crosses the edge of Small and is not included.",
+      "3 seats are partly inside Big and are not included.",
+      "1 seat is partly inside Small and is not included.",
     ]);
     expect(described()).toBe(
-      "Each gets its own thread. | 3 seats cross the edge of Big and are not included. | 1 seat crosses the edge of Small and is not included.",
+      "Each gets its own thread. | 3 seats are partly inside Big and are not included. | 1 seat is partly inside Small and is not included.",
     );
   });
 
-  it("list the seats that cross under a heading of their own, apart from the seats that get the thread", async () => {
+  it("list the seats that cross in a disclosure of their own, apart from the seats that get the thread", async () => {
     await mount([{ region: "Big", seats: [seat("x", "Xena"), seat("y", "Yori")] }]);
-    await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="quick-thread-confirm-names"] button')!.click());
-    const apart = host.querySelector('[data-testid="quick-thread-names-apart"]')!;
-    expect(apart.textContent).toContain("Cross the edge of Big, not included");
-    expect([...apart.querySelectorAll('[data-testid="quick-thread-name-apart"]')].map((row) => row.textContent)).toEqual(["Xena", "Yori"]);
-    // The seats that get it are listed apart from them.
-    expect([...host.querySelectorAll('[data-testid="quick-thread-name"]')].map((row) => row.getAttribute("data-seat"))).toEqual(["a", "b"]);
+    // Two toggles: the seats that get it, and the seats that cross; the first counts only its own.
+    const toggles = [...host.querySelectorAll<HTMLButtonElement>(".quick-thread__disclosure-toggle")];
+    expect(toggles.map((toggle) => toggle.getAttribute("aria-label"))).toEqual(["Show the 2 seats", "Show the 2 seats partly inside Big"]);
+    await act(async () => toggles[0]!.click());
+    await act(async () => toggles[1]!.click());
+    const regions = [...host.querySelectorAll<HTMLElement>('[role="region"]')];
+    expect(regions.map((region) => region.getAttribute("aria-label"))).toEqual([
+      "The 2 seats that get it",
+      "The 2 seats partly inside Big, not included",
+    ]);
+    expect([...regions[0]!.querySelectorAll('[data-testid="quick-thread-name"]')].map((row) => row.getAttribute("data-seat"))).toEqual(["a", "b"]);
+    expect([...regions[1]!.querySelectorAll('[data-testid="quick-thread-name"]')].map((row) => row.textContent)).toEqual(["Xena", "Yori"]);
+    // They are not sent to, so none is marked as getting it when back, whether or not it is running.
+    expect(regions[1]!.textContent).not.toContain("gets it when back");
+  });
+
+  it("names every list: the ids a list is labelled by hold no spaces", async () => {
+    await mount([{ region: "Big", seats: [seat("x", "Xena")] }]);
+    for (const toggle of host.querySelectorAll<HTMLButtonElement>(".quick-thread__disclosure-toggle")) await act(async () => toggle.click());
+    for (const list of host.querySelectorAll("[aria-labelledby]")) {
+      const ids = (list.getAttribute("aria-labelledby") ?? "").split(" ");
+      expect(ids.every((id) => document.getElementById(id) !== null), `${list.getAttribute("aria-labelledby")} names a heading`).toBe(true);
+    }
   });
 });

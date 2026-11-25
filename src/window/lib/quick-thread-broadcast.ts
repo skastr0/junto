@@ -150,11 +150,14 @@ export const leftOutLine = (count: number): string =>
     ? "1 is left out: its machine is out of reach right now, so what it is doing is not known."
     : `${count} are left out: their machine is out of reach right now, so what they are doing is not known.`;
 
-/** The seats that straddle a chosen region's edge, which are not members and so not in the send. */
+/**
+ * The seats that straddle a chosen region's frame, which are not members and so
+ * not in the send. "Partly inside", not "cross the edge": in Junto an edge is a wire.
+ */
 export const crossLine = (region: string, count: number): string =>
   count === 1
-    ? `1 seat crosses the edge of ${region} and is not included.`
-    : `${count} seats cross the edge of ${region} and are not included.`;
+    ? `1 seat is partly inside ${region} and is not included.`
+    : `${count} seats are partly inside ${region} and are not included.`;
 
 /** The confirm said once when it opens, for the live line: the question, the detail, the edge lines and what is left out. */
 export const confirmSpoken = (count: number, later: number, unread: number, crossing: ReadonlyArray<string> = []): string =>
