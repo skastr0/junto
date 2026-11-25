@@ -51,6 +51,8 @@ export class MachineRepository extends Context.Service<MachineRepository, {
   readonly notePeerHello: (hello: MachinePeerIdentity & { readonly build: string; readonly version?: string; readonly builtAt?: string }) => Effect.Effect<void, MachinePersistenceError>;
   /** What each active peer last said, under the installation it is pinned to. */
   readonly peersSeen: Effect.Effect<ReadonlyArray<MachinePeerSeen>, MachinePersistenceError>;
+  /** Retires the live pin of exactly that installation, whatever its name; answers whether one was retired. */
+  readonly retirePeerInstallation: (installationId: InstallationId) => Effect.Effect<boolean, MachinePersistenceError>;
 }>()("@junto/MachineRepository") {}
 
 const InstallationRow = Schema.Struct({ installation_id: InstallationId, created_at: Timestamp });
@@ -175,6 +177,14 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
     machineName: row.machine_name, installationId: row.installation_id, build: row.build, seenAt: row.seen_at,
     ...(row.version === null ? {} : { version: row.version }), ...(row.built_at === null ? {} : { builtAt: row.built_at }),
   }))), Effect.mapError(failure("peers-seen")));
+  const retirePeerInstallation = Effect.fn("MachineRepository.retirePeerInstallation")((installationId: InstallationId) =>
+    sql.withTransaction(Effect.gen(function* () {
+      const live = yield* sql`SELECT machine_name FROM machine_peers WHERE installation_id = ${installationId} AND retired_at IS NULL`;
+      if (live.length === 0) return false;
+      yield* sql`DELETE FROM machine_peer_seen WHERE installation_id = ${installationId}`;
+      yield* sql`UPDATE machine_peers SET retired_at = ${now()}, binding = NULL WHERE installation_id = ${installationId} AND retired_at IS NULL`;
+      return true;
+    })).pipe(Effect.provideService(StateTransactionOperation, "machine.retire-peer"), Effect.mapError(failure("retire-peer"))));
   const configureName = Effect.fn("MachineRepository.configureName")(function* (input: string) {
     const name = yield* Schema.decodeUnknownEffect(MachineName)(input);
     return yield* sql.withTransaction(Effect.gen(function* () {
@@ -197,7 +207,7 @@ export const makeMachineRepository = (options: MachineRepositoryOptions = {}) =>
   }, Effect.mapError(failure("configure-name")));
   return MachineRepository.of({ installationId: Effect.succeed(installationId), configuration,
     machineName: configuration.pipe(Effect.map((stored) => stored.configuration.name)), configureName, pinPeer, peer, peers, retirePeer,
-    retiredPeers, notePeerHello, peersSeen });
+    retiredPeers, notePeerHello, peersSeen, retirePeerInstallation });
 });
 
 export const makeMachineRepositoryLive = (options: MachineRepositoryOptions = {}) =>

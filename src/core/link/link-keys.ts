@@ -288,6 +288,48 @@ export const removeLinkLines = (text: string, home: string, opener?: string): st
   return lines.length === parsed.lines.length ? text : joined({ lines, trailingNewline: parsed.trailingNewline });
 };
 
+/** The sha256, in hex, of `ssh-ed25519 <key>`: the one generation of a link a line or a key file holds. */
+export const linkKeySha256 = (key: string): string => createHash("sha256").update(publicKey(key)).digest("hex");
+
+/** The key a Junto link line lets in, or none. */
+const linkLineKey = (line: string): string | undefined =>
+  /\s(ssh-ed25519 [A-Za-z0-9+/]{16,}={0,3})\s+junto-link:/u.exec(line)?.[1];
+
+/** Is that opener's line for that home, holding exactly the key `sha256` names, present. */
+export const hasLinkLineWithKey = (text: string, home: string, opener: string, sha256: string): boolean =>
+  split(text).lines.some((line) => {
+    const held = linkLineOwner(line);
+    const key = linkLineKey(line);
+    return held !== undefined && held.home === home && held.opener === opener && key !== undefined && linkKeySha256(key) === sha256;
+  });
+
+/** Removes only that opener's line for that home that holds exactly the key `sha256` names. */
+export const removeLinkLineWithKey = (text: string, home: string, opener: string, sha256: string): string => {
+  const parsed = split(text);
+  const lines = parsed.lines.filter((line) => {
+    const held = linkLineOwner(line);
+    const key = linkLineKey(line);
+    return held === undefined || held.home !== home || held.opener !== opener || key === undefined || linkKeySha256(key) !== sha256;
+  });
+  return lines.length === parsed.lines.length ? text : joined({ lines, trailingNewline: parsed.trailingNewline });
+};
+
+/** The sha256 of this machine's own link key for `peer`, when it holds one. */
+export const ownLinkKeySha256 = (home: string, peer: string): string | undefined => {
+  if (!isValidMachineName(peer)) return undefined;
+  try {
+    const [kind, blob] = readFileSync(join(linkKeyDirectory(home, peer), "id_ed25519.pub"), "utf8").trim().split(/\s+/u);
+    return linkKeySha256(`${kind ?? ""} ${blob ?? ""}`);
+  } catch { return undefined; }
+};
+
+/** The host key lines the bound route to `peer` accepts, as written, when there is one. */
+export const boundKnownHosts = (home: string, peer: string): string | undefined => {
+  const route = readBoundRoute(home, peer);
+  if (route === undefined) return undefined;
+  try { return readFileSync(route.knownHostsFile, "utf8"); } catch { return undefined; }
+};
+
 /** Is that opener's line present for that home. */
 export const hasLinkLine = (text: string, home: string, opener: string): boolean =>
   split(text).lines.some((line) => {

@@ -68,8 +68,24 @@ export type MachineLinkOpenInput = typeof MachineLinkOpenInput.Type;
 export const MachineLinkOpenData = Schema.Struct({ machineName: Name, installationId: InstallationId, boundAt: Schema.String });
 export type MachineLinkOpenData = typeof MachineLinkOpenData.Type;
 
-/** On a machine that received links: the key of a machine taken off the canvas comes off. */
-export const MachineLinkRevokeInput = Schema.Struct({ installationId: InstallationId });
+/** The sha256, in hex, of a link line's `ssh-ed25519 <key>`: which generation of a link a revoke names. */
+export const LinkKeySha256 = Schema.String.pipe(Schema.check(Schema.isPattern(/^[0-9a-f]{64}$/u)));
+
+/**
+ * On a machine that received links: the key of a machine taken off the canvas
+ * comes off. With `unpin`, sent by the machine that removed this one, this
+ * machine's pin of that installation is retired too, by installation id, and
+ * only while the line holding exactly `linkKeySha256` is still here: a later
+ * link made its own line and its own pin, which this never touches.
+ */
+export const MachineLinkRevokeInput = Schema.Struct({
+  installationId: InstallationId,
+  unpin: Schema.optionalKey(Schema.Literal(true)),
+  linkKeySha256: Schema.optionalKey(LinkKeySha256),
+});
 export type MachineLinkRevokeInput = typeof MachineLinkRevokeInput.Type;
-export const MachineLinkRevokeData = Schema.Struct({ installationId: InstallationId, removed: Schema.Boolean });
+/** With `unpin`, `holder` is the answering machine's own installation: a clear settles only against the machine that held the line. */
+export const MachineLinkRevokeData = Schema.Struct({
+  installationId: InstallationId, removed: Schema.Boolean, unpinned: Schema.optionalKey(Schema.Boolean), holder: Schema.optionalKey(InstallationId),
+});
 export type MachineLinkRevokeData = typeof MachineLinkRevokeData.Type;

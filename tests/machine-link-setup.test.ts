@@ -6,7 +6,7 @@
  * owner command to that machine's own setup, as `junto machine <op> -` would.
  */
 import { wordsText } from "./helpers/command-words";
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ChildProcess as Command } from "effect/process";
@@ -15,7 +15,7 @@ import { afterEach, expect, it } from "vitest";
 import { generatePairingKey } from "../src/core/companion/pairing-key";
 import { makeMachineLinkSetup, type MachineLinkSetup } from "../src/core/hosts/machine-link";
 import { HostsService } from "../src/core/hosts/service";
-import { linkHomeTag, readBoundRoute } from "../src/core/link/link-keys";
+import { linkHomeTag, ownLinkKeySha256, readBoundRoute } from "../src/core/link/link-keys";
 import { MachineLink } from "../src/core/link/service";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
 import { createSshProgramCompiler } from "../src/core/ssh/program";
@@ -156,7 +156,25 @@ const fleet = async () => {
     await run(editor, Effect.flatMap(MachineRepository, (machines) => machines.pinPeer({ machineName: far.name, installationId: far.installationId })));
     await run(far, Effect.flatMap(MachineRepository, (machines) => machines.pinPeer({ machineName: editor.name, installationId: editor.installationId })));
   }
-  return { editor, mini, vps };
+  /** Makes an address that dialed nowhere reach that machine: the far end came back. */
+  const reach = (endpoint: string, machine: Machine) => { byEndpoint.set(endpoint, machine); };
+  return { editor, mini, vps, reach };
+};
+
+const pinOf = (machine: Machine, name: string) => run(machine, Effect.flatMap(MachineRepository, (machines) => machines.peer(name)));
+const pinRows = (machine: Machine) => run(machine, Effect.flatMap(MachineRepository, (machines) => machines.peers));
+/** The editor's remove, after the far clear: its route, pin and key for that machine go here. */
+const removeHere = async (editor: Machine, far: Machine) => {
+  await run(editor, Effect.flatMap(MachineRepository, (machines) => machines.retirePeer(far.name)));
+  editor.hosts.delete(far.name);
+  await run(editor, editor.setup.forget(far.name, far.installationId));
+};
+/** The operator adds it again and sends: the editor routes to and pins it plainly. */
+const addAgain = async (editor: Machine, far: Machine) => {
+  editor.hosts.set(far.name, Schema.decodeUnknownSync(RemoteHost)({
+    id: far.name, label: far.name, isThisMachine: false, sshEndpoint: `${far.name}-alias`, capabilities: ["terminal"], juntoHome: far.home, installRoot: far.installRoot,
+  }));
+  await run(editor, Effect.flatMap(MachineRepository, (machines) => machines.pinPeer({ machineName: far.name, installationId: far.installationId })));
 };
 
 it("keys the mini to the VPS and the editor to both, over setup sessions strict against the verified host keys", async () => {
@@ -268,4 +286,144 @@ it("takes a removed machine's line off the machines it reached, and keeps one it
   const ghost = { machineName: "ghost", installationId: Schema.decodeUnknownSync(InstallationId)("ghost-installation") };
   await expect(run(editor, editor.setup.revokeEverywhere(ghost))).resolves.toEqual([{ holder: "vps", ...ghost }]);
   expect(editor.setup.pending()).toEqual([{ holder: "vps", ...ghost }]);
+});
+
+it("clears a removed machine's trust in the editor's link key: its line of that key, and its pin of the editor by installation id, nothing else", async () => {
+  const { editor, mini, vps } = await fleet();
+  await run(editor, editor.setup.link({ from: "mini", to: "vps" }));
+  expect(await pinOf(vps, "book")).toMatchObject({ installationId: editor.installationId, binding: "key" });
+  const before = await readFile(vps.authorizedKeys, "utf8");
+
+  await expect(run(editor, editor.setup.clearRemoved(editor.hosts.get("vps")!, vps.installationId))).resolves.toBe("clear");
+  const after = await readFile(vps.authorizedKeys, "utf8");
+  expect(after).not.toContain(`junto-link:${linkHomeTag(vps.home)}:${editor.installationId}`);
+  // The mini's line, its pin and the operator's own key are untouched.
+  expect(after).toBe(before.split("\n").filter((line) => !line.endsWith(`:${editor.installationId}`)).join("\n"));
+  expect(await pinOf(vps, "book")).toBeUndefined();
+  expect(await pinOf(vps, "mini")).toMatchObject({ installationId: mini.installationId, binding: "key" });
+  expect((await pinRows(vps)).map((pin) => pin.machineName)).toEqual(["mini"]);
+  // The clear ran over the operator's route, strict against the host key the bound route pinned.
+  const last = editor.sessions.at(-1)!;
+  expect(last.at(-2)).toBe("vps-alias");
+  expect(last.at(-1)).toContain("'machine' 'link-revoke' '-'");
+  expect(last).toContain(`UserKnownHostsFile=${join(editor.home, ".junto/core/link-keys/unlinked/vps.known_hosts")}`);
+});
+
+it("refuses an unpin that names no key, and a key that is not the line's changes nothing", async () => {
+  const { editor, vps } = await fleet();
+  await run(editor, editor.setup.link({ from: "mini", to: "vps" }));
+  const before = await readFile(vps.authorizedKeys, "utf8");
+  await expect(run(vps, vps.setup.revoke({ installationId: editor.installationId, unpin: true }))).rejects.toThrow(/names the link key/);
+  await expect(run(vps, vps.setup.revoke({ installationId: editor.installationId, unpin: true, linkKeySha256: "0".repeat(64) })))
+    .resolves.toEqual({ installationId: editor.installationId, removed: false, unpinned: false, holder: vps.installationId });
+  expect(await readFile(vps.authorizedKeys, "utf8")).toBe(before);
+  expect(await pinOf(vps, "book")).toMatchObject({ binding: "key" });
+  // A link key runs only `junto link --opener <its own installation>`: no line Junto writes reaches an owner command.
+  for (const line of before.split("\n").filter((row) => row.includes("junto-link:"))) {
+    expect(line).toMatch(/^command="\/usr\/bin\/env JUNTO_HOME='[^']+' '[^']+\/current\/bin\/junto' link --opener ([A-Za-z0-9._:-]+)",restrict ssh-ed25519 \S+ junto-link:[0-9a-f]{12}:\1$/u);
+    expect(line).not.toContain(" machine ");
+  }
+});
+
+it("keeps the clear of a machine it cannot reach, without the link key, and a retry after a new link leaves the new link whole", async () => {
+  const { editor, mini, vps, reach } = await fleet();
+  await run(editor, editor.setup.link({ from: "mini", to: "vps" }));
+  const oldKey = ownLinkKeySha256(editor.home, "vps")!;
+  const linkPublic = (await readFile(join(editor.home, ".junto/core/link-keys/vps/id_ed25519.pub"), "utf8")).trim().split(/\s+/u)[1]!;
+  // The VPS is off the network when the operator removes it.
+  editor.hosts.set("vps", { ...editor.hosts.get("vps")!, sshEndpoint: "later-alias" as never });
+  await expect(run(editor, editor.setup.clearRemoved(editor.hosts.get("vps")!, vps.installationId))).resolves.toBe("kept");
+  await removeHere(editor, vps);
+  const kept = await readFile(join(editor.home, ".junto/core/link-keys/unlinked.json"), "utf8");
+  expect(JSON.parse(kept)).toEqual([expect.objectContaining({ machineName: "vps", installationId: editor.installationId, linkKeySha256: oldKey })]);
+  // Only the route and the host keys it had pinned: never the link key, its file or its path.
+  expect(kept).not.toContain(linkPublic);
+  expect(kept).not.toMatch(/PRIVATE KEY|id_ed25519/u);
+  expect(kept).toContain(`${vps.address} ${vps.hostKey}`);
+  expect(await readdir(join(editor.home, ".junto/core/link-keys"))).not.toContain("vps");
+
+  // Added again and linked again: a new key, a new line, the same pin, kept key-bound.
+  await addAgain(editor, vps);
+  editor.hosts.set("vps", { ...editor.hosts.get("vps")!, sshEndpoint: "vps-alias" as never });
+  await run(editor, editor.setup.link({ from: "mini", to: "vps" }));
+  const newKey = ownLinkKeySha256(editor.home, "vps")!;
+  expect(newKey).not.toBe(oldKey);
+  const relinked = await readFile(vps.authorizedKeys, "utf8");
+
+  // The kept route answers at last: the retry names the old key's line, which is gone, so nothing changes.
+  reach("later-alias", vps);
+  await expect(run(editor, editor.setup.settleRemoved())).resolves.toEqual([]);
+  expect(await readFile(vps.authorizedKeys, "utf8")).toBe(relinked);
+  expect(await pinOf(vps, "book")).toMatchObject({ installationId: editor.installationId, binding: "key" });
+  expect(readBoundRoute(editor.home, "vps")).toBeDefined();
+  expect(await pinOf(vps, "mini")).toMatchObject({ installationId: mini.installationId });
+  await expect(readFile(join(editor.home, ".junto/core/link-keys/unlinked.json"), "utf8")).rejects.toThrow(/ENOENT/);
+});
+
+it("settles a kept clear over the route a send just reached, before setup pins the editor again", async () => {
+  const { editor, vps } = await fleet();
+  await run(editor, editor.setup.link({ from: "mini", to: "vps" }));
+  editor.hosts.set("vps", { ...editor.hosts.get("vps")!, sshEndpoint: "later-alias" as never });
+  await expect(run(editor, editor.setup.clearRemoved(editor.hosts.get("vps")!, vps.installationId))).resolves.toBe("kept");
+  await removeHere(editor, vps);
+  expect(await pinOf(vps, "book")).toMatchObject({ binding: "key" });
+
+  await addAgain(editor, vps);
+  await expect(run(editor, editor.setup.settleRemoved({ machineName: "vps", route: editor.hosts.get("vps")!, installationId: vps.installationId }))).resolves.toEqual([]);
+  // The old line and the key-bound pin are gone, so setup pins the editor plainly and a send ends ready.
+  expect(await readFile(vps.authorizedKeys, "utf8")).not.toContain(`:${editor.installationId}`);
+  expect(await pinOf(vps, "book")).toBeUndefined();
+  expect(editor.sessions.at(-1)!.at(-2)).toBe("vps-alias");
+  expect(editor.setup.holdsLinkKey("vps")).toBe(false);
+});
+
+it("keeps a clear pending when the address now answers as another installation, by a retry or by a send", async () => {
+  const { editor, mini, vps, reach } = await fleet();
+  await run(editor, editor.setup.link({ from: "mini", to: "vps" }));
+  editor.hosts.set("vps", { ...editor.hosts.get("vps")!, sshEndpoint: "later-alias" as never });
+  await expect(run(editor, editor.setup.clearRemoved(editor.hosts.get("vps")!, vps.installationId))).resolves.toBe("kept");
+  await removeHere(editor, vps);
+  const pending = join(editor.home, ".junto/core/link-keys/unlinked.json");
+  expect(JSON.parse(await readFile(pending, "utf8"))).toEqual([expect.objectContaining({ machineName: "vps", holder: vps.installationId })]);
+
+  // The address comes back as a rebuilt machine, another installation: it answers removed:false as itself, and the row stays.
+  reach("later-alias", mini);
+  await expect(run(editor, editor.setup.settleRemoved())).resolves.toEqual(["vps"]);
+  expect(editor.sessions.at(-1)!.at(-2)).toBe("later-alias");
+  // The name is added again for that installation and sent: the send's settle does not dial, and the row stays.
+  const sessions = editor.sessions.length;
+  await expect(run(editor, editor.setup.settleRemoved({ machineName: "vps", route: { ...editor.hosts.get("mini")!, id: "vps" as never }, installationId: mini.installationId })))
+    .resolves.toEqual(["vps"]);
+  expect(editor.sessions.length).toBe(sessions);
+  expect(JSON.parse(await readFile(pending, "utf8"))).toEqual([expect.objectContaining({ machineName: "vps", holder: vps.installationId })]);
+  // The old installation still trusts the key until a retry reaches it.
+  expect(await readFile(vps.authorizedKeys, "utf8")).toContain(`:${editor.installationId}`);
+});
+
+it("keeps a clear for a machine with a link key and no route to dial", async () => {
+  const { editor, vps } = await fleet();
+  await run(editor, editor.setup.link({ from: "mini", to: "vps" }));
+  const { sshEndpoint: _endpoint, juntoHome: _home, ...routeless } = editor.hosts.get("vps")!;
+  await expect(run(editor, editor.setup.clearRemoved(routeless as RemoteHost, vps.installationId))).resolves.toBe("kept");
+  expect(JSON.parse(await readFile(join(editor.home, ".junto/core/link-keys/unlinked.json"), "utf8")))
+    .toEqual([expect.objectContaining({ machineName: "vps", holder: vps.installationId })]);
+});
+
+it("moves an unreadable list of pending clears aside, never over it, and says where", async () => {
+  const { editor, vps } = await fleet();
+  await run(editor, editor.setup.link({ from: "mini", to: "vps" }));
+  const dir = join(editor.home, ".junto/core/link-keys");
+  await writeFile(join(dir, "unlinked.json"), "[{\"machineName\":\"ghost\"");
+  await expect(run(editor, editor.setup.settleRemoved())).resolves.toEqual([]);
+  const aside = (await readdir(dir)).filter((name) => name.startsWith("unlinked.json.bad-"));
+  expect(aside).toHaveLength(1);
+  expect(await readFile(join(dir, aside[0]!), "utf8")).toBe("[{\"machineName\":\"ghost\"");
+  expect(editor.setup.takeSetAside()).toEqual([join(dir, aside[0]!)]);
+  expect(editor.setup.takeSetAside()).toEqual([]);
+  // A row Junto did not write sets the whole file aside too.
+  editor.hosts.set("vps", { ...editor.hosts.get("vps")!, sshEndpoint: "later-alias" as never });
+  await writeFile(join(dir, "unlinked.json"), JSON.stringify([{ machineName: "ghost" }]));
+  await expect(run(editor, editor.setup.clearRemoved(editor.hosts.get("vps")!, vps.installationId))).resolves.toBe("kept");
+  expect(editor.setup.takeSetAside()).toHaveLength(1);
+  expect(JSON.parse(await readFile(join(dir, "unlinked.json"), "utf8"))).toEqual([expect.objectContaining({ machineName: "vps" })]);
 });

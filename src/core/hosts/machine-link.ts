@@ -31,8 +31,8 @@ import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
 import { defaultAuthorizedKeysPath, editAuthorizedKeys, readAuthorizedKeys } from "../companion/authorized-keys";
 import { readBoatRecords } from "../../node/boat/files";
 import {
-  hasLinkLine, linkHomeTag, linkKeyLine, makeLinkKey, readBoundRoute, removeLinkKey, removeLinkLines, upsertLinkLine,
-  verifiedHostKeys, writeBoundRoute, writeLinkKnownHosts,
+  boundKnownHosts, hasLinkLine, hasLinkLineWithKey, linkHomeTag, linkKeyLine, makeLinkKey, ownLinkKeySha256, readBoundRoute, removeLinkKey,
+  removeLinkLines, removeLinkLineWithKey, upsertLinkLine, verifiedHostKeys, writeBoundRoute, writeLinkKnownHosts,
 } from "../link/link-keys";
 import { MachineLink } from "../link/service";
 import { MachineRepository } from "../machines/repository";
@@ -128,7 +128,7 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
   /** A setup session to `host`, strict against the known-hosts file pinned for it here. */
   const owner = <A>(host: RemoteHost, knownHostsFile: string, op: string, input: unknown, schema: Schema.Codec<A, unknown>) =>
     ownerWith(host, knownHostsFile, op, input, schema);
-  const ownerWith = <A>(host: RemoteHost, knownHostsFile: string | undefined, op: string, input: unknown, schema: Schema.Codec<A, unknown>) => Effect.gen(function* () {
+  const ownerWith = <A>(host: OwnerRoute, knownHostsFile: string | undefined, op: string, input: unknown, schema: Schema.Codec<A, unknown>) => Effect.gen(function* () {
     if (host.juntoHome === undefined || host.installRoot === undefined) return yield* Effect.fail(refused(`Send Junto to ${host.id} before linking it`));
     const target = yield* parseSshRoute({
       endpoint: host.sshEndpoint,
@@ -257,13 +257,95 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
     return { machineName: pin.machineName, installationId: pin.installationId, boundAt: pin.boundAt } satisfies MachineLinkOpenData;
   });
 
-  /** On a machine that received links: that installation's line comes off. */
+  /**
+   * On a machine that received links: that installation's line comes off.
+   * Named by its key, only the line holding exactly that key does. With
+   * `unpin`, from the machine that removed this one over the operator's
+   * route (a link key runs only `junto link`, never an owner command), this
+   * machine's pin of that installation is retired too, by installation id,
+   * and only while the line of that generation is still here: a later link
+   * wrote its own line and pin, and neither is touched. The pin goes first,
+   * so a retry after a crash between the two still finds the line and ends.
+   * Nothing else here changes: no seats, no canvases, no other lines.
+   */
   const revoke = Effect.fn("MachineLinkSetup.revoke")(function* (input: MachineLinkRevokeInput) {
     const home = linkHomeTag(options.home);
+    if (input.unpin === true && input.linkKeySha256 === undefined) return yield* Effect.fail(refused("An unpin names the link key whose line it clears"));
     const before = yield* Effect.try({ try: () => readAuthorizedKeys(authorizedKeys), catch: (cause) => refused((cause as Error).message) });
-    if (!hasLinkLine(before, home, input.installationId)) return { installationId: input.installationId, removed: false } satisfies MachineLinkRevokeData;
-    yield* Effect.tryPromise({ try: () => editAuthorizedKeys((text) => removeLinkLines(text, home, input.installationId), authorizedKeys), catch: (cause) => refused((cause as Error).message) });
-    return { installationId: input.installationId, removed: true } satisfies MachineLinkRevokeData;
+    const sha = input.linkKeySha256;
+    const held = sha === undefined ? hasLinkLine(before, home, input.installationId) : hasLinkLineWithKey(before, home, input.installationId, sha);
+    const holder = input.unpin === true ? { holder: yield* machines.installationId } : {};
+    if (!held) return { installationId: input.installationId, removed: false, ...(input.unpin === true ? { unpinned: false } : {}), ...holder } satisfies MachineLinkRevokeData;
+    const unpinned = input.unpin === true ? yield* machines.retirePeerInstallation(input.installationId) : undefined;
+    yield* Effect.tryPromise({
+      try: () => editAuthorizedKeys((text) => sha === undefined ? removeLinkLines(text, home, input.installationId) : removeLinkLineWithKey(text, home, input.installationId, sha), authorizedKeys),
+      catch: (cause) => refused((cause as Error).message),
+    });
+    return { installationId: input.installationId, removed: true, ...(unpinned === undefined ? {} : { unpinned }), ...holder } satisfies MachineLinkRevokeData;
+  });
+
+  /**
+   * One removed machine's trust in this machine's link key, cleared over the
+   * operator's route: its line of exactly this key's generation, and its pin
+   * of this installation. Answers whether it settled: the line came off, or
+   * the machine that answered is the one that held it and holds it no more.
+   * Any other answer, from a machine rebuilt or taken over at that address,
+   * leaves the row pending for the installation that still trusts the key.
+   */
+  const unlinkRemoved = (row: PendingUnlink, current?: OwnerRoute) => Effect.gen(function* () {
+    // A send that just reached the machine dials it as it did; otherwise the kept route, strict against the host keys it had pinned.
+    const route = current ?? row.route;
+    const knownFile = current !== undefined || row.knownHosts === undefined ? route.sshKnownHostsFile : yield* Effect.try({
+      try: () => writeUnlinkKnownHosts(options.home, row.machineName, row.knownHosts!), catch: (cause) => refused((cause as Error).message) });
+    const answered = yield* ownerWith(route, knownFile, "link-revoke",
+      { installationId: row.installationId, unpin: true, linkKeySha256: row.linkKeySha256 } satisfies MachineLinkRevokeInput, RevokeData).pipe(Effect.option);
+    if (answered._tag === "None") return false;
+    return answered.value.removed || (row.holder !== undefined && answered.value.holder === row.holder);
+  });
+
+  /** Pending files that could not be read, set aside since the last remove said so. */
+  const setAside: Array<string> = [];
+  const pendingUnlinks = (): ReadonlyArray<PendingUnlink> => {
+    const read = readPendingUnlinks(options.home);
+    if (read.setAside !== undefined) setAside.push(read.setAside);
+    return read.rows;
+  };
+
+  /**
+   * After a remove: clear the removed machine's trust in this machine's link
+   * key now, or keep it pending. `holder` is the removed machine's own
+   * installation, the one that holds the line. A route that cannot be dialed
+   * now is kept too: a send that reaches that installation clears it.
+   */
+  const clearRemoved = (host: RemoteHost, holder: InstallationId | undefined) => Effect.gen(function* () {
+    const linkKeySha256 = ownLinkKeySha256(options.home, host.id);
+    if (linkKeySha256 === undefined) return "clear" as const;
+    const knownHosts = boundKnownHosts(options.home, host.id);
+    const row: PendingUnlink = {
+      machineName: host.id, installationId: yield* machines.installationId, linkKeySha256,
+      ...(holder === undefined ? {} : { holder }), route: ownerRoute(host), ...(knownHosts === undefined ? {} : { knownHosts }),
+    };
+    if (yield* unlinkRemoved(row)) { yield* Effect.sync(() => settleUnlinkFiles(options.home, host.id)); return "clear" as const; }
+    yield* Effect.sync(() => writePendingUnlinks(options.home, [...pendingUnlinks().filter((held) => held.machineName !== host.id), row]));
+    return "kept" as const;
+  });
+
+  /**
+   * Pending clears, retried: all of them, or one machine's before its setup
+   * pins this machine again, over the route that send just reached, and only
+   * when the installation that send reached is the one that held the line.
+   * Each names one generation of the link, so a late retry never undoes a
+   * link made after the remove.
+   */
+  const settleRemoved = (only?: { readonly machineName: string; readonly route: OwnerRoute; readonly installationId: InstallationId }) => Effect.gen(function* () {
+    const still: Array<PendingUnlink> = [];
+    for (const row of pendingUnlinks()) {
+      if (only !== undefined && (row.machineName !== only.machineName || (row.holder !== undefined && row.holder !== only.installationId))) { still.push(row); continue; }
+      if (yield* unlinkRemoved(row, only?.route === undefined ? undefined : ownerRoute(only.route))) yield* Effect.sync(() => settleUnlinkFiles(options.home, row.machineName));
+      else still.push(row);
+    }
+    yield* Effect.sync(() => writePendingUnlinks(options.home, still));
+    return still.map((row) => row.machineName);
   });
 
   /** A machine taken off this one: its key and route here, and its line here, both go. */
@@ -303,8 +385,12 @@ export const makeMachineLinkSetup = (options: MachineLinkSetupOptions) => Effect
   });
 
   return {
-    link: (input: MachineLinkInput) => setUp(input).pipe(Effect.tap(() => revokeEverywhere().pipe(Effect.ignore))),
-    key, accept, open: openLink, revoke, forget, lineHeld, revokeEverywhere,
+    link: (input: MachineLinkInput) => setUp(input).pipe(Effect.tap(() => revokeEverywhere().pipe(Effect.ignore)), Effect.tap(() => settleRemoved().pipe(Effect.ignore))),
+    key, accept, open: openLink, revoke, forget, lineHeld, revokeEverywhere, clearRemoved, settleRemoved,
+    /** Pending files set aside unread since the last call: the remove says so. */
+    takeSetAside: (): ReadonlyArray<string> => setAside.splice(0),
+    /** Does this machine hold its own link key for `peer`. */
+    holdsLinkKey: (peer: string): boolean => ownLinkKeySha256(options.home, peer) !== undefined,
     /** Removed machines whose key each holder may still hold. */
     pending: () => readPending(options.home),
   };
@@ -320,6 +406,83 @@ interface PendingRevocation {
 }
 
 const pendingFile = (home: string) => join(home, ".junto", "core", "link-keys", "unrevoked.json");
+
+/** The fields of a machine's route an owner session reads: no label, no capability, never a link key. */
+type OwnerRoute = Pick<RemoteHost, "id" | "sshEndpoint" | "sshPort" | "sshIdentityFile" | "sshKnownHostsFile" | "juntoHome" | "installRoot">;
+const ownerRoute = (host: OwnerRoute): OwnerRoute => ({
+  id: host.id,
+  ...(host.sshEndpoint === undefined ? {} : { sshEndpoint: host.sshEndpoint }),
+  ...(host.sshPort === undefined ? {} : { sshPort: host.sshPort }),
+  ...(host.sshIdentityFile === undefined ? {} : { sshIdentityFile: host.sshIdentityFile }),
+  ...(host.sshKnownHostsFile === undefined ? {} : { sshKnownHostsFile: host.sshKnownHostsFile }),
+  ...(host.juntoHome === undefined ? {} : { juntoHome: host.juntoHome }),
+  ...(host.installRoot === undefined ? {} : { installRoot: host.installRoot }),
+});
+
+/**
+ * A removed machine that still accepts this machine's link key: this
+ * installation, the sha256 of exactly the key whose line it holds, the
+ * removed machine's own installation (`holder`), the route to reach it, and
+ * the host key lines the bound route had pinned. Never the link key itself.
+ * Dropped when the clear settles.
+ */
+interface PendingUnlink {
+  readonly machineName: string;
+  readonly installationId: InstallationId;
+  readonly linkKeySha256: string;
+  readonly holder?: InstallationId;
+  readonly route: OwnerRoute;
+  readonly knownHosts?: string;
+}
+const unlinkFile = (home: string) => join(home, ".junto", "core", "link-keys", "unlinked.json");
+const unlinkKnownHostsFile = (home: string, machine: string) => join(home, ".junto", "core", "link-keys", "unlinked", `${machine}.known_hosts`);
+const pendingUnlinkRow = (row: unknown): row is PendingUnlink => {
+  if (typeof row !== "object" || row === null) return false;
+  const held = row as Record<string, unknown>;
+  const route = held.route as Record<string, unknown> | null | undefined;
+  return typeof held.machineName === "string" && typeof held.installationId === "string"
+    && typeof held.linkKeySha256 === "string" && /^[0-9a-f]{64}$/u.test(held.linkKeySha256)
+    && (held.holder === undefined || typeof held.holder === "string")
+    && typeof route === "object" && route !== null && route.id === held.machineName
+    && (held.knownHosts === undefined || typeof held.knownHosts === "string");
+};
+/**
+ * The pending clears. A file that cannot be read whole, or that holds a row
+ * Junto did not write, is moved aside as `unlinked.json.bad-<ms>`, never
+ * overwritten, and its path is answered so a remove can say so.
+ */
+const readPendingUnlinks = (home: string): { readonly rows: ReadonlyArray<PendingUnlink>; readonly setAside?: string } => {
+  const file = unlinkFile(home);
+  let text: string;
+  try { text = readFileSync(file, "utf8"); } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return { rows: [] };
+    return { rows: [], ...setAsideFile(file) };
+  }
+  try {
+    const rows = JSON.parse(text) as unknown;
+    if (Array.isArray(rows) && rows.every(pendingUnlinkRow)) return { rows };
+  } catch { /* set aside below */ }
+  return { rows: [], ...setAsideFile(file) };
+};
+const setAsideFile = (file: string): { readonly setAside?: string } => {
+  const aside = `${file}.bad-${Date.now()}`;
+  try { renameSync(file, aside); return { setAside: aside }; } catch { return { setAside: file }; }
+};
+const writePendingUnlinks = (home: string, rows: ReadonlyArray<PendingUnlink>): void => {
+  const file = unlinkFile(home);
+  if (rows.length === 0) { rmSync(file, { force: true }); return; }
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  writeFileSync(`${file}.junto-new`, `${JSON.stringify(rows)}\n`, { mode: 0o600 });
+  renameSync(`${file}.junto-new`, file);
+};
+const writeUnlinkKnownHosts = (home: string, machine: string, lines: string): string => {
+  const file = unlinkKnownHostsFile(home, machine);
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  writeFileSync(`${file}.junto-new`, lines, { mode: 0o600 });
+  renameSync(`${file}.junto-new`, file);
+  return file;
+};
+const settleUnlinkFiles = (home: string, machine: string): void => { rmSync(unlinkKnownHostsFile(home, machine), { force: true }); };
 const readPending = (home: string): ReadonlyArray<PendingRevocation> => {
   try {
     const rows = JSON.parse(readFileSync(pendingFile(home), "utf8")) as unknown;
