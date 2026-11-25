@@ -65,11 +65,11 @@ export const LINK_NOT_OPENED_WORDS = "Junto is set up there, but no link to it o
 /**
  * The machine already trusts another install under this machine's name, or
  * this install under another name, so its setup refused to pin this one
- * (remote-design, c1ef3953f, S4). Always after the install step, so never
- * "nothing changed". The CLI prints the take-over-remote line from the typed
+ * (remote-design, c65fe82c8, S4). Always after the install receipt, so the
+ * words say Junto is installed. The CLI prints the take-over-remote line from the typed
  * `takeoverRemote` field; it is never part of these words.
  */
-export const PINNED_ELSEWHERE_WORDS = "It already trusts a different install of Junto under this machine's name. Preview a take-over there with junto machine takeover-remote to see which seats and automations move.";
+export const PINNED_ELSEWHERE_WORDS = "Junto is installed there, but it already trusts a different install of Junto under this machine's name. Preview a take-over there with junto machine takeover-remote to see which seats and automations move.";
 
 /** The far's setup refused to pin this machine, by which rule, read closed from its answer. */
 class PinRefused extends Schema.TaggedError<PinRefused>()("PinRefused", { check: MachinePinRefused, message: Schema.String }) {}
