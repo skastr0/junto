@@ -17,7 +17,7 @@ import {
   type SeatAddress,
   type SeatThreadSummary,
 } from "../../lib/seat-threads";
-import { deepActiveElement, focusPrimaryControl, isFocusClaimInFlight, recentGestureKind } from "../../lib/focus-ownership";
+import { claimFocus, deepActiveElement, focusPrimaryControl, isFocusClaimInFlight, recentGestureKind } from "../../lib/focus-ownership";
 import { openNeedsYouOn } from "../../lib/operator-feed";
 import { mentionChipOf, openMention, subjectChipOf, type MentionChip } from "../../lib/mention-open";
 import { stripAuthorPreamble } from "../../lib/thread-text";
@@ -33,7 +33,7 @@ import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
 import { ResourceChip, ResourceGlyphMark, mentionMark } from "../ui/ResourceChip";
 import { MessageAttachments } from "./MessageAttachments";
 import { ThreadComposer, type SentMail } from "./ThreadComposer";
-import { ThreadHeadline } from "./ThreadHeadline";
+import { ThreadHeadline, threadHeadlineText } from "./ThreadHeadline";
 import {
   AnswerTo,
   ReplyAnswers,
@@ -537,6 +537,32 @@ export function ThreadChat({
       else setSpoken(undefined);
     }
   }, [messages, name, say, shown]);
+  // A signal that changes under the operator is said once: only while the
+  // thread is on screen, and never for history. The first sight of a signal
+  // only records where it stands. Answered is the operator's own act and is
+  // not said; several changes at once are one saying.
+  const signalStates = useRef(new Map<string, string>());
+  useEffect(() => {
+    const states = signalStates.current;
+    return () => states.clear();
+  }, [threadId]);
+  useEffect(() => {
+    const states = signalStates.current;
+    const now = [
+      ...(headSignal === undefined ? [] : [{ signal: headSignal, author: name }]),
+      ...messages.flatMap((message) => (message.signal === undefined ? [] : [{ signal: message.signal, author: message.author }])),
+    ];
+    const changed: string[] = [];
+    for (const { signal, author } of now) {
+      const was = states.get(signal.signalId);
+      states.set(signal.signalId, signal.state);
+      if (!shown || was === undefined || was === signal.state) continue;
+      const headline = threadHeadlineText(signal.text, thread.participants);
+      if (signal.state === "withdrawn") changed.push(`${author} withdrew: ${headline}`);
+      else if (signal.state === "dismissed") changed.push(`Dismissed: ${headline}`);
+    }
+    if (changed.length > 0) say(changed.join(" "));
+  }, [messages, headSignal, shown, name, thread.participants, say]);
   // A thread just started from here whose first mail came back with its seat
   // away. The region is said reliably only when it is in the document before
   // its words, so the words come a moment after the chat.
@@ -568,6 +594,10 @@ export function ThreadChat({
     for (const one of marked) {
       if (one.dataset.signalId !== signalId) continue;
       one.scrollIntoView?.({ block: "nearest" });
+      // The reply line's button was pressed: the keyboard goes to the signal,
+      // so its kind and state line is read, not left on a button that says
+      // only what it brings into view. The scroll above is the only scroll.
+      claimFocus(one, "gesture", { preventScroll: true });
       return;
     }
   };
@@ -632,7 +662,7 @@ export function ThreadChat({
               starts: it was raised before any mail here, so it has no message
               of its own. Its seat is the one this chat is with. */}
           {headSignal !== undefined && older === undefined ? (
-            <article className="seat-threads__message" data-testid="seat-threads-head-signal" data-signal-id={headSignal.signalId}>
+            <article className="seat-threads__message" data-testid="seat-threads-head-signal" data-signal-id={headSignal.signalId} tabIndex={-1}>
               <SignalFrame signal={headSignal} author={name} known={thread.participants} onHandIn={openNeedsYouOn}>
                 <div className="seat-threads__message-head">
                   <AgentPortrait identity={portraitOf(name)} size={20} frame="round" badge={false} outline={false} />
@@ -692,6 +722,8 @@ export function ThreadChat({
                 data-mine={message.mine ? "true" : undefined}
                 data-folded={folded ? "true" : undefined}
                 data-signal-id={signal?.signalId}
+                // A signal is where the reply line's button takes the keyboard.
+                tabIndex={signal === undefined ? undefined : -1}
                 data-testid="seat-threads-message"
               >
                 {signal !== undefined ? (

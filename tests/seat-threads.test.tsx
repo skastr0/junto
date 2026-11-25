@@ -308,6 +308,65 @@ describe("signals in a thread", () => {
     expect(fixture.state.counts).toBe(counts);
   });
 
+  it("says a signal that is dismissed under the operator, once the thread is on screen, and says nothing of one already closed", async () => {
+    const fixture = fake();
+    fixture.state.messages.notes = [mine, raised(ask), raised({ ...ask, signalId: "old", state: "dismissed", text: "Long ago." }, { messageId: "m0", at: at(1, 1) })];
+    await openOn(fixture);
+    // History is not said: a signal first seen closed is only recorded.
+    expect(q("seat-threads-said")!.textContent).toBe("");
+    fixture.state.messages.notes = [mine, raised({ ...ask, state: "dismissed" }), raised({ ...ask, signalId: "old", state: "dismissed", text: "Long ago." }, { messageId: "m0", at: at(1, 1) })];
+    fixture.signalChange();
+    await flush();
+    expect(q("seat-threads-said")!.textContent).toBe("Dismissed: Which store holds the notes?");
+  });
+
+  it("says who withdrew a signal, and says nothing of one the operator's own answer closed", async () => {
+    const withdrawn = fake();
+    withdrawn.state.messages.notes = [mine, raised(ask)];
+    await openOn(withdrawn);
+    withdrawn.state.messages.notes = [mine, raised({ ...ask, state: "withdrawn" })];
+    withdrawn.signalChange();
+    await flush();
+    expect(q("seat-threads-said")!.textContent).toBe("pty-lead withdrew: Which store holds the notes?");
+  });
+
+  it("does not say an answered signal", async () => {
+    const fixture = fake();
+    fixture.state.messages.notes = [mine, raised(ask)];
+    await openOn(fixture);
+    fixture.state.messages.notes = [mine, raised({ ...ask, state: "answered" })];
+    fixture.signalChange();
+    await flush();
+    expect(q("seat-threads-signal-state")?.textContent).toBe("Answered");
+    expect(q("seat-threads-said")!.textContent).toBe("");
+  });
+
+  it("does not say a signal that closes while the thread is behind Terminal, then or when Threads shows again", async () => {
+    const fixture = fake();
+    fixture.state.messages.notes = [mine, raised(ask)];
+    await openOn(fixture);
+    await click(q("seat-view-terminal"));
+    fixture.state.messages.notes = [mine, raised({ ...ask, state: "dismissed" })];
+    fixture.signalChange();
+    await flush();
+    expect(q("seat-threads-said")!.textContent).toBe("");
+    await click(q("seat-view-threads"));
+    expect(q("seat-threads-said")!.textContent).toBe("");
+  });
+
+  it("takes the keyboard to the signal from the reply line, so its kind and state are read", async () => {
+    const fixture = fake();
+    fixture.state.messages.notes = [mine, raised(ask)];
+    await openOn(fixture);
+    const article = all("seat-threads-message")[1]!;
+    expect(article.getAttribute("tabindex")).toBe("-1");
+    // A message that is not a signal is not a stop.
+    expect(all("seat-threads-message")[0]!.hasAttribute("tabindex")).toBe(false);
+    // Pressed as the app hears it: the press puts the keyboard on the button first.
+    await press(q("thread-composer-answers-plain"));
+    expect(document.activeElement).toBe(article);
+  });
+
   it("marks a row with its open signal before the unread count", async () => {
     const fixture = fake();
     fixture.state.threads = [thread({ ...notes, unread: 2, openSignal: { ...ref, kind: "blocked" } }), banner];

@@ -395,6 +395,15 @@ html[data-theme="bright"] .seat-threads__block {
   border-radius: var(--radius-xl);
 }
 
+/* The reply line's button takes the keyboard to the signal: its frame shows it. */
+.seat-threads__message[data-signal-id]:focus-visible {
+  outline: none;
+}
+
+.seat-threads__message[data-signal-id]:focus-visible > .seat-threads__signal {
+  box-shadow: 0 0 0 2px var(--color-cyan);
+}
+
 .seat-threads__signal[data-state="open"] {
   border-color: color-mix(in oklab, var(--feed-kind) 35%, var(--color-stroke));
   background: color-mix(in oklab, var(--feed-kind) 6%, transparent);
