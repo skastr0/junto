@@ -613,3 +613,33 @@ only (local main was 24 commits past it; those are not in this release).
   feed host answers 404 for the archive.
 - The feed `latest-mac.yml` says 0.12.0 and the downloaded zip hashes to the
   stapled sha256.
+
+### 0.12.0 upgrade proof (product-releases, 2026-11-25, after the publish)
+
+Asked by the operator through product-lead: a 0.11.14 and a 0.11.15 database
+open with the packaged 0.12.0. All on VM test homes, never the operator's
+`junto.db`. Full report and raw counts, ids and hashes (no text) in
+`~/junto-receipts/release-0.12.0/` (`upgrade-proof-0.12.0.md`,
+`upgrade-proof-evidence/`). Run by a delegated agent; I re-read the raw JSON.
+
+- Each tag's own e2e harness made one home: one canvas, 4 seats, 2 regions, 8
+  mail messages (there is no thread table at these versions), one automation
+  with one firing, and signals (0.11.14: 9, 0.11.15: 11 with 2
+  `agent_signal_depends`). The answered and dismissed signals are fixture rows
+  written through each version's own engine; the rest came from the running app.
+- Both homes: user_version 75 and 76 to 79, `quick_check` ok,
+  `foreign_key_check` 0 rows, no row lost in any table that existed before (the
+  only count that moved is `automation_cursors` 0 to 1, app bookkeeping on
+  open), new tables `terminal_delete_held`, `terminal_delete_owed` (and
+  `agent_signal_depends` for 0.11.14). One backup per home before the stamp,
+  equal to the pre-upgrade file. Second open: version and schema hash
+  (`657366f4...756d`) unchanged, no second backup, `stateSchemaAdvanceRequired`
+  false. No migration log lines exist, so "no step ran" rests on those, not on a log.
+- Package: `build-app.sh --target linux` at `v0.12.0` makes
+  `junto-runtime-0.12.0-linux-x64` (a relocatable tree and tar.gz, not a signed
+  package; Linux needs no machine payloads). Build id `5eb79153...` is baked into
+  its `app.asar`, equal to the machine payload id; the running app was not asked.
+- Finding: that package does not start as built. `finalize-linux-package.ts`
+  (`executableNames`, same in 0.11.15) leaves `chrome_crashpad_handler` at 0644,
+  Electron dies with SIGTRAP. The runs used a copy with that one file at 0755.
+  Linux desktop is not published (Mac-only), so no user holds this build.
