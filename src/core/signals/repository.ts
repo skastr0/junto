@@ -248,6 +248,7 @@ const SignalRow = Schema.Struct({
   response_text: Schema.NullOr(Schema.String),
   response_at: Schema.NullOr(Schema.Number),
   closed_at: Schema.NullOr(Schema.Number),
+  withdrawn_at: Schema.NullOr(Schema.Number),
   thread_id: Schema.NullOr(Schema.String),
   message_id: Schema.NullOr(Schema.String),
   follows_signal_id: Schema.NullOr(Schema.String),
@@ -288,7 +289,7 @@ const ANSWER_REPLY_PART_KIND = "answer-reply";
 const columnsOf = (from: string): string => `
   ${from}.signal_id, ${from}.canvas_name, ${from}.node_id, ${from}.kind, ${from}.text, ${from}.detail,
   ${from}.source_json, ${from}.work_json, ${from}.form_json,
-  ${from}.created_at, ${from}.state, ${from}.response_text, ${from}.response_at, ${from}.closed_at,
+  ${from}.created_at, ${from}.state, ${from}.response_text, ${from}.response_at, ${from}.closed_at, ${from}.withdrawn_at,
   ${from}.thread_id, ${from}.message_id, ${from}.follows_signal_id,
   (
     SELECT json_group_array(depends_on_signal_id)
@@ -474,6 +475,8 @@ const fromRow = (row: typeof SignalRow.Type): AgentSignal => {
           },
         }),
     ...(row.closed_at === null ? {} : { closedAt: Number(row.closed_at) }),
+    // The answer and the withdrawal crossed, as the editing machine keeps it (answered, then withdrawn_at) or as the seat's machine does (withdrawn, holding the answer).
+    ...((row.state === "answered" && row.withdrawn_at !== null) || (row.state === "withdrawn" && row.response_text !== null) ? { crossed: true as const } : {}),
     ...(row.thread_id === null ? {} : { threadId: row.thread_id }),
     ...(row.message_id === null ? {} : { messageId: row.message_id }),
     ...(row.follows_signal_id === null ? {} : { followsSignalId: row.follows_signal_id }),

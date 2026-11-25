@@ -7,5 +7,6 @@ import type { AgentSignal } from "./wire/agent-signals";
  * the core's thread reads and the feed's pane share.
  */
 export const crossedClosing = (signal: AgentSignal): boolean =>
+  signal.crossed === true ||
   (signal.state === "answered" && typeof (signal as { readonly withdrawnAt?: unknown }).withdrawnAt === "number") ||
   (signal.state === "withdrawn" && signal.response !== undefined);
