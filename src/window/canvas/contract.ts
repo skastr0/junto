@@ -663,7 +663,7 @@ export type Part =
   | { readonly kind: "regionTitle" }
   | { readonly kind: "regionFrame" }
   | { readonly kind: "wire" }
-  | { readonly kind: "cluster"; readonly memberIds: ReadonlyArray<NodeId> };
+  | { readonly kind: "cluster"; readonly memberIds: ReadonlyArray<NodeId>; readonly key: string };
 
 /**
  * Where a gathered seat stands at far and overview: the key of the badge it is

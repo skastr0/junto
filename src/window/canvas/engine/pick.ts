@@ -118,6 +118,8 @@ export type PickWorld = {
    * lands on; it has no card id of its own.
    */
   readonly clusterAt?: (at: Point) => ReadonlyArray<NodeId> | undefined;
+  /** The key of the badge `clusterAt` finds: the hover list opens on it. */
+  readonly clusterKeyAt?: (at: Point) => string | undefined;
   /**
    * The wire whose label button covers the point, when the point is inside
    * one. The button is 14 px on screen, so the half-size is in board units.
@@ -349,7 +351,7 @@ const LABEL_HIT = 7;
  */
 export const pickAt = (world: PickWorld, at: Point): Hit => {
   const cluster = world.clusterAt?.(at);
-  if (cluster !== undefined) return { part: { kind: "cluster", memberIds: cluster }, at };
+  if (cluster !== undefined) return { part: { kind: "cluster", memberIds: cluster, key: world.clusterKeyAt?.(at) ?? cluster[0] ?? "" }, at };
   const hovered = world.hovered;
   if (hovered !== undefined && contains(hovered.rect, at)) {
     const fact = world.card(hovered.id);

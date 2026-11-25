@@ -37,7 +37,6 @@ import {
   TIER_NEAR_MIN,
   tierForZoom,
 } from "@shared/canvas-tier";
-import { ringKeepsApart } from "@shared/wire/urgency";
 import { AGENT_NODE_SIZE, holdsSeatRing, renderedNodeSize } from "@shared/node-geometry";
 import { SEAT_CONTENT_CENTRE_DX } from "../paint/card-spec";
 import { DURATION, themeGpu, type GpuTheme, type ThemeMode } from "@shared/theme";
@@ -94,12 +93,13 @@ import {
   clusterHeldAt,
   clusterIndexOf,
   clustersFor,
-  keepsApart,
+  leadOf,
   paintClusterBadge,
+  type ClusterGrouping,
   type ClusterInput,
   type ClusterSeatFact,
 } from "../paint/cluster";
-import type { ClusterIndex, SeatCluster } from "../../lib/seat-clusters";
+import type { SeatCluster } from "../../lib/seat-clusters";
 
 export type CardPainter = (
   fact: CardFact,
@@ -591,7 +591,7 @@ export const createScene = (options: {
   let gatheredSeats: ReadonlySet<NodeId> = NO_SEATS;
   let hoveredCluster: string | null = null;
   /** The grouping index and the seat facts it was built from; held across frames. */
-  let clusterCache: { readonly signature: string; readonly index: ClusterIndex; readonly byId: Map<NodeId, ClusterSeatFact> } | undefined;
+  let clusterCache: { readonly signature: string; readonly index: ClusterGrouping; readonly byId: Map<NodeId, ClusterSeatFact> } | undefined;
   /** Links held at the last planned zoom; a zoom that changes it regroups. */
   let clusterHeld = -1;
   /** A seat, its ring, its selection or the theme changed since the last frame. */
@@ -1368,16 +1368,14 @@ export const createScene = (options: {
   /** Badges a member's ring or portrait changed under, repainted at the next frame. */
   const badgeDirty = new Set<string>();
 
-  const keptApart = (live: SeatLive | undefined): boolean => live !== undefined && ringKeepsApart(live.ring.ring);
-
   /**
-   * A seat report. The plan reads a seat's centre, region and whether it
-   * stays apart (selected, or a ring that calls); a report that changes none
-   * of those regroups nothing. If the seat stands in a badge, the badge reads
-   * its ring and portrait, and only that badge repaints.
+   * A seat report. The plan reads a seat's centre and region; a report that
+   * changes neither regroups nothing, whatever its ring does: a badge shows
+   * its lead's ring and portrait, so if the seat stands in a badge only that
+   * badge repaints.
    */
   const seatChanged = (card: CardSlot, was: SeatLive | undefined, now: SeatLive): void => {
-    if (was === undefined || keptApart(was) !== keptApart(now)) {
+    if (was === undefined) {
       clusterDirty = true;
       return;
     }
@@ -1394,14 +1392,17 @@ export const createScene = (options: {
     if (badge !== undefined) badgeDirty.add(badge);
   };
 
-  /** What a badge draws: its members and their rings, its portrait, its count, its hover. */
-  const clusterSignature = (cluster: SeatCluster, seats: ReadonlyMap<NodeId, ClusterSeatFact>): string =>
-    `${cluster.members.join(",")}|${cluster.members
-      .map((id) => {
-        const seat = seats.get(id);
-        return seat === undefined ? "-" : `${seat.ring.ring}:${seat.ring.hue}:${seat.ring.stale ? 1 : 0}:${String(seat.ringSince)}`;
-      })
-      .join(",")}|${JSON.stringify(seats.get(cluster.members[0] ?? "")?.portrait ?? null)}|${hoveredCluster === cluster.key ? "h" : ""}`;
+  /**
+   * What a badge draws: its members, its lead's ring and portrait, whether
+   * any member is selected, its hover. A member's ring that is not the
+   * lead's changes it only by taking the lead.
+   */
+  const clusterSignature = (cluster: SeatCluster, seats: ReadonlyMap<NodeId, ClusterSeatFact>): string => {
+    const members = cluster.members.map((id) => seats.get(id)).filter((seat): seat is ClusterSeatFact => seat !== undefined);
+    const lead = leadOf(members);
+    const ring = lead === undefined ? "-" : `${lead.id}:${lead.ring.ring}:${lead.ring.hue}:${lead.ring.stale ? 1 : 0}:${String(lead.ringSince)}`;
+    return `${cluster.members.join(",")}|${ring}|${JSON.stringify(lead?.portrait ?? null)}|${members.some((seat) => seat.selected) ? "s" : ""}|${hoveredCluster === cluster.key ? "h" : ""}`;
+  };
 
   /** Every seat the plan reads: its card centre, region, ring, selection and portrait. */
   const clusterSeats = (): { readonly seats: ClusterSeatFact[]; readonly signature: string } => {
@@ -1424,11 +1425,11 @@ export const createScene = (options: {
       });
     }
     seats.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    // What the grouping depends on: where a seat is, its region, whether it
-    // stays apart (selected, or a ring that calls) and its identity. Not the
-    // ring's form itself: a seat going from work to rest regroups nothing.
+    // What the grouping depends on: where a seat is, its region and its
+    // identity. Not its ring or its selection: those repaint a badge and
+    // regroup nothing.
     const signature = seats
-      .map((seat) => `${seat.id}:${String(Math.round(seat.x))},${String(Math.round(seat.y))}:${seat.region}:${keepsApart(seat) ? 1 : 0}`)
+      .map((seat) => `${seat.id}:${String(Math.round(seat.x))},${String(Math.round(seat.y))}:${seat.region}`)
       .join("|");
     return { seats, signature };
   };
@@ -1472,7 +1473,7 @@ export const createScene = (options: {
     if (cache === undefined) return clusterVersion;
     const zoom = options.zoom?.() ?? 1;
     const screen = { width: view.width * zoom, height: view.height * zoom };
-    const held = clusterHeldAt(cache.index, zoom, screen);
+    const held = clusterHeldAt(cache.index, zoom);
     if (!dirty && held === clusterHeld && clusterPlan !== undefined) {
       // The plan holds. A view that left the area its badges were built for
       // builds the ones it now meets.
@@ -3217,6 +3218,8 @@ export const createScene = (options: {
     ringAngle,
     /** The members of the badge under a board point, if any (the pointer's cluster hit). */
     clusterAt: (at: Point) => clusterSlotAt(at)?.members,
+    /** The key of the badge under a board point: the hover list opens on it. */
+    clusterKeyAt: (at: Point) => clusterSlotAt(at)?.key,
     prepare,
     prefetch,
     partsOf,

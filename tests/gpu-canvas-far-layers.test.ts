@@ -260,30 +260,31 @@ describe("seat clusters at far and overview", () => {
     scene.apply({ kind: "seat", id: "a", live: { ...work(), ring: ringState({ glyph: "done", tone: "green" }), ringSince: 2_000 } });
     scene.prepare(VIEW, "far");
     expect(scene.gatheringChanged()).toEqual([]);
-    // A selected seat stands apart: it leaves, and the other two move to a new centre.
+    // A selection repaints the badge and regroups nothing.
     scene.apply({ kind: "selection", fact: { nodeIds: ["a"] } });
     scene.prepare(VIEW, "far");
+    expect(scene.gatheringChanged()).toEqual([]);
+    // A seat moved on its row (still within the span) moves the badge's centre: all three are changed.
+    const c = seats()[2]!;
+    scene.apply({ kind: "card", fact: { ...c, row: { ...c.row, x: 120 } } as CardFact });
+    scene.prepare(VIEW, "far");
     expect([...scene.gatheringChanged()].sort()).toEqual(["a", "b", "c"]);
-    expect(scene.gatheredInto("a")).toBeUndefined();
-    expect(scene.gatheredInto("b")?.rect.x).toBe(168 - CLUSTER.disc / 2);
+    expect(scene.gatheredInto("a")?.rect.x).toBeCloseTo((108 + 148 + 228) / 3 - CLUSTER.disc / 2, 6);
     // Leaving for near ungathers the rest.
     scene.prepare(VIEW, "near");
-    expect([...scene.gatheringChanged()].sort()).toEqual(["b", "c"]);
+    expect([...scene.gatheringChanged()].sort()).toEqual(["a", "b", "c"]);
     expect(scene.gatheringChanged()).toEqual([]);
   });
 
-  it("a selected seat stays apart, so the rest regroup around it", () => {
-    const { scene, facts } = clustered(0.3, "far");
+  it("a selected seat stays in its badge: the badge repaints and nothing regroups", () => {
+    const { scene } = clustered(0.3, "far");
     scene.apply({ kind: "selection", fact: { nodeIds: ["a"] } });
     scene.prepare(VIEW, "far");
-    // a draws its own card; b and c still gather.
-    expect(scene.clusterAt({ x: 108, y: 28 })).toBeUndefined();
-    expect(scene.clusterAt({ x: 168, y: 28 })).toEqual(["b", "c"]);
-    expect(scene.index.cardsAt({ x: 108, y: 28 })).toEqual(["a"]);
-    expect(facts).toHaveLength(3);
+    expect(scene.clusterAt({ x: 148, y: 28 })).toEqual(["a", "b", "c"]);
+    expect(scene.index.cardsAt({ x: 108, y: 28 })).toEqual([]);
   });
 
-  it("a ring that calls never gathers", () => {
+  it("a ring that calls stays in its badge too, and the badge shows it", () => {
     const scene = createScene({ painter: oneQuad, zoom: () => 0.3 });
     const facts = seats();
     load(scene, facts);
@@ -293,13 +294,15 @@ describe("seat clusters at far and overview", () => {
       scene.apply({ kind: "seat", id: fact.id, live: calling });
     }
     scene.prepare(VIEW, "far");
-    expect(scene.clusterAt({ x: 108, y: 28 })).toBeUndefined();
-    expect(scene.clusterAt({ x: 168, y: 28 })).toEqual(["b", "c"]);
+    expect(scene.clusterAt({ x: 148, y: 28 })).toEqual(["a", "b", "c"]);
+    expect(scene.clusterKeyAt({ x: 148, y: 28 })).toBe("a");
+    // The lead is the calling seat: the halo is among the badge's drawn parts.
+    expect(scene.hasMotion()).toBe(true);
   });
 });
 
 describe("the cluster hit", () => {
-  const world = (clusterAt?: (at: { x: number; y: number }) => ReadonlyArray<string> | undefined): PickWorld => ({
+  const world = (clusterAt?: (at: { x: number; y: number }) => ReadonlyArray<string> | undefined, clusterKeyAt?: () => string | undefined): PickWorld => ({
     index: { cardsAt: () => [], cardsNear: () => [], wiresAt: () => [] },
     card: () => undefined,
     wire: () => undefined,
@@ -308,11 +311,12 @@ describe("the cluster hit", () => {
     tier: "far",
     wireMode: "rest",
     ...(clusterAt === undefined ? {} : { clusterAt }),
+    ...(clusterKeyAt === undefined ? {} : { clusterKeyAt }),
   });
 
   it("answers before the cards, with the badge's members and no card id", () => {
-    const hit = pickAt(world(() => ["a", "b"]), { x: 10, y: 10 });
-    expect(hit).toEqual({ part: { kind: "cluster", memberIds: ["a", "b"] }, at: { x: 10, y: 10 } });
+    const hit = pickAt(world(() => ["a", "b"], () => "region:r1"), { x: 10, y: 10 });
+    expect(hit).toEqual({ part: { kind: "cluster", memberIds: ["a", "b"], key: "region:r1" }, at: { x: 10, y: 10 } });
   });
 
   it("falls through to the pane where no badge is", () => {

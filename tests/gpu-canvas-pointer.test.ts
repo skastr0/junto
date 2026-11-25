@@ -185,7 +185,7 @@ describe("click", () => {
   });
 
   it("on a cluster badge moves the camera there", () => {
-    const b = three({ parts: [{ area: { x: 0, y: 0, width: 40, height: 40 }, part: { kind: "cluster", memberIds: ["a", "b"] } }] });
+    const b = three({ parts: [{ area: { x: 0, y: 0, width: 40, height: 40 }, part: { kind: "cluster", memberIds: ["a", "b"], key: "a" } }] });
     const { said, effects } = run(b, [down(20, 20), up(20, 20)]);
     expect(said).toEqual([]);
     expect(effects).toEqual([{ kind: "cluster", memberIds: ["a", "b"], at: { x: 20, y: 20 } }]);
