@@ -364,3 +364,15 @@ still holds the link `<this>` made before the remove.**
   link button, so the command is the fix, as `peer-newer` names its fix.
   The command is the last thing on the line and has no period after it, so
   it copies clean.
+
+**Remove, when the list of removed machines that still accept the key
+cannot be read.** Junto sets the file aside and does not overwrite it.
+
+- Core's words, `ownWords: true`: `Junto could not read its list of
+  removed machines that still accept <this>'s link key, and set the list
+  aside unchanged. Machines on it may still accept the key until you link
+  them again or remove them again.`
+- No path in that message: rule 3 keeps a path out of core's own words.
+  The path travels in its own field, and the CLI prints it on its own line
+  after the sentence: `Set aside at <path>`. The window shows the sentence
+  only; the path stays in the CLI and the logs.
