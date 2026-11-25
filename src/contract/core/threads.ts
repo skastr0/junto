@@ -30,7 +30,7 @@ import { MailWaitingFact } from "../../shared/mail-waiting";
 import { OperatorThreadsFilter, OperatorThreadsPage, OperatorThreadsPageQuery, OperatorThreadsWatched } from "../../shared/operator-threads";
 import { SeatCollaborationAskResult, SeatCollaborationDraft } from "../../shared/seat-collaboration";
 import { SeatOnboardingEvent } from "../../shared/seat-onboarding-status";
-import { MailThreadMessage, MailThreadSummary } from "../../shared/wire/mail-threads";
+import { MailThreadMessage, MailThreadSummary, ThreadHeadSignal, type MailThreadMessagesPage } from "../../shared/wire/mail-threads";
 import { coreClient } from "./link";
 
 /** A read could not be made; the window's call rejects with what the core said. */
@@ -48,6 +48,8 @@ export const ThreadsPage = Schema.Struct({
 export const ThreadMessagesPage = Schema.Struct({
   messages: Schema.Array(MailThreadMessage),
   older: Schema.optionalKey(Schema.String),
+  /** The signal whose answer started the thread, on every page. */
+  headSignal: Schema.optionalKey(ThreadHeadSignal),
 });
 
 /** The row a send wrote, before delivery. */
@@ -70,7 +72,8 @@ export const ThreadsWritten = Schema.Union([
 // field the model has.
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 const writtenIsTheModel: Same<typeof ThreadMailWritten.Type, OperatorThreadWritten> = true;
-void [writtenIsTheModel];
+const messagesPageIsTheModel: Same<typeof ThreadMessagesPage.Type, MailThreadMessagesPage> = true;
+void [writtenIsTheModel, messagesPageIsTheModel];
 
 export const ThreadsRpcs = RpcGroup.make(
   Rpc.make("ThreadsList", { payload: SeatThreadsPageQuery, success: ThreadsPage, error: ThreadsUnavailable }),
