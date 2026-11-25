@@ -14,7 +14,7 @@ import { nameThisMachine } from "../tests/support/name-this-machine";
 import { WorkLive } from "../src/core/work/service";
 import { WorkService } from "../src/core/work/service";
 import { CrewRepositoryLive } from "../src/core/work/crew-repository";
-import { WorkRepositoryLive } from "../src/core/work/repository";
+import { WorkRepositoryLive, WorkRepository } from "../src/core/work/repository";
 import { MachineRepositoryLive } from "../src/core/machines/repository";
 import { SettingsLive } from "../src/core/settings/service";
 import { makeContentServiceLive } from "../src/core/content/service";
@@ -31,6 +31,9 @@ import { makeMessageDeliveryStore } from "../src/core/work/message-delivery-stor
 import { messageDelivery, type MessageDeliveryStore } from "../src/core/work/message-delivery";
 import { setHostsSnapshot } from "../src/core/hosts/snapshot";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
+import { stampMailboxDeliveryReceipt } from "../src/core/work/delivery-receipts";
+import { mailboxMessageDeliveryId, mailboxMessageReadId } from "../src/core/work/mailbox-receipts";
+import { armMainThreadBudget, resetStatementTiming, statementTimingTop } from "../src/node/observability/main-thread-budget";
 
 const CANVAS = "factory";
 const root = mkdtempSync(join(tmpdir(), "junto-perf-signals-"));
@@ -103,7 +106,7 @@ const seedMail = async (runtime: ReturnType<typeof makeRuntime>) => {
     const work = yield* WorkService;
     for (const row of rows) yield* work.workSystemMailboxNotify(CANVAS, row.nodeId, row.message);
   }));
-  return rows.length;
+  return rows;
 };
 
 const configureDelivery = async (runtime: ReturnType<typeof makeRuntime>, writeDelayMs = 0) => {
@@ -132,6 +135,51 @@ const configureDelivery = async (runtime: ReturnType<typeof makeRuntime>, writeD
   });
 };
 
+
+const timedEffect = <A, E, R>(name: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+  Effect.gen(function* () {
+    const at = yield* Effect.sync(() => performance.now());
+    const value = yield* effect;
+    note(name, performance.now() - at);
+    return value;
+  });
+
+const measureReceipts = async (runtime: ReturnType<typeof makeRuntime>, rows: ReadonlyArray<{ nodeId: string; message: any }>) =>
+  runEff(runtime, Effect.gen(function* () {
+    const repository = yield* WorkRepository;
+    const wrapped = {
+      ...repository,
+      acceptedDeliveries: (sink: any, deliveryIds: ReadonlyArray<string>) =>
+        timedEffect("receipt.repo.acceptedDeliveries", repository.acceptedDeliveries(sink, deliveryIds)),
+      acceptDelivery: (input: any) =>
+        timedEffect("receipt.repo.acceptDelivery", repository.acceptDelivery(input)),
+    };
+    const totals: number[] = [];
+    resetStats();
+    armMainThreadBudget({ enabled: true, throwOnViolation: false, force: true });
+    resetStatementTiming();
+    for (const row of rows) {
+      const at = performance.now();
+      yield* stampMailboxDeliveryReceipt({
+        canvas: CANVAS,
+        nodeId: row.nodeId,
+        messageId: row.message.messageId,
+        deliveryId: mailboxMessageDeliveryId(CANVAS, row.nodeId, row.message.messageId),
+        readId: mailboxMessageReadId(CANVAS, row.nodeId, row.message.messageId),
+      }).pipe(Effect.provideService(WorkRepository, wrapped as any));
+      totals.push(performance.now() - at);
+    }
+    const ordered = [...totals].sort((a, b) => a - b);
+    return {
+      count: totals.length,
+      medianMs: round(ordered[Math.floor(ordered.length / 2)]!),
+      bestMs: round(ordered[0]!),
+      maxMs: round(ordered[ordered.length - 1]!),
+      phases: statRows(),
+      statements: statementTimingTop(12).map((row) => ({ ...row, totalMs: round(row.totalMs), maxMs: round(row.maxMs) })),
+    };
+  }));
+
 const decodeSend = Schema.decodeUnknownSync(OperatorThreadSend);
 const writeThread = (runtime: ReturnType<typeof makeRuntime>, input: object) =>
   runEff(runtime, sendOperatorThreadMail(decodeSend(input)) as any);
@@ -142,7 +190,8 @@ const measure = async () => {
     await runEff(runtime, nameThisMachine as any);
     setHostsSnapshot(defaultRemoteHostsDocument("studio").hosts);
     await runEff(runtime, seedCanvasRows({ seq: 1, canvases: new Map([[CANVAS, { nodes: fixture.nodes as any, wires: fixture.wires as any }]]) }) as any);
-    const mailCount = await seedMail(runtime);
+    const seeded = await seedMail(runtime);
+    const mailCount = seeded.length;
     await configureDelivery(runtime, Number(process.env.PERF_WRITE_DELAY_MS ?? 0));
     const out: any = { canvas: { seats: seats.length, nodes: fixture.nodes.length, wires: fixture.wires.length, seededMails: mailCount }, cases: [] };
 
@@ -190,6 +239,7 @@ const measure = async () => {
       signalRuns.push({ signalId, answerMs: round(answerMs), deliveryMs: round(deliveryMs), delivery, deliveryPhases: statRows() });
     }
     out.signalAnswer = signalRuns;
+    out.deliveryReceipt = await measureReceipts(runtime, seeded.filter((row) => row.nodeId === target).slice(0, 24));
     console.log(JSON.stringify(out, null, 2));
   } finally {
     await runtime.dispose();
