@@ -35,12 +35,12 @@
  *   2. The JSON, made on the Mac mini in your checkout there, the board-only
  *      file removed from both machines as soon as the JSON exists:
  *        scp /tmp/junto-board.db mac-mini:<checkout>/factory-board.db && rm /tmp/junto-board.db
- *        scripts/mini.sh run <checkout> \
+ *        scripts/mini.sh --gpu run <checkout> \
  *          'bun e2e/harness/factory-json.ts $PWD/factory-board.db $PWD/factory-board.json; rm -f $PWD/factory-board.db'
  *   The mini keeps only the JSON. Board data never goes to the cloud VM.
  *
  * Run, on the mini:
- *   scripts/mini.sh run <checkout> \
+ *   scripts/mini.sh --gpu run <checkout> \
  *     'JUNTO_GPU_PROOF=1 JUNTO_FACTORY_JSON=$PWD/factory-board.json scripts/run-e2e.sh e2e/scenarios/gpu-proof.spec.ts'
  * JUNTO_FACTORY_DB reads a board-only file in place of the JSON, on the
  * machine that made it; the loader refuses the live database.
