@@ -576,6 +576,64 @@ describe("State schema migrations", () => {
     });
   });
 
+  it("allows table-rebuild migrations after ANALYZE creates sqlite_stat1", () => {
+    const database = openDatabase();
+    try {
+      seedVersionOne(database, 1);
+      database.exec("ANALYZE");
+      expect(
+        database
+          .prepare("SELECT name FROM sqlite_schema WHERE name = 'sqlite_stat1'")
+          .get(),
+      ).toEqual({ name: "sqlite_stat1" });
+
+      const versionOne = expectedStateSchemaIdentity(VERSION_ONE_SQL);
+      const plan: StateSchemaMigrationPlan = {
+        baselineVersion: 1,
+        baselineIdentity: versionOne,
+        currentVersion: 2,
+        currentSchemaSql: VERSION_TWO_SQL,
+        migrations: [
+          {
+            fromVersion: 1,
+            toVersion: 2,
+            name: "rebuild-migration-items-after-analyze",
+            safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+            fromIdentity: versionOne,
+            replacesTables: ["migration_items"],
+            migrate: (connection) => {
+              const rows = connection
+                .prepare("SELECT id, payload FROM migration_items ORDER BY id")
+                .all() as Array<{ id: string; payload: string }>;
+              connection.exec("DROP TABLE migration_items");
+              connection.exec(`
+                CREATE TABLE migration_items (
+                  id TEXT PRIMARY KEY,
+                  payload TEXT NOT NULL,
+                  note TEXT NOT NULL DEFAULT 'migrated'
+                ) STRICT;
+              `);
+              const insert = connection.prepare(
+                "INSERT INTO migration_items(id, payload) VALUES (?, ?)",
+              );
+              for (const row of rows) {
+                insert.run(row.id, row.payload);
+              }
+            },
+          },
+        ],
+      };
+
+      const result = migrateStateSchema(database, plan);
+      expect(result.schemaVersion).toBe(2);
+      expect(
+        database.prepare("SELECT * FROM migration_items ORDER BY id").all(),
+      ).toEqual([{ id: "preserved", payload: "before", note: "migrated" }]);
+    } finally {
+      database.close();
+    }
+  });
+
   it("rejects a database from a newer release without mutation", () => {
     const database = openDatabase();
     try {

@@ -2131,6 +2131,12 @@ const runMigrationStep = (
     const pragmaName = arg1 === null ? "" : arg1.toLowerCase();
     const isSchemaCatalog =
       arg1 === "sqlite_schema" || arg1 === "sqlite_master";
+    const isSqliteDropMetadata =
+      arg1 === "sqlite_stat1" ||
+      arg1 === "sqlite_stat2" ||
+      arg1 === "sqlite_stat3" ||
+      arg1 === "sqlite_stat4" ||
+      arg1 === "sqlite_sequence";
     const isReplacedTable = arg1 !== null && replacesTables.has(arg1);
     const isRemovedTable = arg1 !== null && removesTables.has(arg1);
     // A table the step made itself is the step's to drop: a backup, or a
@@ -2169,9 +2175,9 @@ const runMigrationStep = (
         !(
           actionCode === constants.SQLITE_DELETE &&
           (
-            // Catalog rewrites during DROP/recreate of authorized objects.
+            // Catalog and SQLite internal stat/sequence rewrites during DROP/recreate of authorized objects.
             (
-              isSchemaCatalog &&
+              (isSchemaCatalog || isSqliteDropMetadata) &&
               (
                 replacesObjects.size > 0 ||
                 replacesTables.size > 0 ||
