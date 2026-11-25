@@ -1,0 +1,284 @@
+#!/usr/bin/env bash
+# reference-transaction: the shared checkout follows main.
+#
+# Installed as .git/hooks/reference-transaction (see docs/machines.md), a stub
+# that execs this file for state "committed" only, so every linked worktree
+# shares it and core.hooksPath stays unset. It fires on every ref update in
+# this repository, whoever makes it: a private-index landing, a landing from a
+# linked worktree, a VM bundle. It acts on the refs/heads/main line only.
+#
+# The landing never waits for it: the follower is detached, and this script
+# exits 0 as soon as it has started one. The follower works on the main
+# checkout (the parent of the common git dir) with that checkout's own index,
+# one at a time (a lock directory; a landing that finds it held is reached by
+# the holder, which loops until it has followed the tip of main), and gives up
+# after JUNTO_FOLLOW_BUDGET seconds (default 5). It remembers the last commit it
+# followed in <common git dir>/junto-follow.head and follows from there to the
+# tip of main one commit of main's own line at a time, so a landing it missed
+# or a give-up is retried by the next landing, never lost.
+#
+# For each path a step changes, on the main checkout:
+#   - the file equals the step's old committed copy (nothing new in it): main's
+#     copy is written (checked out to a temp tree, then renamed over the file,
+#     after the file is hashed once more), or the file is removed when main
+#     removed it; its index entry follows main.
+#   - the file is absent and main adds it: it is written.
+#   - the index entry equals the old copy: it moves to the new one.
+#   - anything else is somebody's own work: left alone, named in the log.
+# Removals run before adds (a case-only rename on a case-insensitive disk).
+# A path under a symlinked directory is never written. The index is changed
+# by two commands at most, and not at all when its lock is held: never waited
+# for. One line per step goes to <common git dir>/junto-follow.log.
+# JUNTO_FOLLOW=0 turns it off. Bash 3.2 and GNU/BSD tools only.
+
+[ "${1:-}" = committed ] || exit 0
+
+old= new=
+while read -r o n r; do
+  [ "$r" = refs/heads/main ] && { old=$o; new=$n; }
+done
+exec </dev/null
+[ -n "$new" ] || exit 0
+[ "${JUNTO_FOLLOW:-1}" = 0 ] && exit 0
+# a branch created or deleted is not a move of main
+case $old in *[!0]*) ;; *) exit 0 ;; esac
+case $new in *[!0]*) ;; *) exit 0 ;; esac
+BUDGET=${JUNTO_FOLLOW_BUDGET:-5}
+
+log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$common/junto-follow.log"; }
+
+has_link_parent() { # a directory above $1 is a symlink
+  local d=$1
+  while case $d in */*) true ;; *) false ;; esac; do
+    d=${d%/*}
+    [ -L "$d" ] && return 0
+  done
+  return 1
+}
+
+# One phase of one step: D (removals) or R (everything else).
+phase() {
+  local ph=$1 st om nm os ns p fop iop reason W ok
+  : > "$T/ex"; : > "$T/w"
+  while IFS=$'\t' read -r st om nm os ns p; do
+    case $ph in D) [ "$st" = D ] || continue ;; *) [ "$st" != D ] || continue ;; esac
+    if [ -L "$p" ] || has_link_parent "$p"; then printf '%s\tLINK\n' "$p" >> "$T/w"
+    elif [ -d "$p" ]; then printf '%s\tDIR\n' "$p" >> "$T/w"
+    elif [ -f "$p" ]; then printf '%s\n' "$p" >> "$T/ex"
+    fi
+  done < "$T/d"
+  if [ -s "$T/ex" ]; then
+    git hash-object --stdin-paths < "$T/ex" > "$T/h" || return 1
+    paste "$T/ex" "$T/h" >> "$T/w"
+  fi
+
+  awk -F'\t' -v OFS='\t' -v ph="$ph" '
+    FILENAME == ARGV[1] { split($1, a, " "); if (a[3] != "0") conf[$2] = 1; else { ib[$2] = a[2] }; next }
+    FILENAME == ARGV[2] { wb[$1] = $2; next }
+    {
+      st = $1; om = $2; nm = $3; os = $4; ns = $5; p = $6; reason = "-"
+      if (ph == "D" ? st != "D" : st == "D") next
+      W = (p in wb) ? wb[p] : "-"
+      I = (p in ib) ? ib[p] : "-"
+      if (p in conf) { print "KEEP", "NONE", p, nm, ns, "unmerged in the index", W; next }
+      if (st == "T" || om == "120000" || om == "160000" || nm == "120000" || nm == "160000") { print "KEEP", "NONE", p, nm, ns, "a link or submodule", W; next }
+      if (W == "DIR" || W == "LINK") { print "KEEP", "NONE", p, nm, ns, "not a file here", W; next }
+      if (st == "M") {
+        if (W == os) { fop = "WRITE"; iop = (I == os || I == ns) ? "STAT" : "NONE" }
+        else if (W == ns) { fop = "NONE"; iop = (I == os) ? "SET" : "NONE" }
+        else { fop = "KEEP"; reason = (W == "-") ? "deleted here" : "own edit"; iop = (I == os) ? "SET" : "NONE" }
+      } else if (st == "A") {
+        if (W == "-") { fop = "WRITE"; iop = (I == "-" || I == ns) ? "STAT" : "NONE" }
+        else if (W == ns) { fop = "NONE"; iop = (I == "-") ? "SET" : "NONE" }
+        else { fop = "KEEP"; reason = "own file at an added path"; iop = "NONE" }
+      } else if (st == "D") {
+        if (W == os) { fop = "REMOVE"; iop = (I == os) ? "DEL" : "NONE" }
+        else if (W == "-") { fop = "NONE"; iop = (I == os) ? "DEL" : "NONE" }
+        else { fop = "KEEP"; reason = "own edit of a removed file"; iop = (I == os) ? "DEL" : "NONE" }
+      } else { fop = "KEEP"; iop = "NONE"; reason = "status " st }
+      print fop, iop, p, nm, ns, reason, W
+    }' "$T/i" "$T/w" "$T/d" > "$T/a" || return 1
+
+  # the file as it is now must still be the file the decision read
+  : > "$T/vp"; : > "$T/vw"; : > "$T/changed"
+  while IFS=$'\t' read -r fop iop p nm ns reason W; do
+    case $fop in WRITE|REMOVE) ;; *) continue ;; esac
+    if [ "$W" = "-" ]; then
+      { [ -e "$p" ] || [ -L "$p" ]; } && printf '%s\n' "$p" >> "$T/changed"
+    else
+      printf '%s\n' "$p" >> "$T/vp"; printf '%s\n' "$W" >> "$T/vw"
+    fi
+  done < "$T/a"
+  if [ -s "$T/vp" ]; then
+    git hash-object --stdin-paths < "$T/vp" > "$T/vh" || return 1
+    paste "$T/vp" "$T/vw" "$T/vh" | awk -F'\t' '$2 != $3 { print $1 }' >> "$T/changed"
+  fi
+  : > "$T/b"; : > "$T/wl"
+  while IFS=$'\t' read -r fop iop p nm ns reason W; do
+    case $fop in
+      WRITE|REMOVE)
+        if [ -s "$T/changed" ] && grep -qxF -- "$p" "$T/changed"; then
+          fop=KEEP; iop=NONE; reason="changed while following"
+        elif [ "$fop" = WRITE ]; then printf '%s\0' "$p" >> "$T/wl"
+        fi ;;
+    esac
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$fop" "$iop" "$p" "$nm" "$ns" "$reason" >> "$T/b"
+  done < "$T/a"
+
+  # main's copies, checked out once to a temp tree
+  if [ -s "$T/wl" ]; then
+    GIT_INDEX_FILE="$T/ti" git read-tree "$pn" || return 1
+    # modes as a normal checkout gives them, whatever umask the landing seat runs under
+    ( umask 022; GIT_INDEX_FILE="$T/ti" git checkout-index -z --stdin --prefix="$T/out/" < "$T/wl" ) || return 1
+  fi
+  while IFS=$'\t' read -r fop iop p nm ns reason; do
+    ok=1
+    case $fop in
+      WRITE)
+        case $p in */*) mkdir -p -- "${p%/*}" ;; esac
+        if [ -f "$T/out/$p" ] && mv -f -- "$T/out/$p" "$p"; then restored=$((restored + 1))
+        else ok=0; fop=KEEP; reason="could not write it"; fi ;;
+      REMOVE)
+        if rm -f -- "$p"; then
+          restored=$((restored + 1))
+          case $p in */*) rmdir -p -- "${p%/*}" 2>/dev/null ;; esac
+        else ok=0; fop=KEEP; reason="could not remove it"; fi ;;
+    esac
+    if [ "$fop" = KEEP ]; then
+      kept=$((kept + 1))
+      [ "$kept" -gt 20 ] || keptlist="$keptlist $p ($reason)"
+    fi
+    [ "$ok" = 1 ] || continue
+    case $iop in
+      STAT) printf '%s\0' "$p" >> "$T/stat0" ;;
+      SET) printf '%s %s 0\t%s\n' "$nm" "$ns" "$p" >> "$T/cache" ;;
+      DEL) if [ "$fop" = REMOVE ]; then printf '%s\0' "$p" >> "$T/stat0"
+           else printf '0 %s 0\t%s\n' "$zero" "$p" >> "$T/cache"; fi ;;
+    esac
+  done < "$T/b"
+}
+
+# One step of main's own line: old to new.
+pass() {
+  local po=$1 pn=$2 ptag="${1:0:9}..${2:0:9}" meta p
+  restored=0; kept=0; keptlist=; skipped=no; odd=0
+  : > "$T/stat0"; : > "$T/cache"; rm -rf "$T/out" "$T/ti"
+  git diff-tree -r -z --no-renames --raw "$po" "$pn" > "$T/raw" || { log "$ptag failed reading the change"; return 1; }
+  : > "$T/d"
+  while IFS= read -r -d '' meta && IFS= read -r -d '' p; do
+    case "$p" in *$'\t'*|*$'\n'*) odd=$((odd + 1)); continue ;; esac
+    set -- ${meta#:}
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$5" "$1" "$2" "$3" "$4" "$p" >> "$T/d"
+  done < "$T/raw"
+  git ls-files -s -z | tr '\0' '\n' > "$T/i" || { log "$ptag failed reading the index"; return 1; }
+
+  phase D || { log "$ptag failed in the removals"; return 1; }
+  phase R || { log "$ptag failed in the writes"; return 1; }
+  [ "$odd" = 0 ] || { kept=$((kept + odd)); keptlist="$keptlist ($odd path(s) with a tab or newline)"; }
+
+  # the index: two commands at most, none when somebody holds its lock
+  if [ -e "$common/index.lock" ]; then
+    skipped="yes (index.lock held)"
+  else
+    if [ -s "$T/stat0" ]; then git update-index --add --remove -z --stdin < "$T/stat0" || skipped="yes (update-index refused)"; fi
+    if [ -s "$T/cache" ]; then git update-index --index-info < "$T/cache" || skipped="yes (update-index refused)"; fi
+  fi
+  [ "$kept" -le 20 ] || keptlist="$keptlist +$((kept - 20)) more"
+  log "$ptag restored $restored, kept $kept${keptlist:+ [${keptlist# }]}, skipped-index $skipped"
+}
+
+# The commit the follow resumes from: the last one followed, else the old main of this landing.
+resume_from() {
+  local f
+  f=$(cat "$common/junto-follow.head" 2>/dev/null)
+  if [ -z "$f" ] || ! git cat-file -e "$f^{commit}" 2>/dev/null; then f=$old; fi
+  printf '%s' "$f"
+}
+
+# Follow main from the last followed commit to its tip, a step at a time.
+follow_to_tip() {
+  trap 'exit 143' TERM
+  local tip from prev c
+  # the first follow in a checkout starts from this landing's old main; kept from
+  # the start, so a give-up before the first step is done is retried from there
+  [ -s "$common/junto-follow.head" ] || printf '%s\n' "$old" > "$common/junto-follow.head"
+  while :; do
+    printf '%s\n' "$tok" > "$lock/owner"
+    tip=$(git rev-parse -q --verify refs/heads/main) || { log "failed reading main"; return 1; }
+    from=$(resume_from)
+    if [ "$from" != "$tip" ]; then
+      : > "$T/steps"
+      if git merge-base --is-ancestor "$from" "$tip" 2>/dev/null; then
+        git rev-list --first-parent --reverse "$from..$tip" > "$T/steps" || { log "failed listing the steps"; return 1; }
+      else
+        printf '%s\n' "$tip" > "$T/steps"
+      fi
+      prev=$from
+      while read -r c; do
+        pass "$prev" "$c" || return 1
+        printf '%s\n' "$c" > "$common/junto-follow.head.$tok" && mv -f "$common/junto-follow.head.$tok" "$common/junto-follow.head"
+        prev=$c
+      done < "$T/steps"
+      continue
+    fi
+    # followed to the tip: let go of the lock, then look once more, so a landing
+    # that came while we were finishing is not left for the next one
+    rm -rf "$lock"
+    tip=$(git rev-parse -q --verify refs/heads/main) || return 0
+    from=$(resume_from)
+    [ "$tip" != "$from" ] || return 0
+    mkdir "$lock" 2>/dev/null || return 0
+  done
+}
+
+main_follow() {
+  # Everything runs against the main checkout, never the worktree whose gitdir
+  # the landing handed us.
+  unset GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_QUARANTINE_PATH GIT_NAMESPACE
+  common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 0
+  common=$(cd "$common" && pwd -P) || exit 0
+  [ "$(basename "$common")" = .git ] || exit 0
+  main=$(dirname "$common")
+  [ -d "$main" ] || exit 0
+  export GIT_DIR=$common GIT_WORK_TREE=$main
+  cd "$main" || exit 0
+  zero=$(printf '%s' "$old" | tr '0-9a-f' '0')
+
+  # Only a checkout that is on main follows it.
+  head=$(git symbolic-ref -q HEAD) || exit 0
+  [ "$head" = refs/heads/main ] || { log "${old:0:9}..${new:0:9} skipped, the checkout is on ${head#refs/heads/}"; exit 0; }
+
+  # what a crashed follower left: older than the budget plus half a minute, a minute at least
+  stale=$(( (BUDGET + 30) / 60 + 1 ))
+  find "$common" -maxdepth 1 -type d -name 'junto-follow.??????' -mmin +"$stale" -exec rm -rf {} + 2>/dev/null
+  find "$common" -maxdepth 1 -name 'junto-follow.timeout.*' -mmin +"$stale" -exec rm -f {} + 2>/dev/null
+  find "$common" -maxdepth 1 -name 'junto-follow.head.*' -mmin +"$stale" -exec rm -f {} + 2>/dev/null
+
+  # one follower at a time: a held lock means its holder will reach this landing
+  lock="$common/junto-follow.lock"
+  if ! mkdir "$lock" 2>/dev/null; then
+    [ -n "$(find "$lock" -maxdepth 0 -mmin +"$stale" 2>/dev/null)" ] || exit 0
+    rm -rf "$lock"; mkdir "$lock" 2>/dev/null || exit 0
+  fi
+  tok="$$.$RANDOM"
+  printf '%s\n' "$tok" > "$lock/owner"
+  marker="$common/junto-follow.timeout.$tok"
+  T=$(mktemp -d "$common/junto-follow.XXXXXX") || { rm -rf "$lock"; exit 0; }
+  trap 'rm -rf "$T" "$marker"; [ "$(cat "$lock/owner" 2>/dev/null)" != "$tok" ] || rm -rf "$lock"' EXIT
+
+  follow_to_tip &
+  worker=$!
+  ( sleep "$BUDGET"; : > "$marker"; pkill -TERM -P "$worker" 2>/dev/null; kill -TERM "$worker" 2>/dev/null ) &
+  timer=$!
+  wait "$worker"
+  kill "$timer" 2>/dev/null
+  pkill -P "$timer" 2>/dev/null
+  wait "$timer" 2>/dev/null
+  if [ -e "$marker" ]; then log "${old:0:9}..${new:0:9} gave up after ${BUDGET} s; the next landing follows on from the last commit followed"; fi
+  exit 0
+}
+
+# The landing does not wait for any of it.
+( main_follow ) </dev/null >/dev/null 2>&1 &
+exit 0
