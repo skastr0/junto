@@ -117,7 +117,7 @@ import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 import { PreviewedMarkdown } from "../preview/PreviewedMarkdown";
 import { Button, Dropdown, Kbd } from "../ui";
 import { FeedExchange } from "./FeedExchange";
-import { crossedWords } from "../../lib/feed-exchange";
+import { crossedLiveWords, crossedWords } from "../../lib/feed-exchange";
 import { FeedRegionStrip } from "./FeedRegionStrip";
 import { FeedEmpty, FeedSeatChosen, FeedSeatsRow, FeedSeatsToggle } from "./FeedFilterParts";
 import { feedTasksByNumber, type FeedTaskRef } from "./feed-text";
@@ -377,7 +377,7 @@ function FeedDetail({
         <SignalResourceChips canvasName={item.canvasName} attachments={item.attachments} beforeOpen={closeOperatorFeed} />
       </div>
       <div className="operator-feed__answer">
-        {crossed ? (
+        {crossed && !(replying && item.signalId) ? (
           // Nothing failed for the operator to fix, so it is said in ink, not as an error.
           <p className="operator-feed__crossed" data-testid="feed-crossed">
             {crossedWords(item.seat.name)}
@@ -434,16 +434,26 @@ function FeedDetail({
             {thisMac ? null : <OpenTargetButton item={item} node={node} isSeat={isSeat} />}
           </div>
         ) : replying && item.signalId ? (
-          <SignalReply
-            signalId={item.signalId}
-            canvasName={item.canvasName}
-            seatNodeId={item.seat.nodeId}
-            suggested={item.suggestions}
-            respond={actions.respond}
-            dismiss={actions.dismiss}
-            onDone={() => onReply(false)}
-            className="operator-feed__reply"
-          />
+          <>
+            {crossed ? (
+              <p className="operator-feed__crossed" data-testid="feed-crossed">
+                {crossedWords(item.seat.name)} Your draft was not sent.
+              </p>
+            ) : null}
+            {/* Always in a fieldset, so the draft stays mounted when the card closes under it: kept, shown, and no longer answerable. */}
+            <fieldset className="operator-feed__reply-lock" disabled={crossed}>
+              <SignalReply
+                signalId={item.signalId}
+                canvasName={item.canvasName}
+                seatNodeId={item.seat.nodeId}
+                suggested={item.suggestions}
+                respond={actions.respond}
+                dismiss={actions.dismiss}
+                onDone={() => onReply(false)}
+                className="operator-feed__reply"
+              />
+            </fieldset>
+          </>
         ) : (
           <>
             {item.signalId ? (
@@ -748,15 +758,26 @@ const feed = useOperatorFeed();
   // The selected card closed because the seat withdrew it before the operator's answer reached it: the pane
   // keeps it and says so, in the answer area, until the operator moves; the list has already handed on.
   const [crossed, setCrossed] = useState<FeedItem | null>(null);
-  const paneItem = crossed ?? selectedItem;
   const lastSelected = useRef<FeedItem | undefined>(undefined);
+  // On the render where the selected card has just left and the hold is not set yet, the pane keeps it
+  // (never an empty pane for a frame): a reply being written in it stays mounted if the hold follows.
+  const paneItem =
+    crossed ?? selectedItem ?? (selected !== null && lastSelected.current?.itemId === selected ? lastSelected.current : undefined);
+  // The control the operator was on left with the answer area: the keyboard goes back to the frame, where keys are heard.
+  useEffect(() => {
+    if (crossed === null) return;
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      claimFocus(scrollRef.current?.closest<HTMLElement>(".operator-modal__frame") ?? null, "gesture");
+    }
+  }, [crossed]);
   useEffect(() => {
     const before = lastSelected.current;
     if (before?.signalId !== undefined && !items.some((item) => item.itemId === before.itemId)) {
       const closed = agentSignals$[before.signalId].peek();
       if (closed !== undefined && crossedClosing(closed)) {
         setCrossed(before);
-        setAnnounceNote(crossedWords(before.seat.name));
+        setAnnounceNote(crossedLiveWords(before.seat.name, before.text));
       }
     }
     lastSelected.current = selectedItem;
@@ -914,6 +935,12 @@ const feed = useOperatorFeed();
     if (crossed !== null && (event.key.length === 1 || event.key === "Enter")) {
       event.preventDefault();
       setCrossed(null);
+      // Said, so the pane flipping to the next card is not silent: the key answered nothing.
+      setAnnounceNote(
+        `Your key did not answer: that card was withdrawn.${
+          selectedItem === undefined ? "" : ` Now: ${feedCardSpeech(selectedItem, chainPlaces.get(selectedItem.itemId))}`
+        }`,
+      );
       return;
     }
     const item = items.find((candidate) => candidate.itemId === selected);

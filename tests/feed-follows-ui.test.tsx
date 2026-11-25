@@ -210,7 +210,7 @@ it("keeps a card the seat withdrew before the answer reached it, in the pane, un
   expect(selected()).toBe("signal:b1");
   expect(q('[data-testid="feed-crossed"]')?.textContent).toBe("atlas withdrew this before your answer reached it.");
   expect(q('[data-testid="operator-feed-detail"]')?.dataset.itemId).toBe("signal:s4");
-  expect(q(".operator-feed__announce")?.textContent).toBe("atlas withdrew this before your answer reached it.");
+  expect(q(".operator-feed__announce")?.textContent).toBe("atlas withdrew a signal before your answer reached it: Topic 4 needs your call");
   // A key that would answer is only let go of: nothing is sent on the card the pane is not showing.
   const frame = q(".operator-modal__frame")!;
   await act(async () => {
@@ -218,6 +218,43 @@ it("keeps a card the seat withdrew before the answer reached it, in the pane, un
   });
   expect(q('[data-testid="feed-crossed"]')).toBeNull();
   expect(q('[data-testid="operator-feed-detail"]')?.dataset.itemId).toBe("signal:b1");
+  // And the key's silence is not left silent: the live line says nothing was answered and which card the pane shows now.
+  expect(q(".operator-feed__announce")?.textContent).toBe(
+    "Your key did not answer: that card was withdrawn. Now: bravo, ready for review: Bravo wants a look",
+  );
+});
+
+it("keeps a half-typed reply, shown and locked, when its card closes crossed, and says it was not sent", async () => {
+  const open4 = signal(4);
+  live.set(twoOpen(open4));
+  operatorModal$.open.set("feed");
+  await act(async () =>
+    root.render(
+      <WindowRuntimeContext.Provider value={feedRuntime as never}>
+        <OperatorFeed />
+      </WindowRuntimeContext.Provider>,
+    ),
+  );
+  const frame = q(".operator-modal__frame")!;
+  await act(async () => {
+    frame.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  const field = q(".operator-feed__reply-lock textarea") as HTMLTextAreaElement;
+  expect(field).not.toBeNull();
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    set.call(field, "Half a thought");
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    agentSignals$.s4.set({ ...open4, state: "withdrawn", response: { text: "Yes", at: NOW } });
+    live.set(twoOpen(undefined));
+  });
+  const kept = q(".operator-feed__reply-lock textarea") as HTMLTextAreaElement;
+  expect(kept).toBe(field);
+  expect(kept.value).toBe("Half a thought");
+  expect((q(".operator-feed__reply-lock") as HTMLFieldSetElement).disabled).toBe(true);
+  expect(q('[data-testid="feed-crossed"]')?.textContent).toBe("atlas withdrew this before your answer reached it. Your draft was not sent.");
 });
 
 it("says nothing of a card that closed an ordinary way", async () => {

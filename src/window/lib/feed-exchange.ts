@@ -36,6 +36,10 @@ export type ExchangeRow =
 /** The sentence for an answer and a withdrawal that crossed, in the pane's answer area and on an exchange row. */
 export const crossedWords = (seat: string): string => `${seat} withdrew this before your answer reached it.`;
 
+/** The same said alone, where the card is out of sight: it names the signal, its headline last after a colon. */
+export const crossedLiveWords = (seat: string, headline: string): string =>
+  `${seat} withdrew a signal before your answer reached it: ${headline}`;
+
 /** More earlier rows than this fold: the last `EXCHANGE_TAIL` show, and the rest sit behind "Show all N". */
 export const EXCHANGE_FOLD_AT = 4;
 export const EXCHANGE_TAIL = 3;

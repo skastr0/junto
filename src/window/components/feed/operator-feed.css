@@ -933,6 +933,21 @@
   color: var(--color-dim);
 }
 
+/* The seat withdrew it before the answer reached it: said in ink in the answer area. Nothing failed, so no icon, border or tint. */
+.operator-feed__crossed {
+  margin: 0;
+  font-size: var(--text-body-lg);
+  color: var(--color-ink);
+}
+
+/* The reply box of a card that closed under it: the draft stays, shown and locked. */
+.operator-feed__reply-lock {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 /* The exchange of a signal that follows another: the thread's signals and answers, oldest first, this signal last and selected. */
 .operator-feed__exchange {
   display: flex;
