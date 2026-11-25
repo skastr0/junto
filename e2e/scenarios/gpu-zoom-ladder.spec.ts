@@ -502,14 +502,16 @@ const compareStop = (reference: PngImage, now: PngImage, dpr: number): { changed
   return { changed, blocks, diff };
 };
 
-/** Pixels that moved across unheld shots (the board's own motion), grown by 3 CSS px. */
-const motionMask = (shots: ReadonlyArray<PngImage>, dpr: number): Uint8Array => {
+/** Grown mask of the pixels that differ between two frames of the same camera, in device px. */
+const grownDifference = (a: PngImage, b: PngImage, dpr: number): Uint8Array => {
   const grow = Math.round(3 * dpr);
-  const { width, height } = shots[0]!;
+  const { width, height } = a;
   const moving = new Uint8Array(width * height);
-  for (let s = 1; s < shots.length; s += 1) {
-    for (let p = 0; p < width * height; p += 1) if (delta(shots[0]!, p * 4, shots[s]!, p * 4) > 24) moving[p] = 1;
-  }
+  for (let p = 0; p < width * height; p += 1) if (b.width !== width || b.height !== height || delta(a, p * 4, b, p * 4) > 24) moving[p] = 1;
+  return growMask(moving, width, height, grow);
+};
+
+const growMask = (moving: Uint8Array, width: number, height: number, grow: number): Uint8Array => {
   const grown = new Uint8Array(width * height);
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
@@ -524,6 +526,17 @@ const motionMask = (shots: ReadonlyArray<PngImage>, dpr: number): Uint8Array => 
     }
   }
   return grown;
+};
+
+/** Pixels that moved across unheld shots (the board's own motion), grown by 3 CSS px. */
+const motionMask = (shots: ReadonlyArray<PngImage>, dpr: number): Uint8Array => {
+  const grow = Math.round(3 * dpr);
+  const { width, height } = shots[0]!;
+  const moving = new Uint8Array(width * height);
+  for (let s = 1; s < shots.length; s += 1) {
+    for (let p = 0; p < width * height; p += 1) if (delta(shots[0]!, p * 4, shots[s]!, p * 4) > 24) moving[p] = 1;
+  }
+  return growMask(moving, width, height, grow);
 };
 
 /**
@@ -589,6 +602,7 @@ const compareZoomEnd = (
   camera: Camera,
   dpr: number,
   overlay: Uint8Array,
+  movedNow: Uint8Array | undefined,
 ): { worstGroup: number; hot: number; diff: PngImage } => {
   const B = Math.round(8 * dpr);
   const bw = Math.floor(frame.width / B);
@@ -624,7 +638,8 @@ const compareZoomEnd = (
             ry >= ref.image.height ||
             ref.mask[ry * ref.image.width + rx] === 1 ||
             overlay[y * frame.width + x] === 1 ||
-            overlay[ry * ref.image.width + rx] === 1
+            overlay[ry * ref.image.width + rx] === 1 ||
+            movedNow?.[y * frame.width + x] === 1
           ) {
             skip = true;
             break;
@@ -949,6 +964,23 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           camera = after;
           frame = await shot(page, pane);
         }
+        // The board's own motion at this moment: a second frame a moment later,
+        // at the same camera. A ring's arc sits at whatever phase the unheld
+        // clock gives it, so where a ring has moved between the two is masked;
+        // a still pixel that holds another item's drawing is not. The reference
+        // launch's own motion mask covers the same thing on its side.
+        let movingNow: Uint8Array | undefined;
+        for (let retry = 0; retry < 3 && movingNow === undefined; retry += 1) {
+          await page.waitForTimeout(250);
+          const later = await shot(page, pane);
+          const held = await stillCamera(page);
+          if (!sameCamera(held, camera)) {
+            camera = held;
+            frame = await shot(page, pane);
+            continue;
+          }
+          movingNow = grownDifference(frame, later, dpr);
+        }
         const state = { ...(await readProofState(page)), camera };
         await pinch(page, centre, state.camera.zoom, to);
         await stillCamera(page);
@@ -965,7 +997,7 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           (a, b) => Math.abs(Math.log2(a / state.camera.zoom)) - Math.abs(Math.log2(b / state.camera.zoom)),
         )[0]!;
         const ref = references.get(refKey(place.name, nearest))!;
-        const { worstGroup, hot, diff } = compareZoomEnd({ image: ref.unheld, mask: ref.mask, camera: ref.camera }, frame, state.camera, dpr, overlay.mask);
+        const { worstGroup, hot, diff } = compareZoomEnd({ image: ref.unheld, mask: ref.mask, camera: ref.camera }, frame, state.camera, dpr, overlay.mask, movingNow);
         const name = `c${String(cycle)}-${place.name}-zoomend-${String(from)}-${String(to)}`;
         log(`zoomend ${name}`, { aimed: Math.round(mid * 1000) / 1000, zoom: Math.round(state.camera.zoom * 1000) / 1000, tier: state.tier, against: nearest, hot, worstGroup });
         if (worstGroup >= 12) {
