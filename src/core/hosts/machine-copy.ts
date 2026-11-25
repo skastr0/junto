@@ -1,6 +1,6 @@
 import { Effect, Option, Schema, Stream } from "effect";
 import { MachineBuild, MachineConfigured, MachinePeerPin, type MachineCopyInput } from "@shared/machine-control";
-import { MachineInstallError, MachineInstallResult, MachineSetupError } from "@shared/machine-install";
+import { MachineInstallError, MachineInstallResult, MachinePinRefused, MachineSetupError, MachineTakeoverRemoteHint } from "@shared/machine-install";
 import type { MachineSendEvent } from "@shared/machine-progress";
 import type { InstallationId } from "@shared/installation-id";
 import type { RemoteHost } from "@shared/remote-hosts";
@@ -26,6 +26,14 @@ export interface MachineCopyOptions {
   readonly acquireBundle?: MachineBundleAcquirer;
   readonly connectSetup: (host: RemoteHost, expectedInstallationId: InstallationId) => Effect.Effect<unknown, unknown>;
   readonly connect: (host: RemoteHost) => Effect.Effect<unknown, unknown>;
+  /**
+   * Asks the machine over the link that `connect` opened, so it answers only
+   * once it has let this machine in: a hello admitted here is no proof the far
+   * admitted this one (receipt 22). Bounded by LINK_OPEN_MS.
+   */
+  readonly linkAnswers: (host: RemoteHost) => Effect.Effect<unknown, unknown>;
+  /** How long the send waits for that answer; LINK_OPEN_MS unless a test says. */
+  readonly linkOpenMs?: number;
   readonly disconnect: (name: string) => Effect.Effect<void, unknown>;
   /** Clears what a remove left pending on `name`, over the route this send just reached, before setup pins this machine again. */
   readonly settleRemovedLink?: (name: string, route: RemoteHost, installationId: InstallationId) => Effect.Effect<unknown, unknown>;
@@ -47,6 +55,28 @@ export const UNREADABLE_LINK_KEY_WORDS = "This machine's link key for that machi
  * the refusal's typed `takeover` fields; it is never part of these words.
  */
 export const INSTALLATION_CHANGED_WORDS = "It now answers as a different install of Junto, so nothing changed. Preview a take-over with junto machine takeover to see which seats and automations move.";
+
+/** How long a send waits for the machine to answer over the link once it is set up (receipt 22, S6). */
+export const LINK_OPEN_MS = 20_000;
+
+/** Set up, but the machine never answered over the link in time, or refused it: sending again may finish it (remote-design, c1ef3953f). */
+export const LINK_NOT_OPENED_WORDS = "Junto is set up there, but no link to it opened in time. Send Junto again, and if that fails too, check it again.";
+
+/**
+ * The machine already trusts another install under this machine's name, or
+ * this install under another name, so its setup refused to pin this one
+ * (remote-design, c1ef3953f, S4). Always after the install step, so never
+ * "nothing changed". The CLI prints the take-over-remote line from the typed
+ * `takeoverRemote` field; it is never part of these words.
+ */
+export const PINNED_ELSEWHERE_WORDS = "It already trusts a different install of Junto under this machine's name. Preview a take-over there with junto machine takeover-remote to see which seats and automations move.";
+
+/** The far's setup refused to pin this machine, by which rule, read closed from its answer. */
+class PinRefused extends Schema.TaggedError<PinRefused>()("PinRefused", { check: MachinePinRefused, message: Schema.String }) {}
+/** That refusal on a pin already here: the route is kept, and the send ends in PINNED_ELSEWHERE_WORDS. */
+class PinnedElsewhere extends Schema.TaggedError<PinnedElsewhere>()("PinnedElsewhere", { message: Schema.String }) {}
+/** The machine did not answer over the link in time once set up. */
+class LinkNotOpened extends Schema.TaggedError<LinkNotOpened>()("LinkNotOpened", { message: Schema.String }) {}
 
 /** A machine still holds the link this one made before it was removed, and this one no longer holds the key. */
 class LinkOutlivedRemove extends Schema.TaggedError<LinkOutlivedRemove>()("LinkOutlivedRemove", { message: Schema.String }) {}
@@ -77,11 +107,13 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
   const ssh = yield* SshTransport;
   const build = yield* Schema.decodeUnknownEffect(MachineBuild)(options.build);
   const ownerTransfer = (program: ScopedStreamProgram, command: "machine configure" | "machine setup") =>
-    ssh.transfer(program, Stream.empty, 30_000).pipe(Effect.catch((cause): Effect.Effect<never, MachineCopyRefused | SshError | SshTransferExitError> => {
+    ssh.transfer(program, Stream.empty, 30_000).pipe(Effect.catch((cause): Effect.Effect<never, MachineCopyRefused | PinRefused | SshError | SshTransferExitError> => {
       if (cause instanceof SshTransferExitError) {
         const failure = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Struct({
           ok: Schema.Literal(false), command: Schema.Literal(command), error: OperatorErrorBody,
         })), { onExcessProperty: "error" })(cause.stderr.trim().split("\n").at(-1));
+        const pinRefused = failure._tag === "Success" && command === "machine setup" ? failure.success.error.details?.pinRefused : undefined;
+        if (failure._tag === "Success" && pinRefused !== undefined) return Effect.fail(new PinRefused({ check: pinRefused, message: scrubMessage(failure.success.error.message) }));
         if (failure._tag === "Success") return Effect.fail(refused("remote-refused", failure.success.error.message));
       }
       return Effect.fail(cause);
@@ -178,6 +210,9 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
           if (keyState === "unreadable") return yield* failed(UNREADABLE_LINK_KEY_WORDS);
           if (!cleared || (yield* setUp).data.keyBound === true) return yield* failed(STALE_LINK_WORDS);
         }
+        // The send's own step: the machine now pins this one, first or again (S5).
+        yield* Effect.logInfo("machine pinned this machine").pipe(Effect.annotateLogs({ area: "machines", peer: host.id, again: pin !== undefined }));
+        onTransition?.({ event: "machine-install", juntoHome: receipt.juntoHome, installRoot: receipt.installRoot, step: "pinned" });
       });
       if (pin === undefined) {
         const configuredProgram = yield* configureMachine(target, receipt, host.id);
@@ -201,15 +236,32 @@ export const makeMachineCopy = (options: MachineCopyOptions) => Effect.gen(funct
         }
         // A send binds again whatever was seen: a hello seen from that install is no proof it pinned this one.
         // An update never binds, so it never revives a binding that was taken away there.
-        if (mode === "send") yield* bindHere;
+        // A machine that trusts another install under this name refuses: the route and the pin stay, nothing is
+        // taken over and nothing retried, and the operator previews a take-over there (S4).
+        if (mode === "send") yield* bindHere.pipe(Effect.catchTag("PinRefused", (cause) =>
+          hosts.upsert({ ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot }).pipe(Effect.andThen(Effect.fail(new PinnedElsewhere({ message: cause.message }))))));
       }
       const configuredHost = { ...host, juntoHome: receipt.juntoHome, installRoot: receipt.installRoot };
       yield* hosts.upsert(configuredHost);
       if (pin === undefined) yield* options.connectSetup(configuredHost, receipt.installationId);
       else yield* options.connect(configuredHost);
+      // Ready only once the machine answers over that link: one that refused this machine's hello never does (S6).
+      // Once per send, never retried here; the route and the pin stay for the next send.
+      yield* options.linkAnswers(configuredHost).pipe(Effect.timeoutOrElse({
+        duration: options.linkOpenMs ?? LINK_OPEN_MS,
+        orElse: () => Effect.fail(new LinkNotOpened({ message: "no answer in time" })),
+      }), Effect.catch((cause) => cause instanceof LinkNotOpened ? Effect.fail(cause)
+        : Effect.logWarning("machine did not answer over the link").pipe(Effect.annotateLogs({ area: "machines", peer: host.id }),
+          Effect.andThen(Effect.fail(new LinkNotOpened({ message: "refused" }))))));
       return { ...receipt, machineName: host.id };
     }).pipe(Effect.mapError(cause => cause instanceof LinkOutlivedRemove
       ? new MachineSetupError({ message: cause.message, retryable: false, installed: receipt, ownWords: true })
+      : cause instanceof LinkNotOpened
+      ? new MachineSetupError({ message: LINK_NOT_OPENED_WORDS, retryable: true, installed: receipt, ownWords: true })
+      : cause instanceof PinnedElsewhere
+      ? new MachineSetupError({ message: PINNED_ELSEWHERE_WORDS, retryable: false, installed: receipt, ownWords: true,
+        // The name is the selected host's id, checked closed; never a far string.
+        ...Option.match(Schema.decodeUnknownOption(MachineTakeoverRemoteHint)({ machineName: host.id }), { onNone: () => ({}), onSome: (takeoverRemote) => ({ takeoverRemote }) }) })
       : new MachineSetupError({
         message: `Junto is installed, but could not ${pin === undefined ? "finish setup" : "connect"}: ${cause instanceof Error ? cause.message : String(cause)}. Check this machine before sending again`,
         retryable: false, installed: receipt,

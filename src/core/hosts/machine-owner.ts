@@ -14,6 +14,7 @@ import { encodeFailure } from "../../node/failure-encode";
 import { MachineInstallError, MachineSetupError, type MachineInstallResult } from "@shared/machine-install";
 import type { MachineSendEvent } from "@shared/machine-progress";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
+import { MachineRefused } from "../machines/configuration";
 import { MachineRepository } from "../machines/repository";
 import { StateTransactionOperation } from "../state/service";
 import { HostsService } from "./service";
@@ -527,7 +528,8 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
           message: cause instanceof Error ? scrubText(cause.message.includes("choose another name") || !cause.message.includes("pinned to another installation")
             ? cause.message : `${cause.message}; choose another name`).slice(0, 4096) : "machine operation failed",
           details: {
-            retryable: request.op === "machine.status" || request.op === "machine.list" || request.op === "machine.harnesses" || request.op === "machine.logs",
+            retryable: request.op === "machine.status" || request.op === "machine.list" || request.op === "machine.harnesses" || request.op === "machine.logs"
+              || (cause instanceof MachineSetupError && cause.retryable),
             ...(cause instanceof MachineInstallError ? {
               disposition: cause.disposition,
               ...(cause.transitions === undefined ? {} : { transitions: cause.transitions }),
@@ -536,7 +538,10 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
               ...(cause.ownWords === true ? { ownWords: true as const } : {}),
               ...(cause.takeover === undefined ? {} : { takeover: cause.takeover }),
             } : {}),
-            ...(cause instanceof MachineSetupError ? { installed: cause.installed, ...(cause.ownWords === true ? { ownWords: true as const } : {}) } : {}),
+            ...(cause instanceof MachineSetupError ? { installed: cause.installed, ...(cause.ownWords === true ? { ownWords: true as const } : {}),
+              ...(cause.takeoverRemote === undefined ? {} : { takeoverRemote: cause.takeoverRemote }) } : {}),
+            // The sender of a setup reads which pin rule refused it from here, closed, never from the words.
+            ...(cause instanceof MachineRefused && (cause.check === "name-pinned-elsewhere" || cause.check === "installation-pinned-elsewhere") ? { pinRefused: cause.check } : {}),
             ...(failure === undefined ? {} : { failure }),
           } },
       } as const)))),

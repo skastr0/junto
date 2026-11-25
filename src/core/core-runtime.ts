@@ -492,6 +492,8 @@ export const makeMachineServicesLayer = (options: MachineCoreOptions) => {
     } });
     const copy = yield* makeMachineCopy({ build: options.build, bundles: options.bundles, acquireBundle: options.acquireBundle,
       connect: link.connect, connectSetup: link.connectSetup, disconnect: link.disconnect,
+      // The far's own status, asked over the link: it answers only once it has let this machine in.
+      linkAnswers: (host) => status.Machine(host.id),
       settleRemovedLink: (name, route, installationId) => linkSetup.settleRemoved({ machineName: name, route, installationId }), linkKeyState: linkSetup.linkKeyState, clearStaleLink: linkSetup.clearEvery });
     const installOps = yield* Effect.serviceOption(InstallOpsService);
     const automations = yield* Effect.serviceOption(AutomationRepository);

@@ -14,7 +14,7 @@ import {
   MachineListData, MachineStatusData, MachineRemoved, MachineHarnesses, BoatAddData,
   type MachineArgsByOp, type MachineDataByOp,
 } from "./machine-control";
-import { MachineInstallResult, MachineInstallError } from "./machine-install";
+import { MachineInstallResult, MachineInstallError, MachinePinRefused, MachineSetupError } from "./machine-install";
 import { RemoteHost } from "./remote-hosts";
 import { MachineExchangeInput, MachineExchangeData } from "./machine-exchange";
 import { MachineLogRead, MachineLogsInput } from "./machine-log";
@@ -300,6 +300,10 @@ export const OperatorErrorBody = Schema.Struct({
     ownWords: MachineInstallError.fields.ownWords,
     /** A pinned machine answers as another installation: the CLI prints its take-over preview from these, after the message. */
     takeover: MachineInstallError.fields.takeover,
+    /** The far already trusts another install under this machine's name: the CLI prints its take-over-remote preview from this. */
+    takeoverRemote: MachineSetupError.fields.takeoverRemote,
+    /** A setup refused to pin the peer, by which rule: the sender reads it closed, never from the words. */
+    pinRefused: Schema.optionalKey(MachinePinRefused),
     /** The typed failure behind the message, encoded and scrubbed by the one encoder. */
     failure: Schema.optionalKey(EncodedFailure),
   })),

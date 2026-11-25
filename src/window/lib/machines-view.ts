@@ -274,6 +274,8 @@ export const MACHINE_INSTALL_STEP_LABEL: Readonly<Record<MachineInstallStep, { r
   selected: { upcoming: "Put the new build in place", done: "New build in place" },
   started: { upcoming: "Start Junto", done: "Junto started" },
   ready: { upcoming: "Junto answers", done: "Junto answered" },
+  // The sender's own step, not in MACHINE_INSTALL_STEPS: the window shows the five install steps as before.
+  pinned: { upcoming: "Let this machine in", done: "This machine let in" },
 };
 
 /**

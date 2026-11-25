@@ -16,6 +16,21 @@ export const MachineTakeoverHint = Schema.Struct({
 });
 export type MachineTakeoverHint = typeof MachineTakeoverHint.Type;
 
+/**
+ * What a take-over-remote preview needs when the far machine already trusts
+ * another install under this machine's name (receipt 22, S4): only the name
+ * from this machine's own list, the selected host's id, never far text. The
+ * CLI prints `junto machine takeover-remote <machineName>` from it.
+ */
+export const MachineTakeoverRemoteHint = Schema.Struct({
+  machineName: Schema.String.pipe(Schema.check(Schema.makeFilter(isValidMachineName))),
+});
+export type MachineTakeoverRemoteHint = typeof MachineTakeoverRemoteHint.Type;
+
+/** The far's setup refused to pin this machine: its name or its install is pinned to another there. */
+export const MachinePinRefused = Schema.Literals(["name-pinned-elsewhere", "installation-pinned-elsewhere"]);
+export type MachinePinRefused = typeof MachinePinRefused.Type;
+
 export const MachineAbsolutePath = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),
   Schema.check(Schema.isMaxLength(2048)),
@@ -57,7 +72,8 @@ export const MachineLocalPaths = Schema.Struct({
 export type MachineLocalPaths = typeof MachineLocalPaths.Type;
 
 export const MachineInstallTransition = Schema.Struct({
-  step: Schema.Literals(["verified", "quiescent", "selected", "started", "ready"]),
+  /** `pinned` is the sender's own: the machine pinned this one after it answered. */
+  step: Schema.Literals(["verified", "quiescent", "selected", "started", "ready", "pinned"]),
   build: Schema.optionalKey(Schema.String),
   pid: Schema.optionalKey(Schema.Number),
   startKey: Schema.optionalKey(Schema.String),
@@ -169,10 +185,13 @@ export class MachineInstallError extends Schema.TaggedError<MachineInstallError>
 /** Installation finished; retry setup or connection without copying the package again. */
 export class MachineSetupError extends Schema.TaggedError<MachineSetupError>()("MachineSetupError", {
   message: Schema.String,
-  retryable: Schema.Literal(false),
+  /** True only where sending again can finish it as it is: a link that did not open in time. */
+  retryable: Schema.Boolean,
   installed: MachineInstallResult,
   /** The message is the core's own fixed words, as on MachineInstallError. */
   ownWords: Schema.optionalKey(Schema.Literal(true)),
+  /** The far trusts another install under this machine's name: what the CLI prints its take-over-remote preview from. */
+  takeoverRemote: Schema.optionalKey(MachineTakeoverRemoteHint),
 }) {}
 
 export const MachineSendInput = Schema.Struct({

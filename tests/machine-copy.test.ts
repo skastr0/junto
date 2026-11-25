@@ -11,10 +11,12 @@ import { afterEach, expect, it } from "vitest";
 import { makeSqliteClient } from "../src/core/state/sqlite-client";
 import { MACHINE_STATE_SCHEMA_SQL } from "../src/core/machines/state-schema";
 import { MachineRepository, makeMachineRepositoryLive } from "../src/core/machines/repository";
-import { makeMachineCopy } from "../src/core/hosts/machine-copy";
+import { LINK_NOT_OPENED_WORDS, makeMachineCopy, PINNED_ELSEWHERE_WORDS } from "../src/core/hosts/machine-copy";
 import { HostsService } from "../src/core/hosts/service";
 import { machineBundleFiles } from "../src/node/hosts/bundle";
 import { SshTransport } from "../src/core/ssh";
+import { SshTransferExitError } from "../src/core/ssh/service";
+import type { MachineSendEvent } from "../src/shared/machine-progress";
 import { createSshProgramCompiler } from "../src/core/ssh/program";
 import { RemoteHost } from "../src/shared/remote-hosts";
 import { MachineInstallResult, MachineInstallError, MachineSetupError } from "../src/shared/machine-install";
@@ -25,7 +27,7 @@ const testLog = makeTestLog();
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
-const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<boolean>; readonly keyState?: "held" | "none" | "unreadable"; readonly cleared?: boolean; platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer; status?: { readonly runningSeats?: number; readonly installationId?: string }; receiptName?: string } = {}) => {
+const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<boolean>; readonly keyState?: "held" | "none" | "unreadable"; readonly cleared?: boolean; platform?: string; helloFailure?: boolean; bundleBuild?: string; acquireBundle?: MachineBundleAcquirer; status?: { readonly runningSeats?: number; readonly installationId?: string }; receiptName?: string; setupRefused?: "name-pinned-elsewhere" | "installation-pinned-elsewhere"; linkAnswer?: "never" | "refused" } = {}) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "junto-copy-")));
   await mkdir(join(root, "bin")); await mkdir(join(root, "core"));
   for (const name of ["bin/node", "bin/junto", "core/junto.cjs"]) await writeFile(join(root, name), "fixture\n");
@@ -65,6 +67,9 @@ const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<bo
       const remote = wordsText(command.args).at(-1)!;
       const op = remote.includes("install-local") ? "install" : remote.includes("configure") ? "configure" : "setup";
       calls.push(op);
+      // The far's own refusal of the pin: the CLI's failure line on stderr, with the rule typed (S4).
+      if (op === "setup" && options.setupRefused !== undefined) return yield* Effect.fail(SshTransferExitError.of("mac-mini" as never, 1, "", `${JSON.stringify({ ok: false, command: "machine setup",
+        error: { type: "io", message: "machine \"macbook\" is pinned to another installation; choose another name", details: { retryable: false, pinRefused: options.setupRefused } } })}\n`));
       const result = op === "install" ? { ok: true, command: "machine install-local", data: receipt }
         : op === "configure" ? { ok: true, command: "machine configure", data: { machineName: "mini", installationId: receipt.installationId } }
         : (() => { const keyBound = nextKeyBound(); return { ok: true, command: "machine setup", data: { machineName: "macbook", installationId: ownId, boundAt: "now", ...(keyBound === undefined ? {} : { keyBound }) } }; })();
@@ -79,6 +84,12 @@ const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<bo
   const copy = await runtime.runPromise(makeMachineCopy({ build, bundles: { "darwin-arm64": root }, acquireBundle: options.acquireBundle,
     disconnect: () => Effect.sync(() => { calls.push("disconnect"); }),
     connect: () => Effect.sync(() => { calls.push("connect"); }),
+    linkOpenMs: 50,
+    linkAnswers: (host) => Effect.gen(function* () {
+      calls.push("answered"); expect(host.id).toBe("mini");
+      if (options.linkAnswer === "never") return yield* Effect.never;
+      if (options.linkAnswer === "refused") return yield* Effect.fail(new Error("SSH process ended: exit code 0"));
+    }),
     settleRemovedLink: (name, route, installationId) => Effect.sync(() => {
       calls.push("settle"); expect(name).toBe("mini"); expect(route).toMatchObject({ juntoHome: receipt.juntoHome, installRoot: receipt.installRoot });
       expect(installationId).toBe(receipt.installationId);
@@ -98,15 +109,17 @@ const fixture = async (options: { readonly keyBound?: boolean | ReadonlyArray<bo
   }));
   const host = Schema.decodeUnknownSync(RemoteHost)({ id: "mini", label: "Mini", isThisMachine: false, sshEndpoint: "mac-mini", capabilities: ["terminal"],
     ...(options.status === undefined ? {} : { juntoHome: receipt.juntoHome, installRoot: receipt.installRoot }) });
-  return { root, calls, receipt, repository, runtime,
-    copy: (mode: "send" | "update", input: { readonly stopRunningSeats?: boolean } = {}) => runtime.runPromise(copy(host, { name: "mini", ...input }, mode)),
-    error: (mode: "send" | "update", bundle?: string) => runtime.runPromise(copy(host, { name: "mini", ...(bundle === undefined ? {} : { bundle }) }, mode).pipe(Effect.flip)) };
+  const events: MachineSendEvent[] = [];
+  const told = (event: MachineSendEvent) => { events.push(event); };
+  return { root, calls, receipt, repository, runtime, events,
+    copy: (mode: "send" | "update", input: { readonly stopRunningSeats?: boolean } = {}) => runtime.runPromise(copy(host, { name: "mini", ...input }, mode, told)),
+    error: (mode: "send" | "update", bundle?: string) => runtime.runPromise(copy(host, { name: "mini", ...(bundle === undefined ? {} : { bundle }) }, mode, told).pipe(Effect.flip)) };
 };
 
 it("installs and configures before binding through the checked first hello", async () => {
   const f = await fixture();
   expect((await f.copy("send")).installationId).toBe(f.receipt.installationId);
-  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup", "location", "hello"]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup", "location", "hello", "answered"]);
   expect((await f.runtime.runPromise(f.repository.peer("mini")))?.installationId).toBe(f.receipt.installationId);
 });
 
@@ -115,7 +128,7 @@ const STALE = "That machine still accepts an old link from this one, and Junto c
 it("clears a stale link once, against the installation it confirmed, when the machine lets this one in only through a key this one no longer holds, then sets up again", async () => {
   const f = await fixture({ keyBound: [true, false] });
   expect((await f.copy("send")).installationId).toBe(f.receipt.installationId);
-  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup", "clear", "setup", "location", "hello"]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup", "clear", "setup", "location", "hello", "answered"]);
 });
 
 const UNREADABLE = "This machine's link key for that machine cannot be read. Remove that machine, then add it again and send Junto to it.";
@@ -150,7 +163,7 @@ it("updates an active pin without configuring or reviving a binding", async () =
   const f = await fixture();
   await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
   await f.copy("update");
-  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "location", "connect"]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "location", "connect", "answered"]);
 });
 
 it("refuses an update before the transfer when seats run there, and keeps the link", async () => {
@@ -184,7 +197,7 @@ it("skips the fast gate only when the operator confirmed stopping the seats", as
   const f = await fixture({ status: { runningSeats: 2 } });
   await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
   await f.copy("update", { stopRunningSeats: true });
-  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "location", "connect"]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "location", "connect", "answered"]);
 });
 
 it("refuses update without setup before touching the target", async () => {
@@ -252,14 +265,14 @@ it("sends to a pinned machine whose core does not answer: the installer checks t
   const f = await fixture();
   await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
   await f.copy("send");
-  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "location", "connect"]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "setup", "location", "connect", "answered"]);
 });
 
 it("names a pinned install it never linked with, as a take-over leaves it, has it pin this machine, then connects", async () => {
   const f = await fixture({ receiptName: "box-node-f10f4a0d6fe5c4ab" });
   await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
   await f.copy("send");
-  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "setup", "location", "connect"]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "setup", "location", "connect", "answered"]);
 });
 
 // Receipt 22: after a take-over the new install held no pin of this machine, so it refused every link
@@ -272,7 +285,9 @@ it.each([
   await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
   if (seen) await f.runtime.runPromise(f.repository.notePeerHello({ machineName: "mini", installationId: f.receipt.installationId, build: "a".repeat(64) }));
   await f.copy("send");
-  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "setup", "location", "connect"]);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "setup", "location", "connect", "answered"]);
+  // The send says the machine pinned this one again (S5).
+  expect(f.events).toContainEqual({ event: "machine-install", juntoHome: f.receipt.juntoHome, installRoot: f.receipt.installRoot, step: "pinned" });
 });
 
 it("fails a send to an existing pin in its own words when the machine lets this one in only by a key gone from here", async () => {
@@ -292,4 +307,53 @@ it("still refuses a pinned machine that linked and then took another name there"
   expect(error).toBeInstanceOf(MachineSetupError);
   expect(error.message).toContain("calls itself another name");
   expect(f.calls).not.toContain("configure");
+});
+
+it("clears a stale link once on a send to an existing pin whose machine lets this one in only by a key gone from here, then sets up again", async () => {
+  const f = await fixture({ keyBound: [true, false], keyState: "none" });
+  await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
+  await f.copy("send");
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "setup", "clear", "setup", "location", "connect", "answered"]);
+});
+
+it.each(["name-pinned-elsewhere", "installation-pinned-elsewhere"] as const)("ends a send to an existing pin not ready when the machine trusts another install under this name (%s), keeping the route and the pin, with the take-over-remote name", async (check) => {
+  const f = await fixture({ setupRefused: check });
+  await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
+  const error = await f.error("send");
+  expect(error).toBeInstanceOf(MachineSetupError);
+  if (error instanceof MachineSetupError) {
+    expect(error.message).toBe(PINNED_ELSEWHERE_WORDS);
+    expect(error.ownWords).toBe(true);
+    expect(error.retryable).toBe(false);
+    expect(error.takeoverRemote).toEqual({ machineName: "mini" });
+    expect(error.installed).toEqual(f.receipt);
+  }
+  // Once, with no retry, no take-over and no link: the route is kept for the preview there.
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "setup", "location"]);
+  expect((await f.runtime.runPromise(f.repository.peer("mini")))?.installationId).toBe(f.receipt.installationId);
+  expect(f.events.some((event) => event.event === "machine-install" && event.step === "pinned")).toBe(false);
+});
+
+it.each(["never", "refused"] as const)("ends a send not ready, retryable, when the link does not open in time (%s), keeping the route and the pin", async (linkAnswer) => {
+  const f = await fixture({ linkAnswer });
+  await f.runtime.runPromise(f.repository.pinPeer({ machineName: "mini", installationId: f.receipt.installationId }));
+  const error = await f.error("send");
+  expect(error).toBeInstanceOf(MachineSetupError);
+  if (error instanceof MachineSetupError) {
+    expect(error.message).toBe(LINK_NOT_OPENED_WORDS);
+    expect(error.retryable).toBe(true);
+    expect(error.ownWords).toBe(true);
+    expect(error.takeoverRemote).toBeUndefined();
+  }
+  // Asked once: no loop.
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "setup", "location", "connect", "answered"]);
+  expect((await f.runtime.runPromise(f.repository.peer("mini")))?.installationId).toBe(f.receipt.installationId);
+});
+
+it("ends a first send not ready when the link it set up does not open in time", async () => {
+  const f = await fixture({ linkAnswer: "never" });
+  const error = await f.error("send");
+  expect(error).toBeInstanceOf(MachineSetupError);
+  expect(error.message).toBe(LINK_NOT_OPENED_WORDS);
+  expect(f.calls).toEqual(["platform", "disconnect", "preflight", "install", "configure", "settle", "setup", "location", "hello", "answered"]);
 });
