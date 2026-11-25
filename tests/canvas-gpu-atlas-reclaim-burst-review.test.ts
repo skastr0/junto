@@ -23,7 +23,7 @@ const quad = (key: string, size = 40): Quad => ({
 });
 const px = (size: number, stamp = 9): AtlasPixels =>
   ({ width: size, height: size, data: new Uint8Array(size * size * 4).fill(stamp), stampAt: () => stamp, close: () => undefined }) as unknown as AtlasPixels;
-const FAKE = { toFake: ["setTimeout", "clearTimeout", "performance"] } as const;
+const FAKE: { toFake: ("setTimeout" | "clearTimeout" | "performance")[] } = { toFake: ["setTimeout", "clearTimeout", "performance"] };
 const real = async (): Promise<void> => {
   vi.useRealTimers();
   for (let i = 0; i < 5; i += 1) {
