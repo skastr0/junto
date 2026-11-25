@@ -57,13 +57,15 @@
  * hysteresis included (where a card changes its drawing and a pop would
  * show); any other leg ends at its geometric middle. The frame is compared,
  * downsampled to 8 CSS px blocks (scaled with devicePixelRatio, as the stops
- * are), against the reference of the nearest stop of
- * the same tier, mapped to the frame's camera; pixels under DOM at either end
- * of the mapping are skipped, and so is everything the engine says it draws
- * moving at that frame: the placed rects of the parts that carry a motion
- * (`turn` for a ring, `pulse`, `reach`, `rise`), read from the test hook, with
- * the still sprites inside them unmasked. Never "every pixel that changed": a
- * card or a portrait that pops is a change, and a change is the fault.
+ * are), against a fresh launch placed at exactly the frame's camera with its
+ * clocks held the same way, so the two compare pixel-aligned and both show
+ * ring phase 0; pixels under DOM are skipped, and so is everything the engine
+ * says it draws moving at that frame: the placed rects of the parts that carry
+ * a motion (`turn` for a ring, `pulse`, `reach`, `rise`), read from the test
+ * hook, with the still sprites inside them unmasked. Never "every pixel that
+ * changed": a card or a portrait that pops is a change, and a change is the
+ * fault. A reference at another camera would misalign a seat's 12 px mark by
+ * about a pixel, which reads as a fault at every seat on a dense board.
  * Tolerance: a block is hot when one channel of
  * its mean colour differs by more than 40 of 255, and the frame fails on a
  * connected group of 12 or more hot blocks (about a 28 CSS px square, smaller
@@ -885,6 +887,40 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
   const server = await servePictures();
   const references = new Map<string, Reference>();
   const contact: Array<{ name: string; strip: string; verdict: string; detail: string }> = [];
+  /**
+   * A fresh launch placed at exactly this camera, its clocks held like the
+   * frame's: the zoom-end frame's own reference. One per distinct camera,
+   * cached across cycles.
+   */
+  const legReferences = new Map<string, { image: PngImage; camera: Camera; tier: string; mask: Uint8Array }>();
+  const legReference = async (camera: Camera): Promise<{ image: PngImage; camera: Camera; tier: string; mask: Uint8Array }> => {
+    const key = `${camera.x.toFixed(2)},${camera.y.toFixed(2)},${camera.zoom.toFixed(5)}`;
+    const hit = legReferences.get(key);
+    if (hit !== undefined) return hit;
+    const fresh = await launchProofArm(board, { gpu: true });
+    try {
+      const freshPage = fresh.page;
+      await waitGpuReady(freshPage, board);
+      await hideMinimap(freshPage);
+      await churn.baseline(fresh.app);
+      await freshPage.waitForTimeout(1_500);
+      const freshPane = await paneRect(freshPage);
+      await placeCamera(freshPage, camera, 400);
+      await parkPointer(freshPage, freshPane);
+      await settleAtlas(freshPage);
+      const release = await holdForShot(freshPage);
+      const image = await shot(freshPage);
+      await release();
+      const state = await readProofState(freshPage);
+      const mask = new Uint8Array(image.width * image.height);
+      const ref = { image, camera, tier: state.tier, mask };
+      legReferences.set(key, ref);
+      log(`leg reference ${key}`, { tier: state.tier, gpuErrors: state.gpuErrors?.count, landed: state.atlas?.landed });
+      return ref;
+    } finally {
+      await fresh.close();
+    }
+  };
   const started = Date.now();
   try {
     log("ladder", { places, ladder: LADDER, cycles: CYCLES, tiers: LADDER.map(tierOf), hysteresis: TIER_HYSTERESIS });
@@ -1045,11 +1081,16 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           camera = after;
           await page.waitForTimeout(100);
         }
+        // The clocks are held for this frame, the way a stop's are, and its own
+        // fresh-launch reference is taken the same way: both show phase 0, so a
+        // ring's phase is not a difference and the frame compares pixel-aligned.
+        const settleHold = await holdForShot(page);
         frame = await shot(page, pane);
         // What the engine says moves this frame: its own moving records, not
         // every pixel that changed (a pop is a change and must fail).
         const moving = await movingRecords(page, board.model.nodes.map((node) => node.id), dpr, frame.width, frame.height);
         const state = { ...(await readProofState(page)), camera };
+        await settleHold();
         await pinch(page, centre, state.camera.zoom, to);
         await stillCamera(page);
         const pops = await popWatch(page, "stop");
@@ -1059,23 +1100,26 @@ test("the zoom ladder: every stop's screenshot equals its fresh-launch reference
           fail(`${popName}: ${String(pops.pops)} quad(s) lost their own pixels at an unchanged raster scale and ${String(pops.blankQuads)} in-view quad(s) drew nothing, over ${String(pops.frames)} frames of the gesture`, { first: pops.samples.slice(0, 8) });
           contact.push({ name: popName, strip: "", verdict: "fail", detail: failures[failures.length - 1]! });
         }
-        // The nearest stop of the frame's own tier, in log zoom.
-        const candidates = [from, to].filter((z) => tierOf(z) === state.tier);
-        const nearest = (candidates.length > 0 ? candidates : [from, to]).sort(
-          (a, b) => Math.abs(Math.log2(a / state.camera.zoom)) - Math.abs(Math.log2(b / state.camera.zoom)),
-        )[0]!;
-        const ref = references.get(refKey(place.name, nearest))!;
-        const { worstGroup, hot, diff } = compareZoomEnd({ image: ref.unheld, mask: ref.mask, camera: ref.camera }, frame, state.camera, dpr, overlay.mask, moving.mask);
+        // The frame's own reference: a fresh launch placed at exactly the
+        // camera this frame was taken at, so the comparison is pixel-aligned
+        // and needs no mapping. A reference at a different camera misaligns a
+        // seat's 12 px mark by about a pixel, which reads as a fault at every
+        // seat on a dense board.
+        const own = await legReference(state.camera);
+        const { worstGroup, hot, diff } = compareZoomEnd({ image: own.image, mask: own.mask, camera: own.camera }, frame, state.camera, dpr, overlay.mask, moving.mask);
         const name = `c${String(cycle)}-${place.name}-zoomend-${String(from)}-${String(to)}`;
-        log(`zoomend ${name}`, { aimed: Math.round(mid * 1000) / 1000, zoom: Math.round(state.camera.zoom * 1000) / 1000, tier: state.tier, against: nearest, hot, worstGroup, eased: easedMs, masked: Math.round(moving.share * 1000) / 1000, records: moving.records, largestRecord: moving.largest });
+        log(`zoomend ${name}`, { aimed: Math.round(mid * 1000) / 1000, zoom: Math.round(state.camera.zoom * 1000) / 1000, tier: state.tier, referenceTier: own.tier, hot, worstGroup, eased: easedMs, masked: Math.round(moving.share * 1000) / 1000, records: moving.records, largestRecord: moving.largest });
+        if (own.tier !== state.tier) {
+          fail(`${name}: the frame's tier is ${String(state.tier)} and a fresh launch at the same camera is ${String(own.tier)}: the two drawings are different by design`);
+        }
         if (worstGroup >= 12) {
           const framePath = join(OUT, "stops", `${name}-frame.png`);
           const diffPath = join(OUT, "stops", `${name}-diff.png`);
           await writeFile(framePath, PNG.sync.write(frame));
           await writeFile(diffPath, PNG.sync.write(diff));
-          fail(`${name}: the frame right after the zoom ends holds a wrong picture (${String(worstGroup)} connected 8px blocks off the ${String(nearest)} reference)`, { frame: framePath, diff: diffPath });
+          fail(`${name}: the frame right after the zoom ends holds a wrong picture (${String(worstGroup)} connected 8px CSS-px blocks off a fresh launch at the same camera)`, { frame: framePath, diff: diffPath });
           const stripPath = `contact/${name}.png`;
-          await writeFile(join(OUT, stripPath), PNG.sync.write(strip([ref.unheld, frame, diff])));
+          await writeFile(join(OUT, stripPath), PNG.sync.write(strip([own.image, frame, diff])));
           contact.push({ name, strip: stripPath, verdict: "fail", detail: failures[failures.length - 1]! });
         }
       };
