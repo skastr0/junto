@@ -262,16 +262,16 @@ describe("the published state is the projection of the slot's snapshot", () => {
     });
   });
 
-  it("a stalled turn reads attention until the next judgment resumes it", () => {
+  it("a stalled turn stays working, marked stalled until the next judgment resumes it", () => {
     const m = new SeatStateMachine({ now: () => NOW });
     m.bind(SEAT, { harness: "claude", epoch: "e1" });
     m.force(SEAT, "working", "rule:test_working");
-    const stalled = m.force(SEAT, "attention", "turn_stalled", "high", {
+    const stalled = m.force(SEAT, "working", "turn_stalled", "high", {
       signal: { _tag: "HeartbeatStalled", lastSeenAt: NOW - 1_000 },
       source: "system",
       fidelity: "native",
     });
-    expect(stalled.state).toBe("attention");
+    expect(stalled.state).toBe("working");
     expect(m.snapshot(SEAT)).toMatchObject({ status: { _tag: "Working" }, stalledSince: NOW - 1_000 });
     expect(m.force(SEAT, "working", "rule:test_working").state).toBe("working");
     expect(m.snapshot(SEAT)?.stalledSince).toBeUndefined();

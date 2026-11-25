@@ -1,7 +1,7 @@
 /**
  * Process-local seat state runtime: observer snapshots → SeatStateMachine →
  * idle gate for ManagedTerminalDrive + attention broadcasts + mid-turn
- * progress watchdog (turn-stalled attention, never idle).
+ * progress watchdog (turn-stalled stays working: never attention, never idle).
  */
 
 import type {
@@ -523,7 +523,7 @@ export class SeatStateRuntime {
     }
   }
 
-  /** True while sticky mid-turn stall holds attention (tests / diagnostics). */
+  /** True while the sticky mid-turn stall mark holds (tests / diagnostics). */
   isTurnStalled(bindingId: string): boolean {
     return this.turnStalled.has(bindingId);
   }
@@ -638,15 +638,16 @@ export class SeatStateRuntime {
       hookState: hook,
     });
 
-    // Sticky turn-stalled: never re-publish working (cyan) without progress.
-    // Must not coerce to idle — that would drain the managed prompt queue.
+    // Sticky turn-stalled: keep the stall mark until progress. It stays
+    // working; never coerce to idle, which would drain the prompt queue.
     if (
       this.turnStalled.has(snap.bindingId) &&
-      this.machine.getState(snap.bindingId) === "working"
+      this.machine.getState(snap.bindingId) === "working" &&
+      this.machine.getSlot(snap.bindingId)?.reason !== TURN_STALLED_REASON
     ) {
       event = this.machine.force(
         snap.bindingId,
-        "attention",
+        "working",
         TURN_STALLED_REASON,
         "high",
         this.stallFact(snap.bindingId),
@@ -662,9 +663,10 @@ export class SeatStateRuntime {
     if (!slot) return;
     const structured = this.structuredHookByBinding.get(bindingId);
     if (structured !== undefined && structured.epoch === slot.epoch) return;
-    // Never idle: attention refuses paste and does not call onSeatIdle.
+    // The stall is Junto's guess from a silent screen, not the harness asking:
+    // it stays working (no paste, no onSeatIdle) and never raises attention.
     this.turnStalled.add(bindingId);
-    this.machine.force(bindingId, "attention", TURN_STALLED_REASON, "high", this.stallFact(bindingId));
+    this.machine.force(bindingId, "working", TURN_STALLED_REASON, "high", this.stallFact(bindingId));
   }
 
   /** A working seat's turn went silent: Junto's own observation, never the harness's. */
@@ -690,12 +692,12 @@ export class SeatStateRuntime {
     }
     // force()/bind publish through onEvent; keep arm/clear consistent when
     // tests call machine.force directly.
-    if (event.state === "working") {
-      this.progressWatch?.arm(event.bindingId);
+    if (event.state === "working" && event.reason === TURN_STALLED_REASON && this.turnStalled.has(event.bindingId)) {
+      // Stall fire already disarmed the watch; keep sticky latch.
       return;
     }
-    if (event.state === "attention" && event.reason === TURN_STALLED_REASON) {
-      // Stall fire already disarmed the watch; keep sticky latch.
+    if (event.state === "working") {
+      this.progressWatch?.arm(event.bindingId);
       return;
     }
     // Idle / gone / real attention / unknown: drop mid-turn watch + sticky.
@@ -714,11 +716,11 @@ export class SeatStateRuntime {
       this.turnStalled.delete(bindingId);
       return;
     }
-    if (slot.state === "working") {
-      this.progressWatch?.arm(bindingId);
+    if (slot.state === "working" && slot.reason === TURN_STALLED_REASON && this.turnStalled.has(bindingId)) {
       return;
     }
-    if (slot.state === "attention" && slot.reason === TURN_STALLED_REASON) {
+    if (slot.state === "working") {
+      this.progressWatch?.arm(bindingId);
       return;
     }
     this.clearTurnWatch(bindingId);

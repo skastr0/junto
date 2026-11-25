@@ -161,7 +161,7 @@ describe("JR — the mid-turn watchdog", () => {
     expect(trace.stalls.length).toBe(1);
     const stall = trace.stalls[0]!;
     expect(stall.reason).toBe(TURN_STALLED_REASON);
-    expect(stall.state).toBe("attention");
+    expect(stall.state).toBe("working");
     expect(stall.confidence).toBe("high");
 
     // The stall is stamped when the DEADLINE passes, not when the next write

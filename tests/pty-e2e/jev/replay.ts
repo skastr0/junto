@@ -135,7 +135,7 @@ export type ReplayTrace = {
   readonly trace: readonly AgentSeatStateEvent[];
   /** What `runner.ts` would have returned: one row per live binding. */
   readonly currentEvents: readonly AgentSeatStateEvent[];
-  /** `turn-stalled` attention events, if the real watchdog ever fired. */
+  /** `turn-stalled` events (the seat stays working), if the real watchdog ever fired. */
   readonly stalls: readonly AgentSeatStateEvent[];
   readonly finalSlot: SeatSlotProjection | undefined;
   readonly isSeatIdle: boolean;

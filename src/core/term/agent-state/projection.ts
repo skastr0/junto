@@ -7,13 +7,14 @@
  *
  *   Starting, Unknown   unknown
  *   Idle                idle
- *   Working             working, or attention while its turn is stalled
+ *   Working             working, stalled or not
  *   Blocked             attention, whatever blocks it
  *   Exited              gone
  *
- * A stalled turn reads attention because that is how the turn-stall latch
- * has always surfaced (runtime.ts TURN_STALLED_REASON): it refuses paste and
- * never reads as a finished turn.
+ * A stalled turn stays working. The stall is Junto's own guess from a silent
+ * screen, never the harness asking, so it must not claim the operator: it
+ * shows as "stalled since" on the seat (`stalledSince`), not as attention in
+ * the feed. Working already refuses paste and never reads as a finished turn.
  */
 
 import type { AgentSeatState } from "../../../shared/agent-seat-state";
@@ -27,7 +28,7 @@ export const projectAgentSeatState = (snapshot: SeatSnapshot): AgentSeatState =>
     case "Idle":
       return "idle";
     case "Working":
-      return snapshot.stalledSince === undefined ? "working" : "attention";
+      return "working";
     case "Blocked":
       return "attention";
     case "Exited":

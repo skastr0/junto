@@ -322,9 +322,10 @@ describe("R5 — braille title churn is progress (turn-stall never fires while c
     now += 2_000;
     vi.advanceTimersByTime(2_000);
     expect(rt.isTurnStalled("seat-1")).toBe(true);
-    expect(rt.getState("seat-1")).toBe("attention");
+    // A stall stays working: Junto's guess never raises attention.
+    expect(rt.getState("seat-1")).toBe("working");
 
-    // Stalled attention refuses paste.
+    // A stalled turn still refuses paste.
     expect(rt.isSeatIdle("seat-1")).toBe(false);
     rt.stop();
   });

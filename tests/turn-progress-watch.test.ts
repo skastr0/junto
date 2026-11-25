@@ -127,7 +127,7 @@ describe("SeatStateRuntime mid-turn stall", () => {
     vi.useRealTimers();
   });
 
-  it("arms on working, fires attention turn-stalled (never idle), sticky until progress", () => {
+  it("arms on working, marks turn-stalled while staying working (never attention, never idle), sticky until progress", () => {
     const events: Array<{ state: string; reason: string }> = [];
     let t = 1_000;
     const rt = new SeatStateRuntime({
@@ -162,13 +162,16 @@ describe("SeatStateRuntime mid-turn stall", () => {
     t = 2_000;
     vi.advanceTimersByTime(1_000);
 
-    expect(rt.getState("b1")).toBe("attention");
+    expect(rt.getState("b1")).toBe("working");
     expect(rt.machine.getSlot("b1")?.reason).toBe(TURN_STALLED_REASON);
+    expect(rt.machine.snapshot("b1")?.stalledSince).toBeDefined();
     expect(rt.isTurnStalled("b1")).toBe(true);
     expect(rt.isSeatIdle("b1")).toBe(false);
     expect(events.some((e) => e.state === "idle")).toBe(false);
+    // Junto's own guess never claims the operator: no attention, so no feed row.
+    expect(events.some((e) => e.state === "attention")).toBe(false);
 
-    // Frozen working chrome must not flip back to cyan without progress.
+    // Frozen working chrome keeps the stall mark without progress.
     t = 2_100;
     rt.observe(
       snap("b1", {
@@ -187,8 +190,9 @@ describe("SeatStateRuntime mid-turn stall", () => {
         },
       }),
     );
-    expect(rt.getState("b1")).toBe("attention");
+    expect(rt.getState("b1")).toBe("working");
     expect(rt.machine.getSlot("b1")?.reason).toBe(TURN_STALLED_REASON);
+    expect(events.some((e) => e.state === "attention")).toBe(false);
 
     // Progress resumes working path.
     t = 2_200;
@@ -292,7 +296,8 @@ describe("SeatStateRuntime mid-turn stall", () => {
 
     t = 2_000;
     vi.advanceTimersByTime(500);
-    expect(rt.getState("b1")).toBe("attention");
+    expect(rt.getState("b1")).toBe("working");
+    expect(rt.isTurnStalled("b1")).toBe(true);
     expect(rt.isSeatIdle("b1")).toBe(false);
     // Stall must not call onSeatIdle — queue stays.
     expect(drive.queuedCount("b1")).toBe(1);
