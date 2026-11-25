@@ -47,7 +47,7 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
       lines.push({ id, pass: true, note: await run(frames), frames });
     } catch (error) {
       frames.push(await shot(`${id}-FAIL`).catch(() => "no frame"));
-      lines.push({ id, pass: false, note: String(error instanceof Error ? error.message : error).slice(0, 1200), frames });
+      lines.push({ id, pass: false, note: String(error instanceof Error ? error.message : error).slice(0, 5000), frames });
     }
     await writeFile(join(FRAMES, "results.json"), `${JSON.stringify(lines, null, 2)}\n`);
   };
@@ -66,8 +66,37 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
     if (!started.ok) throw new Error(`send refused ${JSON.stringify(started)}`);
     const threadId = started.threadId;
     await settle(800);
+    // Everything a live region says, and every bubble (node-preamble) element that appears, from before the raises on.
+    await page.evaluate(() => {
+      const w = window as unknown as { __watch: { said: Array<Record<string, unknown>>; created: Array<Record<string, unknown>> } };
+      w.__watch = { said: [], created: [] };
+      const preambleOf = (el: Element | null) => el?.closest('[data-testid="node-preamble"]') ?? el?.querySelector?.('[data-testid="node-preamble"]') ?? null;
+      new MutationObserver((records) => {
+        for (const record of records)
+          for (const node of record.addedNodes) {
+            if (!(node instanceof Element)) continue;
+            const made = node.matches('[data-testid="node-preamble"]') ? node : node.querySelector('[data-testid="node-preamble"]');
+            if (made !== null) w.__watch.created.push({ t: performance.now(), id: made.getAttribute("data-preamble-id"), marked: made.hasAttribute("data-pa-mark") });
+            const live = node.closest('[role="status"], [aria-live]') ?? node.querySelector('[role="status"], [aria-live]');
+            if (live === null || (node.textContent ?? "").trim() === "") continue;
+            const host = (node.closest('[role="status"], [aria-live]') ?? live) as Element;
+            const pre = preambleOf(host) ?? (host.getAttribute("data-testid") === "node-preamble" ? host : null);
+            w.__watch.said.push({
+              t: performance.now(),
+              text: (node.textContent ?? "").trim(),
+              in: host.getAttribute("data-testid") ?? host.className?.toString().slice(0, 40) ?? host.tagName,
+              preambleId: pre?.getAttribute("data-preamble-id") ?? null,
+              elementWasMarked: pre === null ? null : pre.hasAttribute("data-pa-mark"),
+            });
+          }
+      }).observe(document.body, { subtree: true, childList: true });
+    });
+    const now = () => page.evaluate(() => performance.now());
+    const raiseAt: Record<string, number> = {};
+    raiseAt.plain = await now();
     const plain = await seat.op("signal.raise", { kind: "escalate", text: PLAIN, thread: threadId });
     if (!plain.ok) throw new Error(`plain signal refused ${JSON.stringify(plain)}`);
+    raiseAt.asks = await now();
     const asks = await seat.op("signal.raise", { kind: "blocked", text: ASKS, thread: threadId, form: { kind: "proof" } });
     if (!asks.ok) throw new Error(`asking signal refused ${JSON.stringify(asks)}`);
     const plainId = idOf(plain);
@@ -116,31 +145,33 @@ test("[fake-tui] signals in a thread through the accessibility tree", async () =
     });
 
     await check("s4-withdrawal-said-once", async (frames) => {
-      await page.evaluate(() => {
-        const w = window as unknown as { __said: string[] };
-        w.__said = [];
-        new MutationObserver((records) => {
-          for (const record of records)
-            for (const node of record.addedNodes) {
-              if (!(node instanceof Element)) continue;
-              const live = node.closest('[role="status"], [aria-live]') ?? node.querySelector('[role="status"], [aria-live]');
-              if (live !== null && (node.textContent ?? "").trim() !== "") {
-                const host = (node.closest('[role="status"], [aria-live]') ?? live) as Element;
-                const where = host.getAttribute("data-testid") ?? host.className?.toString().slice(0, 40) ?? host.tagName;
-                w.__said.push(`${(node.textContent ?? "").trim()}  [in ${where}]`);
-              }
-            }
-        }).observe(document.body, { subtree: true, childList: true });
+      // Mark every bubble element now and read what each says, so the withdrawal's window can tell a new element from a changed one.
+      const before = await page.evaluate(() => {
+        const out: Array<{ id: string | null; text: string }> = [];
+        for (const el of document.querySelectorAll('[data-testid="node-preamble"]')) {
+          el.setAttribute("data-pa-mark", "1");
+          out.push({ id: el.getAttribute("data-preamble-id"), text: (el.textContent ?? "").trim() });
+        }
+        return out;
       });
+      await page.evaluate(() => {
+        const w = window as unknown as { __watch: { said: unknown[]; created: unknown[]; mark: number } };
+        w.__watch.mark = w.__watch.said.length;
+      });
+      const withdrawAt = await now();
       const cleared = await seat.op("signal.clear", { signalId: plainId });
       if (!cleared.ok) throw new Error(`withdraw refused ${JSON.stringify(cleared)}`);
-      await settle(2_500);
-      const said = await page.evaluate(() => (window as unknown as { __said: string[] }).__said);
+      await settle(5_000);
+      const watch = await page.evaluate(() => (window as unknown as { __watch: { said: Array<Record<string, unknown>>; created: Array<Record<string, unknown>> } }).__watch);
       frames.push(await shot("s4-after-withdraw"));
-      const withdrawn = said.filter((t) => /withdrew/.test(t));
-      // Only the thread's own saying: the seat bubble and the feed stay quiet about a withdrawal the thread says (958e5617d).
-      if (said.length !== 1 || !said[0]!.startsWith(`Ada withdrew: ${PLAIN}`)) throw new Error(`said ${JSON.stringify(said)}`);
-      return `withdrawn while the thread is on screen: said ${JSON.stringify(withdrawn)} once (every live-region saying that arrived: ${JSON.stringify(said)})`;
+      const ms = (t: unknown, ref: number) => Math.round(Number(t) - ref);
+      const detail = watch.said.map((x) => `"${String(x.text)}" in ${String(x.in)} preambleId=${String(x.preambleId)} elementWasMarked=${String(x.elementWasMarked)} sinceRaisePlain=${ms(x.t, raiseAt.plain!)}ms sinceRaiseAsks=${ms(x.t, raiseAt.asks!)}ms sinceWithdraw=${ms(x.t, withdrawAt)}ms`);
+      const createdAfter = watch.created.filter((c) => Number(c.t) >= withdrawAt).map((c) => `id=${String(c.id)} marked=${String(c.marked)} +${ms(c.t, withdrawAt)}ms`);
+      const note = `bubble text just before the withdraw: ${JSON.stringify(before)}; every saying from before the raises on: ${JSON.stringify(detail)}; bubble elements created after the withdraw: ${JSON.stringify(createdAfter)}; all bubble creations: ${watch.created.length}`;
+      const afterWithdraw = watch.said.filter((x) => Number(x.t) >= withdrawAt);
+      const ok = afterWithdraw.length === 1 && String(afterWithdraw[0]!.text).startsWith(`Ada withdrew: ${PLAIN}`);
+      if (!ok) throw new Error(`after the withdraw ${JSON.stringify(afterWithdraw.map((x) => x.text))}. ${note}`);
+      return `withdrawn while the thread is on screen: one saying, "${String(afterWithdraw[0]!.text)}". ${note}`;
     });
 
     await check("s5-no-open-plain-signal-no-answers-line", async () => {
