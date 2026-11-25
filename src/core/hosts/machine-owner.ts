@@ -249,7 +249,7 @@ export const makeMachineOwnerActions = (options: MachineOwnerOptions) => Effect.
   const REMOTE_CONFIRMED_WORDS = "That machine now trusts this one. Send Junto to it again to finish setting it up.";
   const LIVE_WINDOW_MS = 10 * 60_000;
   const retiredTakeoverPreview = new Map<string, InstallationId>();
-  const retiredTakeoverWords = "The old link key is removed; the pin was not replaced. Preview the take-over again";
+  const retiredTakeoverWords = "The old link key is removed; the pin was not replaced. Preview the take-over again.";
   const checkRetiredFar = (name: string, installationId: InstallationId): Effect.Effect<void, RemoteHostsError> => Effect.gen(function* () {
     // T2: a retired row has no install receipt behind it, so both steps read
     // the far's own status over the route and require the installation the
