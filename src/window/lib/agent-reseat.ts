@@ -192,7 +192,15 @@ const sayReseats = (commands: ReadonlyArray<Command>): Promise<string | undefine
  * act. Each seat gets the pick over its own machine's Settings defaults, so it
  * launches like a new seat of that pick on that machine. A seat already on
  * that exact pick is left alone and counted; a node that is not a seat fails.
- * Each old process is stopped and each open terminal is opened again.
+ *
+ * The commands are said first and an old process is stopped only once main has
+ * taken them, so a refusal, from here or from main, stops nothing. A refused
+ * seat keeps its process and its open terminal. The late stop cannot reach the
+ * new process: main refuses a Reseat whose binding is the seat's own, or any
+ * other node's on the canvas, and the stop names the old binding read before
+ * the say. For the moment between the two the old process is still the seat's
+ * on the work socket and the new one is not started yet (a start reads the
+ * node's new binding), so nothing is delivered to the old one.
  */
 export const reseatSeats = async (
   canvas: string,
@@ -224,24 +232,24 @@ export const reseatSeats = async (
     }
   }
   if (plans.length === 0) return { moved: [], unchanged, failed };
-  // Learn that the canvas takes edits before any old process is stopped: a
-  // refusal after the stop would leave every picked seat dead on its old harness.
-  if (!canvasTakesEdits()) {
-    return {
-      moved: [],
-      unchanged,
-      failed: [...failed, ...plans.map((plan) => ({ id: plan.seat.id, message: CANVAS_REFUSES_EDITS }))],
-    };
-  }
+  const refuse = (message: string): ReseatOutcome => ({
+    moved: [],
+    unchanged,
+    failed: [...failed, ...plans.map((plan) => ({ id: plan.seat.id, message }))],
+  });
+  // A canvas that takes no edits is learned before an open terminal is closed.
+  if (!canvasTakesEdits()) return refuse(CANVAS_REFUSES_EDITS);
 
-  await Promise.all(plans.map((plan) => stopSeatProcess(plan.seat)));
   // Drop each open surface before its binding changes, so attach cannot race.
   for (const plan of plans) if (plan.surfaceWasOpen) closeTerminalView(plan.seat.id);
 
   const refused = await sayReseats(plans.map((plan) => plan.command));
   if (refused !== undefined) {
-    return { moved: [], unchanged, failed: [...failed, ...plans.map((plan) => ({ id: plan.seat.id, message: refused }))] };
+    // Nothing was stopped and the binding is the old one: the open terminals attach again.
+    for (const plan of plans) if (plan.surfaceWasOpen) await openTerminal(canvas, plan.seat.id);
+    return refuse(refused);
   }
+  await Promise.all(plans.map((plan) => stopSeatProcess(plan.seat)));
   for (const plan of plans) {
     if (plan.surfaceWasOpen) await openTerminal(canvas, plan.seat.id);
   }
