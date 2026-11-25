@@ -71,14 +71,12 @@ test("undo and redo: three deep across a drag, a delete and a drag", async ({ ju
   }).toBeGreaterThan(firstHome.y + 40);
   const firstMoved = await stored(page, canvas, "first");
 
-  // Two: select the second note and delete it. Deleting asks first, through
-  // the window's confirm; the operator says yes.
-  await page.evaluate(() => {
-    window.confirm = () => true;
-  });
+  // Two: select the second note and delete it. Deleting asks first, in the
+  // app's own confirm dialog (not window.confirm); the operator says yes.
   await card(page, "second").click();
   await expect.poll(() => card(page, "second").selected()).toBe(true);
   await page.keyboard.press("Backspace");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete node" }).click();
   await expect.poll(() => stored(page, canvas, "second")).toBe("gone");
   await expect.poll(() => card(page, "second").count()).toBe(0);
 
