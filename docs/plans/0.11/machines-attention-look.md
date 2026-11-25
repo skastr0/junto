@@ -653,3 +653,31 @@ machine` is `Check it again`, since `this machine` is the operator's Mac;
 `Rebuild` is `Update Junto on this machine`, the Junto action that makes a new
 package; `Start the installed Junto on it` is gone, because it
 is not a Junto action; `database` is `data`.
+
+## 7. A canvas another machine refuses as removed
+
+**A copy refused as `removed` under a removed canvas's name** (remote-security's
+read of 4689b5d6e). The far machine keeps each canvas id its editor removed in
+`canvas_removed`, keyed by canvas name and editor, and refuses a copy of that
+id or of an older one under the name (`live.ts` `removedBy`, :803). If this
+machine's clock went backwards, a canvas made here later under the removed
+canvas's name can carry an older id, and that machine refuses every copy of it
+for good. A canvas under another name has no `canvas_removed` row there, so it
+goes through.
+
+Core's words, `ownWords: true`, on the refused row for that machine and canvas:
+`That machine will not take this canvas, because it removed a canvas of the
+same name that it counts as newer. A canvas with a new name reaches it: make
+one with New canvas.`
+
+- `will not take` states the lasting refusal: no later send or `Check it again`
+  changes it for this canvas, so neither is offered.
+- `counts as newer` says what the far machine judges without claiming a cause:
+  a backwards clock is the likely one, but the refusal does not record it.
+- `New canvas` is the window's button (`TopBar.tsx`). Junto has no canvas
+  rename, so the step makes a new canvas; the sentence does not claim this
+  canvas's work moves to it.
+- No canvas name, machine name or path (term 5): the row already sits under
+  the canvas and the machine.
+- Nothing in the window shows this refusal yet: it lives only in the exchange
+  link status (`session.ts` :765, `refused`).
