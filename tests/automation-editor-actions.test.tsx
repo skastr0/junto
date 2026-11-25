@@ -451,6 +451,9 @@ describe("a step held while its automation's machine was not linked (0.12 S3)", 
     expect(firingWords(firing({ machine: "macbook" }), "macbook")).toBe("Run by hand, fired, 0 of 0 steps applied");
     expect(firingWords(firing({ machine: "mini" }), "macbook")).toBe("Run by hand, fired on mini, 0 of 0 steps applied");
     expect(firingWords(firing({}))).toBe("Run by hand, fired, 0 of 0 steps applied");
+    // A claim this machine still performs is running; one no runner holds was interrupted.
+    expect(firingWords(firing({ outcome: { kind: "claimed" } }), "macbook", undefined, true)).toBe("Run by hand, running");
+    expect(firingWords(firing({ outcome: { kind: "claimed" } }), "macbook")).toBe("Run by hand, interrupted before its steps were ruled");
     // A machine is named by the label the operator reads, as every other line does; settings not loaded names none.
     const labelled = (host: string): string => (host === "mini" ? "Mac mini" : host);
     expect(firingWords(firing({ machine: "mini" }), "macbook", labelled)).toBe("Run by hand, fired on Mac mini, 0 of 0 steps applied");

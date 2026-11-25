@@ -1140,6 +1140,12 @@ export const AutomationFiringsRequest = Schema.Struct({
 export type AutomationFiringsRequest = typeof AutomationFiringsRequest.Type;
 export const AutomationFiringsResponse = Schema.Struct({
   firings: Schema.Array(Firing).pipe(Schema.check(Schema.isMaxLength(FIRINGS_PAGE_MAX))),
+  /**
+   * The claimed firings on this page that this machine's runner is still
+   * performing: they read as running. A claimed firing not named here was
+   * interrupted.
+   */
+  inFlight: Schema.optionalKey(Schema.Array(FiringId).pipe(Schema.check(Schema.isMaxLength(FIRINGS_PAGE_MAX)))),
 });
 export type AutomationFiringsResponse = typeof AutomationFiringsResponse.Type;
 

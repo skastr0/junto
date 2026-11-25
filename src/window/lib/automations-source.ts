@@ -216,10 +216,12 @@ const NO_LIST: AutomationListResponse = { automations: NO_AUTOMATIONS, lastOutco
 export const useAutomationList = (canvasName: string, nodeId: NodeId): AutomationListResponse =>
   useRead(() => automationsSource().list(canvasName, nodeId), NO_LIST, [canvasName, nodeId]);
 
-/** One automation's latest page of firings, newest first, kept current. */
-export const useFirings = (canvasName: string, automationId: AutomationId | undefined): ReadonlyArray<Firing> =>
+const NO_FIRINGS_PAGE: AutomationFiringsResponse = { firings: NO_FIRINGS };
+
+/** One automation's latest page of firings, newest first, and which of them are running, kept current. */
+export const useFirings = (canvasName: string, automationId: AutomationId | undefined): AutomationFiringsResponse =>
   useRead(
-    async () => (automationId === undefined ? NO_FIRINGS : (await automationsSource().firings(canvasName, { automationId })).firings),
-    NO_FIRINGS,
+    async () => (automationId === undefined ? NO_FIRINGS_PAGE : await automationsSource().firings(canvasName, { automationId })),
+    NO_FIRINGS_PAGE,
     [canvasName, automationId],
   );

@@ -1575,6 +1575,7 @@ export const firingWords = (
   firing: Firing,
   here?: string,
   nameMachine: (host: string) => string = (host) => host,
+  running = false,
 ): string => {
   const elsewhere =
     firing.machine === undefined || here === undefined || here === "" || firing.machine === here
@@ -1601,9 +1602,11 @@ export const firingWords = (
     }
     case "skipped":
       return `${cause}, skipped${ran}: ${skipWords[firing.outcome.reason]}`;
-    // Claimed and never settled: the run died before its actions were ruled. It still counts toward the hourly limit.
+    // Claimed and still performed here: running until its steps are ruled.
+    // Claimed and held by no runner: the run died before its actions were
+    // ruled. It still counts toward the hourly limit.
     case "claimed":
-      return `${cause}, interrupted${ran} before its steps were ruled`;
+      return running ? `${cause}, running${ran}` : `${cause}, interrupted${ran} before its steps were ruled`;
     default:
       return firing.outcome satisfies never;
   }

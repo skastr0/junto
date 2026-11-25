@@ -90,7 +90,11 @@ export const AutomationHandlers = AutomationRpcs.toLayer(
 
       AutomationFirings: ({ canvasName, request }) =>
         repository.firings(canvasName, request).pipe(
-          Effect.map((firings) => ({ firings })),
+          Effect.map((firings) => {
+            const running = repository.firingsInFlight(canvasName);
+            const inFlight = firings.flatMap((firing) => (running.has(firing.firingId) ? [firing.firingId] : []));
+            return inFlight.length === 0 ? { firings } : { firings, inFlight };
+          }),
           Effect.mapError(unavailable),
         ),
 

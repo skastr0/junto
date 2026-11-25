@@ -165,6 +165,21 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
     const claim = yield* repository.claimFiring(canvasName, firing);
     if (claim._tag === "Duplicate") return undefined;
     if (decision.kind !== "fire") return firing;
+    return yield* perform(canvasName, automation, firing, event, now, cause).pipe(
+      // However the pass ends, the runner holds the firing no longer: a claim left unsettled reads interrupted.
+      Effect.ensuring(repository.releaseFiring(canvasName, firing.firingId)),
+    );
+  });
+
+  const perform = Effect.fn("AutomationRunner.perform")(function* (
+    canvasName: string,
+    automation: Automation,
+    firing: Firing,
+    event: ChangeEvent | undefined,
+    now: number,
+    cause: FiringCause,
+  ) {
+    const repository = yield* AutomationRepository;
     const actions: Array<ActionRuling> = [];
     // What the code steps so far answered: `{{code.<field>}}` for the steps after them, the later field winning.
     let code: CodeOutput = {};
@@ -274,15 +289,17 @@ export const makeAutomationRunner = (ports: RunnerPorts): AutomationRunner => {
     };
     const claim = yield* repository.claimFiring(canvasName, firing);
     if (claim._tag === "Duplicate" || !inReach) return claim._tag === "Duplicate" ? undefined : firing;
-    const ruled = yield* ports.perform(canvasName, automation, delivery, index, firing.firingId, {
-      event,
-      at: now,
-      cause: "change",
-      delivering: true,
-    });
-    const outcome = { kind: "fired", actions: [ruled] } as const;
-    yield* repository.settleFiring(canvasName, firing, outcome);
-    return { ...firing, outcome };
+    return yield* Effect.gen(function* () {
+      const ruled = yield* ports.perform(canvasName, automation, delivery, index, firing.firingId, {
+        event,
+        at: now,
+        cause: "change",
+        delivering: true,
+      });
+      const outcome = { kind: "fired", actions: [ruled] } as const;
+      yield* repository.settleFiring(canvasName, firing, outcome);
+      return { ...firing, outcome };
+    }).pipe(Effect.ensuring(repository.releaseFiring(canvasName, firing.firingId)));
   });
 
   return { tick, onChange, onRun, onAnswer };

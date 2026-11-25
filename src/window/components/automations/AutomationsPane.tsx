@@ -180,10 +180,13 @@ function SignalAnswer({ answer }: { readonly answer: SignalAnswerShown }) {
 
 function FiringHistory({
   firings,
+  inFlight,
   focused,
   stepLabels,
 }: {
   readonly firings: ReadonlyArray<Firing>;
+  /** The claimed firings this machine is still performing: they read as running, not interrupted. */
+  readonly inFlight: ReadonlyArray<string> | undefined;
   /** The firing a surface opened on (the feed's card): it is marked and brought into view. */
   readonly focused?: string | undefined;
   /** Each step's label, by its index in the automation's actions: "Send mail", "Raise a signal". */
@@ -231,7 +234,7 @@ function FiringHistory({
                 >
                   {timeWords(firing.at)}
                 </time>
-                <span>{firingWords(firing, here, nameMachine)}</span>
+                <span>{firingWords(firing, here, nameMachine, inFlight?.includes(firing.firingId) === true)}</span>
               </div>
               {firing.outcome.kind === "fired"
                 ? firing.outcome.actions.map((ruling) => {
@@ -405,7 +408,7 @@ export function AutomationsPane({
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal>();
   const [archiving, setArchiving] = useState(false);
-  const firings = useFirings(
+  const { firings, inFlight } = useFirings(
     canvasName,
     editing?.base === undefined ? undefined : editing.draft.automationId,
   );
@@ -949,6 +952,7 @@ export function AutomationsPane({
               {editing.base !== undefined ? (
                 <FiringHistory
                   firings={firings}
+                  inFlight={inFlight}
                   focused={focusedFiring}
                   stepLabels={editing.draft.then.map((action) => ACTION_LABEL[action.kind])}
                 />

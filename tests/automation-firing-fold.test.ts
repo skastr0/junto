@@ -175,6 +175,25 @@ describe("the firing's crossing on its own machine", () => {
       }),
     ));
 
+  it("a live claim is in flight until its settle or its release, and a skip never is", () =>
+    run(
+      Effect.gen(function* () {
+        const repository = yield* AutomationRepository;
+        setFiringCrossing(() => Effect.void);
+        const skipped = firing("01M62BBBBBBBBBBBBBBBBBBBBB", { kind: "skipped", reason: "condition_unmet" });
+        const live = firing("01M62CCCCCCCCCCCCCCCCCCCCC", { kind: "claimed" }, { kind: "schedule", slot: 120_000, missed: 0 });
+        const dropped = firing("01M62DDDDDDDDDDDDDDDDDDDDD", { kind: "claimed" }, { kind: "schedule", slot: 180_000, missed: 0 });
+        yield* repository.claimFiring("factory", skipped);
+        yield* repository.claimFiring("factory", live);
+        yield* repository.claimFiring("factory", dropped);
+        expect([...repository.firingsInFlight("factory")].sort()).toEqual([live.firingId, dropped.firingId]);
+        yield* repository.settleFiring("factory", live, { kind: "fired", actions: [] });
+        // A pass that died before its settle is released by the runner and reads interrupted.
+        yield* repository.releaseFiring("factory", dropped.firingId);
+        expect(repository.firingsInFlight("factory").size).toBe(0);
+      }),
+    ));
+
   it("two concurrent settles of one firing cross in write order", () =>
     run(
       Effect.gen(function* () {

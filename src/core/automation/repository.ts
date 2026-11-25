@@ -120,6 +120,13 @@ export class AutomationRepository extends Context.Service<AutomationRepository,
     >;
     /** Record a considered firing once per claim key; a second claim is `Duplicate` and writes nothing. */
     readonly claimFiring: (canvasName: string, firing: FiringType) => Effect.Effect<ClaimResult, AutomationPersistenceError>;
+    /**
+     * The claimed firings this machine's runner is performing now: claimed
+     * here, not yet settled or released. A claimed row not named was interrupted.
+     */
+    readonly firingsInFlight: (canvasName: string) => ReadonlySet<FiringId>;
+    /** The runner is done with a firing however it ended: it is no longer in flight. */
+    readonly releaseFiring: (canvasName: string, firingId: FiringId) => Effect.Effect<void>;
     /** Replace a claimed firing's outcome once its actions are ruled. */
     readonly settleFiring: (
       canvasName: string,
@@ -505,6 +512,17 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         `;
       });
 
+      // In memory only: a core that restarts holds nothing in flight, so every
+      // claimed row it finds was interrupted.
+      const inFlight = new Map<string, Set<FiringId>>();
+      const firingsInFlight = (canvasName: string): ReadonlySet<FiringId> => inFlight.get(canvasName) ?? new Set();
+      const releaseFiring = (canvasName: string, firingId: FiringId) =>
+        Effect.sync(() => {
+          const held = inFlight.get(canvasName);
+          held?.delete(firingId);
+          if (held?.size === 0) inFlight.delete(canvasName);
+        });
+
       const claimFiring = Effect.fn("AutomationRepository.claimFiring")(function* (canvasName: string, firing: FiringType) {
         const claimed = yield* transaction("claim-firing", Effect.gen(function* () {
           // Only the claim key may conflict: a CHECK failure or a firing id
@@ -526,6 +544,12 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         // settled or held, never as the transient claim itself.
         if (claimed._tag === "Claimed" && firing.outcome.kind === "skipped") {
           yield* crossFiring(canvasName, firing);
+        }
+        // Marked before the panes are told, so the row reads running from its first read.
+        if (claimed._tag === "Claimed" && firing.outcome.kind === "claimed") {
+          const held = inFlight.get(canvasName) ?? new Set<FiringId>();
+          held.add(firing.firingId);
+          inFlight.set(canvasName, held);
         }
         if (claimed._tag === "Claimed") yield* firingChanged(canvasName, firing.automationId);
         return claimed;
@@ -565,6 +589,7 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
             yield* crossFiring(canvasName, settled);
           })),
         );
+        yield* releaseFiring(canvasName, firing.firingId);
         yield* firingChanged(canvasName, firing.automationId);
       });
 
@@ -752,6 +777,8 @@ export const makeAutomationRepositoryLive = (): Layer.Layer<AutomationRepository
         setRulingCursor,
         taskRulingsSince,
         claimFiring,
+        firingsInFlight,
+        releaseFiring,
         settleFiring,
         firedSince,
         firings,
