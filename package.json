@@ -69,7 +69,7 @@
     "app:build:ship": "bash scripts/build-app.sh --sign --verify --notarize",
     "app:notarize": "bash scripts/notarize-app.sh",
     "version:bump": "bun scripts/bump-version.ts",
-    "release:zoom-ladder": "scripts/with-app-run-lock.sh scripts/zoom-ladder-gate.sh",
+    "release:zoom-ladder": "bash scripts/release-zoom-ladder.sh",
     "app:install": "bash scripts/install-app.sh",
     "app:install:fast": "bash scripts/install-app.sh --fast",
     "app:install:skip-build": "bash scripts/install-app.sh --skip-build",

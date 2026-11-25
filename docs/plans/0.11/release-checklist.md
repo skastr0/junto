@@ -240,15 +240,23 @@ I run them at the cut hash if asked.
 - [ ] `lint:design-tokens`, `lint:product-name`, `lint:no-middot`,
       `lint:layers` pass at the cut hash; `tests/motion-law.test.ts` passes.
 - [ ] **GPU canvas zoom ladder, before the bump.** On the Mac mini, built
-      there (`scripts/mini.sh at <seat> <commit>`), one run at 1x and one at
-      2x on a real board's shapes file (`JUNTO_FACTORY_JSON`, never a copy of
-      a database): `bun run release:zoom-ladder`. It must pass whole: every
-      stop's screenshot equal to a fresh launch's at the same camera, a clean
-      `atlasAudit()`, a whole texel readback (`truncated` false, `skipped`
-      empty), no failed cell, no uncaught GPU error, and evictions above zero.
-      Publish the contact sheet (`JUNTO_ZOOM_LADDER_OUT/contact/index.html`)
-      and have a seat read it. Receipt: the run's `proof.json` and the sheet
-      path, in the cut note. About 7 minutes at 1x, 12 at 2x.
+      there: `bun run release:zoom-ladder --board <shapes.json>` makes the
+      checkout at the cut hash, sends a real board's shapes file
+      (`JUNTO_FACTORY_JSON`; a copy of a database never goes there), runs both
+      arms (`JUNTO_GPU_PROOF_WINDOW=mini` at 1x, `mini-2x` at 2x), and judges
+      them. It must pass whole: every stop's screenshot equal to a fresh
+      launch's at its own camera, a clean `atlasAudit()`, a whole texel
+      readback, no failed cell, no uncaught GPU error, evictions above zero,
+      and an arm that drew at the scale it claims (the judge checks the run's
+      own `display` line, because the window variable falls back silently).
+      Then a seat reads both sheets (`index.html`, its screenshots under
+      `contact/`),
+      `--record-read <seat>` names it, and `--check` is the last gate: it fails
+      without a pass, both sheets, and a named reader. The cut note carries the
+      bullet the run prints (commit, board sha256, both arms' scale and shot
+      size, evictions, both sheet paths). A red arm refuses the cut and names
+      the spec's own failure lines. About 7 minutes at 1x, 12 at 2x; nothing
+      else runs on the mini meanwhile.
 - [ ] `git status` clean of other seats' paths.
 - [ ] Carried from 0.10.3, still unverified: what the CLI prints for a derived
       task, and a 0.10.2 or 0.10.3 CLI against the new app (cli-lead's answer
