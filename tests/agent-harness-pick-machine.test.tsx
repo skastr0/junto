@@ -61,6 +61,7 @@ afterEach(() => {
   host.remove();
   delete (window as { junto?: unknown }).junto;
   setHarnessMachineSource(coreHarnessMachineSource);
+  state$.machines.set([]);
 });
 
 describe("the palette picker on another machine", () => {
@@ -182,6 +183,76 @@ describe("the palette picker on another machine", () => {
     expect(configured[0]).toMatchObject({ harness: "hermes", profile: "desk-coder", model: "pinned-model" });
     expect(profiles).not.toHaveBeenCalled();
     anchor.remove();
+  });
+});
+
+describe("the palette picker when a machine cannot be read", () => {
+  const emptyLine = (): string => host.querySelector(".agent-harness-pick__empty")?.textContent ?? "";
+  const refusedBy = (
+    failure: string,
+    reason: "timeout" | "failed" | "unreachable" | "notInstalled" = "unreachable",
+  ) => ({
+    ...pendingHarnessMachineSource,
+    inventory: async (machine: string) =>
+      Result.fail({
+        error: new InventoryUnavailableError({ machine, reason, message: "refused" }),
+        failure,
+      }),
+  });
+
+  beforeEach(() => {
+    state$.machines.set([{ id: "mac-mini", label: "Mac mini", isThisMachine: false, capabilities: ["terminal"] }]);
+  });
+
+  it("says the machine is not set up, not that no agent is installed", async () => {
+    setHarnessMachineSource(refusedBy("LinkPeerNotPinned"));
+    await render("mac-mini");
+    expect(emptyLine()).toBe("Junto is not on Mac mini yet. Send it from Machines.");
+  });
+
+  it("says the machine needs an update", async () => {
+    setHarnessMachineSource(refusedBy("LinkBuildMismatch"));
+    await render("mac-mini");
+    expect(emptyLine()).toBe("Mac mini runs a different build of Junto. Update it from Machines.");
+  });
+
+  it("says the machine cannot be reached", async () => {
+    setHarnessMachineSource(refusedBy("LinkUnavailable"));
+    await render("mac-mini");
+    expect(emptyLine()).toBe("Cannot reach Mac mini. Check that it is on.");
+  });
+
+  it("says the read failed when the machine's snapshot was refused", async () => {
+    setHarnessMachineSource(refusedBy("InventorySnapshotRefused", "failed"));
+    await render("mac-mini");
+    expect(emptyLine()).toBe("Could not read the agents on Mac mini. Check again.");
+  });
+
+  it("keeps today's line for a true empty inventory", async () => {
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async (machine) =>
+        Result.succeed({ machine, harnesses: [] } as unknown as MachineInventory),
+    });
+    await render("mac-mini");
+    expect(emptyLine()).toBe("No installed agent CLIs found on this machine.");
+  });
+
+  it("a refusal outranks another machine's empty answer", async () => {
+    setHarnessMachineSource({
+      ...pendingHarnessMachineSource,
+      inventory: async (machine) =>
+        machine === "mac-mini"
+          ? Result.fail({
+              error: new InventoryUnavailableError({ machine, reason: "unreachable", message: "refused" }),
+              failure: "LinkUnavailable",
+            })
+          : Result.succeed({ machine, harnesses: [] } as unknown as MachineInventory),
+    });
+    await act(async () => {
+      root.render(<AgentHarnessPick machines={["mac-mini", "macbook"]} onConfigure={() => {}} />);
+    });
+    expect(emptyLine()).toBe("Cannot reach Mac mini. Check that it is on.");
   });
 });
 

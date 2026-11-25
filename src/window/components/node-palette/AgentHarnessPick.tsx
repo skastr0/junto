@@ -26,8 +26,8 @@ import {
 } from "@shared/managed-terminal-templates";
 import { harnessVisibleInPalette } from "@shared/harness-settings";
 import { harnessPrefsFor, rememberRecentModel } from "@shared/settings";
-import { pickerInventory } from "../../lib/harness-machine-source";
-import { useThisMachineName } from "../../lib/machines";
+import { pickerInventory, pickerRefusalLine, type InventoryRefusal } from "../../lib/harness-machine-source";
+import { machineLabelIn, useThisMachineName } from "../../lib/machines";
 import { state$ } from "../../lib/state";
 import { patchSettings } from "../../lib/settings-state";
 import { rankMatches } from "@shared/fuzzy-match";
@@ -108,6 +108,7 @@ export function AgentHarnessPick({
   const targetsKey = (named.length > 0 ? [...new Set(named)] : [single]).join("\n");
   const target = targetsKey.split("\n")[0] ?? "";
   const settings = use$(state$.settings);
+  const knownMachines = use$(state$.machines);
   const [agentCascade, setAgentCascade] = useState<{
     readonly harness: HarnessId;
     readonly anchor: HTMLButtonElement;
@@ -231,6 +232,9 @@ export function AgentHarnessPick({
   const [installedHarnesses, setInstalledHarnesses] = useState<
     ReadonlySet<HarnessId> | null
   >(null);
+  const [unavailable, setUnavailable] = useState<
+    ReadonlyArray<{ readonly machine: string; readonly refusal: InventoryRefusal }>
+  >([]);
 
   useEffect(() => {
     // Settings name this machine once they load; until then nothing is offered.
@@ -238,15 +242,23 @@ export function AgentHarnessPick({
     if (targets.some((name) => name === "")) return;
     let cancelled = false;
     setInstalledHarnesses(null);
-    void Promise.all(targets.map((name) => pickerInventory(name))).then((inventories) => {
+    setUnavailable([]);
+    void Promise.all(targets.map(async (name) => ({ machine: name, read: await pickerInventory(name) }))).then((reads) => {
       if (cancelled) return;
-      const installedOn = inventories.map(
-        (inventory) =>
-          new Set((inventory?.harnesses ?? []).filter((row) => row.installed).map((row) => row.harness as HarnessId)),
-      );
+      const installedOn = reads.map(({ read }) => {
+        const inventory = read.kind === "inventory" ? read.inventory : read.refusal.last?.inventory;
+        return new Set(
+          (inventory?.harnesses ?? []).filter((row) => row.installed).map((row) => row.harness as HarnessId),
+        );
+      });
       const [first, ...rest] = installedOn;
       setInstalledHarnesses(
         new Set([...(first ?? [])].filter((harness) => rest.every((set) => set.has(harness)))),
+      );
+      setUnavailable(
+        reads.flatMap(({ machine, read }) =>
+          read.kind === "unavailable" ? [{ machine, refusal: read.refusal }] : [],
+        ),
       );
     });
     return () => {
@@ -302,14 +314,20 @@ export function AgentHarnessPick({
     button.scrollIntoView({ block: "nearest" });
   };
 
+  const refused = unavailable[0];
+  const refusalLine =
+    refused === undefined
+      ? undefined
+      : pickerRefusalLine(refused.refusal, machineLabelIn(knownMachines, refused.machine));
   const emptyCopy = probing
     ? null
     : featureTemplates.length === 0
       ? "No agent harnesses enabled in this build."
       : installedTemplates.length === 0
-        ? targetsKey.includes("\n")
-          ? "No agent CLI is installed on all of these machines."
-          : "No installed agent CLIs found on this machine."
+        ? refusalLine ??
+          (targetsKey.includes("\n")
+            ? "No agent CLI is installed on all of these machines."
+            : "No installed agent CLIs found on this machine.")
         : eligibleTemplates.length === 0
           ? "All installed agents are hidden by Settings."
           : query.trim() && matchingTemplates.length === 0

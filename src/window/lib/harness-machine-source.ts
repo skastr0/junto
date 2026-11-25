@@ -172,12 +172,72 @@ let source: HarnessMachineSource = coreHarnessMachineSource;
 export const harnessMachineSource = (): HarnessMachineSource => source;
 
 /**
- * What a picker offers for a seat placed on `machine`: its answer, else the
- * last snapshot it sent, else nothing. Never this window's own CLIs.
+ * What a picker offers for a seat placed on `machine` (docs/machines.md,
+ * Harness inventory): the machine's answer, or why it did not answer and
+ * what it last sent. Never this window's own CLIs.
  */
-export const pickerInventory = async (machine: string): Promise<MachineInventory | undefined> => {
+export type PickerInventoryRead =
+  | { readonly kind: "inventory"; readonly inventory: MachineInventory }
+  | { readonly kind: "unavailable"; readonly refusal: InventoryRefusal };
+
+export const pickerInventory = async (machine: string): Promise<PickerInventoryRead> => {
   const answer = await source.inventory(machine);
-  return Result.isSuccess(answer) ? answer.success : answer.failure.last?.inventory;
+  return Result.isSuccess(answer)
+    ? { kind: "inventory", inventory: answer.success }
+    : { kind: "unavailable", refusal: answer.failure };
+};
+
+/** The four states a picker names when a machine did not answer. */
+export type PickerRefusal = "not-set-up" | "needs-update" | "unreachable" | "failed";
+
+/**
+ * Which of the four a refusal is. `failure` is the typed link failure that
+ * carries the difference the reason alone loses: a machine not set up, one
+ * on another build, a closed link and a refused snapshot all reach the
+ * picker with no inventory, and each wants its own sentence.
+ */
+export const pickerRefusalOf = (refusal: InventoryRefusal): PickerRefusal => {
+  switch (refusal.failure) {
+    case "LinkPeerNotPinned":
+    case "InventoryPeerNotPinned":
+      return "not-set-up";
+    case "LinkBuildMismatch":
+      return "needs-update";
+    case "LinkUnavailable":
+    case "LinkClosed":
+    case "InventoryLinkClosed":
+      return "unreachable";
+    case "InventorySnapshotRefused":
+    case "InventoryNotFromItsMachine":
+      return "failed";
+  }
+  switch (refusal.error.reason) {
+    case "unreachable":
+      return "unreachable";
+    case "notInstalled":
+      return "not-set-up";
+    case "timeout":
+    case "failed":
+      return "failed";
+  }
+};
+
+/**
+ * A refused read in the words the seat card and the Machines rows already use
+ * (src/window/lib/machines.ts), so the picker never reports a refusal as an
+ * empty list.
+ */
+export const pickerRefusalLine = (refusal: InventoryRefusal, label: string): string => {
+  switch (pickerRefusalOf(refusal)) {
+    case "not-set-up":
+      return `Junto is not on ${label} yet. Send it from Machines.`;
+    case "needs-update":
+      return `${label} runs a different build of Junto. Update it from Machines.`;
+    case "unreachable":
+      return `Cannot reach ${label}. Check that it is on.`;
+    case "failed":
+      return `Could not read the agents on ${label}. Check again.`;
+  }
 };
 
 /** The inventory channel installs its source here when it lands; tests swap one in. */

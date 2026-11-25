@@ -357,8 +357,9 @@ export function AgentCascadeMenu({
     let reread: ReturnType<typeof setTimeout> | undefined;
     // The inventory answers at once with the last scan; while a scan runs, ask again to show its result.
     const ask = (): void => {
-      void pickerInventory(machine).then((inventory) => {
+      void pickerInventory(machine).then((read) => {
         if (!live) return;
+        const inventory = read.kind === "inventory" ? read.inventory : read.refusal.last?.inventory;
         const row = inventory?.harnesses.find((entry) => entry.harness === harness);
         setModels(row?.installed ? row.models : []);
         setModelSource(row?.installed && row.models.length > 0 ? "cache" : "empty");
