@@ -169,6 +169,13 @@ const LIST_NEAR_END = 400;
 const CHAT_NEAR_TOP = 240;
 /** How long a chat is in the document before it says how the send that started its thread went. */
 const SAID_AFTER_MOUNT_MS = 150;
+/**
+ * How long a send may stay unarrived before the chat says its seat is away: a
+ * seat that takes the mail within this has it, and nothing about waiting was
+ * ever drawn or said. A running seat, or a stopped one the send wakes, takes
+ * it inside a second.
+ */
+const SENT_WAITING_AFTER_MS = 1000;
 
 /** Two messages from one seat this close together share a head: the second folds. */
 const FOLD_MS = 10 * 60 * 1000;
@@ -517,21 +524,57 @@ export function ThreadChat({
     if (stream.scrollTop < CHAT_NEAR_TOP) void loadOlderMessages(seat, thread.threadId);
   };
   useEffect(() => fillStream(false), [messages, older, loadingMore, error, shown]);
-  // What the chat says aloud: the operator's own send that came back with its
-  // seat away, once, and that mail reaching its seat. Both are of this thread,
-  // so another thread shown in the same chat starts silent. History is never
-  // said: only mail sent from here is followed.
+  // What the chat says aloud: every send from here says its outcome once. A
+  // seat that has the mail in time is said to have it ("pty-lead has it.");
+  // one that does not within a second is said to be away, and then, when it
+  // takes the mail, to have it. Both are of this thread, so another thread
+  // shown in the same chat starts silent. History is never said: only mail
+  // sent from here is followed.
   const [spoken, setSpoken] = useState<Said & { readonly threadId: string }>();
   const say = useCallback((text: string) => setSpoken((was) => ({ threadId, text, turn: (was?.turn ?? 0) + 1 })), [threadId]);
-  // The mail sent from here that its seat does not have yet, by id.
+  // The mail sent from here whose outcome is not said yet, by id.
   const followed = useRef(new Set<string>());
+  // The mail sent from here whose waiting mark is held back until it has had its second.
+  const [heldBack, setHeldBack] = useState<ReadonlyArray<string>>([]);
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const messagesNow = useRef(messages);
+  messagesNow.current = messages;
   useEffect(() => {
     const ids = followed.current;
-    return () => ids.clear();
+    const waits = timers.current;
+    return () => {
+      ids.clear();
+      for (const timer of waits.values()) clearTimeout(timer);
+      waits.clear();
+      setHeldBack([]);
+    };
   }, [threadId]);
+  const follow = useCallback(
+    (messageId: string) => {
+      followed.current.add(messageId);
+      setHeldBack((ids) => (ids.includes(messageId) ? ids : [...ids, messageId]));
+      timers.current.set(
+        messageId,
+        setTimeout(() => {
+          timers.current.delete(messageId);
+          setHeldBack((ids) => ids.filter((id) => id !== messageId));
+          // Its seat took it inside the second: its arrival is what is said.
+          if (!followed.current.has(messageId)) return;
+          const mail = messagesNow.current.find((message) => message.messageId === messageId);
+          if (mail !== undefined && mail.waiting !== true) return;
+          say(sentWaiting(name));
+        }, SENT_WAITING_AFTER_MS),
+      );
+    },
+    [name, say],
+  );
   useEffect(() => {
     for (const message of messages) {
       if (message.waiting === true || !followed.current.delete(message.messageId)) continue;
+      const timer = timers.current.get(message.messageId);
+      if (timer !== undefined) clearTimeout(timer);
+      timers.current.delete(message.messageId);
+      setHeldBack((ids) => (ids.includes(message.messageId) ? ids.filter((id) => id !== message.messageId) : ids));
       // Said only while the thread is on screen. Behind Terminal it is not
       // said, then or later, and the waiting it answered is let go.
       if (shown) say(sentArrived(name));
@@ -567,23 +610,28 @@ export function ThreadChat({
     // unless the headline brought its own.
     if (changed.length > 0) say(changed.reduce((all, one) => `${all}${/[.!?]$/.test(all) ? " " : ". "}${one}`));
   }, [messages, headSignal, shown, name, thread.participants, say]);
-  // A thread just started from here whose first mail came back with its seat
-  // away. The region is said reliably only when it is in the document before
-  // its words, so the words come a moment after the chat.
-  const startedWaiting = started?.waiting === true ? started.messageId : undefined;
-  const messagesNow = useRef(messages);
-  messagesNow.current = messages;
+  // A thread just started from here, by this mail. The region is said reliably
+  // only when it is in the document before its words, so its outcome comes a
+  // moment after the chat: that the seat has it, or, as for any send, the
+  // waiting line when it has not within a second.
+  const startedId = started?.messageId;
   useEffect(() => {
-    if (startedWaiting === undefined) return;
+    if (startedId === undefined) return;
+    // Its waiting mark is held back from the chat's first frame, not from the moment it can be said.
+    setHeldBack((ids) => (ids.includes(startedId) ? ids : [...ids, startedId]));
     const timer = setTimeout(() => {
-      // Its seat took it meanwhile: there is no waiting to say.
-      const mail = messagesNow.current.find((message) => message.messageId === startedWaiting);
-      if (mail !== undefined && mail.waiting !== true) return;
-      followed.current.add(startedWaiting);
-      say(sentWaiting(name));
+      const mail = messagesNow.current.find((message) => message.messageId === startedId);
+      if (mail !== undefined && mail.waiting !== true) {
+        setHeldBack((ids) => ids.filter((id) => id !== startedId));
+        if (shown) say(sentArrived(name));
+        return;
+      }
+      follow(startedId);
     }, SAID_AFTER_MOUNT_MS);
     return () => clearTimeout(timer);
-  }, [startedWaiting, name, say]);
+    // The chat's own start: later changes of what it shows are not another start.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startedId]);
   // The signals raised in this thread that are still open, earliest first:
   // what a reply will answer, and what stays open until work is handed in.
   // The signal at the thread's head is not among them: its answer is what
@@ -745,7 +793,7 @@ export function ThreadChat({
                     {words}
                     {files}
                     {/* The operator's own mail that its seat does not have yet. */}
-                    {message.mine && message.waiting ? <WaitingMark name={name} /> : null}
+                    {message.mine && message.waiting && !heldBack.includes(message.messageId) ? <WaitingMark name={name} /> : null}
                   </>
                 )}
               </article>
@@ -766,11 +814,7 @@ export function ThreadChat({
           above={<ReplyAnswers id={answersId} open={openSignals} known={thread.participants} onShow={showSignal} onHandIn={openNeedsYouOn} />}
           // The block is there exactly while a signal is open: ReplyAnswers says nothing with none.
           {...(openSignals.length > 0 ? { describedBy: answersId } : {})}
-          onSent={(_threadId, mail) => {
-            if (!mail.waiting) return;
-            followed.current.add(mail.messageId);
-            say(sentWaiting(name));
-          }}
+          onSent={(_threadId, mail) => follow(mail.messageId)}
         />
       ) : (
         <footer className="seat-threads__readonly" data-testid="seat-threads-readonly">

@@ -1330,7 +1330,7 @@ describe("the thread composer", () => {
     expect(field().value).toBe("");
   });
 
-  it("says a send that comes back with its seat away, once, and then that the seat has it", async () => {
+  it("says a send its seat has not taken within a second, once, and then that the seat has it", async () => {
     // The store reads a canvas's changes no faster than its floor, so time is the test's to move.
     vi.useFakeTimers();
     const read = async () => {
@@ -1350,18 +1350,26 @@ describe("the thread composer", () => {
       await type("Are you there?");
       await key("Enter");
       expect(q("seat-threads-said")).toBe(said);
-      expect(said.textContent).toBe("Sent. Waiting for pty-lead. It arrives when the seat is back.");
+      // Nothing is said, and nothing is drawn, until the mail has been unarrived for a second.
+      expect(said.textContent).toBe("");
 
-      // The read shows the mail waiting: the mark is drawn, and nothing more is said.
-      const first = said.firstElementChild;
+      // The read shows the mail waiting: still inside the second, so no mark.
       state.messages.notes = [
         ...state.messages.notes,
         { messageId: "m9", author: "you", mine: true, text: "Are you there?", at: at(1, 6), waiting: true },
       ];
       change();
       await read();
+      expect(q("seat-threads-waiting")).toBeNull();
+      expect(said.textContent).toBe("");
+
+      // A second on, it is still not there: the mark is drawn and it is said once.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
       expect(q("seat-threads-waiting")).not.toBeNull();
-      expect(said.firstElementChild).toBe(first);
+      expect(said.textContent).toBe("Sent. Waiting for pty-lead. It arrives when the seat is back.");
+      const first = said.firstElementChild;
 
       // The seat is back and takes it: the mark goes, and that is said.
       state.messages.notes = state.messages.notes.map(({ waiting: _waiting, ...message }) => message);
@@ -1381,7 +1389,7 @@ describe("the thread composer", () => {
       reply = { ok: true, messageId: "m9", threadId: "notes", delivery: "waiting_for_seat" };
       await type("Are you there?");
       await key("Enter");
-      expect(q("seat-threads-said")!.textContent).toBe("Sent. Waiting for pty-lead. It arrives when the seat is back.");
+      expect(q("seat-threads-said")!.textContent).toBe("");
 
       // The operator looks at the terminal, and the seat takes the mail meanwhile.
       await click(q("seat-view-terminal"));
@@ -1402,14 +1410,73 @@ describe("the thread composer", () => {
     }
   });
 
-  it("says nothing for a send its seat took at once, or one that failed", async () => {
+  it("says that the seat has it for a send it took at once, and never that it waits", async () => {
+    vi.useFakeTimers();
+    try {
+      const { state, change } = await open();
+      const heard: string[] = [];
+      new MutationObserver((records) => {
+        for (const record of records) for (const node of record.addedNodes) heard.push(node.textContent ?? "");
+      }).observe(q("seat-threads-said")!, { childList: true });
+      await type("Thanks.");
+      await key("Enter");
+      expect(sends).toHaveLength(1);
+      expect(q("seat-threads-said")!.textContent).toBe("");
+      // The mail shows in the thread, taken.
+      state.messages.notes = [...state.messages.notes, { messageId: "m9", author: "you", mine: true, text: "Thanks.", at: at(1, 6) }];
+      change();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(heard).toEqual(["pty-lead has it."]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says one line for a send its seat takes within the second, and draws no waiting for it", async () => {
+    // The reply to a running seat, or to a stopped one the send wakes: the answer says waiting, the seat has it a moment later.
+    vi.useFakeTimers();
+    try {
+      const { state, change } = await open();
+      const heard: string[] = [];
+      new MutationObserver((records) => {
+        for (const record of records) for (const node of record.addedNodes) heard.push(node.textContent ?? "");
+      }).observe(q("seat-threads-said")!, { childList: true });
+      reply = { ok: true, messageId: "m9", threadId: "notes", delivery: "waiting_for_seat" };
+      await type("Are you there?");
+      await key("Enter");
+      // The read finds it waiting, as the seat has not written its receipt yet.
+      state.messages.notes = [
+        ...state.messages.notes,
+        { messageId: "m9", author: "you", mine: true, text: "Are you there?", at: at(1, 6), waiting: true },
+      ];
+      change();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+      expect(q("seat-threads-waiting")).toBeNull();
+      // The seat has it, 300 ms later.
+      state.messages.notes = state.messages.notes.map(({ waiting: _waiting, ...message }) => message);
+      change();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+      // Nothing flashed, and the chat said its outcome once, even long after the second.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(q("seat-threads-waiting")).toBeNull();
+      expect(heard).toEqual(["pty-lead has it."]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says nothing for a send that failed", async () => {
     await open();
     await type("Thanks.");
-    await key("Enter");
-    expect(sends).toHaveLength(1);
-    expect(q("seat-threads-said")!.textContent).toBe("");
     reply = { ok: false, reason: "failed", message: "The mail could not be sent." };
-    await type("Again.");
     await key("Enter");
     expect(q("seat-threads-said")!.textContent).toBe("");
     // The refusal is the composer's own alert.
@@ -1551,7 +1618,7 @@ describe("the thread composer", () => {
     expect(q("thread-composer")?.getAttribute("data-mode")).toBe("reply");
   });
 
-  it("says the first send of a new thread that comes back with its seat away, once its chat is in the document", async () => {
+  it("says the first send of a new thread that its seat has not taken within a second, once its chat is in the document", async () => {
     vi.useFakeTimers();
     const later = async (ms: number) => {
       await act(async () => {
@@ -1568,8 +1635,11 @@ describe("the thread composer", () => {
       state.messages.fresh = [{ messageId: "fresh", author: "you", mine: true, text: "Are you there?", at: at(2, 0), waiting: true }];
       change();
       await later(600);
-      // The new thread's chat is there, with its one voice, and the send's outcome is said in it.
+      // The new thread's chat is there, with its one voice; its mail is still inside its second, so nothing is drawn or said.
       expect(document.querySelector('[data-thread-id="fresh"]')?.getAttribute("data-selected")).toBe("true");
+      expect(q("seat-threads-waiting")).toBeNull();
+      expect(q("seat-threads-said")!.textContent).toBe("");
+      await later(1200);
       expect(q("seat-threads-said")!.textContent).toBe("Sent. Waiting for pty-lead. It arrives when the seat is back.");
       expect(q("seat-threads-waiting")).not.toBeNull();
 
@@ -1596,7 +1666,7 @@ describe("the thread composer", () => {
       change();
       // Until the list has read the new thread there is no chat, so nothing can be said.
       const steps: string[] = [];
-      for (let waited = 0; waited < 800 && steps.at(-1) !== "said"; waited += 10) {
+      for (let waited = 0; waited < 2000 && steps.at(-1) !== "said"; waited += 10) {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(10);
         });
