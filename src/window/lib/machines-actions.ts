@@ -444,10 +444,6 @@ export const applyMachineProgress = (progress: MachineCommandProgress): void => 
 /** Follow the steps of sends in flight for as long as the window is open. */
 export const followMachineProgress = (): (() => void) => onMachineCommandProgress(applyMachineProgress);
 
-type MachinesChangedBridge = {
-  readonly onMachinesChanged?: (listener: () => void) => () => void;
-};
-
 let machineWatchers = 0;
 let stopMachineWatch: (() => void) | undefined;
 
@@ -462,7 +458,7 @@ export const followMachines = (): (() => void) => {
     const cleanups: Array<() => void> = [];
     cleanups.push(followMachineProgress());
     const api = getJuntoApi();
-    const onChanged = (api as (typeof api & MachinesChangedBridge) | undefined)?.onMachinesChanged;
+    const onChanged = api?.onMachinesChanged;
     if (typeof onChanged === "function") {
       cleanups.push(onChanged(() => { void refreshMachines(); }));
     }

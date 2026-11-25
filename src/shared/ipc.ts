@@ -651,6 +651,8 @@ export interface JuntoApi extends OverseerLiveApi, OperatorThreadsApi {
   readonly onModelCanvasesChanged: (listener: (event: CanvasesChanged) => void) => () => void;
   /** A new core took over: read again what the last one answered. */
   readonly onCoreRestarted: (listener: () => void) => () => void;
+  /** The machine list may have changed: read it again. */
+  readonly onMachinesChanged: (listener: () => void) => () => void;
   /** Which seat acts for which node on a canvas. Read apart from `modelOpen`. */
   readonly modelActorRefs: (input: { readonly canvas: string }) => Promise<ReadonlyArray<ActorRef>>;
   /** The whole list again, whenever it changes. */
