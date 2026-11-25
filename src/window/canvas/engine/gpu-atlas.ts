@@ -1889,14 +1889,6 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     return `m:${inkKey(ref.mix[0])},${inkKey(ref.mix[1])},${ref.share}`;
   };
 
-  /** Opaque ink key for text coverage: raster forces alpha 1 (shader multiplies ink.a). */
-  const inkKeyOpaque = (ref: ColorRef | undefined): string => {
-    if (ref === undefined) return "-";
-    if ("token" in ref) return `t:${ref.token}`;
-    if ("custom" in ref) return `c:${ref.custom}`;
-    return `m:${inkKeyOpaque(ref.mix[0])},${inkKeyOpaque(ref.mix[1])},${ref.share}`;
-  };
-
   const keysFor = (quad: Quad, scale: number): { readonly key: string; readonly contentKey: string; readonly kind: "text" | "sprite" } | undefined => {
     if (quad.sprite !== undefined) {
       const ref = quad.sprite;
@@ -1919,9 +1911,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     }
     if (quad.text !== undefined && (options.rasterizeText !== undefined || options.rasterizeTextSync !== undefined)) {
       const run = quad.text;
-      const ink = inkKeyOpaque(quad.style.ink);
-      const contentKey = `txt:${mode}:${run.text}:${run.font}:${run.weight}:${run.upper ? 1 : 0}:${run.italic ? 1 : 0}:${run.blur ?? 0}:${run.truncate}:${run.align ?? "left"}:${ink}`;
-      return { key: `txt:${mode}:${runKey(run, scale, 0)}:${ink}`, contentKey, kind: "text" };
+      // Text coverage is alpha-only: the shader inks it, so a colour change is
+      // a quad repaint, never a reraster. The raster forces alpha 1 for the same reason.
+      const contentKey = `txt:${mode}:${run.text}:${run.font}:${run.weight}:${run.upper ? 1 : 0}:${run.italic ? 1 : 0}:${run.blur ?? 0}:${run.truncate}:${run.align ?? "left"}`;
+      return { key: `txt:${mode}:${runKey(run, scale, 0)}`, contentKey, kind: "text" };
     }
     return undefined;
   };

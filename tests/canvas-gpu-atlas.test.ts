@@ -442,6 +442,21 @@ describe("gpu atlas (#911)", () => {
     expect(atlas.stats().failures).toBe(0);
   });
 
+  it("reuses one text coverage cell when only the ink changes", async () => {
+    const { atlas } = atlasWith();
+    atlas.attach(fakeDevice().device);
+    const run = { ...textRun, text: "same words" };
+    const first = atlas.acquire(textQuad(run, { token: "ink" }), 2);
+    await settle();
+    await settle();
+    expect(atlas.hasImage(first)).toBe(true);
+    const requests = atlas.requests;
+
+    const again = atlas.acquire(textQuad(run, { token: "amber" }), 2, first);
+    expect(again).toBe(first);
+    expect(atlas.requests).toBe(requests);
+  });
+
   it("retries failed rasters and reports failures", async () => {
     fakeClock();
     let attempts = 0;
