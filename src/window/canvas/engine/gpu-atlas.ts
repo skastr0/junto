@@ -838,7 +838,10 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     if (device === undefined) return undefined;
     const dim = pool.pageSize;
     const mips = pool.kind === "rgba" ? rgbaMipCount : 1;
-    const pageIndex = pool.pages.length;
+    // A dead page's index is free again: only the live pages bind, and the
+    // lowest free index keeps every live page inside the bind budget it can fit in.
+    const deadIndex = pool.pages.findIndex((page) => page.dead);
+    const pageIndex = deadIndex >= 0 ? deadIndex : pool.pages.length;
     let pageRef: Page | undefined;
     const tex = createTexture2DArray(
       device,
@@ -901,8 +904,13 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     const bytes = mips > 1 ? Math.round(baseBytes * (4 / 3)) : baseBytes;
     const page: Page = { pageIndex, layout, texture: tex, size: dim, bytes, mipCount: mips, plots, dead: false };
     pageRef = page;
-    pool.pages.push(page);
-    pool.pageTextures.push(tex);
+    if (deadIndex >= 0) {
+      pool.pages[pageIndex] = page;
+      pool.pageTextures[pageIndex] = tex;
+    } else {
+      pool.pages.push(page);
+      pool.pageTextures.push(tex);
+    }
 
     if (pageIndex === 0) {
       if (pool.kind === "rgba") mutable.texture = tex;

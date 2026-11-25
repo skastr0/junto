@@ -1,9 +1,11 @@
 /**
  * A page the device refuses late is gone in the same step in which it is
- * destroyed: no pending mip pass may begin on it.
+ * destroyed: no pending mip pass may begin on it, and its page index is the
+ * next one a new page takes.
  */
 import { describe, expect, it } from "vitest";
 import { createGpuAtlas, type AtlasPixels } from "../src/window/canvas/engine/gpu-atlas";
+import { ATLAS_CELL_FLOATS } from "../src/window/canvas/engine/types";
 import type { Quad, QuadStyle, SpriteRef } from "../src/window/canvas/contract";
 import { strictDevice } from "./gpu-atlas-strict-device";
 import { settle } from "./gpu-canvas-fakes";
@@ -69,6 +71,24 @@ describe("a page the device refuses late", () => {
     // so its callback is queued before the dirty-flush microtask. Without the
     // prune that flush begins a mip pass on the page after it is destroyed.
     expect(atlas.hasImage(cell)).toBe(false);
+    expect(strict.errors).toEqual([]);
+  });
+
+  it("frees its page index for the next page", async () => {
+    const { atlas, strict } = board();
+    refuseNextTextureLate(strict.device);
+    const first = atlas.acquire(spriteQuad("lost"), 1);
+    await drain();
+    expect(atlas.hasImage(first)).toBe(false);
+    expect(atlas.binding.rgbaPages).toHaveLength(1);
+
+    const second = atlas.acquire(spriteQuad("replacement"), 1);
+    await drain();
+    expect(atlas.hasImage(second)).toBe(true);
+    expect(atlas.binding.rgbaPages).toHaveLength(1);
+    expect(atlas.binding.standalone?.has(second)).toBe(false);
+    const row = atlas.binding.cells.subarray(second * ATLAS_CELL_FLOATS, second * ATLAS_CELL_FLOATS + ATLAS_CELL_FLOATS);
+    expect(row[4]).toBe(0);
     expect(strict.errors).toEqual([]);
   });
 });
