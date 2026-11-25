@@ -266,7 +266,7 @@ interface DirtyMipRect {
   readonly gutter: number;
 }
 
-type CellState = "queued" | "rasterizing" | "landed" | "failed";
+type CellState = "queued" | "rasterizing" | "waiting" | "landed" | "failed";
 
 interface CellDesc {
   readonly quad: Quad;
@@ -406,6 +406,8 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
    * its own pixels land.
    */
   const byShown = new Map<string, SlotRecord>();
+  /** key -> every unlanded slot waiting for it, whether it goes by the key or by the pixels one quad showed. */
+  const waitingByKey = new Map<string, Set<SlotRecord>>();
   /** contentKey -> its landed slots (the nearest size stands in for a new one). */
   const contentLanded = new Map<string, Set<SlotRecord>>();
   /**
@@ -1121,6 +1123,22 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     removeContentLanded(rec);
   };
 
+  const trackWaiting = (rec: SlotRecord): void => {
+    let set = waitingByKey.get(rec.key);
+    if (set === undefined) {
+      set = new Set();
+      waitingByKey.set(rec.key, set);
+    }
+    set.add(rec);
+  };
+
+  const untrackWaiting = (rec: SlotRecord): void => {
+    const set = waitingByKey.get(rec.key);
+    if (set === undefined) return;
+    set.delete(rec);
+    if (set.size === 0) waitingByKey.delete(rec.key);
+  };
+
   /**
    * The one way a slot's index goes back on the free list. Everything that
    * names the slot goes with it: its rect, its own texture, its names, its
@@ -1133,6 +1151,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     const index = rec.index;
     if (slots[index] !== rec) return;
     slots[index] = undefined;
+    untrackWaiting(rec);
     unland(rec);
     unplace(rec);
     freeStandalone(rec);
@@ -1548,6 +1567,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       shown.refCount = Math.max(0, shown.refCount - 1);
       goByKey(rec);
       writeRow(rec);
+      if (rec.state === "waiting") backOff(rec);
     }
     for (const rec of lost) {
       if (rec.refCount > 0) {
@@ -1573,6 +1593,35 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     const at = shown?.placed;
     if (shown === undefined || at === undefined || shown.refCount !== 1) return undefined;
     return at.w === w && at.h === h && !at.page.dead ? shown : undefined;
+  };
+
+  /**
+   * `winner` has the key's pixels. Every other slot still waiting for the
+   * same key stops its own raster and shows them. The slots stay, because
+   * their indices are already in the quads' hands; the duplicate rasters and
+   * cells do not.
+   */
+  const dedupeWaiting = (winner: SlotRecord): void => {
+    const waiting = waitingByKey.get(winner.key);
+    if (waiting === undefined) return;
+    for (const rec of [...waiting]) {
+      if (rec === winner || slots[rec.index] !== rec || rec.state === "landed") continue;
+      queuedSet.delete(rec.index);
+      // A raster already in flight answers to a token that is no longer this slot's.
+      rec.jobToken = ++nextJobToken;
+      const old = rec.standIn;
+      if (old !== winner) {
+        rec.standIn = undefined;
+        if (old !== undefined) release(old.index);
+      }
+      rec.state = "waiting";
+      if (old === winner) {
+        writeRow(rec);
+        markDirty();
+      } else {
+        showThrough(rec, winner);
+      }
+    }
   };
 
   /**
@@ -1629,7 +1678,9 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
     const shown = rec.standIn;
     rec.standIn = undefined;
     goByKey(rec);
+    untrackWaiting(rec);
     writeRow(rec);
+    dedupeWaiting(rec);
     // The cell it showed: gone with its rect when that was written over, else let go.
     if (written !== undefined) freeSlot(written);
     else if (shown !== undefined) release(shown.index);
@@ -1947,6 +1998,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       jobToken: 0,
     };
     slots[index] = rec;
+    trackWaiting(rec);
     requests += 1;
 
     // Never flash blank. The same content at the nearest landed size is what
@@ -2743,6 +2795,7 @@ export const createGpuAtlas = (options: GpuAtlasOptions = {}): GpuAtlas => {
       contentLanded.clear();
       byKey.clear();
       byShown.clear();
+      waitingByKey.clear();
       compatHeld.clear();
       slots.length = 0;
       freeIndices.length = 0;
