@@ -493,6 +493,15 @@ phase, and attention/occupancy are separate planes.
     process and the app opens no window. Do not pipe `run-e2e.sh` without
     `set -o pipefail`: its refusals (a missing or stale build, no display) go
     to stderr and exit 1, and a pipe into `grep` hides both.
+  - Landing on a green run (tech-lead, 2026-11-25). A green whole-suite run
+    on parent P stays valid for landing on main M when all hold: (a)
+    `git merge-tree --write-tree M <branch>` is clean; (b) no commit in `P..M`
+    touches a file the branch touches; (c) `bun run typecheck` and
+    `bun run lint` pass on the merged tree; (d) on the merged tree, the test
+    files the branch touches and the test files `P..M` touches pass again; (e)
+    `P..M` is at most 2 hours or 30 commits. Otherwise rerun the whole suite on
+    M. After landing, the main verify run is the backstop: a red traced to the
+    landing is fixed or reverted by its author at once.
   - The operator's database never leaves this machine, whole or in part, by
     any means: not to a VM and not to the mini. Both scripts refuse a SQLite
     file. A real board goes to the mini as its shapes only: the JSON that
