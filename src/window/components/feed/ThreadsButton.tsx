@@ -5,8 +5,8 @@
  *
  * The icon stays steel: amber on an icon belongs to Needs you. The count is
  * the same pill the feed's button wears (one colour, one meaning, unread; an
- * unread thread is not blocked), over the whole canvas with no filter, the
- * number Global threads says when nothing narrows it. It is not a need, so it
+ * unread thread is not blocked): how many threads on the canvas have mail the
+ * operator has not read. It is not a need, so it
  * never counts into Needs you. The button says nothing as the count changes:
  * the feed and Global threads say what arrived.
  */
@@ -21,8 +21,9 @@ import "./operator-feed.css";
 
 export function ThreadsButton() {
   const canvasName = use$(state$.canvasName);
-  // The same list Global threads holds with nothing narrowing it: its unread is the whole canvas's.
-  const unread = useOperatorThreads({ canvasName }).unread;
+  // Threads with mail the operator has not read: the rows Global threads lists under its Unread filter, watched live.
+  // Not `.unread`, which counts mails. The rule is the core's (product-attention); the button marks nothing read.
+  const unread = useOperatorThreads({ canvasName, unread: true }).total;
   const open = use$(operatorModal$.open) === "threads";
   const chord = keyCaps("threads.open")?.join(isMac() ? "" : "+");
   return (
