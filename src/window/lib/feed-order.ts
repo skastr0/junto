@@ -95,6 +95,16 @@ export type FeedRow =
   | { readonly kind: "fold"; readonly chainId: string; readonly count: number; readonly firstId: string };
 
 /**
+ * A fold's name for a screen reader: what it shows, in which chain (the card
+ * before it), and that it is the way in. A headline is a whole sentence, so it
+ * comes last, after a colon.
+ */
+export const foldName = (count: number, before: FeedRow | undefined): string =>
+  `Show ${String(count)} more ${count === 1 ? "signal" : "signals"} in this order${
+    before?.kind === "card" ? `, after: ${before.item.text}` : ""
+  }`;
+
+/**
  * The rows of `items` with each chain folded after its next waiting card:
  * its ready cards, the first that waits, then one row for the rest. A chain
  * any of whose cards is in `unfolded` is drawn whole.

@@ -189,6 +189,11 @@
   min-width: 0;
 }
 
+/* Ready is its own group for a screen reader; the chips lay out as one row with the kinds. */
+.operator-feed__chips--ready {
+  display: contents;
+}
+
 /* One chip: its words and how many it would show, pressed while it filters. */
 .operator-feed__filter-chip {
   display: inline-flex;

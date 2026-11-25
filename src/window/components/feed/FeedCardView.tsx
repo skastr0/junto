@@ -101,6 +101,13 @@ export function FeedWords({
   const due = workKind === "work" ? dueWords(work?.dueAt, nowMs) : undefined;
   const urgent = workKind === "work" && work !== undefined && workIsDue(work, nowMs);
   const pieces = feedTextPieces(item.text, taskByNumber);
+  // What colour and position say, said in words for a card's name: it waits, and where it stands in its chain.
+  const stateWords = [
+    feedItemWaits(item) ? "Waiting on another signal" : "",
+    chain ? `${String(chain.index)} of ${String(chain.size)}` : "",
+  ]
+    .filter((part) => part !== "")
+    .join(", ");
   // Nothing named: the sentence is the sentence, not a span inside one.
   const plain = pieces.length === 1 && pieces[0]!.kind === "text" ? pieces[0]!.text : undefined;
   return (
@@ -113,6 +120,11 @@ export function FeedWords({
             {due}
           </span>
         ) : null}
+        {stateWords === "" ? null : (
+          <span id={labelId && `${labelId}-state`} className="sr-only">
+            {stateWords}
+          </span>
+        )}
         {chain ? (
           <span className="operator-feed__chain-place" data-testid="feed-chain-place">
             {`${String(chain.index)} of ${String(chain.size)}`}
@@ -193,6 +205,7 @@ export function FeedDependsOn({
           data-testid="feed-depends-link"
           tabIndex={tabStop ? 0 : -1}
           aria-label={`Depends on: ${first.text}`}
+          {...(keys && keys.length > 0 ? { "aria-keyshortcuts": keys.join("+") } : {})}
           onClick={(event) => {
             // Its own press: the card under it is not picked by it.
             event.stopPropagation();
@@ -338,7 +351,7 @@ export function FeedCardView({
         aria-current={selected ? "true" : undefined}
         // Named by who, what and its own sentence, so two cards from one seat
         // are told apart on entry.
-        aria-labelledby={`${labelId}-name ${labelId}-kind ${labelId}-text`}
+        aria-labelledby={`${labelId}-name ${labelId}-kind ${labelId}-state ${labelId}-text`}
         onClick={onSelect}
       >
         <FeedPortraitWell item={item} face={face} />
@@ -356,7 +369,8 @@ export function FeedCardView({
             <FeedDependsOn
               line={depends}
               tabStop={selected}
-              {...(dependsKeys === undefined ? {} : { keys: dependsKeys })}
+              // W acts on the selected card, so the hint is drawn there only.
+              {...(!selected || dependsKeys === undefined ? {} : { keys: dependsKeys })}
               {...(onGoTo === undefined ? {} : { onGoTo })}
             />
           ) : null}

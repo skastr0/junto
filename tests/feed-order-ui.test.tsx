@@ -173,6 +173,53 @@ it("goes from a waiting card to what it depends on, by its link, the band and W"
   expect(selectedId()).toBe("s1");
 });
 
+it("draws the W key only on the selected waiting card", async () => {
+  await open(feedOf(10));
+  await press(all('[data-testid="operator-feed-card"]')[1]!);
+  expect(selectedId()).toBe("s2");
+  await press(q('[data-testid="feed-chain-fold"]'));
+  expect(selectedId()).toBe("s3");
+  const waiting = all('[data-testid="operator-feed-card"]').filter((card) => card.dataset.waiting === "true");
+  expect(waiting.length).toBeGreaterThan(2);
+  const hinted = waiting.filter((card) => card.querySelector(".operator-feed__depends-key") !== null);
+  expect(hinted.map((card) => card.dataset.itemId!.replace(/^signal:/u, ""))).toEqual([selectedId()]);
+  // The link stays on every waiting card.
+  expect(waiting.every((card) => card.querySelector('[data-testid="feed-depends-link"]') !== null)).toBe(true);
+});
+
+it("keeps the keyboard in the feed after a link, and says where it went and what a fold showed", async () => {
+  await open(feedOf(10));
+  const frame = q(".operator-modal__frame")!;
+  await press(all('[data-testid="operator-feed-card"]')[1]!);
+  const link = q('[data-testid="feed-depends-link"]') as HTMLElement;
+  link.focus();
+  await press(link);
+  expect(selectedId()).toBe("s1");
+  expect(document.activeElement).toBe(frame);
+  expect(q(".operator-feed__announce")?.textContent).toBe("Went to: Topic 1 needs your call, 1 of 10");
+  await press(q('[data-testid="feed-chain-fold"]'));
+  expect(q(".operator-feed__announce")?.textContent).toBe("8 more shown");
+});
+
+it("names a card with whether it waits and its place, a fold with its chain, and Ready apart from the kinds", async () => {
+  await open(feedOf(10));
+  const [first, second] = all('[data-testid="operator-feed-card"]');
+  const nameOf = (card: Element): string =>
+    (card.getAttribute("aria-labelledby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+  expect(nameOf(first!)).toContain("1 of 10");
+  expect(nameOf(first!)).not.toContain("Waiting on another signal");
+  expect(nameOf(second!)).toContain("Waiting on another signal, 2 of 10");
+  expect(q('[data-testid="feed-chain-fold"]')?.getAttribute("aria-label")).toBe(
+    "Show 8 more signals in this order, after: Topic 2 needs your call",
+  );
+  expect(q('[data-testid="feed-ready-chip"]')?.closest('[role="group"]')?.getAttribute("aria-label")).toBe("Show only");
+  await press(second!);
+  expect(q('[data-testid="feed-depends-link"]')?.getAttribute("aria-keyshortcuts")).toBeTruthy();
+});
+
 it("unfolds the rest of a chain in place", async () => {
   await open(feedOf(10));
   await press(q('[data-testid="feed-chain-fold"]'));

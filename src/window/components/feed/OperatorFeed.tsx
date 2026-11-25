@@ -41,6 +41,7 @@ import {
   feedDependsLineOf,
   feedItemWaits,
   foldFeedChains,
+  foldName,
   foldedItemIds,
   waitsOnTarget,
   type FeedChainPlace,
@@ -730,13 +731,27 @@ const feed = useOperatorFeed();
   // Said once by the live line when a link cleared the filters, until the operator narrows again.
   const [announceNote, setAnnounceNote] = useState("");
   const clearedForAsk = useRef(false);
+  // The ask came from a link, a band row or W (not from outside the feed), and the filters were cleared for it.
+  const wentTo = useRef(false);
+  const announcedClear = useRef(false);
   const asked = use$(feedAsked$.itemId);
   useEffect(() => {
     if (asked === null) return;
-    if (items.some((item) => item.itemId === asked)) {
+    const target = items.find((item) => item.itemId === asked);
+    if (target !== undefined) {
       feedAsked$.itemId.set(null);
       setSelected(asked);
       setRevealId(asked);
+      if (wentTo.current) {
+        wentTo.current = false;
+        // The press left the link or row it was on: the keyboard stays in the feed, and the move is said.
+        claimFocus(scrollRef.current?.closest<HTMLElement>(".operator-modal__frame") ?? null, "gesture");
+        if (announcedClear.current) announcedClear.current = false;
+        else {
+          const place = chainPlaces.get(asked);
+          setAnnounceNote(`Went to: ${target.text}${place ? `, ${String(place.index)} of ${String(place.size)}` : ""}`);
+        }
+      }
       return;
     }
     const held = feed.sections.some((section) => section.items.some((item) => item.itemId === asked));
@@ -747,10 +762,13 @@ const feed = useOperatorFeed();
     if (held && (filtering || activeRegion !== undefined)) {
       clearFeedFilters();
       clearedForAsk.current = true;
+      announcedClear.current = true;
       setAnnounceNote("Filters cleared to show it");
       return;
     }
     feedAsked$.itemId.set(null);
+    wentTo.current = false;
+    announcedClear.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asked, items, feed.sections, filtering, activeRegion, folded]);
   useEffect(() => {
@@ -761,7 +779,10 @@ const feed = useOperatorFeed();
     setAnnounceNote("");
   }, [filter, activeRegion]);
   /** A Depends on link, a band row, the W key: select the card and bring it into view. */
-  const goTo = (target: FeedItem): void => feedAsked$.itemId.set(target.itemId);
+  const goTo = (target: FeedItem): void => {
+    wentTo.current = true;
+    feedAsked$.itemId.set(target.itemId);
+  };
   const waitsOnKeys = keyCaps("inFeed.waitsOn");
   /** A card's place in its chain and its Depends on line. */
   const cardOrderOf = (item: FeedItem): Pick<FeedCardViewProps, "chain" | "depends" | "dependsKeys"> => {
@@ -998,8 +1019,8 @@ const feed = useOperatorFeed();
             value={feedQuery}
             onChange={(event) => feedView$.query.set(event.target.value)}
           />
-          <div className="operator-feed__chips" role="group" aria-label="Kinds">
-            {readyChipShown ? (
+          {readyChipShown ? (
+            <div className="operator-feed__chips operator-feed__chips--ready" role="group" aria-label="Show only">
               <button
                 type="button"
                 className="operator-feed__filter-chip"
@@ -1014,7 +1035,9 @@ const feed = useOperatorFeed();
                   {readyCount}
                 </span>
               </button>
-            ) : null}
+            </div>
+          ) : null}
+          <div className="operator-feed__chips" role="group" aria-label="Kinds">
             {kindChips.map((chip) => (
               <button
                 key={chip.kind}
@@ -1111,16 +1134,18 @@ const feed = useOperatorFeed();
           >
             {sections.map((section) => (
               <FeedRegionSection key={section.region.regionId ?? "open-field"} section={section}>
-                {(rowsOf.get(section) ?? []).map((row) =>
+                {(rowsOf.get(section) ?? []).map((row, at, rows) =>
                   row.kind === "fold" ? (
                     <div key={`fold-${row.chainId}`} className="operator-feed__slot" role="listitem">
                       <button
                         type="button"
                         className="operator-feed__fold"
                         data-testid="feed-chain-fold"
+                        aria-label={foldName(row.count, at > 0 ? rows[at - 1] : undefined)}
                         onClick={() => {
                           unfoldChainOf(row.firstId);
                           setSelected(row.firstId);
+                          setAnnounceNote(`${String(row.count)} more shown`);
                           // The fold leaves with the press: the keyboard stays in the feed.
                           claimFocus(scrollRef.current?.closest<HTMLElement>(".operator-modal__frame") ?? null, "gesture");
                         }}
