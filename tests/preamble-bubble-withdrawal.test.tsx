@@ -107,6 +107,31 @@ describe("the seat's bubble through a withdrawal", () => {
     release();
   });
 
+  it("never says a raise note after its signal closed: a note still held by the dwell is dropped", async () => {
+    set(signal("S1", "escalate", PLAIN));
+    set(signal("S2", "blocked", ASKS));
+    await later(1_000);
+    // The second signal is withdrawn while its raise note still waits out the dwell; a thread on screen says it.
+    const release = speakSignalsFor(["S1", "S2"]);
+    set(signal("S2", "blocked", ASKS, { state: "withdrawn", closedAt: Date.now() }));
+    await later(6_000);
+    expect(said.map((text) => text.replace(/^.*?(wants you|blocked)/, "$1"))).toEqual([`wants you: ${PLAIN}`]);
+    release();
+  });
+
+  it("says the held raise note of a signal that is still open once its dwell is up, whenever the other closes", async () => {
+    set(signal("S1", "escalate", PLAIN));
+    set(signal("S2", "blocked", ASKS));
+    await later(1_000);
+    // As the end-to-end line does: the first signal is withdrawn while the second waits its dwell.
+    const release = speakSignalsFor(["S1"]);
+    set(signal("S1", "escalate", PLAIN, { state: "withdrawn", closedAt: Date.now() }));
+    await later(6_000);
+    // The second raise is said once, at the end of the first note's dwell: its own time, not the withdrawal's.
+    expect(said.map((text) => text.replace(/^.*?(wants you|blocked)/, "$1"))).toEqual([`wants you: ${PLAIN}`, `blocked: ${ASKS}`]);
+    release();
+  });
+
   it("tells a withdrawal no thread says", async () => {
     set(signal("S1", "escalate", PLAIN));
     await later(3_000);

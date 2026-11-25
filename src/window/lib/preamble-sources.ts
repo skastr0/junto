@@ -33,7 +33,7 @@ import type { MailHold } from "@shared/mail-hold";
 import type { WireTrafficEvent } from "@shared/wire-traffic";
 import { agentSeat$ } from "./agent-seat-state";
 import { agentSignals$ } from "./agent-signals-state";
-import { showPreamble } from "./preamble-state";
+import { dropPendingPreamble, showPreamble } from "./preamble-state";
 import { seatAwareness$ } from "./seat-awareness";
 import { threadSpeaksFor } from "./seat-threads";
 import { state$ } from "./state";
@@ -308,6 +308,8 @@ export const startPreambleSources = (api: Pick<JuntoApi, "onWireTraffic">): (() 
 
   // Signals: diff by id; the canvas-scoped mirror is hydrated silently.
   let signals = new Map<string, AgentSignal>(Object.entries(agentSignals$.peek()));
+  // The note each open signal's raise told, by signal id: a note is said once per signal and never after it closed.
+  const raiseNotes = new Map<string, { readonly nodeId: string; readonly preambleId: string }>();
   offs.push(
     agentSignals$.onChange(() => {
       const now = Date.now();
@@ -315,8 +317,16 @@ export const startPreambleSources = (api: Pick<JuntoApi, "onWireTraffic">): (() 
       for (const [id, signal] of next) {
         const prior = signals.get(id);
         if (prior === signal) continue;
+        const raised = raiseNotes.get(id);
+        const closing = signal.state !== "open";
+        // Its raise note still waiting out the dwell tells what no longer holds: it is not said later.
+        if (closing && raised !== undefined) dropPendingPreamble(raised.nodeId, raised.preambleId);
         const told = signalPreamble(prior, signal, now);
-        if (told) showPreamble(told);
+        if (told) {
+          if (signal.state === "open") raiseNotes.set(id, { nodeId: told.nodeId, preambleId: told.preambleId });
+          showPreamble(told);
+        }
+        if (closing) raiseNotes.delete(id);
       }
       signals = next;
     }),

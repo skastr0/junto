@@ -2,6 +2,7 @@ import { observable } from "@legendapp/state";
 import type { PreambleEvent } from "@shared/preamble";
 import {
   dismissSeat,
+  dropPending,
   feedPreamble,
   nextDeadline,
   tickFeed,
@@ -59,6 +60,11 @@ const arm = (): void => {
 /** Feed one note from any source; the feed coalesces, paces and expires it. */
 export const showPreamble = (event: PreambleEvent): void => {
   commit(feedPreamble(feed, event, Date.now()));
+};
+
+/** Forget a note held behind the dwell, ignoring one already shown or replaced. */
+export const dropPendingPreamble = (nodeId: string, preambleId: string): void => {
+  commit(dropPending(feed, nodeId, preambleId));
 };
 
 /** Dismiss a seat's bubble, ignoring a stale id from a replaced note. */

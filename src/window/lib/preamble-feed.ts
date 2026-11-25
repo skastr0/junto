@@ -197,6 +197,15 @@ export const feedPreamble = (state: FeedState, event: PreambleEvent, now: number
   return out;
 };
 
+/** Forget a note held behind the dwell, by id: what it told no longer holds. */
+export const dropPending = (state: FeedState, nodeId: string, id: string): FeedState => {
+  const feed = state.get(nodeId);
+  if (feed?.pending === undefined || feed.pending.id !== id) return state;
+  const out = new Map(state);
+  out.set(nodeId, { ...feed, pending: undefined });
+  return out;
+};
+
 /** Dismiss a seat's bubble (the operator's close), optionally only a given id. */
 export const dismissSeat = (state: FeedState, nodeId: string, id?: string): FeedState => {
   const feed = state.get(nodeId);
