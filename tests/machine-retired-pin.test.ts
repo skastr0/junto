@@ -256,10 +256,10 @@ describe("a first send to a reinstalled machine", () => {
         const peer = yield* link.connectSetup(host, NEW, {
           forget: (name, previous) => Effect.sync(() => { forgotten.push([name, previous]); }),
           placements: () => Effect.succeed(placed),
-        }).pipe(Effect.catch((cause) => cause instanceof LinkClosed && retired !== undefined
+        }).pipe(Effect.catch((cause): Effect.Effect<never, MachineSetupError> => cause instanceof LinkClosed && retired !== undefined
           ? Effect.fail(new MachineSetupError({ message: RETIRED_PLACED_WORDS, retryable: false, installed: receipt, ownWords: true,
             takeover: { machineName: "mini", installationId: NEW, previousInstallationId: retired } }))
-          : Effect.fail(cause)));
+          : Effect.die(cause)));
         return { ...receipt, installationId: peer.installationId, machineName: host.id,
           transitions: [...receipt.transitions, { step: "pinned" as const }] };
       }),
