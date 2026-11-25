@@ -26,9 +26,13 @@ import { isOperatorModalOpen, closeOperatorModal, openOperatorModal } from "../s
 import { setCaptureInbox } from "../src/window/lib/capture-inbox";
 import { isMac } from "../src/window/lib/platform";
 import { state$ } from "../src/window/lib/state";
+import { loadLazySurfaces } from "../src/window/lib/lazy-surface";
 import { modelStore } from "../src/window/lib/use-model";
 import { QuickCapture } from "../src/window/components/capture/QuickCapture";
 import { artifacts, canvasOf, region } from "./support/model-nodes";
+
+// The editor engine loads before any test, so the caret is claimed on mount and no test waits on an import.
+await loadLazySurfaces();
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom lays nothing out; CodeMirror measures itself, and the list scrolls nothing.
