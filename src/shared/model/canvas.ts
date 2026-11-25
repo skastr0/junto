@@ -192,3 +192,25 @@ export const regionMembers = (canvas: Placed, region: Region): ReadonlyArray<Nod
   return found;
 };
 
+/**
+ * The things a region's edge cuts: not regions, each overlapping the region's
+ * frame with area above zero and not wholly inside it. They are not members
+ * (`regionMembers` holds a node only when its whole rectangle lies inside), so
+ * a Broadcast to the region misses the seats among them. One that only
+ * touches the edge, or lies outside, is not one. In `regionMembers`' order;
+ * the caller keeps the kinds it wants.
+ */
+export const regionCrossers = (canvas: Placed, region: Region): ReadonlyArray<Node> => {
+  const found: Array<Node> = [];
+  for (const node of canvas.nodes.values()) {
+    if (node.kind === "region") continue;
+    const overlaps =
+      node.x < region.x + region.width &&
+      node.x + node.width > region.x &&
+      node.y < region.y + region.height &&
+      node.y + node.height > region.y;
+    if (overlaps && !frameContains(region, node)) found.push(node);
+  }
+  return found;
+};
+
