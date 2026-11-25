@@ -122,7 +122,12 @@ impl Work {
     fn run_with_stdin(&self, args: &[&str], stdin: &str) -> Output {
         use std::io::Write as _;
         let mut child = self.command(args).stdin(Stdio::piped()).spawn().unwrap();
-        child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(stdin.as_bytes())
+            .unwrap();
         child.wait_with_output().unwrap()
     }
 
@@ -1321,12 +1326,20 @@ fn overseer_offline_commands_answer_without_a_socket() {
         vec!["docs", "overseer"],
     ] {
         let output = work.run(&args);
-        assert_eq!(code(&output), 0, "{args:?}: {:?}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(
+            code(&output),
+            0,
+            "{args:?}: {:?}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         let printed = stdout_json(&output);
         assert_eq!(printed["ok"], true, "{args:?}");
         assert!(!printed["data"].is_null(), "{args:?}: {}", printed["data"]);
     }
-    assert!(work.frames().is_empty(), "none of the offline answers opened a socket");
+    assert!(
+        work.frames().is_empty(),
+        "none of the offline answers opened a socket"
+    );
 }
 
 #[test]
@@ -1337,8 +1350,16 @@ fn overseer_sends_the_closed_call_and_prints_the_inner_data() {
         "data": { "canvases": [] },
     }))]);
     let output = work.run(&["overseer", "canvas", "list", "{}"]);
-    assert_eq!(code(&output), 0, "{:?}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(stdout_json(&output)["data"], serde_json::json!({ "canvases": [] }));
+    assert_eq!(
+        code(&output),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        stdout_json(&output)["data"],
+        serde_json::json!({ "canvases": [] })
+    );
     let frame = work.only_frame();
     assert_eq!(frame["op"], "overseer");
     assert_eq!(frame["args"]["operation"], "canvas.list");
@@ -1353,7 +1374,11 @@ fn overseer_prints_an_inner_refusal_and_exits_nonzero() {
         "error": { "type": "InvalidArguments", "message": "args do not decode" },
     }))]);
     let output = work.run(&["overseer", "canvas", "list", "{}"]);
-    assert_eq!(code(&output), 1, "an inner refusal is never a success envelope");
+    assert_eq!(
+        code(&output),
+        1,
+        "an inner refusal is never a success envelope"
+    );
     let printed = stderr_json(&output);
     assert_eq!(printed["ok"], false);
     assert_eq!(printed["error"]["message"], "args do not decode");
@@ -1369,13 +1394,27 @@ fn overseer_secret_put_reads_stdin_and_never_prints_the_value() {
     let value = "s3cret-value-never-printed";
     let output = work.run_with_stdin(&["overseer", "secret", "put"], &format!("{value}\n"));
     let printed = stdout_json(&output);
-    assert_eq!(code(&output), 0, "{:?}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(printed["data"]["secretId"], "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70");
-    assert!(!String::from_utf8_lossy(&output.stdout).contains(value), "the value never comes back");
+    assert_eq!(
+        code(&output),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        printed["data"]["secretId"],
+        "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70"
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains(value),
+        "the value never comes back"
+    );
     assert!(!String::from_utf8_lossy(&output.stderr).contains(value));
     let frame = work.only_frame();
     assert_eq!(frame["args"]["operation"], "secret.put");
-    assert_eq!(frame["args"]["args"]["value"], value, "one trailing newline goes");
+    assert_eq!(
+        frame["args"]["args"]["value"], value,
+        "one trailing newline goes"
+    );
 }
 
 #[test]
@@ -1394,13 +1433,25 @@ fn overseer_artifact_move_sends_its_ids_destination_and_canvas_and_exits_on_a_re
     ]);
     let call = r#"{"artifactIds":["art-1","art-2"],"to":"release","canvas":"factory"}"#;
     let moved = work.run(&["overseer", "artifact", "move", call]);
-    assert_eq!(code(&moved), 0, "{:?}", String::from_utf8_lossy(&moved.stderr));
+    assert_eq!(
+        code(&moved),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&moved.stderr)
+    );
     let refused = work.run(&["overseer", "artifact", "move", call]);
-    assert_eq!(code(&refused), 1, "a refused row sets exit 1 while the answer prints whole");
+    assert_eq!(
+        code(&refused),
+        1,
+        "a refused row sets exit 1 while the answer prints whole"
+    );
     assert_eq!(stdout_json(&refused)["ok"], true);
     let frames = work.frames();
     assert_eq!(frames[0]["args"]["operation"], "artifact.move");
-    assert_eq!(frames[0]["args"]["args"]["artifactIds"], serde_json::json!(["art-1", "art-2"]));
+    assert_eq!(
+        frames[0]["args"]["args"]["artifactIds"],
+        serde_json::json!(["art-1", "art-2"])
+    );
     assert_eq!(frames[0]["args"]["args"]["to"], "release");
     assert_eq!(frames[0]["args"]["args"]["canvas"], "factory");
 }
@@ -1408,13 +1459,34 @@ fn overseer_artifact_move_sends_its_ids_destination_and_canvas_and_exits_on_a_re
 #[test]
 fn automation_show_and_history_lower_their_json() {
     let work = Work::start(vec![Answer::ok(), Answer::ok()]);
-    let shown = work.run(&["automation", "show", r#"{"target":"auto-node","automation":"auto-1"}"#]);
-    let history = work.run(&["automation", "history", r#"{"target":"auto-node","automation":"auto-1","limit":5}"#]);
-    assert_eq!(code(&shown), 0, "{:?}", String::from_utf8_lossy(&shown.stderr));
-    assert_eq!(code(&history), 0, "{:?}", String::from_utf8_lossy(&history.stderr));
+    let shown = work.run(&[
+        "automation",
+        "show",
+        r#"{"target":"auto-node","automation":"auto-1"}"#,
+    ]);
+    let history = work.run(&[
+        "automation",
+        "history",
+        r#"{"target":"auto-node","automation":"auto-1","limit":5}"#,
+    ]);
+    assert_eq!(
+        code(&shown),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&shown.stderr)
+    );
+    assert_eq!(
+        code(&history),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&history.stderr)
+    );
     let frames = work.frames();
     assert_eq!(frames[0]["op"], "automation.show");
-    assert_eq!(frames[0]["args"], serde_json::json!({ "target": "auto-node", "automation": "auto-1" }));
+    assert_eq!(
+        frames[0]["args"],
+        serde_json::json!({ "target": "auto-node", "automation": "auto-1" })
+    );
     assert_eq!(frames[1]["op"], "automation.history");
     assert_eq!(frames[1]["args"]["limit"], 5);
 }
@@ -1422,8 +1494,19 @@ fn automation_show_and_history_lower_their_json() {
 #[test]
 fn task_finish_reads_the_handoff_note() {
     let work = Work::start(vec![Answer::ok()]);
-    let output = work.run(&["task", "finish", "#4", "--note", "Pick up the retry in feed.ts"]);
-    assert_eq!(code(&output), 0, "{:?}", String::from_utf8_lossy(&output.stderr));
+    let output = work.run(&[
+        "task",
+        "finish",
+        "#4",
+        "--note",
+        "Pick up the retry in feed.ts",
+    ]);
+    assert_eq!(
+        code(&output),
+        0,
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let frame = work.only_frame();
     assert_eq!(frame["op"], "task.finish");
     assert_eq!(frame["args"]["handoff"], "Pick up the retry in feed.ts");
