@@ -11,7 +11,7 @@
  * JUNTO_HOME and JUNTO_INSTALL_ROOT are always set from this core, never left
  * to the child's defaults, which need not agree with the install's.
  */
-import { spawn } from "node:child_process";
+import { appProcessPlane } from "../app-process-plane";
 
 export type RestoreFinishOutcome = "ready" | "updating" | "refused";
 
@@ -26,18 +26,31 @@ export type RestoreFinishInput = Readonly<{
 
 export const RESTORE_FINISH_UPDATING_EXIT = 75;
 
-/** Run restore-finish once and say what its exit means for this boot. */
+/** Run restore-finish once, as a child the process plane owns, and say what its exit means for this boot. */
 export const runRestoreFinish = (input: RestoreFinishInput): Promise<RestoreFinishOutcome> =>
   new Promise((resolve) => {
-    const child = spawn(input.junto, ["machine", "restore-finish"], {
-      env: { ...(input.env ?? process.env), JUNTO_HOME: input.home, JUNTO_INSTALL_ROOT: input.installRoot },
-      stdio: ["ignore", "inherit", "inherit"],
-    });
-    child.once("error", (cause) => {
+    let io;
+    try {
+      io = appProcessPlane.spawnChild({
+        source: "core.restore-finish",
+        purpose: "finish a restore an install left owed, before the core reads its database",
+        command: input.junto,
+        args: ["machine", "restore-finish"],
+        env: { ...(input.env ?? process.env), JUNTO_HOME: input.home, JUNTO_INSTALL_ROOT: input.installRoot },
+      }).io;
+    } catch (cause) {
+      console.error("[core] junto machine restore-finish could not start", cause);
+      resolve("refused");
+      return;
+    }
+    io.stdin.end();
+    io.stdout.pipe(process.stdout, { end: false });
+    io.stderr.pipe(process.stderr, { end: false });
+    io.onError((cause) => {
       console.error("[core] junto machine restore-finish could not start", cause);
       resolve("refused");
     });
-    child.once("exit", (code) => {
+    void io.exited.then(({ code }) => {
       resolve(code === 0 ? "ready" : code === RESTORE_FINISH_UPDATING_EXIT ? "updating" : "refused");
     });
   });
