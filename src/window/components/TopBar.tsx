@@ -20,7 +20,6 @@ import { state$ } from "../lib/state";
 import { agentSignals$ } from "../lib/agent-signals-state";
 import { openSignalCount, signalsCloseLine } from "../lib/canvas-delete";
 import { openOperatorModal } from "../lib/operator-modal";
-import { retrySave } from "../lib/mutations";
 import { unseenRef } from "../lib/unseen";
 import { openSettings } from "../lib/settings-state";
 import { MachinesButton } from "./machines/MachinesButton";
@@ -261,13 +260,6 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
   );
 }
 
-function SaveStatus() {
-  const saveState = use$(state$.saveState);
-  const label = saveState === "saving" ? "saving" : saveState === "error" ? "save error" : "saved";
-  if (saveState === "error") return <button className="station-save station-save--error" title="Retry writing the latest canvas change" aria-label="Retry save" onClick={retrySave}><span className="station-save__dot" /><span>retry save</span></button>;
-  return <div ref={unseenRef} role="status" aria-live="polite" className={`station-save station-save--${saveState}`} title={`Canvas ${label}`}><span className="station-save__dot" /><span>{label}</span></div>;
-}
-
 export function TopBar({
   onOpen,
   onCreate,
@@ -293,7 +285,6 @@ export function TopBar({
       <div className="station-left">
         <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
         <CommandBarTrigger canvasName={canvasName} />
-        <SaveStatus />
         <CountedSurface id="command-groups">
           <CommandGroupBar />
         </CountedSurface>

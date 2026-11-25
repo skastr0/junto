@@ -195,14 +195,13 @@ describe("motion law: rings move on the compositor", () => {
     expect(css).toMatch(/\.tab-strip__tab\[data-unseen\] \.tab-strip__loading \{\s*animation: none;/);
   });
 
-  it("the top bar's opening and saving pulses stop when the bar cuts them off", () => {
+  it("the top bar's opening pulse stops when the bar cuts it off", () => {
     const unseen = read("src/window/lib/unseen.ts");
     expect(unseen).toMatch(/entry\.target\.toggleAttribute\("data-unseen", !entry\.isIntersecting\)/);
     const bar = read("src/window/components/TopBar.tsx");
     expect(bar).toMatch(/<span ref=\{unseenRef\} className="station-context__loading"/);
-    expect(bar).toMatch(/<div ref=\{unseenRef\} role="status" aria-live="polite" className=\{`station-save /);
     expect(read("src/window/styles.css")).toContain(
-      ".station-context__loading[data-unseen], .station-save[data-unseen] .station-save__dot { animation: none; }",
+      ".station-context__loading[data-unseen] { animation: none; }",
     );
   });
 

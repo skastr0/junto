@@ -554,6 +554,16 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   -webkit-app-region: no-drag;
 }
 
+/* A drag region ignores z-index, so any overlay that crosses the bar's band
+   would hand its clicks to the window drag unless it cut itself out. One rule
+   for the whole class: while anything is open over the window (a dialog, a
+   menu, a listbox that is not the bar's own), the bar is no drag region at
+   all. A surface need not remember to cut itself out; the rules above stay as
+   the second line for what draws without one of these roles. */
+html[data-junto-platform="darwin"]:has([role="dialog"], [role="menu"], [role="listbox"]:not(.station-bar *), [data-overlay-open]) .station-bar {
+  -webkit-app-region: no-drag;
+}
+
 .station-context__loading { color: var(--color-amber-fg); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; animation: station-pulse 1.1s ease-in-out infinite; }
 
 /* Canvas switcher: segmented chrome + design-system Dropdown (not OS select). */
@@ -624,23 +634,14 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   border-color: color-mix(in oklab, var(--color-main) 45%, transparent);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-main) 8%, transparent);
 }
-.station-command-trigger { display: flex; height: 34px; min-width: 150px; max-width: 260px; flex: 1; align-items: center; gap: 8px; border: 1px solid var(--color-stroke); border-radius: var(--radius-lg); background: var(--color-overlay-1); color: var(--color-faint); padding: 0 9px; cursor: pointer; transition: border-color .18s ease, background .18s ease; }
+.station-command-trigger { display: flex; height: 34px; width: 200px; min-width: 150px; max-width: 200px; flex: 0 1 200px; align-items: center; gap: 8px; border: 1px solid var(--color-stroke); border-radius: var(--radius-lg); background: var(--color-overlay-1); color: var(--color-faint); padding: 0 9px; cursor: pointer; transition: border-color .18s ease, background .18s ease; }
 .station-command-trigger:hover, .station-command-trigger:focus-visible { border-color: color-mix(in oklab, var(--color-second) 50%, transparent); background: color-mix(in oklab, var(--color-second) 3.5%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 6%, transparent); outline: none; }
 .station-command-trigger__label { flex: 1; min-width: 0; overflow: hidden; color: var(--color-faint); font-size: var(--text-label); letter-spacing: var(--tracking-label); text-align: left; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .station-command-trigger__kbd { border: 1px solid color-mix(in oklab, var(--color-second) 22%, transparent); border-radius: var(--radius-sm); background: color-mix(in oklab, var(--color-second) 6%, transparent); color: var(--color-cyan-fg); padding: 1px 5px; font-family: var(--font-mono); font-size: var(--text-caption); letter-spacing: 0; }
-.station-save { display: inline-flex; align-items: center; gap: 5px; color: var(--color-faint); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; white-space: nowrap; }
-.station-save--error { border: 0; background: transparent; cursor: pointer; padding: 0; }
-.station-save__dot { width: 6px; height: 6px; border-radius: var(--radius-pill); background: var(--color-faint); }
-.station-save--saving { color: var(--color-amber-fg); }
-.station-save--saving .station-save__dot { background: var(--color-amber); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-main) 10%, transparent); animation: station-pulse 1.1s ease-in-out infinite; }
-.station-save--saved { color: var(--color-cyan-fg); }
-.station-save--saved .station-save__dot { background: var(--color-cyan); }
-.station-save--error { color: var(--color-crimson-fg); }
-.station-save--error .station-save__dot { background: var(--color-crimson); }
 @keyframes station-pulse { 50% { opacity: .45; } }
 /* Cut off by .station-left in a narrow window, the pulse stops (lib/unseen.ts,
    operator signal 01M63W6RQY1YT2Q65MCM0N3YQ8). */
-.station-context__loading[data-unseen], .station-save[data-unseen] .station-save__dot { animation: none; }
+.station-context__loading[data-unseen] { animation: none; }
 
 /* =============================================================================
    Agent switcher: an operator modal, up while Cmd is held. The dim and the
@@ -892,12 +893,11 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 
 @media (max-width: 980px) {
   .station-select { min-width: 88px; max-width: 140px; }
-  .station-command-trigger { max-width: 170px; }
+  .station-command-trigger { width: 170px; max-width: 170px; flex-basis: 170px; }
   .station-generate-button span,
   .station-view-toggle span { display: none; }
   .station-generate-button { width: 34px; justify-content: center; padding: 0; }
   .station-view-toggle { width: 34px; justify-content: center; padding: 0; }
-  .station-save span:last-child { display: none; }
 }
 
 .error-banner { position: relative; display: flex; max-width: min(680px, calc(100vw - 32px)); max-height: 84px; flex-direction: column; gap: 4px; overflow: auto; padding-right: 30px !important; box-shadow: 0 12px 30px var(--color-shadow-2); backdrop-filter: blur(14px); }

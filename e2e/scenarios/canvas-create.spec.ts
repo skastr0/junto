@@ -40,7 +40,7 @@ test("a new canvas is made from the top bar and opened", async ({ junto: { page 
   await create(page, "second");
 
   await expect.poll(() => names(page), { timeout: 20_000 }).toEqual(expect.arrayContaining([BOARD, "second"]));
-  await expect(page.getByRole("button", { name: "Active canvas" })).toContainText(/second/i, { timeout: 20_000 });
+  await expect(page.getByLabel("Active canvas")).toContainText(/second/i, { timeout: 20_000 });
   expect(thrown).toEqual([]);
 });
 
