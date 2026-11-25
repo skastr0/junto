@@ -11,6 +11,12 @@ import { isModalLayerOpen } from "../src/window/lib/modal-stack";
 let host: HTMLDivElement;
 let root: Root;
 
+// The shared lane runs files with no isolation, so a prototype this file
+// replaces is put back, or every later file in the worker reads a laid-out
+// page (focus-law-authority's parked surface came back rendered).
+const protoGetClientRects = HTMLElement.prototype.getClientRects;
+const protoScrollIntoView = HTMLElement.prototype.scrollIntoView;
+
 beforeEach(() => {
   // The count announces on a settle timer, which fake time advances.
   vi.useFakeTimers();
@@ -28,6 +34,8 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.useRealTimers();
+  HTMLElement.prototype.getClientRects = protoGetClientRects;
+  HTMLElement.prototype.scrollIntoView = protoScrollIntoView;
 });
 
 const items = [

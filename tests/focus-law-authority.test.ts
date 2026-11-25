@@ -129,7 +129,10 @@ describe("focus law authority", () => {
   });
 
   it("refuses async claims on parked surfaces", () => {
-    expect(claimFocus(q(root, "#term-input"), "async")).toBe(false);
+    // A parked surface has no boxes: said here, not left to whatever layout the page has.
+    const term = q<HTMLTextAreaElement>(root, "#term-input");
+    term.getClientRects = () => ({ length: 0 }) as DOMRectList;
+    expect(claimFocus(term, "async")).toBe(false);
   });
 
   it("releases only the element that holds focus", () => {
