@@ -254,7 +254,10 @@ describe("the operator's threads across every seat", () => {
     await call(seatId(0), "msg.reply", { target: "operator", text: "and one more", inReplyTo: thread.threadId });
     const unread = await page({ unread: true });
     expect(unread.total).toBe(1);
-    expect(unread.unread).toBe(2);
+    // The page counts threads with something unread (one thread, two mails); the row's own unread is its mails.
+    expect(unread.unread).toBe(1);
+    expect(unread.regions.reduce((sum, region) => sum + region.unread, 0)).toBe(1);
+    expect(unread.seatCounts.find((count) => count.seat.nodeId === seatId(0))?.unread).toBe(1);
     expect(unread.rows[0]).toMatchObject({ threadId: thread.threadId, unread: 2, last: { text: "and one more", from: { kind: "seat", nodeId: seatId(0) } } });
     // A seat's mail never waits.
     expect(unread.rows[0]!.last.waiting).toBeUndefined();

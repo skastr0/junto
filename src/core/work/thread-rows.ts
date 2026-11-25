@@ -239,7 +239,12 @@ type Counted = {
   readonly seatCounts: ReadonlyArray<OperatorThreadsSeatCount>;
 };
 
-/** The threads under the filter, newest first, with its counts and both strips. */
+/**
+ * The threads under the filter, newest first, with its counts and both strips.
+ * Every `unread` here counts threads that have something unread, never mails:
+ * the rows are threads, so the chip, the strips and the Threads button read
+ * one number (a row's own `unread` is its mails).
+ */
 const countUnder = (view: View, threads: ReadonlyArray<Thread>, filter: ThreadRowsFilter): Counted => {
   titleInput = view.input;
   try {
@@ -256,20 +261,20 @@ const countUnder = (view: View, threads: ReadonlyArray<Thread>, filter: ThreadRo
         const key = regionKey(thread.region);
         const held = regions.get(key) ?? { region: thread.region, total: 0, unread: 0 };
         held.total += 1;
-        held.unread += thread.unread;
+        held.unread += thread.unread > 0 ? 1 : 0;
         regions.set(key, held);
       }
       if (inRegion) {
         for (const seat of [thread.seat, ...thread.alsoSeats]) {
           const held = seats.get(seat.nodeId) ?? { seat, region: feedRegionForCanvas(view.canvas, seat.nodeId), total: 0, unread: 0 };
           held.total += 1;
-          held.unread += thread.unread;
+          held.unread += thread.unread > 0 ? 1 : 0;
           seats.set(seat.nodeId, held);
         }
       }
       if (inSeats && inRegion) {
         matched.push(thread);
-        unread += thread.unread;
+        unread += thread.unread > 0 ? 1 : 0;
       }
     }
     matched.sort(byActivity);

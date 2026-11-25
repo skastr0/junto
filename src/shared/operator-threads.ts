@@ -137,7 +137,10 @@ export const OperatorThreadsSeatCount = Schema.Struct({
 });
 export type OperatorThreadsSeatCount = typeof OperatorThreadsSeatCount.Type;
 
-/** One page. `next` asks for the page after it, absent at the end; `total` and `unread` count every row the filter holds, never the page. */
+/**
+ * One page. `next` asks for the page after it, absent at the end; `total` and `unread` count every row the filter
+ * holds, never the page: `unread` is the threads with something unread, as is each count in `regions` and `seatCounts`.
+ */
 export const OperatorThreadsPage = Schema.Struct({
   rows: Schema.Array(OperatorThreadRow),
   next: Schema.optionalKey(Schema.String),
