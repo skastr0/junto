@@ -23,6 +23,8 @@ import {
   refreshSeatThreads,
   resetSeatThreads,
   setSeatThreadsSource,
+  speakSignalsFor,
+  threadSpeaksFor,
   type SeatThreadMessage,
   type SeatThreadsSource,
   type SeatThreadSummary,
@@ -422,7 +424,8 @@ describe("signals in a thread", () => {
     const article = all("seat-threads-message")[1]!;
     expect(article.getAttribute("tabindex")).toBe("-1");
     // Named, so the landing says what it is: kind and state, then the headline.
-    const kind = article.querySelector(".seat-threads__signal-kind")!.textContent;
+    // The kind's span carries the reader-only comma after the word; the label is the word.
+    const kind = article.querySelector(".seat-threads__signal-kind")!.textContent!.replace(/,\s*$/, "");
     expect(article.getAttribute("aria-label")).toBe(`${kind}, open: Which store holds the notes?`);
     // A message that is not a signal is not a stop.
     expect(all("seat-threads-message")[0]!.hasAttribute("tabindex")).toBe(false);
@@ -493,6 +496,26 @@ describe("signals in a thread", () => {
   it("says a crossing once on the seat's machine's face: the crossed line on the withdrawn signal, no held note under the answer", () => crossedOnce("withdrawn"));
 
   it("says a crossing once on the editing machine's face: the crossed line on the answered signal, no held note under the answer", () => crossedOnce("answered"));
+
+  it("says it speaks for the signals it shows while it is on screen, so nothing else says their closing", async () => {
+    const fixture = fake();
+    fixture.state.messages.notes = [mine, raised(ask)];
+    expect(threadSpeaksFor("s1")).toBe(false);
+    await openOn(fixture);
+    expect(threadSpeaksFor("s1")).toBe(true);
+    expect(threadSpeaksFor("s-other")).toBe(false);
+  });
+
+  it("counts the chats that speak for a signal: it stays spoken for until the last one lets go", () => {
+    const first = speakSignalsFor(["a", "b"]);
+    const second = speakSignalsFor(["b"]);
+    expect([threadSpeaksFor("a"), threadSpeaksFor("b")]).toEqual([true, true]);
+    first();
+    first();
+    expect([threadSpeaksFor("a"), threadSpeaksFor("b")]).toEqual([false, true]);
+    second();
+    expect(threadSpeaksFor("b")).toBe(false);
+  });
 
   it("says the held note alone when the signal does not say the crossing yet", async () => {
     const fixture = fake();

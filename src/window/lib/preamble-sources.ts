@@ -35,6 +35,7 @@ import { agentSeat$ } from "./agent-seat-state";
 import { agentSignals$ } from "./agent-signals-state";
 import { showPreamble } from "./preamble-state";
 import { seatAwareness$ } from "./seat-awareness";
+import { threadSpeaksFor } from "./seat-threads";
 import { state$ } from "./state";
 import { modelStore, nodeAt } from "./use-model";
 
@@ -92,11 +93,16 @@ const SIGNAL_TONE: Readonly<Record<AgentSignalKind, PreambleTone>> = {
   notice: "steel",
 };
 
-/** A signal raised, answered, dismissed or withdrawn, as its seat's note. */
+/**
+ * A signal raised, answered, dismissed or withdrawn, as its seat's note. A
+ * withdrawal or a dismissal that a thread on screen says aloud is one event
+ * said once: the bubble stays quiet for it (`threadSays`).
+ */
 export const signalPreamble = (
   prior: AgentSignal | undefined,
   next: AgentSignal,
   now: number,
+  threadSays: (signalId: string) => boolean = threadSpeaksFor,
 ): PreambleEvent | undefined => {
   const at = next.state === "open" ? next.createdAt : (next.closedAt ?? next.createdAt);
   if (now - at > PREAMBLE_FRESH_MS) return undefined;
@@ -112,6 +118,7 @@ export const signalPreamble = (
     });
   }
   if (prior === undefined) return undefined;
+  if ((next.state === "withdrawn" || next.state === "dismissed") && threadSays(next.signalId)) return undefined;
   if (next.state === "answered") {
     return base({
       text: `answered: ${next.response?.text ?? next.text}`,

@@ -1027,6 +1027,28 @@ const sendBegins = (seatId: string): (() => void) => {
   return end;
 };
 
+// The signals whose closing a thread on screen says aloud, by id, counted. A closing is one event:
+// while a thread says it, no other place (a seat's preamble bubble, the feed) says it again.
+const speaking = new Map<string, number>();
+
+/** A thread on screen says the closing of these signals; returns the release, for when it leaves the screen. */
+export const speakSignalsFor = (signalIds: ReadonlyArray<string>): (() => void) => {
+  for (const id of signalIds) speaking.set(id, (speaking.get(id) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    for (const id of signalIds) {
+      const left = (speaking.get(id) ?? 1) - 1;
+      if (left <= 0) speaking.delete(id);
+      else speaking.set(id, left);
+    }
+  };
+};
+
+/** Whether a thread on screen says this signal's closing, so nothing else should. */
+export const threadSpeaksFor = (signalId: string): boolean => speaking.has(signalId);
+
 /** The operator's mail was sent from here: its waiting mark is held back for a second. */
 export const holdWaitingMark = (messageId: string): void => {
   markHeld$[messageId].set(true);
@@ -1143,6 +1165,7 @@ export const resetSeatThreads = (): void => {
   for (const timer of holdTimers) clearTimeout(timer);
   holdTimers.clear();
   heldSince.clear();
+  speaking.clear();
   markHeld$.set({});
   sending$.set({});
   seatThreads$.set({ seats: {}, messages: {}, unread: {} });

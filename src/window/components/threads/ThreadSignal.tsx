@@ -119,8 +119,11 @@ export function SignalFrame({
     >
       <p className="seat-threads__signal-line">
         <KindIcon size={11} strokeWidth={2.25} aria-hidden />
-        <span className="seat-threads__signal-kind">{signalKindWord(signal.kind)}</span>
-        <span className="sr-only">, </span>
+        {/* The comma a reader hears sits inside the kind, so no gap between items puts a space before it. */}
+        <span className="seat-threads__signal-kind">
+          {signalKindWord(signal.kind)}
+          <span className="sr-only">, </span>
+        </span>
         <span className="seat-threads__signal-state" data-testid="seat-threads-signal-state">
           {StateIcon ? <StateIcon size={11} strokeWidth={2.25} aria-hidden /> : null}
           {state.word}

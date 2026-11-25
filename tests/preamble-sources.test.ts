@@ -62,6 +62,31 @@ describe("signals", () => {
   });
 });
 
+describe("a closing a thread says aloud", () => {
+  const open = signal();
+  const withdrawn = signal({ state: "withdrawn", closedAt: NOW });
+  const dismissed = signal({ state: "dismissed", closedAt: NOW });
+  const answered = signal({ state: "answered", closedAt: NOW, response: { text: "it is in 1Password", at: NOW } });
+
+  it("is said once: the bubble stays quiet for a withdrawal or a dismissal the thread says", () => {
+    const says = (signalId: string) => signalId === "s1";
+    expect(signalPreamble(open, withdrawn, NOW, says)).toBeUndefined();
+    expect(signalPreamble(open, dismissed, NOW, says)).toBeUndefined();
+  });
+
+  it("still tells the raise, the operator's own answer, and any closing the thread does not say", () => {
+    const says = (signalId: string) => signalId === "s1";
+    expect(signalPreamble(undefined, open, NOW, says)?.action).toBe("signal");
+    expect(signalPreamble(open, answered, NOW, says)?.text).toBe("answered: it is in 1Password");
+    // Another signal of the seat, in a thread that is not on screen.
+    expect(signalPreamble(signal({ signalId: "s2" }), signal({ signalId: "s2", state: "withdrawn", closedAt: NOW }), NOW, says)?.text).toBe(
+      "cleared: need the prod DB password",
+    );
+    // No thread on screen: as before.
+    expect(signalPreamble(open, withdrawn, NOW, () => false)?.text).toBe("cleared: need the prod DB password");
+  });
+});
+
 describe("thread health", () => {
   const base = { canvasName: "c", nodeId: "seat", observedAt: NOW, now: NOW };
   it("tells trouble setting in, amber, as the AI's", () => {

@@ -13,6 +13,7 @@ import {
   previewText,
   useSeatThreadMessages,
   useSeatThreads,
+  speakSignalsFor,
   useSeatUnread,
   waitingHoldLeft,
   type SeatAddress,
@@ -599,6 +600,12 @@ export function ThreadChat({
     const states = signalStates.current;
     return () => states.clear();
   }, [threadId]);
+  // While this chat is on screen it says the closing of each signal it shows, so no other place does.
+  const signalIdsKey = [...(headSignal === undefined ? [] : [headSignal.signalId]), ...messages.flatMap((message) => (message.signal === undefined ? [] : [message.signal.signalId]))].join(",");
+  useEffect(() => {
+    if (!shown || signalIdsKey === "") return;
+    return speakSignalsFor(signalIdsKey.split(","));
+  }, [shown, signalIdsKey]);
   useEffect(() => {
     const states = signalStates.current;
     const now = [

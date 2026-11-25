@@ -78,7 +78,8 @@ describe("a signal message", () => {
         </SignalFrame>,
       );
       expect(q("seat-threads-signal")!.getAttribute("data-signal-kind")).toBe(kind);
-      expect(words(q("seat-threads-signal")!.querySelector(".seat-threads__signal-kind"))).toBe(word);
+      // The word, then the comma a reader hears.
+      expect(words(q("seat-threads-signal")!.querySelector(".seat-threads__signal-kind"))).toBe(`${word},`);
       // The kind's glyph is drawn, and is not said.
       expect(q("seat-threads-signal")!.querySelector(".seat-threads__signal-line > svg")?.getAttribute("aria-hidden")).toBe("true");
     }
@@ -118,6 +119,23 @@ describe("a signal message", () => {
       </SignalFrame>,
     );
     expect(q("seat-threads-signal-hand-in")).toBeNull();
+  });
+});
+
+describe("the signal line a reader hears", () => {
+  it("keeps the comma inside the kind, so no gap between items puts a space before it", async () => {
+    await render(
+      <SignalFrame author="pty-lead" known={KNOWN} signal={signal({ kind: "blocked" })} onHandIn={() => undefined}>
+        <p>What was asked.</p>
+      </SignalFrame>,
+    );
+    const line = q("seat-threads-signal")!.querySelector(".seat-threads__signal-line")!;
+    const kind = line.querySelector(".seat-threads__signal-kind")!;
+    expect(words(kind)).toBe("Blocked,");
+    expect(words(kind.querySelector(".sr-only"))).toBe(",");
+    // No reader-only comma of its own between the kind and the state.
+    expect([...line.children].filter((child) => child.classList.contains("sr-only"))).toEqual([]);
+    expect(words(line)).toBe("Blocked, Open");
   });
 });
 
