@@ -13,7 +13,9 @@
  * Never writes the canvas. Absent bridge degrades to a no-op subscribe.
  */
 
+import { useMemo } from "react";
 import { batch, observable } from "@legendapp/state";
+import { use$ } from "@legendapp/state/react";
 import {
   agentSeatStatusOf,
   encodeAgentSeatStatus,
@@ -70,6 +72,36 @@ export const agentSeat$ = observable<AgentSeatStore>({
   hydrated: false,
   rev: 0,
 });
+
+/** A path for a card that has no binding yet, so every card reads its own. */
+const NO_BINDING = "__junto-agent-seat-no-binding__";
+
+/**
+ * What the card glass draws from one report: the seat's state and the reason
+ * it gives. Everything else in an event (when it arrived, its confidence, its
+ * epoch) is bookkeeping the glass never shows.
+ */
+export const seatReportKey = (event: AgentSeatStateEvent | undefined): string =>
+  event === undefined ? "" : `${event.state}\u0000${event.reason ?? ""}`;
+
+/**
+ * One seat's report, read the way the card draws it: a report that changes
+ * neither the state nor the reason renders nobody.
+ *
+ * On a board of 207 seats a burst is a pause or a broadcast, one report per
+ * seat, and each report replaced its event object, so every card and every
+ * shell re-rendered to draw the same picture. Card and shell read the fact
+ * slice through this hook instead; the event it returns keeps the arrival time
+ * of the report that last changed what is drawn, so the card's next-turn ask
+ * does not re-run on a report that moved nothing either.
+ */
+export const useSeatReport = (bindingId: string | undefined): AgentSeatStateEvent | undefined => {
+  const path = bindingId ?? NO_BINDING;
+  const key = use$(() => seatReportKey(agentSeat$.byBindingId[path].get()));
+  // The freshest event on the render that changed the key; the held one otherwise.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => (key === "" ? undefined : agentSeat$.byBindingId[path].peek()), [key, path]);
+};
 
 /** Product presentation: engine states plus derived ready/complete. */
 export type AgentSeatPresentation = AgentSeatState | "done";

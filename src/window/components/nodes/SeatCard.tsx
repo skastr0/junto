@@ -1,7 +1,7 @@
 import { use$ } from "@legendapp/state/react";
 
 import { TASKS_ENABLED } from "@shared/features";
-import { agentSeat$ } from "../../lib/agent-seat-state";
+import { agentSeat$, useSeatReport } from "../../lib/agent-seat-state";
 import { useSeatSignalRollup } from "../../lib/agent-signals-state";
 import { machineLabel, onThisMachine, useSeatMachineLine } from "../../lib/machines";
 import { editText } from "../../lib/mutations";
@@ -44,7 +44,9 @@ export function SeatCard({
   const hostId = useNodeFieldOf(canvas, id, "agent", (seat) => seat.host);
   const overseer = useNodeFieldOf(canvas, id, "agent", (seat) => seat.overseer) === true;
 
-  const seatEvent = use$(agentSeat$.byBindingId[bindingId ?? NO_BINDING]);
+  // The seat's state and reason, which is all this card draws: a report that
+  // moves neither renders nobody (a burst is one render, not one per report).
+  const seatEvent = useSeatReport(bindingId);
   const needsLook = use$(agentSeat$.needsLookByBindingId[bindingId ?? NO_BINDING]);
   const session = use$(terminal$.sessionByBindingId[bindingId ?? NO_BINDING]);
   // Session hydration is the canvas feed's (canvas/feed/sessions.ts): the

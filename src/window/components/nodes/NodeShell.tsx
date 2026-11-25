@@ -34,7 +34,7 @@ import {
   useSeatOccupancyClue,
 } from "../../lib/occupancy-feed";
 import { actorOccupancyAttr } from "../../lib/occupancy-chrome";
-import { agentSeat$ } from "../../lib/agent-seat-state";
+import { agentSeat$, useSeatReport } from "../../lib/agent-seat-state";
 import { terminal$ } from "../../lib/terminal-state";
 import {
   notifyItem,
@@ -389,9 +389,10 @@ export function NodeShell({
     lastSeenAtMs: occupancyClue?.lastSeenAtMs,
     nowMs: Date.now(),
   });
-  const seatEvent = use$(
-    agentSeat$.byBindingId[bindingId ?? "__junto-shell-no-binding__"],
-  );
+  // The state and reason the shell draws, through the same slice the card
+  // reads: every card sits in a shell, so a report that draws nothing new
+  // must render neither.
+  const seatEvent = useSeatReport(bindingId);
   const needsLook = use$(
     agentSeat$.needsLookByBindingId[bindingId ?? "__junto-shell-no-binding__"],
   );

@@ -19,18 +19,25 @@
  *
  * The fix they lock is dc81c9552, which landed this file with it.
  */
-import { useEffect, useState } from "react";
+import { Profiler, useEffect, useState } from "react";
 import { observe } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
+import { decodeNode } from "../src/shared/model";
+import { SeatCard } from "../src/window/components/nodes/SeatCard";
 import {
   agentSeat$,
   applyAgentSeatStateEvent,
   resetAgentSeatState,
   subscribeAgentSeatState,
+  useSeatReport,
 } from "../src/window/lib/agent-seat-state";
+import { state$ } from "../src/window/lib/state";
+import { Effect } from "effect";
+import { holdModelCanvas } from "./support/hold-canvas";
+import { THIS_MACHINE } from "./support/machines";
 
 // React schedules as it does in the app: a store change in the microtask of
 // its task, everything else on its scheduler.
@@ -178,6 +185,86 @@ describe("a burst of seat reports", () => {
 
     expect(agentSeat$.byBindingId[seatId(0)].peek()).toBeUndefined();
     expect(agentSeat$.rev.peek()).toBe(0);
+  });
+});
+
+/** A card-shaped reader: what the chrome draws from one report. */
+let drawnRenders = 0;
+function Drawn() {
+  drawnRenders += 1;
+  const event = useSeatReport("seat-0");
+  return <output>{`${event?.state ?? "none"}/${event?.reason ?? ""}`}</output>;
+}
+
+describe("a burst is one render", () => {
+  afterEach(() => {
+    resetAgentSeatState();
+  });
+
+  it("renders the drawn slice once for reports that change neither state nor reason", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      drawnRenders = 0;
+      root.render(<Drawn />);
+      await settle();
+      const before = drawnRenders;
+      // Twenty reports, each its own task, as a burst of IPC messages arrives.
+      for (let i = 0; i < 20; i += 1) {
+        applyAgentSeatStateEvent(report(0, "working", 100 + i));
+        await turn();
+      }
+      await settle();
+      expect(drawnRenders - before).toBe(1);
+      expect(container.textContent).toBe("working/working");
+
+      // A report that moves what is drawn still renders.
+      applyAgentSeatStateEvent(report(0, "attention", 200));
+      await settle();
+      expect(drawnRenders - before).toBe(2);
+      expect(container.textContent).toBe("attention/attention");
+    } finally {
+      root.unmount();
+      container.remove();
+    }
+  });
+
+  it("renders the seat card once for a burst, and again when the seat's state moves", async () => {
+    state$.settings.machine.name.set(THIS_MACHINE);
+    const stop = holdModelCanvas("factory", [
+      Effect.runSync(decodeNode({
+        kind: "agent", id: "lead", label: "lead", x: 0, y: 0, width: 216, height: 96, z: 0,
+        agentKey: `${THIS_MACHINE}:lead`, host: THIS_MACHINE, overseer: false,
+        bindingId: "seat-0", harness: "claude",
+      })),
+    ]);
+    let commits = 0;
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      root.render(
+        <Profiler id="card" onRender={() => { commits += 1; }}>
+          <SeatCard canvas="factory" id="lead" />
+        </Profiler>,
+      );
+      await settle();
+      const before = commits;
+      for (let i = 0; i < 20; i += 1) {
+        applyAgentSeatStateEvent(report(0, "working", 100 + i));
+        await turn();
+      }
+      await settle();
+      expect(commits - before).toBe(1);
+      applyAgentSeatStateEvent(report(0, "attention", 300));
+      await settle();
+      expect(commits - before).toBe(2);
+    } finally {
+      root.unmount();
+      container.remove();
+      stop();
+    }
   });
 });
 
