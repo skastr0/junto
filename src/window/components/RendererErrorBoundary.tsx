@@ -18,8 +18,8 @@ export function RendererCrashFallback({
       <Eyebrow tone="amber">Junto</Eyebrow>
       <p className="font-display text-[18px] text-ink">{title}</p>
       <p className="max-w-md text-[12px] text-dim">
-        The station is still running. This view hit a render error and was
-        taken down so it would not stay blank.
+        Junto is still running. This view hit a render error and was taken
+        down so it would not stay blank.
       </p>
       {detail ? (
         <p className="max-w-md truncate font-mono text-[11px] text-faint" title={detail}>
@@ -48,7 +48,7 @@ type State = {
 
 /**
  * Catches a render/layout throw so one surface cannot unmount the whole
- * Command Center. There is no product ErrorBoundary above this.
+ * Junto window. There is no product ErrorBoundary above this.
  */
 export class RendererErrorBoundary extends Component<Props, State> {
   public state: State = { error: undefined, generation: 0 };

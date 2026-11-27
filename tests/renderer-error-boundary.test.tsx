@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { RendererCrashFallback } from "../src/window/components/RendererErrorBoundary";
 
 describe("RendererCrashFallback", () => {
-  it("keeps the station copy and a reload action", () => {
+  it("says Junto is still running and offers a reload action", () => {
     const html = renderToStaticMarkup(
       <RendererCrashFallback
         title="This work surface hit a render error"
@@ -13,7 +13,8 @@ describe("RendererCrashFallback", () => {
       />,
     );
     expect(html).toContain("Junto");
-    expect(html).toContain("The station is still running");
+    expect(html).toContain("Junto is still running");
+    expect(html).not.toMatch(/station|command center/i);
     expect(html).toContain("Reload this view");
     expect(html).not.toContain("h-full");
     expect(html).toContain("cannot read nodes");
