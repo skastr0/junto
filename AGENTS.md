@@ -556,6 +556,11 @@ Backfill laws (each one broke, or nearly broke, a real release):
   active — seeded with historical-shaped rows *including rows in the immutable
   log tables*. A migration proven only on empty or convenient fixtures is
   unproven.
+- **Proof homes carry `sqlite_stat1`.** Every home an upgrade proof opens has
+  run `ANALYZE` first (`node scripts/upgrade-proof-analyze.ts prepare
+  <junto.db>`); `scripts/upgrade-proof-open.sh` refuses one that has not. An
+  installed home has stat rows and a fresh VM home does not, so 0.12.0 passed
+  its proof and crashed real homes with `SQLITE_AUTH` (8030eb86d).
 
 ## Multi-agent tree (for builders)
 
