@@ -557,8 +557,8 @@ Backfill laws (each one broke, or nearly broke, a real release):
   log tables*. A migration proven only on empty or convenient fixtures is
   unproven.
 - **Proof homes carry `sqlite_stat1`.** Every home an upgrade proof opens has
-  run `ANALYZE` first (`node scripts/upgrade-proof-analyze.ts prepare
-  <junto.db>`); `scripts/upgrade-proof-open.sh` refuses one that has not. An
+  run `ANALYZE` first (`bun scripts/upgrade-proof-analyze.ts prepare
+  <junto.db>`); `scripts/upgrade-proof-open.ts` refuses one that has not. An
   installed home has stat rows and a fresh VM home does not, so 0.12.0 passed
   its proof and crashed real homes with `SQLITE_AUTH` (8030eb86d).
 

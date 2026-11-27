@@ -271,8 +271,8 @@ A storage change is releasable only when:
 8. skipped-release fixtures prove the append-only chain from every supported
    installed version;
    every home that proof upgrades has run `ANALYZE` first, as an installed one
-   has (`node scripts/upgrade-proof-analyze.ts prepare <junto.db>`, app closed),
-   and `scripts/upgrade-proof-open.sh` refuses a home with no populated
+   has (`bun scripts/upgrade-proof-analyze.ts prepare <junto.db>`, app closed),
+   and `scripts/upgrade-proof-open.ts` refuses a home with no populated
    `sqlite_stat1`: a fresh seeded home hides the stat-table deletes a
    table-rebuild step makes (0.12.0, `SQLITE_AUTH`, fixed in 8030eb86d);
 9. sealed candidate-clone preflight proves current repository decoding without

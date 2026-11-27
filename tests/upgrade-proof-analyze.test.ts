@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { analyzeProofHome, requireProofHomeStats } from "../scripts/upgrade-proof-analyze";
+import { openUpgradeProofHome } from "../scripts/upgrade-proof-open";
 
 /**
  * 0.12.0 passed its upgrade proof and crashed real homes with SQLITE_AUTH:
@@ -61,4 +62,16 @@ describe("an upgrade-proof home always has sqlite_stat1", () => {
     expect(() => analyzeProofHome(home)).toThrow(/operator's own database/u);
     expect(() => requireProofHomeStats(join(tmpdir(), "junto-proof-nonexistent", "junto.db"))).toThrow(/no database at/u);
   });
+
+  it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+    "the packaged open refuses a home with no stat rows before it launches anything",
+    async () => {
+      const db = seededHome();
+      const root = join(db, "..");
+      const state = join(root, "home", ".junto", "state");
+      mkdirSync(state, { recursive: true });
+      renameSync(db, join(state, "junto.db"));
+      await expect(openUpgradeProofHome(root, join(root, "no-package"), 79, "first")).rejects.toThrow(/no sqlite_stat1/u);
+    },
+  );
 });
