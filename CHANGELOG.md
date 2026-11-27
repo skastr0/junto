@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.12.2 — 2026-11-27
+
+Opening the database with 0.12.2 moves it from version 79 to 83 (a 0.11.15
+database goes through 79 first), and 0.12.0 or 0.11.15 then refuse it as newer
+than supported. To go back, open the backup taken at the upgrade. The four new
+steps add tables and columns and rebuild nothing: they keep what each peer last
+said it runs, which machine a Files node was last sent to, the canvases removed
+here that other machines still hold, and the canvases an earlier build removed.
+
+- 0.12.0 could not open a database that had been analysed, as every database
+  that has run for a minute is. SQLite refused (SQLITE_AUTH) the steps that
+  rebuild a table while it held its statistics, so the upgrade failed. The
+  migration now admits those deletes, and the upgrade is proved on a database
+  with the statistics present, not only on a fresh one.
 - Deleting a canvas reaches every other machine that holds a copy of it, a
   seat or a Files node: that machine drops its copy, stops its seats, and an
   older copy cannot bring the canvas back. The removal is sent again on each
@@ -12,6 +26,28 @@
   prints the `junto machine takeover <name> <id>` to run. The preview names the
   seats, automations and Files nodes that move, and a confirm older than the
   preview is refused.
+- A machine that answers as a different install no longer takes a send. The send
+  stops before the copy and says so. After Junto answers, the Machines window
+  shows a sixth step, the far machine trusting this one, and a send ends ready
+  only when the link opens. A machine reinstalled under its old name and sent
+  again says the far trusts its earlier install, and a copy refused because the
+  far already holds a different canvas of that name carries the operator's
+  words.
+- A machine bundle that fails to download is logged with the release server's
+  HTTP status, the archive path and the build id. A bundle the release server
+  does not hold says "This Junto build is not on its release server. The
+  machine has not changed", instead of a bare failure.
+- On the GPU canvas (experimental), at far zoom every region's seats gather into
+  one badge that shows its most urgent seat. Hovering a badge lists its seats and
+  a press on a row flies to that seat.
+- When the window fails to draw, the fallback says Junto is still running.
+- The window bundles one copy of CodeMirror, Lezer and every stateful package,
+  and the build fails when it would carry two; the packaged-app audit checks the
+  same on the finished app. Two copies of CodeMirror's state break every editor
+  on open, which is why it is a build failure.
+- The Linux runtime ships `chrome_crashpad_handler` executable, and a Linux build
+  with a program that lacks its execute bit fails. The 0.12.0 Linux runtime did
+  not start for that reason. It is not offered for download.
 
 Known: a canvas deleted by 0.12.0 or an earlier build, whose name was then
 used again for a new canvas here, is not removed from the other machines.
