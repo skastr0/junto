@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
-import { Effect, Fiber } from "effect";
+import { Effect, Fiber, ManagedRuntime } from "effect";
 import { Header, type HeaderData } from "tar";
 import { afterEach, expect, it, vi } from "vitest";
 import { makeMachineBundleSources, makeReleaseMachineBundleAcquirer, type MachineBundleAcquirer } from "../src/core/hosts/machine-bundle-download";
@@ -12,6 +12,9 @@ import { MachineInstallError } from "../src/shared/machine-install";
 import { decodeMachineReleaseCatalog, MACHINE_RELEASE_ORIGIN, MAX_MACHINE_UNPACKED_BYTES } from "../src/shared/machine-release";
 import type { MachineSendEvent } from "../src/shared/machine-progress";
 import { machineTarHeader } from "../scripts/machine-release";
+import { createLogger } from "../src/node/observability/logger";
+import { machineLogDir } from "../src/node/observability/log-file";
+import type { MachineLogRow } from "../src/shared/machine-log";
 
 const homes: string[] = [];
 afterEach(async () => { for (const home of homes.splice(0)) await rm(home, { recursive: true, force: true }); });
@@ -279,4 +282,86 @@ it("protects active old builds while pruning and refuses fake cleanup authority 
   await mkdir(join(other.home, ".junto/cache"), { recursive: true, mode: 0o700 });
   await symlink(target, other.cache);
   expect((await errorFrom(other.acquire)).message).toContain("not owned"); expect(await readdir(target)).toEqual([]);
+});
+
+it("logs HTTP 404 after redirect with build id, archivePath, status and host, and tells the operator the build is not on the release server", async () => {
+  const f = await fixture();
+  const destination = new URL(f.archive.archivePath, "https://junto-releases.skastr052.workers.dev");
+  f.fetcher.mockResolvedValueOnce(new Response(null, { status: 307, headers: { Location: destination.href } }))
+    .mockResolvedValueOnce(new Response("not found", { status: 404 }));
+  const log = createLogger({ process: "core", echo: false, machine: "macbook" });
+  log.openFile({ home: f.home });
+  const runtime = ManagedRuntime.make(log.loggerLayer);
+  try {
+    const error = await runtime.runPromise(Effect.scoped(f.acquire("darwin-arm64").pipe(Effect.flip)));
+    expect(error).toBeInstanceOf(MachineInstallError);
+    expect(error.message).toBe("This Junto build is not on its release server. The machine has not changed");
+    expect(error.ownWords).toBe(true);
+    expect(error.disposition).toBe("staged");
+  } finally {
+    await runtime.dispose();
+    log.closeFile();
+  }
+  const rows = (await readFile(join(machineLogDir(f.home), "core.jsonl"), "utf8"))
+    .trim().split("\n").filter(Boolean).map(line => JSON.parse(line) as MachineLogRow);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({
+    level: "warn",
+    area: "machines",
+    message: "machine bundle release-server download failed",
+    failure: { tag: "MachineBundleDownloadFailed" },
+    annotations: {
+      operation: "download",
+      build: f.build,
+      target: "darwin-arm64",
+      archivePath: f.archive.archivePath,
+      check: "release-server",
+      status: "404",
+      host: "junto-releases.skastr052.workers.dev",
+    },
+  });
+});
+
+it("logs HTTP 5xx, refused redirects (without leaking Location), and unreachable failures to core.jsonl", async () => {
+  const f = await fixture();
+  const log = createLogger({ process: "core", echo: false, machine: "macbook" });
+  log.openFile({ home: f.home });
+  const runtime = ManagedRuntime.make(log.loggerLayer);
+  const leaked = "sk-supersecretredirectvalue123456";
+  try {
+    f.fetcher.mockResolvedValueOnce(new Response("bad gateway", { status: 502 }));
+    const err502 = await runtime.runPromise(Effect.scoped(f.acquire("darwin-arm64").pipe(Effect.flip)));
+    expect(err502.message).toBe("Cannot download this Junto build from its release server. The machine has not changed");
+    expect(err502.ownWords).toBe(true);
+
+    f.fetcher.mockResolvedValueOnce(new Response(null, { status: 307, headers: { Location: `https://example.invalid/x?token=${leaked}` } }));
+    const errRedirect = await runtime.runPromise(Effect.scoped(f.acquire("darwin-arm64").pipe(Effect.flip)));
+    expect(errRedirect.message).toBe("Cannot download this Junto build from its release server. The machine has not changed");
+    expect(errRedirect.ownWords).toBe(true);
+
+    f.fetcher.mockRejectedValueOnce(new Error("connect ECONNREFUSED"));
+    const errNet = await runtime.runPromise(Effect.scoped(f.acquire("darwin-arm64").pipe(Effect.flip)));
+    expect(errNet.message).toBe("Cannot download Junto. Check your internet connection and send again. The machine has not changed");
+    expect(errNet.ownWords).toBe(true);
+  } finally {
+    await runtime.dispose();
+    log.closeFile();
+  }
+  const raw = await readFile(join(machineLogDir(f.home), "core.jsonl"), "utf8");
+  expect(raw).not.toContain(leaked);
+  expect(raw).not.toContain("example.invalid");
+  const rows = raw.trim().split("\n").filter(Boolean).map(line => JSON.parse(line) as MachineLogRow);
+  expect(rows).toHaveLength(3);
+  expect(rows[0]).toMatchObject({
+    level: "warn", area: "machines", message: "machine bundle release-server download failed",
+    annotations: { operation: "download", build: f.build, target: "darwin-arm64", archivePath: f.archive.archivePath, check: "release-server", status: "502", host: "releases.juntoagents.com" },
+  });
+  expect(rows[1]).toMatchObject({
+    level: "warn", area: "machines", message: "machine bundle release-server download failed",
+    annotations: { operation: "download", build: f.build, target: "darwin-arm64", archivePath: f.archive.archivePath, check: "release-server", status: "307", host: "releases.juntoagents.com", redirectRefused: "true" },
+  });
+  expect(rows[2]).toMatchObject({
+    level: "warn", area: "machines", message: "machine bundle download failed",
+    annotations: { operation: "download", build: f.build, target: "darwin-arm64", archivePath: f.archive.archivePath, check: "unreachable", host: "releases.juntoagents.com" },
+  });
 });

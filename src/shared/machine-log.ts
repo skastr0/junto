@@ -44,14 +44,18 @@ export type LogProcess = typeof LogProcess.Type;
  * they are never scrubbed, because the scrub's id rules would erase them.
  */
 export const LOG_ID_ANNOTATIONS: ReadonlySet<string> = new Set([
-  "sessionId", "requestId", "installationId", "peerInstallationId", "peerBuild", "bindingId", "generation", "generationId",
+  "sessionId", "requestId", "installationId", "peerInstallationId", "peerBuild", "build", "archivePath", "bindingId", "generation", "generationId",
   "sandboxId", "boatKeyId", "hostKey", "previousHostKey",
 ]);
 export const LogAnnotationId = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u)));
 export const isLogAnnotationId = Schema.is(LogAnnotationId);
 /** Ids whose own shape is known are held to it, not only to `LogAnnotationId`. */
 const HOST_KEY_FINGERPRINT = /^SHA256:[A-Za-z0-9+/]{43}$/u;
+const BUILD_HEX = /^[0-9a-f]{64}$/u;
+const MACHINE_ARCHIVE_PATH = /^\/machines\/[0-9a-f]{64}\/[a-z0-9]+(?:-[a-z0-9]+)+\.tar\.gz$/u;
 const ID_SHAPES: Readonly<Record<string, (value: string) => boolean>> = {
+  build: (value) => BUILD_HEX.test(value),
+  archivePath: (value) => MACHINE_ARCHIVE_PATH.test(value),
   sandboxId: Schema.is(BoatSandboxId),
   boatKeyId: Schema.is(BoatKeyId),
   hostKey: (value) => HOST_KEY_FINGERPRINT.test(value),

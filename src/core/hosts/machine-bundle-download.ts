@@ -37,13 +37,56 @@ export const MachineBundleDownloadCheck = Schema.Literals(["release-server", "ca
 export class MachineBundleDownloadFailed extends Schema.TaggedError<MachineBundleDownloadFailed>()("MachineBundleDownloadFailed", {
   check: MachineBundleDownloadCheck,
   message: Schema.String,
+  /** HTTP status from the allow-listed release host, when it answered. */
+  status: Schema.optionalKey(Schema.Number),
+  /** Allow-listed host that answered or failed (never an untrusted Location header). */
+  host: Schema.optionalKey(Schema.String),
+  /** Compiled catalog archive path (/machines/<build>/<target>.tar.gz). */
+  archivePath: Schema.optionalKey(Schema.String),
+  /** Compiled catalog 64-hex build id. */
+  build: Schema.optionalKey(Schema.String),
+  /** Target platform requested from the catalog. */
+  target: Schema.optionalKey(Schema.String),
+  /** True when a redirect failed allow-list or single-hop checks. */
+  redirectRefused: Schema.optionalKey(Schema.Boolean),
   cause: Schema.optionalKey(Schema.Defect()),
 }) {}
-const downloadFailed = (check: typeof MachineBundleDownloadCheck.Type, message: string, cause?: unknown): MachineBundleDownloadFailed =>
-  new MachineBundleDownloadFailed({ check, message, ...(cause === undefined ? {} : { cause }) });
-const releaseServerFailure = (cause?: unknown): MachineBundleDownloadFailed =>
-  downloadFailed("release-server", "Cannot download this Junto build from its release server. The machine has not changed", cause);
-const cancelled = (): MachineBundleDownloadFailed => downloadFailed("cancelled", "Junto's download was interrupted. The machine has not changed");
+type DownloadFailureMeta = {
+  readonly status?: number;
+  readonly host?: string;
+  readonly archivePath?: string;
+  readonly build?: string;
+  readonly target?: string;
+  readonly redirectRefused?: boolean;
+};
+const downloadFailed = (
+  check: typeof MachineBundleDownloadCheck.Type,
+  message: string,
+  cause?: unknown,
+  meta?: DownloadFailureMeta,
+): MachineBundleDownloadFailed =>
+  new MachineBundleDownloadFailed({
+    check,
+    message,
+    ...(meta?.status === undefined ? {} : { status: meta.status }),
+    ...(meta?.host === undefined ? {} : { host: meta.host }),
+    ...(meta?.archivePath === undefined ? {} : { archivePath: meta.archivePath }),
+    ...(meta?.build === undefined ? {} : { build: meta.build }),
+    ...(meta?.target === undefined ? {} : { target: meta.target }),
+    ...(meta?.redirectRefused === undefined ? {} : { redirectRefused: meta.redirectRefused }),
+    ...(cause === undefined ? {} : { cause }),
+  });
+const releaseServerFailure = (cause?: unknown, meta?: DownloadFailureMeta): MachineBundleDownloadFailed =>
+  downloadFailed(
+    "release-server",
+    meta?.status === 404 && meta.redirectRefused !== true
+      ? "This Junto build is not on its release server. The machine has not changed"
+      : "Cannot download this Junto build from its release server. The machine has not changed",
+    cause,
+    meta,
+  );
+const cancelled = (meta?: DownloadFailureMeta): MachineBundleDownloadFailed =>
+  downloadFailed("cancelled", "Junto's download was interrupted. The machine has not changed", undefined, meta);
 
 const download = async (input: {
   readonly archive: MachineReleaseArchive;
@@ -56,12 +99,19 @@ const download = async (input: {
 }): Promise<void> => {
   const signal = AbortSignal.any([input.signal, AbortSignal.timeout(MACHINE_BUNDLE_DOWNLOAD_TIMEOUT_MS)]);
   const original = new URL(input.archive.archivePath, input.catalog.origin);
+  const baseMeta = {
+    archivePath: input.archive.archivePath,
+    build: input.catalog.build,
+    target: input.archive.target,
+  } as const;
+  let host = original.host;
   const request: RequestInit = { redirect: "manual", signal, credentials: "omit", headers: { "Accept-Encoding": "identity" } };
   const get = async (url: URL): Promise<Response> => {
     try { return await input.fetch(url, request); }
     catch (cause) {
-      throw input.signal.aborted ? downloadFailed("cancelled", cancelled().message, cause)
-        : downloadFailed("unreachable", "Cannot download Junto. Check your internet connection and send again. The machine has not changed", cause);
+      throw input.signal.aborted
+        ? downloadFailed("cancelled", cancelled().message, cause, { ...baseMeta, host: url.host })
+        : downloadFailed("unreachable", "Cannot download Junto. Check your internet connection and send again. The machine has not changed", cause, { ...baseMeta, host: url.host });
     }
   };
   let response = await get(original);
@@ -69,15 +119,27 @@ const download = async (input: {
     const location = response.headers.get("location");
     await response.body?.cancel().catch(() => undefined);
     let destination: URL;
-    try { destination = new URL(location ?? "", original); } catch (cause) { throw releaseServerFailure(cause); }
+    try { destination = new URL(location ?? "", original); }
+    catch (cause) {
+      throw releaseServerFailure(cause, { ...baseMeta, status: response.status, host, redirectRefused: true });
+    }
     if (!location || destination.protocol !== "https:" || !releaseRedirectHosts.has(destination.host) ||
       destination.pathname !== original.pathname || destination.search !== original.search || destination.hash ||
-      destination.username || destination.password) throw releaseServerFailure();
+      destination.username || destination.password) {
+      throw releaseServerFailure(undefined, { ...baseMeta, status: response.status, host, redirectRefused: true });
+    }
+    host = destination.host;
     response = await get(destination);
   }
   if (!response.ok || response.redirected || !response.body) {
     await response.body?.cancel().catch(() => undefined);
-    throw releaseServerFailure();
+    const redirectRefused = response.redirected || redirectStatuses.has(response.status);
+    throw releaseServerFailure(undefined, {
+      ...baseMeta,
+      status: response.status,
+      host,
+      ...(redirectRefused ? { redirectRefused: true } : {}),
+    });
   }
   const file = await open(join(await machineBundleAttemptPath(input.attempt), "download.tar.gz"),
     constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
@@ -139,19 +201,51 @@ export const makeReleaseMachineBundleAcquirer = (input: {
   const machine = input.machine ?? defaultMachineName;
   const failure = (cause: unknown): MachineInstallError => new MachineInstallError({
     message: cause instanceof Error ? cause.message : "Cannot download Junto. The machine has not changed",
-    disposition: "staged", retryable: true, ...(cause instanceof Error ? {} : { ownWords: true as const }), ...failureHere(cause, machine()),
+    disposition: "staged", retryable: true,
+    ...(cause instanceof MachineBundleDownloadFailed || !(cause instanceof Error) ? { ownWords: true as const } : {}),
+    ...failureHere(cause, machine()),
   });
   const catalog = decodeMachineReleaseCatalog(input.catalog);
   if (catalog.build !== input.build) throw downloadFailed("catalog-mismatch", "The machine download catalog does not match this Junto build");
+  const failWithLog = (cause: unknown, targetName: string, archivePath?: string) => {
+    const info = cause instanceof MachineBundleDownloadFailed ? cause : undefined;
+    const path = info?.archivePath ?? archivePath;
+    return Effect.logWarning(
+      info?.check === "release-server" ? "machine bundle release-server download failed" : "machine bundle download failed",
+      cause,
+    ).pipe(
+      Effect.annotateLogs({
+        area: "machines",
+        operation: "download",
+        build: info?.build ?? catalog.build,
+        target: info?.target ?? targetName,
+        ...(path === undefined ? {} : { archivePath: path }),
+        ...(info === undefined ? {} : { check: info.check }),
+        ...(info?.status === undefined ? {} : { status: info.status }),
+        ...(info?.host === undefined ? {} : { host: info.host }),
+        ...(info?.redirectRefused === true ? { redirectRefused: true } : {}),
+      }),
+      Effect.andThen(Effect.fail(failure(cause))),
+    );
+  };
   return (target, onTransition) => Effect.gen(function* () {
     const archive = catalog.archives.find(entry => entry.target === target);
-    if (archive === undefined) return yield* Effect.fail(failure(downloadFailed("no-platform", "This Junto build has no download for that machine platform. The machine has not changed")));
+    if (archive === undefined) {
+      return yield* failWithLog(
+        downloadFailed("no-platform", "This Junto build has no download for that machine platform. The machine has not changed", undefined, {
+          build: catalog.build,
+          target,
+        }),
+        target,
+      );
+    }
+    const failHere = (cause: unknown) => failWithLog(cause, archive.target, archive.archivePath);
     const cache = yield* Effect.acquireRelease(
-      Effect.tryPromise({ try: () => acquireMachineBundleCache(input.home, catalog.build), catch: failure }),
+      Effect.tryPromise({ try: () => acquireMachineBundleCache(input.home, catalog.build), catch: cause => cause }).pipe(Effect.catch(failHere)),
       handle => Effect.sync(() => releaseMachineBundleCache(handle)),
     );
     const attempt = yield* Effect.acquireRelease(
-      Effect.tryPromise({ try: () => createMachineBundleAttempt(cache), catch: failure }),
+      Effect.tryPromise({ try: () => createMachineBundleAttempt(cache), catch: cause => cause }).pipe(Effect.catch(failHere)),
       // The attempt is private and retried fresh next send; a cleanup failure is logged, never the send's result.
       handle => Effect.tryPromise(() => discardMachineBundleAttempt(handle)).pipe(
         Effect.catch(cause => Effect.logWarning("a machine download attempt could not be removed", cause)),
@@ -159,7 +253,10 @@ export const makeReleaseMachineBundleAcquirer = (input: {
     );
     const clock = yield* Clock.Clock;
     let progress: ReturnType<typeof makeDownloadProgress> | undefined;
-    const cached = yield* Effect.tryPromise({ try: () => snapshotCachedMachineArchive(cache, attempt, archive), catch: failure }).pipe(Effect.uninterruptible);
+    const cached = yield* Effect.tryPromise({ try: () => snapshotCachedMachineArchive(cache, attempt, archive), catch: cause => cause }).pipe(
+      Effect.catch(failHere),
+      Effect.uninterruptible,
+    );
     if (!cached) {
       yield* Effect.forkScoped(Effect.forever(Effect.sleep("1 second").pipe(
         Effect.andThen(Effect.sync(() => progress?.check(clock.currentTimeMillisUnsafe()))),
@@ -193,20 +290,32 @@ export const makeReleaseMachineBundleAcquirer = (input: {
         const observe = (bytes: number): void => progress?.advance(bytes, clock.currentTimeMillisUnsafe());
         flight.users++; flight.observers.add(observe); observe(flight.bytes);
         return { flight, observe };
-      }, catch: failure }), selected => Effect.promise(async () => {
+      }, catch: cause => cause }).pipe(Effect.catch(failHere)), selected => Effect.promise(async () => {
         selected.flight.observers.delete(selected.observe);
         if (--selected.flight.users === 0) {
           selected.flight.controller.abort();
           await selected.flight.promise.catch(() => undefined);
         }
       }));
-      yield* Effect.tryPromise({ try: signal => waitForFlight(subscription.flight, signal), catch: failure });
-      const published = yield* Effect.tryPromise({ try: () => snapshotCachedMachineArchive(cache, attempt, archive), catch: failure }).pipe(Effect.uninterruptible);
-      if (!published) return yield* Effect.fail(failure(downloadFailed("disappeared", "Junto's verified download disappeared. Send again. The machine has not changed")));
+      yield* Effect.tryPromise({ try: signal => waitForFlight(subscription.flight, signal), catch: cause => cause }).pipe(Effect.catch(failHere));
+      const published = yield* Effect.tryPromise({ try: () => snapshotCachedMachineArchive(cache, attempt, archive), catch: cause => cause }).pipe(
+        Effect.catch(failHere),
+        Effect.uninterruptible,
+      );
+      if (!published) {
+        return yield* failHere(downloadFailed("disappeared", "Junto's verified download disappeared. Send again. The machine has not changed", undefined, {
+          archivePath: archive.archivePath,
+          build: catalog.build,
+          target: archive.target,
+        }));
+      }
     }
-    const bundle = yield* Effect.tryPromise({ try: () => unpackMachineReleaseArchive(attempt, archive, catalog), catch: failure }).pipe(Effect.uninterruptible);
+    const bundle = yield* Effect.tryPromise({ try: () => unpackMachineReleaseArchive(attempt, archive, catalog), catch: cause => cause }).pipe(
+      Effect.catch(failHere),
+      Effect.uninterruptible,
+    );
     yield* Effect.sync(() => progress?.finish(clock.currentTimeMillisUnsafe()));
-    yield* Effect.tryPromise({ try: () => pruneMachineBundleCache(cache), catch: failure });
+    yield* Effect.tryPromise({ try: () => pruneMachineBundleCache(cache), catch: cause => cause }).pipe(Effect.catch(failHere));
     return bundle;
   });
 };

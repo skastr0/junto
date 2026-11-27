@@ -243,6 +243,28 @@ describe("row ids", () => {
     expect(dropped?.annotations).toBeUndefined();
   });
 
+  it("keeps valid build ids and release archive paths unredacted, and drops malformed or secret ones", () => {
+    const home = freshHome();
+    installMachineLog({ home, process: "core", echo: false });
+    const build = "e66e75757c0bc959e2191d4c1127236c7f9720725002dfeb2f3f2bb40ef723a6";
+    const archivePath = `/machines/${build}/darwin-arm64.tar.gz`;
+    const secretBuild = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
+    process.env.JUNTO_TEST_LOG_SECRET = secretBuild;
+    writeLog({ level: "warn", source: "effect", message: "download", annotations: { area: "machines", build, archivePath } });
+    writeLog({
+      level: "warn", source: "effect", message: "bad",
+      annotations: { area: "machines", build: secretBuild, archivePath: `/machines/${build}/../evil.tar.gz` },
+    });
+    writeLog({
+      level: "warn", source: "effect", message: "wrong-shape",
+      annotations: { area: "machines", build: "not-a-build", archivePath: "https://example.invalid/x?token=abc" },
+    });
+    const [kept, secret, bad] = rowsOf(home);
+    expect(kept?.annotations).toMatchObject({ build, archivePath });
+    expect(secret?.annotations).toBeUndefined();
+    expect(bad?.annotations).toBeUndefined();
+  });
+
   it("files a failure under the seat its detail names, so another seat cannot read it", async () => {
     const home = freshHome();
     installMachineLog({ home, process: "core", echo: false });
