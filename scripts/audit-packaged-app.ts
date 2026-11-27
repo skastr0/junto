@@ -983,6 +983,77 @@ export const auditRendererAssetTypes = (asarPath: string): number => {
 };
 
 /**
+ * The renderer holds one copy of each CodeMirror core package. CodeMirror
+ * checks its own classes with `instanceof`, so a second copy of
+ * `@codemirror/state`, `@codemirror/view` or `@codemirror/language` breaks
+ * every editor at runtime ("Unrecognized extension value in extension set")
+ * while dev, which resolves one copy, works. A minified bundle keeps no package
+ * names, so each package is told by error strings that live in code every copy
+ * keeps; a string found more than once under out/renderer is a second copy.
+ * Fails by package, naming the files that carry it. Returns how many renderer
+ * scripts it read.
+ */
+export const CODEMIRROR_COPY_MARKERS = {
+  "@codemirror/state": [
+    "multiple instances of @codemirror/state are loaded",
+    "Cyclic dependency between fields and/or facets",
+    "Config merge conflict for field",
+  ],
+  "@codemirror/view": [
+    "Calls to EditorView.update are not allowed while an update is in progress",
+    "Reading the editor layout isn't allowed during an update",
+    "Block decorations may not be specified via plugins",
+  ],
+  "@codemirror/language": [
+    "Must pass either 'load' or 'support' to LanguageDescription.of",
+    "Invalid indent unit: ",
+    "Stream parser failed to advance stream.",
+  ],
+} as const satisfies Readonly<Record<string, ReadonlyArray<string>>>;
+
+/** Pure core: renderer script sources keyed by path in, the packages found in more than one copy out. */
+export const duplicateCodeMirrorPackages = (
+  sources: ReadonlyMap<string, string>,
+): ReadonlyArray<{ readonly pkg: string; readonly copies: number; readonly files: ReadonlyArray<string> }> => {
+  const found: Array<{ pkg: string; copies: number; files: string[] }> = [];
+  for (const [pkg, markers] of Object.entries(CODEMIRROR_COPY_MARKERS)) {
+    let copies = 0;
+    let files: string[] = [];
+    for (const marker of markers) {
+      let count = 0;
+      const holding: string[] = [];
+      for (const [file, text] of sources) {
+        let at = text.indexOf(marker);
+        let here = 0;
+        while (at !== -1) { here += 1; at = text.indexOf(marker, at + marker.length); }
+        if (here > 0) holding.push(file);
+        count += here;
+      }
+      if (count > copies) { copies = count; files = holding; }
+    }
+    if (copies > 1) found.push({ pkg, copies, files });
+  }
+  return found;
+};
+
+export const auditRendererCodeMirrorCopies = (asarPath: string): number => {
+  const scripts = listPackage(asarPath, { isPack: false })
+    .filter((entry) => entry.startsWith(RENDERER_ASAR_ROOT) && /\.(?:c|m)?js$/u.test(entry))
+    .filter((entry) => !("files" in statFile(asarPath, entry.slice(1), false)));
+  if (scripts.length === 0) throw new Error("app.asar holds no renderer scripts under out/renderer");
+  const sources = new Map(scripts.map((entry) => [entry, extractFile(asarPath, entry.slice(1)).toString("utf8")] as const));
+  const duplicated = duplicateCodeMirrorPackages(sources);
+  if (duplicated.length > 0) {
+    throw new Error(
+      `renderer bundles more than one copy of ${duplicated
+        .map(({ pkg, copies, files }) => `${pkg} (${copies} copies, in ${files.join(", ")})`)
+        .join("; ")}; resolve.dedupe in electron.vite.config.ts must hold one`,
+    );
+  }
+  return scripts.length;
+};
+
+/**
  * A source map never ships inside the app. The release keeps every map as an
  * archive named by version and commit (scripts/collect-sourcemaps.ts), and a
  * bundle line in a log maps back to source with it (docs/source-maps.md). The
@@ -1037,6 +1108,7 @@ export const auditPackagedApp = async (
     workCliPath,
   });
   auditRendererAssetTypes(appAsarPath);
+  auditRendererCodeMirrorCopies(appAsarPath);
   auditNoSourceMaps(appAsarPath);
 
   runFixedCommand("/usr/bin/codesign", [
@@ -1097,6 +1169,7 @@ export const auditSourcePackagedApp = async (requestedPath: string) => {
   await validateRawAsarArchive(asarPath);
   await auditRetiredStateRuntimeBundle({ asarPath, workCliPath });
   auditRendererAssetTypes(asarPath);
+  auditRendererCodeMirrorCopies(asarPath);
   auditNoSourceMaps(asarPath);
   const plist = JSON.parse(runFixedCommand("/usr/bin/plutil", [
     "-convert", "json", "-o", "-", path.join(appPath, "Contents", "Info.plist"),
@@ -1124,11 +1197,19 @@ const invokedPath =
 if (invokedPath === modulePath) {
   const requestedPath = process.argv[2];
   const sourceBuild = process.argv[3] === "--source";
-  if (requestedPath === undefined || (process.argv.length !== 3 && !(process.argv.length === 4 && sourceBuild))) {
+  const codeMirrorOnly = process.argv[3] === "--codemirror";
+  if (requestedPath === undefined || (process.argv.length !== 3 && !(process.argv.length === 4 && (sourceBuild || codeMirrorOnly)))) {
     console.error(
-      "usage: bun scripts/audit-packaged-app.ts /path/to/Junto.app [--source]",
+      "usage: bun scripts/audit-packaged-app.ts /path/to/Junto.app [--source]\n       bun scripts/audit-packaged-app.ts /path/to/app.asar --codemirror",
     );
     process.exitCode = 2;
+  } else if (codeMirrorOnly) {
+    try {
+      process.stdout.write(`${JSON.stringify({ ok: true, rendererScripts: auditRendererCodeMirrorCopies(path.resolve(requestedPath)) })}\n`);
+    } catch (error: unknown) {
+      console.error(`junto package security audit failed: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    }
   } else {
     (sourceBuild ? auditSourcePackagedApp(requestedPath) : auditPackagedApp(requestedPath))
       .then((receipt) => {

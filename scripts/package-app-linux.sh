@@ -92,6 +92,9 @@ bun "$SCRIPT_DIR/package-runtime-provenance.ts" verify-package \
 AUDIT_RECEIPT="$ATTEMPT_DIR/$(basename "$DRAFT_ARTIFACT").audit.json"
 bun "$SCRIPT_DIR/audit-linux-package.ts" --runtime "$DRAFT_ARTIFACT" \
   --receipt "$AUDIT_RECEIPT" >/dev/null
+# One copy of each CodeMirror core package in the renderer: a second breaks every
+# editor in the packaged app and works in dev (scripts/audit-packaged-app.ts).
+bun "$SCRIPT_DIR/audit-packaged-app.ts" "$DRAFT_ARTIFACT/resources/app.asar" --codemirror >/dev/null
 
 if [[ "$REPLACE" -eq 1 ]]; then
   for draft in "$ATTEMPT_DIR"/*; do
