@@ -6,6 +6,7 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { buildContext, mainBuildSection, releaseSourceMaps } from "./scripts/vite-sections";
 import { overlayDepsPlugin } from "./scripts/overlay";
 import { preloadBundleGuard } from "./scripts/preload-bundle-guard";
+import { RENDERER_SINGLETONS, rendererSingletonGuard } from "./scripts/renderer-singletons";
 
 /**
  * A perf build (JUNTO_PERF_BUILD=1, for measurement, never shipped): the
@@ -59,13 +60,20 @@ export default defineConfig(({ command, mode }) => {
     },
     renderer: {
       root: ".",
-      // One React for the whole renderer. Without this, a fresh install can
-      // resolve the app's `react` and the copy `react-dom` requires as two
-      // modules: the root renders with one dispatcher and every hook reads
-      // the other, so the first component throws on a null `useEffect`.
-      resolve: { alias: rendererAlias, dedupe: ["react", "react-dom"] },
+      // One copy of every package that keeps module-level state, React and
+      // CodeMirror first. Two copies of `react` give the root one dispatcher
+      // and every hook the other; two of `@codemirror/state` broke 0.12.1's
+      // editors on "Unrecognized extension value". The guard fails a build
+      // that still bundles one of them twice (scripts/renderer-singletons.ts).
+      resolve: { alias: rendererAlias, dedupe: [...RENDERER_SINGLETONS] },
       define: productDefines,
-      plugins: [overlayDepsPlugin(overlay), react(), tailwindcss(), writeBuildSourceStamp(process.cwd())],
+      plugins: [
+        overlayDepsPlugin(overlay),
+        react(),
+        tailwindcss(),
+        rendererSingletonGuard(),
+        writeBuildSourceStamp(process.cwd()),
+      ],
       // The dev server may serve overlay files from outside this repository.
       ...(overlay.kind === "official" ? { server: { fs: { allow: [".", overlay.dir] } } } : {}),
       build: {
