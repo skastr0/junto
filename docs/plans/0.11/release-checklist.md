@@ -643,3 +643,52 @@ open with the packaged 0.12.0. All on VM test homes, never the operator's
   (`executableNames`, same in 0.11.15) leaves `chrome_crashpad_handler` at 0644,
   Electron dies with SIGTRAP. The runs used a copy with that one file at 0755.
   Linux desktop is not published (Mac-only), so no user holds this build.
+
+## 0.12.2 receipt (product-releases, 2026-11-27)
+
+Published on product-lead's word ("GREEN LIGHT / GO FOR 0.12.2", the operator's
+"yes just go to 0.12.2 but ENSURE it is DONE RIGHT AND WORKS"), at main
+`a8ccf716f` (main-verify green 20:49Z). Tag `v0.12.2` = `e56fe238f`, which is
+`a8ccf716f` plus the bump (package.json and CHANGELOG only), on branch
+`release/0.12.2`; main fast-forwarded to it. 0.12.1 (`28f9cf213`) was never
+published: the origin served 0.12.0 until this cut, and the local 0.12.1 build
+pinned a machine build (`9f42a71b...`) the origin never held (both archives
+404). The CHANGELOG has one `## 0.12.2` that folds Unreleased and the 0.12.1 work.
+
+- Build on the MacBook from a clean clone at `e56fe238f` with a fresh `bun
+  install --frozen-lockfile`, `build-app.sh --target mac --sign --notarize`.
+  Machine bundles rebuilt for this commit: `darwin-arm64` on the MacBook,
+  `linux-x64` on VM `bx_f4ghvwgz` (fresh install there too), copied back and
+  paired through `JUNTO_MACHINE_BUNDLES`. Both are build
+  `07a353ece26e0a94cf888029c729ca5527c96ca21ebfba94450ed24ecfa045e8`, same
+  feature settings (ship profile), `machine-package.ts` accepts the pair, each
+  bundle booted relocated. The baked catalog in the stapled `app.asar` equals
+  `release/machine-release-catalog.json`.
+- Notarization submission `2c31deff-4e26-4885-8453-102e740af16c` Accepted,
+  stapled, `spctl` "Notarized Developer ID" (team `4452968868`), `codesign
+  --verify --deep --strict` ok. Stapled zip sha256
+  `842a253cdfafbfa65b8afb4ce1a0d153680c1cbbcd3030bdc1fc3847b70e98b5`
+  (133,984,708 bytes), dmg sha256
+  `274ec72b5c5d1ed4e38f3a141b4a021885ee1b717983d15f1b16e060a6615b12`
+  (135,362,905 bytes).
+- `audit-packaged-app.ts` on the signed app: ok, and its CodeMirror check passes
+  on the stapled `app.asar` (448 renderer scripts, one copy of state, view and
+  language). The renderer singleton guard is part of the compile.
+  `packaged-runtime-smoke` on the stapled app: ok, exit 0, four process roles,
+  real roots untouched.
+- Source maps: `junto-sourcemaps-0.12.2-e56fe238f2b8.tar.gz` (16,059,122 bytes),
+  sha256 `4c0d811d754cca29e5d7b7e859a20c87c71c9529ce30d5d018b264ddf701a298`,
+  private beside the notarization receipt in `~/junto-receipts/release-0.12.2/`.
+  The publish `--dry-run` listed the zip, blockmap, dmg, `latest-mac.yml` and the
+  machine archives, not the maps.
+- Live, checked from a VM after the publish: `latest-mac.yml` says 0.12.2 and the
+  zip downloads to the stapled sha256 and the feed sha512. Both machine archives
+  answer 307 then 206 through releases.juntoagents.com, and each downloads to the
+  size and sha256 pinned in the baked catalog: `darwin-arm64` 43,138,460 bytes
+  `8541784e...`, `linux-x64` 46,119,765 bytes `18daecaf...`.
+- Finding: the published 0.12.0 renderer holds one copy of each CodeMirror core
+  package (the new check passes on its `app.asar`), so the duplicate crash lived
+  only in the unpublished local 0.12.1 build.
+- Not run for this cut: the zoom ladder gate and a v76 or v79 database opened by
+  this packaged app on the MacBook. product-verify's packaged VM walk covered a
+  0.11.15 home with ANALYZE (56 stat rows) to schema 83 (product-lead's mail).
