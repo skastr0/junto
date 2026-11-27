@@ -852,13 +852,13 @@ still open.
 The private index method, from the repository root. Never a bare
 `git commit`, `git commit -a` or `git add -A`.
 
-A pre-commit hook holds this: `scripts/git-hooks/pre-commit`, enabled in
-the shared checkout with `git config core.hooksPath scripts/git-hooks`. It
-refuses any commit built from the checkout's own `.git/index` (a bare
-`git commit`, `-a` or `git commit <path>`) and prints the block below.
-`commit-tree` runs no hooks, so the method is unaffected, and linked
-worktrees, which have their own index, are not checked. `--no-verify`
-skips it: never pass it here.
+A pre-commit hook holds this: `scripts/git-hooks/pre-commit`, installed as a
+stub in `.git/hooks/pre-commit` (so linked worktrees keep their own index and
+`core.hooksPath` stays unset for `reference-transaction`). It refuses any
+commit built from the checkout's own `.git/index` (a bare `git commit`, `-a`
+or `git commit <path>`) and prints the block below. `commit-tree` runs no
+hooks, so the method is unaffected, and linked worktrees, which have their own
+index, are not checked. `--no-verify` skips it: never pass it here.
 
 Run it as one shell command, so the index never outlives it:
 
@@ -867,8 +867,9 @@ PATHS=(path/to/one.ts path/to/two.ts)
 REVERTS=()    # a path you mean to put back to an older copy, named here and nowhere else
 MSG='type(scope): subject'
 
-BRANCH=$(git symbolic-ref HEAD)
-PARENT=$(git rev-parse HEAD)
+BRANCH=refs/heads/main
+[ "$(git symbolic-ref -q HEAD)" = "$BRANCH" ] || { echo "refused: shared checkout is not on main" >&2; exit 1; }
+PARENT=$(git rev-parse "$BRANCH")
 IDX=$(mktemp -u "${TMPDIR:-/tmp}/<your-seat>-idx.XXXXXX")
 trap 'rm -f "$IDX"' EXIT
 
@@ -886,11 +887,12 @@ GIT_INDEX_FILE=$IDX git read-tree "$PARENT"
 GIT_INDEX_FILE=$IDX git add -- "${PATHS[@]}"
 GIT_INDEX_FILE=$IDX git diff --cached "$PARENT"   # read every line, not a stat: all yours
 TREE=$(GIT_INDEX_FILE=$IDX git write-tree)
+[ "$TREE" != "$(git rev-parse "$PARENT^{tree}")" ] || { echo "refused: empty commit (tree matches $PARENT)" >&2; exit 1; }
 NEW=$(printf '%s\n' "$MSG" | git commit-tree "$TREE" -p "$PARENT")
 
 git update-ref -m "commit: $MSG" "$BRANCH" "$NEW" "$PARENT"
-git reset -q HEAD -- "${PATHS[@]}"
-git show --stat --oneline HEAD
+git reset -q "$BRANCH" -- "${PATHS[@]}"
+git show --stat --oneline "$BRANCH"
 ```
 
 - Read `PARENT` once, at the top, and build everything from it: `read-tree`,
@@ -944,25 +946,61 @@ git show --stat --oneline HEAD
   not yours to reset: find its owner. The hook does not replace the stale-path
   check above, which stops a stale copy from being added.
   It runs through `.git/hooks`, which every linked worktree shares, with
-  `core.hooksPath` unset. Install it once, from the shared checkout's root:
+  `core.hooksPath` unset. On `prepared`, it also refuses moving the shared
+  checkout's `HEAD` off `refs/heads/main` (switching branches or detaching
+  `HEAD` in the shared checkout dropped `21e39fd60` off `main`); linked
+  worktrees keep their own `HEAD`, and an operator can override with
+  `JUNTO_ALLOW_HEAD_SWITCH=1`. Install both stubs once, from the shared
+  checkout's root:
 
 ```text
+cat > .git/hooks/pre-commit <<'EOF'
+#!/bin/sh
+f="$(git rev-parse --path-format=absolute --git-common-dir)/../scripts/git-hooks/pre-commit"
+[ -x "$f" ] && exec "$f" "$@"
+exit 0
+EOF
+chmod +x .git/hooks/pre-commit
+
 cat > .git/hooks/reference-transaction <<'EOF'
 #!/bin/sh
-[ "$1" = committed ] || exit 0
 f="$(git rev-parse --path-format=absolute --git-common-dir)/../scripts/git-hooks/reference-transaction"
-[ -x "$f" ] && "$f" "$@"
+case "$1" in
+  prepared)
+    all=""
+    has_head=0
+    has_main=0
+    while IFS= read -r line; do
+      all="${all}${line}
+"
+      case "$line" in
+        *" HEAD") has_head=1 ;;
+        *" refs/heads/main") has_main=1 ;;
+      esac
+    done
+    [ "$has_head" = 1 ] || exit 0
+    [ "$has_main" = 1 ] && exit 0
+    [ -x "$f" ] || exit 0
+    printf '%s' "$all" | "$f" prepared
+    exit $?
+    ;;
+  committed)
+    [ -x "$f" ] && "$f" "$@"
+    exit 0
+    ;;
+esac
 exit 0
 EOF
 chmod +x .git/hooks/reference-transaction
 ```
 
-  The stub runs the tracked hook for state `committed` only and ignores its
-  status, so a missing or broken tracked file can never block a landing, and a
-  fix to the hook needs no reinstall. Because the stub runs the tracked file
-  as it stands in the main checkout, edit that file by writing a temp file and
-  renaming it over (`mv`), never in place: a half-saved edit runs on the next
-  landing. To remove it, delete
+  On `prepared`, the stub ignores any transaction that does not touch `HEAD`
+  (so a missing or broken tracked file can never block a landing on
+  `refs/heads/main`). On `committed`, it ignores the tracked hook's status.
+  A fix to either tracked hook needs no reinstall. Because the stub runs the
+  tracked file as it stands in the main checkout, edit that file by writing a
+  temp file and renaming it over (`mv`), never in place: a half-saved edit
+  runs on the next landing. To remove it, delete
   `.git/hooks/reference-transaction`; `JUNTO_FOLLOW=0` turns the follow off for
   one landing. `scripts/test-reference-transaction.sh` proves it in throwaway
   repos; run it on a VM.

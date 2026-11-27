@@ -39,6 +39,40 @@
 # runs on the next landing: change it by writing a temp file and renaming it over
 # (mv), never in place.
 
+# Guard shared checkout HEAD on `prepared`: refuse moving the main checkout's
+# HEAD off refs/heads/main (switching branches in the shared tree dropped
+# 21e39fd60 off main). Linked worktrees own their own HEAD and are untouched;
+# an operator can override with JUNTO_ALLOW_HEAD_SWITCH=1.
+if [ "${1:-}" = prepared ]; then
+  [ "${JUNTO_ALLOW_HEAD_SWITCH:-0}" = 1 ] && exit 0
+  git_dir=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
+  git_dir=$(cd "$git_dir" && pwd -P) || exit 0
+  common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
+  common_dir=$(cd "$common_dir" && pwd -P) || exit 0
+  [ "$git_dir" = "$common_dir" ] || exit 0
+  has_main=0
+  head_target=""
+  while read -r o n r; do
+    [ "$r" = refs/heads/main ] && has_main=1
+    [ "$r" = HEAD ] && head_target=$n
+  done
+  [ -n "$head_target" ] || exit 0
+  [ "$head_target" = ref:refs/heads/main ] && exit 0
+  case "$head_target" in
+    ref:*)
+      printf 'junto: refused, the shared checkout must stay on main (cannot move HEAD to %s).\nUse a linked worktree (`git worktree add`) instead, or set JUNTO_ALLOW_HEAD_SWITCH=1 if you are the operator.\n' "${head_target#ref:}" >&2
+      exit 1
+      ;;
+    *)
+      # A commit or update-ref on main updates both refs/heads/main and HEAD to the
+      # same commit oid; only a bare HEAD oid update detaches the shared checkout.
+      [ "$has_main" = 1 ] && exit 0
+      printf 'junto: refused, the shared checkout must stay on main (cannot detach HEAD to %s).\nUse a linked worktree (`git worktree add`) instead, or set JUNTO_ALLOW_HEAD_SWITCH=1 if you are the operator.\n' "${head_target:0:12}" >&2
+      exit 1
+      ;;
+  esac
+fi
+
 [ "${1:-}" = committed ] || exit 0
 
 old= new=

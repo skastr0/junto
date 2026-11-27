@@ -32,9 +32,31 @@ mk() { # a repo with the hook installed as the real repo installs it
     git add -A; git commit -qm v1
     cat > .git/hooks/reference-transaction <<'STUB'
 #!/bin/sh
-[ "$1" = committed ] || exit 0
 f="$(git rev-parse --path-format=absolute --git-common-dir)/../scripts/git-hooks/reference-transaction"
-[ -x "$f" ] && "$f" "$@"
+case "$1" in
+  prepared)
+    all=""
+    has_head=0
+    has_main=0
+    while IFS= read -r line; do
+      all="${all}${line}
+"
+      case "$line" in
+        *" HEAD") has_head=1 ;;
+        *" refs/heads/main") has_main=1 ;;
+      esac
+    done
+    [ "$has_head" = 1 ] || exit 0
+    [ "$has_main" = 1 ] && exit 0
+    [ -x "$f" ] || exit 0
+    printf '%s' "$all" | "$f" prepared
+    exit $?
+    ;;
+  committed)
+    [ -x "$f" ] && "$f" "$@"
+    exit 0
+    ;;
+esac
 exit 0
 STUB
     chmod +x .git/hooks/reference-transaction
@@ -135,7 +157,7 @@ expect "no log line, no head file" "" "$(log)$(cat "$R/.git/junto-follow.head" 2
 
 echo "== 6 the checkout is not on main: no-op, one line"
 mk
-git -C "$R" checkout -q -b side
+JUNTO_ALLOW_HEAD_SWITCH=1 git -C "$R" checkout -q -b side
 wt_v2; land env; quiet
 expect "checkout untouched" "a v1" "$(cat "$R/a.txt")"
 expect "log names the branch" yes "$(log | grep -q 'skipped, the checkout is on side' && echo yes || echo no)"
@@ -311,6 +333,34 @@ git -C "$R" worktree add -q -b feat "$d/wt" 2>/dev/null
 ( cd "$d/wt" && echo "g v3" > g.txt && git add -A && git commit -qm v3 ); B3=$(git -C "$d/wt" rev-parse HEAD)
 OLD=$B1; NEW=$B3; t0=$(ms); land env; quiet; t1=$(ms)
 echo "      a one-file landing with nothing stale, both sweeps on: the follower was done $((t1 - t0 - 600)) ms after the landing"
+
+echo "== 19 prepared guard: shared checkout stays on main; worktrees and operator override pass"
+mk
+git -C "$R" checkout -q --detach HEAD 2>/dev/null; rc_detach=$?
+expect "shared checkout refuses detached HEAD" 1 "$([ "$rc_detach" -ne 0 ] && echo 1 || echo 0)"
+expect "HEAD stays on refs/heads/main after refused detach" "refs/heads/main" "$(git -C "$R" symbolic-ref -q HEAD)"
+( cd "$R" && printf 'ref:refs/heads/main ref:refs/heads/side HEAD\n' | "$HOOK" prepared ) 2>/dev/null; rc_sym_hook=$?
+expect "prepared guard refuses symref switch off main in shared checkout" 1 "$([ "$rc_sym_hook" -ne 0 ] && echo 1 || echo 0)"
+( cd "$R" && printf 'ref:refs/heads/side ref:refs/heads/main HEAD\n' | "$HOOK" prepared ) 2>/dev/null; rc_sym_back=$?
+expect "prepared guard allows returning HEAD symref to main" 0 "$rc_sym_back"
+( cd "$R" && printf '%s %s refs/heads/main\n%s %s HEAD\n' "$OLD" "$OLD" "$OLD" "$OLD" | "$HOOK" prepared ) 2>/dev/null; rc_main_tx=$?
+expect "prepared guard allows commit/update-ref transaction on main" 0 "$rc_main_tx"
+git -C "$R" worktree add -q -b wt-feat "$d/wt" 2>/dev/null; rc_wt=$?
+expect "git worktree add succeeds from shared checkout" 0 "$rc_wt"
+git -C "$d/wt" checkout -q -b wt-side 2>/dev/null; rc_wt_sw=$?
+expect "linked worktree can switch branches freely" 0 "$rc_wt_sw"
+expect "linked worktree HEAD moved to wt-side" "refs/heads/wt-side" "$(git -C "$d/wt" symbolic-ref -q HEAD)"
+( cd "$d/wt" && printf 'ref:refs/heads/wt-side ref:refs/heads/other HEAD\n' | "$HOOK" prepared ) 2>/dev/null; rc_wt_hook=$?
+expect "prepared guard ignores linked worktree HEAD" 0 "$rc_wt_hook"
+( cd "$R" && echo "a v2" > a.txt && git add a.txt && git commit -qm "commit on main" ) 2>/dev/null; rc_commit=$?
+expect "normal commit on main is not blocked by prepared guard" 0 "$rc_commit"
+( cd "$R" && printf 'ref:refs/heads/main ref:refs/heads/side HEAD\n' | JUNTO_ALLOW_HEAD_SWITCH=1 "$HOOK" prepared ) 2>/dev/null; rc_override=$?
+expect "JUNTO_ALLOW_HEAD_SWITCH=1 lets operator switch branch" 0 "$rc_override"
+JUNTO_ALLOW_HEAD_SWITCH=1 git -C "$R" checkout -q --detach HEAD 2>/dev/null; rc_detach_ok=$?
+expect "JUNTO_ALLOW_HEAD_SWITCH=1 lets operator detach HEAD" 0 "$rc_detach_ok"
+git -C "$R" checkout -q main 2>/dev/null; rc_back=$?
+expect "returning to main succeeds without override" 0 "$rc_back"
+expect "HEAD is back on refs/heads/main" "refs/heads/main" "$(git -C "$R" symbolic-ref -q HEAD)"
 
 echo
 if [ "$fails" = 0 ]; then echo "all checks ok"; else echo "$fails check(s) FAILED"; exit 1; fi
